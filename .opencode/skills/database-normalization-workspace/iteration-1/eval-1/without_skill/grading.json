@@ -1,0 +1,69 @@
+{
+  "expectations": [
+    {
+      "text": "Report identifies redundant columns across tables with specific table/column names",
+      "passed": true,
+      "evidence": "Section 1 (REDUNDANT COLUMNS) subsections 1a–1i. Each names specific tables and columns: e.g., 'drivers.license_number, drivers.license_expiry' vs 'employees.license_number, employees.license_expiry' (1a); 'vehicles.seating_capacity' vs 'vehiclecategories.seating_capacity' (1g); 'fuelrecords.price_per_liter' computed as amount/liters (1i). All cite the duplicating table and the canonical source."
+    },
+    {
+      "text": "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)",
+      "passed": true,
+      "evidence": "Section 2 (DERIVED / AGGREGATE DATA) covers 2a: 'drivers.performance_score, drivers.total_trips, drivers.total_distance, drivers.total_hours, drivers.rating' identified as materialized aggregates from trips/tripperformance/tripcostanalysis. Also 2b–2c: tripcostanalysis.total_cost and cost_per_km flagged as computed-but-stored."
+    },
+    {
+      "text": "Report identifies JSONB columns that could be normalized into relational tables",
+      "passed": true,
+      "evidence": "Section 3 (JSONB MISUSE) identifies 3a roles.permissions (replaced normalized role_permissions), 3b vehicles.documents (replaced vehicledocuments), 3c vehiclereservations.ai_vehicle_recommendation and ai_driver_recommendation (duplicate ai_recommendations), 3d ai_insights.related_data (no schema). Correctly flags 3e routes.waypoints and 3f vehiclemaintenance.inspection_checklist as acceptable JSONB uses."
+    },
+    {
+      "text": "Report identifies 1:1 tables that could potentially be merged",
+      "passed": true,
+      "evidence": "Section 4 (1:1 TABLES) identifies 4a tripcostanalysis → trips (logically 1:1 with trip_id FK), 4b tripperformance → trips (1:1 with trip_id FK). Also discusses 4c drivers → employees as subtype relationship, concluding it's valid normalized design (no merge needed)."
+    },
+    {
+      "text": "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)",
+      "passed": true,
+      "evidence": "Section 5 (REDUNDANT FOREIGN KEYS) covers 5a trips.vehicle_id and trips.driver_id as redundant with dispatchschedules. 5b addresses gpstracking.vehicle_id and gpstracking.driver_id as partially redundant with trips (notes intentional denormalization for performance is acceptable). 5c tripperformance.driver_id flagged as redundant. 5d vehiclereservations.vehicle_id and driver_id discussed."
+    },
+    {
+      "text": "Report is organized by category and includes recommended actions",
+      "passed": true,
+      "evidence": "Report organized into five numbered sections by category: REDUNDANT COLUMNS, DERIVED / AGGREGATE DATA, JSONB MISUSE, 1:1 TABLES, REDUNDANT FOREIGN KEYS. Every subsection includes an Action item. Section 6 provides a summary table ordered by Priority (HIGH/MEDIUM/LOW) with Table, Column(s), and Action columns."
+    }
+  ],
+  "summary": {
+    "passed": 6,
+    "failed": 0,
+    "total": 6,
+    "pass_rate": 1.0
+  },
+  "claims": [
+    {
+      "claim": "All 6 migrations were applied (001–006)",
+      "type": "process",
+      "verified": true,
+      "evidence": "Report header states 'All 6 migrations applied (001–006)' and references schema details from those migrations (e.g., roles.permissions JSONB 'added in migration 005', vehiclemaintenance.inspection_checklist 'Merged from vehicleinspection in m005')"
+    },
+    {
+      "claim": "25 tables remain after migrations",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Header states 'Tables remaining: 25' but this cannot be independently verified from the single output file — no schema listing or table count is provided to confirm."
+    },
+    {
+      "claim": "Total addressable issues: 16 (6 HIGH, 5 MEDIUM, 5 LOW)",
+      "type": "factual",
+      "verified": false,
+      "evidence": "Internal inconsistency: the summary table lists 7 HIGH items (drivers license, drivers aggregates, trips estimated cols, trips vehicle_id/driver_id, dispatchschedules estimated cols, tripcostanalysis merge, tripperformance merge), 4 MEDIUM items (roles permissions JSONB, vehicles documents JSONB, vehiclereservations JSONB, tripperformance driver_id), and 6 LOW items (vehicles fuel_level, fuelrecords price_per_liter, tripcostanalysis generated cols, trips avg/max/idle, drivers current_location, ai_insights related_data). That totals 17 items with different counts by priority than claimed."
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Report identifies redundant columns across tables with specific table/column names",
+        "reason": "Trivially satisfiable: any list of column-name pairs passes. Consider checking that the report correctly distinguishes between actual redundancy (same data sourced from different tables) vs. coincidental naming (different data with same column name). A stronger assertion would verify at least one specific redundant pair is correctly reasoned about."
+      }
+    ],
+    "overall": "All 6 expectations pass, but they are broad presence checks that almost any reasonable diagnostic report would satisfy. The most valuable finding comes from the claims verification: the report claims 16 issues (6/5/5 split) but the table contains 17 items with a different priority distribution. This suggests a counting/accounting error the expectations don't catch. Consider adding an assertion that verifies internal consistency (e.g., count matches items)."
+  }
+}

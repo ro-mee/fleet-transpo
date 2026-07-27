@@ -1,0 +1,77 @@
+{
+  "expectations": [
+    {
+      "text": "Migration creates a locations table with location_id, name, latitude, longitude columns",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 9-19: CREATE TABLE locations (location_id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, latitude DECIMAL(10,7), longitude DECIMAL(10,7), ...)"
+    },
+    {
+      "text": "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 29-31: ALTER TABLE routes ADD COLUMN origin_location_id INT REFERENCES locations(location_id), ADD COLUMN destination_location_id INT REFERENCES locations(location_id)"
+    },
+    {
+      "text": "Migration migrates existing route origin/destination data into the locations table",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 34-67: Two CTEs INSERT DISTINCT origins/destinations INTO locations, then UPDATE routes to set FKs by matching name"
+    },
+    {
+      "text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 79-85: DROP COLUMN origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude"
+    },
+    {
+      "text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data",
+      "passed": true,
+      "evidence": "route.service.js:7,28,40,52 uses 'origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.service.js:3 and trip.service.js:3 use 'origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.id.page.js:159 and routes.page.js:42,52 reference origin_location?.name / destination_location?.name"
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": null,
+  "timing": null,
+  "claims": [
+    {
+      "claim": "Migration creates indexes on locations(name) and locations(latitude, longitude)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 21-22: CREATE INDEX idx_locations_name ON locations(name); CREATE INDEX idx_locations_coords ON locations(latitude, longitude)"
+    },
+    {
+      "claim": "Migration creates indexes on FK columns routes(origin_location_id) and routes(destination_location_id)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 75-76: CREATE INDEX idx_routes_origin_location ON routes(origin_location_id); CREATE INDEX idx_routes_destination_location ON routes(destination_location_id)"
+    },
+    {
+      "claim": "Migration sets NOT NULL on FK columns after data migration",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 70-72: ALTER TABLE routes ALTER COLUMN origin_location_id SET NOT NULL, ALTER COLUMN destination_location_id SET NOT NULL"
+    },
+    {
+      "claim": "Migration adds a trigger for updated_at on locations table",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 25-26: CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+    }
+  ],
+  "user_notes_summary": null,
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+        "reason": "The assertion passes on column creation, but doesn't check that NOT NULL is enforced after migration. The migration sets NOT NULL on lines 70-72, which could fail on existing rows with NULL origin/destination — this edge case is worth an explicit assertion."
+      },
+      {
+        "assertion": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data",
+        "reason": "All files mentioned in the outputs use the join pattern, but the assertion doesn't verify that getDispatchesByStatus (dispatch.service.js:24-30) and getActiveTrips (trip.service.js:25-35) intentionally omit location joins — these are real code paths that could accidentally miss the join."
+      }
+    ],
+    "overall": "The five expectations are well-focused and all pass with clear evidence. The assertions could be strengthened by checking for post-migration NOT NULL enforcement and verifying that all query paths (including filtered/list endpoints) include the location joins."
+  }
+}

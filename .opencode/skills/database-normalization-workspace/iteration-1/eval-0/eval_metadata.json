@@ -1,0 +1,12 @@
+{
+  "eval_id": 0,
+  "eval_name": "normalize-routes-locations",
+  "prompt": "I need to normalize the routes table. Currently it stores origin and destination as text with separate lat/lng columns. I want to extract these into a locations table. Generate a migration that creates a locations table, migrates existing data, updates the routes table to use FK references, and drops the old columns. Also update the route service file if needed.",
+  "assertions": [
+    "Migration creates a locations table with location_id, name, latitude, longitude columns",
+    "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+    "Migration migrates existing route origin/destination data into the locations table",
+    "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes",
+    "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data"
+  ]
+}

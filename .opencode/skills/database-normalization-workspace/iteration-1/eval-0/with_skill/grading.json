@@ -1,0 +1,96 @@
+{
+  "expectations": [
+    {
+      "text": "Migration creates a locations table with location_id, name, latitude, longitude columns",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 6-14: CREATE TABLE IF NOT EXISTS locations (location_id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, ... latitude DECIMAL(10, 7), longitude DECIMAL(10, 7))"
+    },
+    {
+      "text": "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 17-19: ALTER TABLE routes ADD COLUMN origin_location_id INT, ADD COLUMN destination_location_id INT. Lines 51-57 add FK constraints: ALTER TABLE routes ADD CONSTRAINT fk_routes_origin_location FOREIGN KEY (origin_location_id) REFERENCES locations(location_id)"
+    },
+    {
+      "text": "Migration migrates existing route origin/destination data into the locations table",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 22-33: INSERT INTO locations (name, latitude, longitude) SELECT DISTINCT ON (r.origin) r.origin, r.origin_latitude, r.origin_longitude FROM routes r ... followed by similar for destinations. Lines 36-44 then UPDATE routes SET origin_location_id = l.location_id FROM locations l WHERE l.name = r.origin (and similarly for destination)"
+    },
+    {
+      "text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes",
+      "passed": true,
+      "evidence": "007_normalize_routes_locations.sql lines 60-66: ALTER TABLE routes DROP COLUMN origin, DROP COLUMN origin_latitude, DROP COLUMN origin_longitude, DROP COLUMN destination, DROP COLUMN destination_latitude, DROP COLUMN destination_longitude"
+    },
+    {
+      "text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data",
+      "passed": true,
+      "evidence": "route.service.js line 3: const ROUTE_SELECT = '*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.service.js line 3 and line 45 include origin_location:origin_location_id(*), destination_location:destination_location_id(*) in route sub-queries. trip.service.js line 3 uses origin_location:origin_location_id(name), destination_location:destination_location_id(name) and line 41 uses origin_location:origin_location_id(*), destination_location:destination_location_id(*)"
+    }
+  ],
+  "summary": {
+    "passed": 5,
+    "failed": 0,
+    "total": 5,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "output_chars": 5231,
+    "transcript_chars": 0
+  },
+  "claims": [
+    {
+      "claim": "The migration adds address, created_at, and updated_at columns to the locations table beyond the required columns",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 9, 12-13: address TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()"
+    },
+    {
+      "claim": "The migration sets NOT NULL constraints on origin_location_id and destination_location_id after migration",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 47-49: ALTER TABLE routes ALTER COLUMN origin_location_id SET NOT NULL, ALTER COLUMN destination_location_id SET NOT NULL"
+    },
+    {
+      "claim": "The migration adds indexes on the FK columns for join performance",
+      "type": "factual",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 69-70: CREATE INDEX idx_routes_origin_location ON routes(origin_location_id); CREATE INDEX idx_routes_destination_location ON routes(destination_location_id)"
+    },
+    {
+      "claim": "The route search functionality was updated to query the locations table instead of old origin/destination columns",
+      "type": "factual",
+      "verified": true,
+      "evidence": "route.service.js lines 14-25: getRoutes now queries locations table for search by name and uses origin_location_id.in.() and destination_location_id.in.() in the or filter instead of the old origin.ilike and destination.ilike pattern"
+    },
+    {
+      "claim": "All three service files (route, dispatch, trip) were updated to use the new join syntax",
+      "type": "factual",
+      "verified": true,
+      "evidence": "route.service.js line 3, dispatch.service.js lines 3 and 45, trip.service.js lines 3 and 41 all use origin_location:origin_location_id(*) or destination_location:destination_location_id(*) joins"
+    },
+    {
+      "claim": "The migration adds an updated_at trigger for the locations table",
+      "type": "process",
+      "verified": true,
+      "evidence": "007_normalize_routes_locations.sql lines 73-74: CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at()"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Migration creates a locations table with location_id, name, latitude, longitude columns",
+        "reason": "This assertion would pass even if the migration created the table with wrong column types or missing constraints. Consider checking that location_id is a primary key and that latitude/longitude have appropriate numeric types."
+      },
+      {
+        "assertion": "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+        "reason": "The assertion passes for just adding the columns, but doesn't verify the FK constraint references the correct table. Consider verifying: 'FOREIGN KEY (origin_location_id) REFERENCES locations(location_id)'."
+      },
+      {
+        "reason": "No assertion checks whether the migration handles edge cases like NULL origin/destination values. The NOT NULL constraint added after data migration could fail if routes have NULL origins."
+      },
+      {
+        "reason": "No transcript file was found to verify process claims (e.g., whether the executor actually ran the migration or only generated it). The assertions verify output content, not execution."
+      }
+    ],
+    "overall": "All 5 assertions pass with strong evidence. The migration is well-structured and complete. The main gap is that assertions verify output generation but not execution - if the intent is to test that the skill runs migrations, an execution verification step would be needed."
+  }
+}

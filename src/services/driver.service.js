@@ -1,5 +1,16 @@
 import { createClient } from "@/lib/supabase/client";
 
+const DRIVER_DERIVED_FIELDS = [
+  "performance_score", "total_trips", "total_distance", "total_hours", "rating",
+];
+
+function stripDerivedFields(obj) {
+  if (!obj) return obj;
+  const clean = { ...obj };
+  DRIVER_DERIVED_FIELDS.forEach((f) => delete clean[f]);
+  return clean;
+}
+
 export async function getDrivers(filters = {}) {
   const supabase = createClient();
   let query = supabase
@@ -22,7 +33,22 @@ export async function getDrivers(filters = {}) {
 
   const { data, error } = await query;
   if (error) throw error;
-  return data;
+
+  const driverIds = (data || []).map((d) => d.driver_id);
+  if (driverIds.length === 0) return [];
+
+  const { data: stats } = await supabase
+    .from("driver_stats")
+    .select("*")
+    .in("driver_id", driverIds);
+
+  const statsMap = {};
+  (stats || []).forEach((s) => { statsMap[s.driver_id] = s; });
+
+  return (data || []).map((d) => ({
+    ...d,
+    ...statsMap[d.driver_id] || {},
+  }));
 }
 
 export async function getDriver(id) {
@@ -33,14 +59,21 @@ export async function getDriver(id) {
     .eq("driver_id", id)
     .single();
   if (error) throw error;
-  return data;
+
+  const { data: stats } = await supabase
+    .from("driver_stats")
+    .select("*")
+    .eq("driver_id", id)
+    .single();
+
+  return { ...data, ...stats || {} };
 }
 
 export async function createDriver(driver) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("drivers")
-    .insert(driver)
+    .insert(stripDerivedFields(driver))
     .select()
     .single();
   if (error) throw error;
@@ -51,7 +84,7 @@ export async function updateDriver(id, driver) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("drivers")
-    .update(driver)
+    .update(stripDerivedFields(driver))
     .eq("driver_id", id)
     .select()
     .single();

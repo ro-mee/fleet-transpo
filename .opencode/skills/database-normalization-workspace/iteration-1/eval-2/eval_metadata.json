@@ -1,0 +1,12 @@
+{
+  "eval_id": 2,
+  "eval_name": "derived-columns-handling",
+  "prompt": "The drivers table has aggregate columns like total_trips, total_distance, total_hours, performance_score, and rating that are computed from other tables. I want to either remove them and use views, or add triggers to keep them in sync. Generate the migration and any view definitions. Also check if there are similar derived columns in other tables and handle those too.",
+  "assertions": [
+    "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)",
+    "Migration also addresses similar derived columns in other tables beyond drivers",
+    "Migration provides either view definitions or trigger functions to recompute the derived data",
+    "The approach is consistent (all removed with views, or all kept with triggers, or clearly documented reasoning for mixed approach)",
+    "Service files are updated to work with the new structure (views or triggers)"
+  ]
+}

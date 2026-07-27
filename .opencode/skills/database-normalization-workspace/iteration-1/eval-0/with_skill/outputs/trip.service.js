@@ -1,10 +1,12 @@
 import { createClient } from "@/lib/supabase/client";
 
+const ROUTE_SUMMARY = "route_id, route_name, estimated_distance, estimated_duration, origin_location:origin_location_id(name), destination_location:destination_location_id(name)";
+
 export async function getTrips(filters = {}) {
   const supabase = createClient();
   let query = supabase
     .from("trips")
-    .select("*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number), routes(route_name)")
+    .select(`*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number), routes(${ROUTE_SUMMARY})`)
     .is("deleted_at", null);
 
   if (filters.status) query = query.eq("trip_status", filters.status);
@@ -36,7 +38,7 @@ export async function getTrip(id) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("trips")
-    .select("*, vehicles(*, vehiclecategories(*)), drivers(*, employees(*)), dispatchschedules(*), routes(*), tripcostanalysis(*), tripperformance(*)")
+    .select(`*, vehicles(*, vehiclecategories(*)), drivers(*, employees(*)), dispatchschedules(*), routes(route_id, route_name, estimated_distance, estimated_duration, waypoints, status, created_at, updated_at, deleted_at, origin_location:origin_location_id(*), destination_location:destination_location_id(*))`)
     .eq("trip_id", id)
     .single();
   if (error) throw error;
