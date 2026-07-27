@@ -4,7 +4,7 @@ export async function getRoutes(filters = {}) {
   const supabase = createClient();
   let query = supabase
     .from("routes")
-    .select("*")
+    .select("*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)")
     .is("deleted_at", null)
     .eq("status", "Active");
 
@@ -25,7 +25,7 @@ export async function getRoute(id) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("routes")
-    .select("*")
+    .select("*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)")
     .eq("route_id", id)
     .single();
   if (error) throw error;

@@ -1,16 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
 
-const DRIVER_DERIVED_FIELDS = [
-  "performance_score", "total_trips", "total_distance", "total_hours", "rating",
-];
-
-function stripDerivedFields(obj) {
-  if (!obj) return obj;
-  const clean = { ...obj };
-  DRIVER_DERIVED_FIELDS.forEach((f) => delete clean[f]);
-  return clean;
-}
-
 export async function getDrivers(filters = {}) {
   const supabase = createClient();
   let query = supabase
@@ -73,7 +62,7 @@ export async function createDriver(driver) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("drivers")
-    .insert(stripDerivedFields(driver))
+    .insert(driver)
     .select()
     .single();
   if (error) throw error;
@@ -84,7 +73,7 @@ export async function updateDriver(id, driver) {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("drivers")
-    .update(stripDerivedFields(driver))
+    .update(driver)
     .eq("driver_id", id)
     .select()
     .single();
