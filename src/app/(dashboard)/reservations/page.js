@@ -41,7 +41,7 @@ export default function ReservationsPage() {
       columnHelper.accessor("reservation_id", {
         header: "ID",
         cell: (info) => (
-          <span className="font-mono text-xs text-foreground-muted">#{info.getValue()}</span>
+          <span className="font-data text-xs text-foreground-muted">#{info.getValue()}</span>
         ),
       }),
       columnHelper.accessor("guest_name", {

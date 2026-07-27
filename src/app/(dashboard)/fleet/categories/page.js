@@ -32,7 +32,7 @@ export default function CategoriesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {categories.map((cat) => (
-          <Card key={cat.category_id} className="border-0 shadow-sm card-hover">
+          <Card key={cat.category_id} className="">
             <CardContent className="p-5">
               <div className="flex items-start justify-between mb-3">
                 <div>

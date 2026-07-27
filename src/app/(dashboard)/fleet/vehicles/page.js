@@ -46,7 +46,7 @@ export default function FleetVehiclesPage() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-primary/10">
               <Truck className="w-5 h-5 text-primary" />
@@ -57,7 +57,7 @@ export default function FleetVehiclesPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-success/10">
               <CheckCircle2 className="w-5 h-5 text-success" />
@@ -68,7 +68,7 @@ export default function FleetVehiclesPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-warning/10">
               <Truck className="w-5 h-5 text-warning" />
@@ -79,7 +79,7 @@ export default function FleetVehiclesPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-danger/10">
               <Wrench className="w-5 h-5 text-danger" />
@@ -90,7 +90,7 @@ export default function FleetVehiclesPage() {
             </div>
           </CardContent>
         </Card>
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-4 flex items-center gap-3">
             <div className="p-2.5 rounded-xl bg-red-100">
               <AlertTriangle className="w-5 h-5 text-red-600" />

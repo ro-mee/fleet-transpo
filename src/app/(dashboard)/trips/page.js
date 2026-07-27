@@ -44,7 +44,7 @@ export default function TripsPage() {
     () => [
       columnHelper.accessor("trip_id", {
         header: "ID",
-        cell: (info) => <span className="font-mono text-xs text-foreground-muted">#{info.getValue()}</span>,
+        cell: (info) => <span className="font-data text-xs text-foreground-muted">#{info.getValue()}</span>,
       }),
       columnHelper.accessor("vehicles.plate_number", {
         id: "vehicle",

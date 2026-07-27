@@ -77,12 +77,12 @@ export default function DispatchPage() {
                   items.map((dispatch) => (
                     <Card
                       key={dispatch.dispatch_id}
-                      className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-all card-hover"
+                      className="cursor-pointer hover:shadow-md transition-all"
                       onClick={() => router.push(`/dispatch/${dispatch.dispatch_id}`)}
                     >
                       <CardContent className="p-3">
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-xs font-mono font-medium text-primary">
+                          <span className="text-xs font-data font-medium text-primary">
                             {dispatch.dispatch_number}
                           </span>
                           <Badge variant="secondary" className="text-[10px]">{dispatch.priority || "Normal"}</Badge>

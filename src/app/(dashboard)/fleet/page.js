@@ -37,7 +37,7 @@ export default function FleetDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="p-2.5 rounded-xl bg-primary/10">
@@ -52,7 +52,7 @@ export default function FleetDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="p-2.5 rounded-xl bg-success/10">
@@ -68,7 +68,7 @@ export default function FleetDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="p-2.5 rounded-xl bg-warning/10">
@@ -84,7 +84,7 @@ export default function FleetDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-0 shadow-sm card-hover">
+        <Card className="">
           <CardContent className="p-5">
             <div className="flex items-center justify-between mb-3">
               <div className="p-2.5 rounded-xl bg-danger/10">

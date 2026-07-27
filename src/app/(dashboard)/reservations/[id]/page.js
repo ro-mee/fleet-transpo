@@ -377,7 +377,7 @@ export default function ReservationDetailPage() {
                   <ExternalLink className="w-4 h-4 text-primary" />
                   <div>
                     <p className="text-xs text-foreground-muted">External Booking</p>
-                    <p className="text-sm font-medium text-foreground font-mono text-xs">{reservation.external_booking_id}</p>
+                    <p className="text-sm font-medium text-foreground font-data text-xs">{reservation.external_booking_id}</p>
                     {reservation.integration_source && (
                       <p className="text-[10px] text-foreground-muted">Source: {reservation.integration_source}</p>
                     )}
@@ -402,7 +402,7 @@ export default function ReservationDetailPage() {
       )}
 
       {dispatchForReservation && (
-        <Card className="border-0 shadow-sm bg-gradient-to-r from-primary/5 to-surface">
+        <Card className="">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold">Dispatch Information</CardTitle>
           </CardHeader>

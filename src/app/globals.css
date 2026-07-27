@@ -1,80 +1,90 @@
 @import "tailwindcss";
 
 @theme inline {
-  --color-primary: #1e40af;
-  --color-primary-light: #3b82f6;
-  --color-primary-dark: #1e3a8a;
-  --color-secondary: #64748b;
-  --color-secondary-light: #94a3b8;
+  --color-background: var(--bg);
+  --color-surface: var(--sf);
+  --color-border: var(--br);
+  --color-foreground: var(--fg);
+  --color-foreground-secondary: var(--fg-secondary);
+  --color-foreground-muted: var(--fg-muted);
+  --color-hover: var(--hv);
+  --color-sidebar: var(--sb);
+  --color-sidebar-hover: var(--sb-hv);
+  --color-sidebar-active: var(--sb-active);
+  --color-sidebar-border: var(--sb-br);
+
   --color-success: #10b981;
-  --color-success-light: #34d399;
+  --color-success-bg: var(--success-bg);
   --color-warning: #f59e0b;
-  --color-warning-light: #fbbf24;
+  --color-warning-bg: var(--warning-bg);
   --color-danger: #ef4444;
-  --color-danger-light: #f87171;
-  --color-background: #f8fafc;
-  --color-surface: #ffffff;
-  --color-sidebar: #0f172a;
-  --color-sidebar-hover: #1e293b;
-  --color-sidebar-active: #2563eb;
-  --color-hover: #eff6ff;
-  --color-border: #e2e8f0;
-  --color-muted: #f1f5f9;
-  --color-foreground: #0f172a;
-  --color-foreground-secondary: #475569;
-  --color-foreground-muted: #94a3b8;
+  --color-danger-bg: var(--danger-bg);
+  --color-info: #3b82f6;
+  --color-info-bg: var(--info-bg);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 20px;
-  --radius-full: 9999px;
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
-  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1);
-  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.08);
-  --animate-in: fadeIn 0.2s ease-out;
-  --animate-slide-up: slideUp 0.3s ease-out;
+  --font-data: var(--font-ibm-plex-mono);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.04);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05);
 }
 
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+:root {
+  --bg: #f8f8f8;
+  --sf: #ffffff;
+  --br: #e6e6e6;
+  --fg: #161616;
+  --fg-secondary: #6b7280;
+  --fg-muted: #9ca3af;
+  --hv: #f2f2f2;
+  --sb: #ffffff;
+  --sb-hv: #f2f2f2;
+  --sb-active: #161616;
+  --sb-br: #e6e6e6;
+  --success-bg: #ecfdf5;
+  --warning-bg: #fffbeb;
+  --danger-bg: #fef2f2;
+  --info-bg: #eff6ff;
 }
 
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+:root.dark {
+  --bg: #111111;
+  --sf: #1a1a1a;
+  --br: #2a2a2a;
+  --fg: #f5f5f5;
+  --fg-secondary: #a3a3a3;
+  --fg-muted: #6b7280;
+  --hv: #242424;
+  --sb: #1a1a1a;
+  --sb-hv: #242424;
+  --sb-active: #f5f5f5;
+  --sb-br: #2a2a2a;
+  --success-bg: #064e3b;
+  --warning-bg: #78350f;
+  --danger-bg: #7f1d1d;
+  --info-bg: #1e3a5f;
 }
 
 * {
-  border-color: var(--color-border);
+  border-color: var(--br);
 }
 
 body {
-  background: var(--color-background);
-  color: var(--color-foreground);
+  background: var(--bg);
+  color: var(--fg);
   font-family: var(--font-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-.glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-.card-hover {
-  transition: all 0.2s ease;
-}
-
-.card-hover:hover {
-  box-shadow: var(--shadow-lg);
-  transform: translateY(-2px);
+@utility font-data {
+  font-family: var(--font-data), var(--font-mono), monospace;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
@@ -87,10 +97,10 @@ body {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--color-foreground-muted);
-  border-radius: var(--radius-full);
+  background: var(--fg-muted);
+  border-radius: var(--radius-full, 9999px);
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: var(--color-secondary);
+  background: var(--fg-secondary);
 }

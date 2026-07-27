@@ -44,7 +44,7 @@ export default function ActiveTripsPage() {
           {activeTrips.map((trip) => (
             <Card
               key={trip.trip_id}
-              className="border-0 shadow-sm card-hover cursor-pointer"
+              className="cursor-pointer"
               onClick={() => router.push(`/trips/${trip.trip_id}`)}
             >
               <CardContent className="p-5">

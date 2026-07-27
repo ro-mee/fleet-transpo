@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -21,248 +21,180 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
-  ChevronUp,
   CarFront,
   Brain,
+  Sun,
+  Moon,
 } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { getInitials } from "@/lib/utils";
+import { useTheme } from "@/hooks/use-theme";
 
-const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+const navGroups = [
   {
-    href: "/fleet",
-    label: "Fleet",
-    icon: Truck,
-    children: [
-      { href: "/fleet", label: "Dashboard" },
-      { href: "/fleet/vehicles", label: "Vehicles" },
-      { href: "/fleet/categories", label: "Categories" },
-      { href: "/fleet/maintenance", label: "Maintenance" },
-      { href: "/fleet/inspections", label: "Inspections" },
-      { href: "/fleet/documents", label: "Documents" },
+    label: "Overview",
+    items: [
+      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
     ],
   },
   {
-    href: "/reservations",
-    label: "Reservations",
-    icon: CalendarCheck,
-    children: [
-      { href: "/reservations", label: "All Reservations" },
-      { href: "/reservations/new", label: "New Reservation" },
+    label: "Operations",
+    items: [
+      {
+        href: "/fleet",
+        label: "Fleet",
+        icon: Truck,
+        children: [
+          { href: "/fleet", label: "Dashboard" },
+          { href: "/fleet/vehicles", label: "Vehicles" },
+          { href: "/fleet/categories", label: "Categories" },
+          { href: "/fleet/maintenance", label: "Maintenance" },
+        ],
+      },
+      { href: "/reservations", label: "Reservations", icon: CalendarCheck },
+      { href: "/dispatch", label: "Dispatch", icon: Send },
+      { href: "/routes", label: "Routes", icon: Route },
+      { href: "/drivers", label: "Drivers", icon: Users },
+      { href: "/trips", label: "Trips", icon: Route },
     ],
   },
   {
-    href: "/dispatch",
-    label: "Dispatch",
-    icon: Send,
-    children: [
-      { href: "/dispatch", label: "Board" },
-    ],
-  },
-  { href: "/routes", label: "Routes", icon: Route },
-  {
-    href: "/drivers",
-    label: "Drivers",
-    icon: Users,
-    children: [
-      { href: "/drivers", label: "All Drivers" },
-      { href: "/drivers/attendance", label: "Attendance" },
-      { href: "/drivers/incidents", label: "Incidents" },
-    ],
-  },
-  { href: "/trips", label: "Trips", icon: Route },
-  {
-    href: "/fuel",
-    label: "Fuel",
-    icon: Fuel,
-    children: [
-      { href: "/fuel", label: "Records" },
-      { href: "/fuel/requests", label: "Requests" },
-      { href: "/fuel/stations", label: "Stations" },
-      { href: "/fuel/analytics", label: "Analytics" },
-    ],
-  },
-  { href: "/maintenance", label: "Maintenance", icon: Wrench },
-  {
-    href: "/tracking/live-map",
-    label: "GPS Tracking",
-    icon: MapPin,
-    children: [
-      { href: "/tracking/live-map", label: "Live Map" },
-      { href: "/tracking/history", label: "Route History" },
-      { href: "/tracking/geofences", label: "Geofences" },
+    label: "Monitoring",
+    items: [
+      { href: "/fuel", label: "Fuel", icon: Fuel },
+      { href: "/maintenance", label: "Maintenance", icon: Wrench },
+      { href: "/tracking/live-map", label: "GPS Tracking", icon: MapPin },
     ],
   },
   {
-    href: "/ai",
-    label: "AI & Automation",
-    icon: Brain,
-    children: [
-      { href: "/ai", label: "Dashboard" },
-      { href: "/ai/insights", label: "Insights" },
-      { href: "/ai/automation", label: "Automation" },
-      { href: "/ai/predictive-maintenance", label: "Predictive Maint." },
-      { href: "/ai/settings", label: "Settings" },
-    ],
-  },
-  { href: "/reports", label: "Reports", icon: BarChart3 },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  {
-    href: "/notifications",
-    label: "Notifications",
-    icon: Bell,
-    children: [
-      { href: "/notifications", label: "All Notifications" },
-      { href: "/notifications/preferences", label: "Preferences" },
-      { href: "/notifications/templates", label: "Templates" },
+    label: "Intelligence",
+    items: [
+      { href: "/ai", label: "AI & Automation", icon: Brain },
+      { href: "/reports", label: "Reports", icon: BarChart3 },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
     ],
   },
   {
-    href: "/settings/general",
-    label: "Settings",
-    icon: Settings,
-    children: [
-      { href: "/settings/general", label: "General" },
-      { href: "/settings/profile", label: "Profile" },
-      { href: "/settings/security", label: "Security" },
-      { href: "/settings/api", label: "API Keys" },
+    label: "System",
+    items: [
+      { href: "/notifications", label: "Notifications", icon: Bell },
+      { href: "/settings/general", label: "Settings", icon: Settings },
     ],
   },
 ];
 
+function isActive(pathname, href) {
+  if (href === "/dashboard") return pathname === "/dashboard";
+  if (href === "/fleet") return pathname.startsWith("/fleet");
+  if (href === "/drivers") return pathname.startsWith("/drivers");
+  if (href === "/fuel") return pathname.startsWith("/fuel");
+  if (href === "/ai") return pathname.startsWith("/ai");
+  if (href === "/notifications") return pathname.startsWith("/notifications");
+  if (href === "/settings/general") return pathname.startsWith("/settings");
+  return pathname === href;
+}
+
 export function Sidebar({ collapsed, setCollapsed }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const [expandedItems, setExpandedItems] = useState({});
-
-  const toggleExpand = (href) => {
-    setExpandedItems((prev) => ({ ...prev, [href]: !prev[href] }));
-  };
-
-  const isParentActive = (item) => {
-    if (!item.children) return pathname === item.href;
-    if (item.href === "/fleet") return pathname.startsWith("/fleet");
-    if (item.href === "/drivers") return pathname.startsWith("/drivers");
-    if (item.href === "/fuel") return pathname.startsWith("/fuel");
-    if (item.href === "/ai") return pathname.startsWith("/ai");
-    if (item.href === "/notifications") return pathname.startsWith("/notifications");
-    if (item.href === "/settings/general") return pathname.startsWith("/settings");
-    return pathname === item.href;
-  };
 
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar transition-all duration-300",
-        collapsed ? "w-[72px]" : "w-64"
+        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200",
+        collapsed ? "w-[72px]" : "w-60"
       )}
     >
       <div className={cn(
-        "flex h-16 items-center border-b border-white/10 px-4",
-        collapsed ? "justify-center" : "justify-between"
+        "flex h-14 items-center border-b border-sidebar-border",
+        collapsed ? "justify-center px-0" : "px-4"
       )}>
-        {!collapsed && (
-          <Link href="/dashboard" className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-              <CarFront className="h-5 w-5 text-white" />
+        {!collapsed ? (
+          <Link href="/dashboard" className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground">
+              <CarFront className="h-4 w-4 text-surface" />
             </div>
-            <span className="text-lg font-bold text-white">FleetOps</span>
+            <span className="text-base font-semibold tracking-tight text-foreground">FleetOps</span>
+          </Link>
+        ) : (
+          <Link href="/dashboard">
+            <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground">
+              <CarFront className="h-4 w-4 text-surface" />
+            </div>
           </Link>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-white/50 hover:bg-sidebar-hover hover:text-white transition-colors"
+          className={cn(
+            "flex h-7 w-7 items-center justify-center rounded text-foreground-muted hover:text-foreground hover:bg-hover transition-colors",
+            collapsed ? "mt-4" : "ml-auto"
+          )}
         >
-          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = isParentActive(item);
-          const isExpanded = expandedItems[item.href];
-
-          if (item.children && !collapsed) {
-            return (
-              <div key={item.href}>
-                <button
-                  onClick={() => toggleExpand(item.href)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                    isActive
-                      ? "bg-sidebar-active text-white"
-                      : "text-white/60 hover:bg-sidebar-hover hover:text-white"
-                  )}
-                >
-                  <item.icon className="h-5 w-5 flex-shrink-0" />
-                  <span className="flex-1 text-left">{item.label}</span>
-                  {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-                {isExpanded && (
-                  <div className="ml-8 mt-1 space-y-1">
-                    {item.children.map((child) => {
-                      const isChildActive = pathname === child.href;
-                      return (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          className={cn(
-                            "flex items-center rounded-lg px-3 py-2 text-sm transition-all duration-200",
-                            isChildActive
-                              ? "bg-sidebar-active/60 text-white"
-                              : "text-white/50 hover:text-white hover:bg-sidebar-hover"
-                          )}
-                        >
-                          {child.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          return (
-            <div key={item.href}>
-              <Link
-                href={item.href}
-                className={cn(
-                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200",
-                  collapsed && "justify-center px-2",
-                  isActive
-                    ? "bg-sidebar-active text-white"
-                    : "text-white/60 hover:bg-sidebar-hover hover:text-white"
-                )}
-                title={collapsed ? item.label : undefined}
-              >
-                <item.icon className="h-5 w-5 flex-shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
+      <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-4 space-y-6">
+        {navGroups.map((group) => (
+          <div key={group.label}>
+            {!collapsed && (
+              <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-foreground-muted">
+                {group.label}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const active = isActive(pathname, item.href);
+                if (item.children && !collapsed) {
+                  return (
+                    <NavGroupItem
+                      key={item.href}
+                      item={item}
+                      pathname={pathname}
+                      collapsed={collapsed}
+                    />
+                  );
+                }
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={cn(
+                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
+                      collapsed && "justify-center px-1",
+                      active
+                        ? "bg-hover text-foreground font-medium"
+                        : "text-foreground-secondary hover:text-foreground hover:bg-hover"
+                    )}
+                    title={collapsed ? item.label : undefined}
+                  >
+                    <item.icon className="h-4 w-4 flex-shrink-0" />
+                    {!collapsed && <span>{item.label}</span>}
+                  </Link>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </nav>
 
       <div className={cn(
-        "border-t border-white/10 p-4",
-        collapsed && "flex justify-center px-2"
+        "border-t border-sidebar-border py-3",
+        collapsed ? "flex justify-center px-2" : "px-3"
       )}>
         {!collapsed ? (
-          <div className="flex items-center gap-3">
-            <Avatar className="h-8 w-8 ring-2 ring-white/20">
-              <AvatarFallback className="bg-primary/20 text-primary text-xs">SA</AvatarFallback>
+          <div className="flex items-center gap-2.5">
+            <Avatar className="h-7 w-7">
+              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">SA</AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">System Admin</p>
-              <p className="text-xs text-white/50 truncate">admin@fleetops.com</p>
+              <p className="text-sm font-medium text-foreground truncate leading-tight">System Admin</p>
+              <p className="text-[11px] text-foreground-muted truncate">admin@fleetops.com</p>
             </div>
           </div>
         ) : (
-          <Avatar className="h-8 w-8 ring-2 ring-white/20">
-            <AvatarFallback className="bg-primary/20 text-primary text-xs">SA</AvatarFallback>
+          <Avatar className="h-7 w-7">
+            <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">SA</AvatarFallback>
           </Avatar>
         )}
       </div>
@@ -270,64 +202,129 @@ export function Sidebar({ collapsed, setCollapsed }) {
   );
 }
 
+function NavGroupItem({ item, pathname, collapsed }) {
+  const [expanded, setExpanded] = useState(
+    pathname.startsWith(item.href) && item.href !== "/dashboard"
+  );
+  const active = isActive(pathname, item.href);
+
+  if (collapsed) {
+    return (
+      <Link
+        href={item.children?.[0]?.href || item.href}
+        className={cn(
+          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-colors",
+          active
+            ? "bg-hover text-foreground"
+            : "text-foreground-secondary hover:text-foreground hover:bg-hover"
+        )}
+        title={item.label}
+      >
+        <item.icon className="h-4 w-4" />
+      </Link>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className={cn(
+          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
+          active
+            ? "bg-hover text-foreground font-medium"
+            : "text-foreground-secondary hover:text-foreground hover:bg-hover"
+        )}
+      >
+        <item.icon className="h-4 w-4 flex-shrink-0" />
+        <span className="flex-1 text-left">{item.label}</span>
+        <ChevronDown className={cn(
+          "h-3.5 w-3.5 text-foreground-muted transition-transform",
+          expanded && "rotate-180"
+        )} />
+      </button>
+      {expanded && (
+        <div className="ml-6 mt-0.5 space-y-0.5 border-l border-border pl-2">
+          {item.children.map((child) => {
+            const isChildActive = pathname === child.href;
+            return (
+              <Link
+                key={child.href}
+                href={child.href}
+                className={cn(
+                  "block rounded px-2 py-1.5 text-sm transition-colors",
+                  isChildActive
+                    ? "text-foreground font-medium"
+                    : "text-foreground-secondary hover:text-foreground"
+                )}
+              >
+                {child.label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function TopNav({ collapsed }) {
   const pathname = usePathname();
   const { signOut, user, employee } = useAuth();
-  const [dateTime, setDateTime] = useState("");
+  const { theme, toggle } = useTheme();
 
-  useEffect(() => {
-    const update = () => {
-      const now = new Date();
-      setDateTime(
-        now.toLocaleDateString("en-US", {
-          weekday: "short",
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }) +
-          " | " +
-          now.toLocaleTimeString("en-US", {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-      );
-    };
-    update();
-    const interval = setInterval(update, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const segments = pathname.split("/").filter(Boolean);
+  const pageTitle = segments.length > 0
+    ? segments[segments.length - 1].replace(/-/g, " ")
+    : "Dashboard";
 
   return (
     <header
       className={cn(
-        "fixed top-0 right-0 z-30 flex h-16 items-center gap-4 border-b border-border bg-background/80 backdrop-blur-xl px-6 transition-all duration-300",
-        collapsed ? "left-[72px]" : "left-64"
+        "fixed top-0 right-0 z-30 flex h-14 items-center border-b border-border bg-surface transition-all duration-200",
+        collapsed ? "left-[72px]" : "left-60"
       )}
     >
-      <div className="flex-1">
-        <h2 className="text-sm font-medium text-foreground capitalize">
-          {pathname === "/dashboard"
-            ? "Dashboard"
-            : pathname
-                .split("/")
-                .filter(Boolean)
-                .pop()
-                ?.replace(/-/g, " ") || "Dashboard"}
-        </h2>
+      <div className="flex items-center gap-2 px-6">
+        {segments.map((seg, i) => {
+          const href = "/" + segments.slice(0, i + 1).join("/");
+          const label = seg.replace(/-/g, " ");
+          const isLast = i === segments.length - 1;
+          return (
+            <span key={href} className="flex items-center gap-2">
+              {i > 0 && <span className="text-foreground-muted text-xs">/</span>}
+              {isLast ? (
+                <span className="text-sm font-medium text-foreground capitalize">{label}</span>
+              ) : (
+                <Link href={href} className="text-xs text-foreground-muted hover:text-foreground capitalize">
+                  {label}
+                </Link>
+              )}
+            </span>
+          );
+        })}
       </div>
 
-      <div className="flex items-center gap-3 text-sm text-foreground-secondary">
-        <span>{dateTime}</span>
-      </div>
+      <div className="ml-auto flex items-center gap-2 px-6">
+        <button
+          onClick={toggle}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors"
+          title={theme === "dark" ? "Light mode" : "Dark mode"}
+        >
+          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </button>
 
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="h-8 px-3 cursor-pointer hover:bg-hover transition-colors">
-          <Bell className="h-4 w-4 mr-1.5" />
-          <span className="text-xs">3</span>
-        </Badge>
+        <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors">
+          <Bell className="h-4 w-4" />
+          <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-surface">
+            3
+          </span>
+        </button>
 
-        <Avatar className="h-8 w-8 cursor-pointer ring-2 ring-border hover:ring-primary transition-all">
-          <AvatarFallback className="bg-primary/10 text-primary text-xs">
+        <div className="h-5 w-px bg-border" />
+
+        <Avatar className="h-7 w-7 cursor-pointer">
+          <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
             {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
           </AvatarFallback>
         </Avatar>

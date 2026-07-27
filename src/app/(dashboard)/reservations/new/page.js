@@ -319,7 +319,7 @@ export default function NewReservationPage() {
         </div>
 
         <div className="space-y-6">
-          <Card className="border-0 shadow-sm bg-gradient-to-b from-primary/5 to-surface">
+          <Card className="">
             <CardHeader className="pb-3">
               <div className="flex items-center gap-2">
                 <Brain className="w-5 h-5 text-primary" />

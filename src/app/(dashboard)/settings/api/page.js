@@ -49,7 +49,7 @@ export default function ApiKeysPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 mb-2">
-                <code className="flex-1 text-xs bg-muted px-3 py-2 rounded-lg font-mono text-foreground-secondary">
+                <code className="flex-1 text-xs bg-muted px-3 py-2 rounded-lg font-data text-foreground-secondary">
                   {visibleKeys[apiKey.id] ? apiKey.key : apiKey.key.substring(0, 12) + "••••••••••••"}
                 </code>
                 <button onClick={() => toggleVisibility(apiKey.id)} className="p-1.5 rounded-lg hover:bg-hover">

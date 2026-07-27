@@ -34,7 +34,7 @@ export default function TrackingHistoryPage() {
     () => [
       columnHelper.accessor("trip_id", {
         header: "Trip",
-        cell: (info) => <span className="font-mono font-medium text-foreground">#{info.getValue()}</span>,
+        cell: (info) => <span className="font-data font-medium text-foreground">#{info.getValue()}</span>,
       }),
       columnHelper.accessor("vehicles.plate_number", {
         header: "Vehicle",
