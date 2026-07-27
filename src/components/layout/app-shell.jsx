@@ -134,7 +134,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
         </button>
       </div>
 
-      <nav className="flex-1 overflow-y-auto scrollbar-thin px-2 py-4 space-y-6">
+      <nav className="flex-1 overflow-y-auto scrollbar-none px-2 py-4 space-y-6">
         {navGroups.map((group) => (
           <div key={group.label}>
             {!collapsed && (
@@ -243,8 +243,11 @@ function NavGroupItem({ item, pathname, collapsed }) {
           expanded && "rotate-180"
         )} />
       </button>
-      {expanded && (
-        <div className="ml-6 mt-0.5 space-y-0.5 border-l border-border pl-2">
+      <div className={cn(
+        "overflow-hidden transition-all duration-200",
+        expanded ? "mt-0.5" : "h-0"
+      )}>
+        <div className="ml-6 space-y-0.5 border-l border-border pl-2">
           {item.children.map((child) => {
             const isChildActive = pathname === child.href;
             return (
@@ -263,7 +266,7 @@ function NavGroupItem({ item, pathname, collapsed }) {
             );
           })}
         </div>
-      )}
+      </div>
     </div>
   );
 }
