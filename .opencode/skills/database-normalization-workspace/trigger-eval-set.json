@@ -1,0 +1,22 @@
+[
+  {"query": "yo the routes table has origin and destination as plain text plus lat/lng columns, feels like we should have a locations table and just FK to it. can you write the migration?", "should_trigger": true},
+  {"query": "can you scan the whole database schema and tell me everything that's denormalized or could be normalized better?", "should_trigger": true},
+  {"query": "the drivers table stores total_trips and performance_score but those are computed from the trips table — this seems wrong. should i drop them and use a view instead?", "should_trigger": true},
+  {"query": "migration 005 merged vehicledocuments and vehicleinspection into JSONB columns but now i need to query by document type and expiry and it's a pain. can we restore those as proper tables?", "should_trigger": true},
+  {"query": "i notice that gpstracking stores vehicle_id and driver_id even though both are reachable through trip_id — is that redundant? should i drop driver_id from gpstracking?", "should_trigger": true},
+  {"query": "tripcostanalysis has a 1-to-1 relationship with trips and all its columns are just trip attributes. should i merge it into the trips table?", "should_trigger": true},
+  {"query": "the roles.permissions JSONB was denormalized in migration 005 but now i need to query 'which roles can dispatch vehicles' and im doing jsonb path queries in app code. worth re-normalizing?", "should_trigger": true},
+  {"query": "our schema has estimated_distance in routes, dispatchschedules, AND trips — thats three places for the same concept. can you figure out where it really belongs and clean up the rest?", "should_trigger": true},
+  {"query": "employees.license_number duplicates drivers.license_number — which one should we drop and how do i migrate the data?", "should_trigger": true},
+  {"query": "can you generate a migration that normalizes all the 1:1 tables (tripcostanalysis, tripperformance) into their parent tables and updates the service layer?", "should_trigger": true},
+  {"query": "show me all completed trips from last week with the driver name and total distance", "should_trigger": false},
+  {"query": "can you write a report that shows fuel consumption per vehicle for Q3 with cost breakdown?", "should_trigger": false},
+  {"query": "the login page keeps returning 400, i think the supabase auth session is expiring too fast", "should_trigger": false},
+  {"query": "add an index on gpstracking.recorded_at, the realtime dashboard queries are timing out", "should_trigger": false},
+  {"query": "the /api/dispatch endpoint is returning 504, i think it's a connection pool issue", "should_trigger": false},
+  {"query": "create a new supabase edge function that recommends the best vehicle for a given reservation based on passenger count and trip distance", "should_trigger": false},
+  {"query": "i need a new dashboard page that shows driver attendance with check-in times and face verification status", "should_trigger": false},
+  {"query": "write a seed script that generates 100 sample trips with realistic gps coordinates for testing", "should_trigger": false},
+  {"query": "the reservation approval trigger isn't creating notifications anymore, can you debug why?", "should_trigger": false},
+  {"query": "set up a realtime subscription so the dispatch board updates live when trip status changes", "should_trigger": false}
+]

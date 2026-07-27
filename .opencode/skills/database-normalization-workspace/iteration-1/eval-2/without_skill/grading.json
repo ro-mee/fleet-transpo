@@ -1,0 +1,82 @@
+{
+  "expectations": [
+    {
+      "text": "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)",
+      "passed": true,
+      "evidence": "007_remove_derived_columns.sql lines 27-32 ALTER TABLE drivers DROP COLUMN IF EXISTS total_trips, total_distance, total_hours, performance_score, rating CASCADE. Lines 43-56 define driver_stats VIEW that recomputes all five from trips and tripperformance."
+    },
+    {
+      "text": "Migration also addresses similar derived columns in other tables beyond drivers",
+      "passed": true,
+      "evidence": "Lines 68-80 create vehicle_trip_stats VIEW for vehicle-side aggregates (total_trips, total_distance, total_hours, total_fuel_consumed, avg_speed, max_speed). Lines 93-118 add a BEFORE INSERT OR UPDATE trigger on tripcostanalysis to auto-compute total_cost and cost_per_km."
+    },
+    {
+      "text": "Migration provides either view definitions or trigger functions to recompute the derived data",
+      "passed": true,
+      "evidence": "Three recomputation mechanisms provided: driver_stats VIEW (lines 43-56), vehicle_trip_stats VIEW (lines 68-80), and compute_trip_cost() trigger function (lines 93-118)."
+    },
+    {
+      "text": "The approach is consistent (all removed with views, or all kept with triggers, or clearly documented reasoning for mixed approach)",
+      "passed": true,
+      "evidence": "The header comment (lines 4-10) documents the mixed approach: drivers columns are dropped and replaced with a view (cross-table aggregates), while tripcostanalysis uses a trigger for same-table computed columns. The rationale is implicit but clear: views suit cross-table aggregation (drivers stats from trips + tripperformance), triggers suit same-column computation (total_cost from components in same row)."
+    },
+    {
+      "text": "Service files are updated to work with the new structure (views or triggers)",
+      "passed": false,
+      "evidence": "Only a single SQL migration file was produced (007_remove_derived_columns.sql). No service files were created or modified in the outputs. The existing service files (driver.service.js, report.service.js, ai.service.js) already query driver_stats, but these references predate the migration and no updates were made as part of this output."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 1,
+    "total": 5,
+    "pass_rate": 0.8
+  },
+  "execution_metrics": null,
+  "timing": null,
+  "claims": [
+    {
+      "claim": "The migration drops all five derived columns from the drivers table",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 27-32: ALTER TABLE drivers DROP COLUMN IF EXISTS total_trips, total_distance, total_hours, performance_score, rating"
+    },
+    {
+      "claim": "The migration creates a driver_stats view that computes aggregates from trips and tripperformance",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 43-56: CREATE OR REPLACE VIEW driver_stats AS SELECT ... COUNT(DISTINCT t.trip_id) AS total_trips, SUM(t.distance) AS total_distance, SUM(t.actual_duration)/60 AS total_hours, AVG(tp.smooth_driving_score) AS performance_score, AVG(tp.customer_rating) AS rating ... FROM drivers d LEFT JOIN trips t ... LEFT JOIN tripperformance tp"
+    },
+    {
+      "claim": "The migration addresses vehicle-side derived columns",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 68-80: CREATE OR REPLACE VIEW vehicle_trip_stats AS SELECT ... total_trips, total_distance, total_hours, total_fuel_consumed, avg_speed, max_speed FROM vehicles v LEFT JOIN trips t"
+    },
+    {
+      "claim": "The migration addresses tripcostanalysis derived columns with a trigger",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 93-118: CREATE OR REPLACE FUNCTION compute_trip_cost() RETURNS TRIGGER ... NEW.total_cost := sum of cost components; NEW.cost_per_km := NEW.total_cost / trip.distance. Trigger trigger_compute_trip_cost BEFORE INSERT OR UPDATE ON tripcostanalysis"
+    },
+    {
+      "claim": "Service files are updated to use the new views",
+      "type": "process",
+      "verified": false,
+      "evidence": "No service file modifications were produced in outputs. Only 007_remove_derived_columns.sql exists. The existing service files already reference driver_stats from prior work, not as part of this migration."
+    }
+  ],
+  "user_notes_summary": null,
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Service files are updated to work with the new structure (views or triggers)",
+        "reason": "This assertion checks for service file updates but the migration only produces SQL. The eval should either (a) accept that the SQL migration alone is sufficient and remove this assertion, or (b) scope the task to include service file changes in the prompt if that is genuinely expected. As written, the assertion will always fail unless the executor also produces code changes."
+      },
+      {
+        "reason": "No assertion checks the correctness of the derived column logic — e.g., whether total_hours correctly converts minutes to hours, or whether the trigger's cost_per_km handles division by zero. A migration that drops columns but computes wrong values in the view would still pass all assertions except the service files one."
+      }
+    ],
+    "overall": "The SQL migration is solid and addresses all database-level requirements. The sole failure (service files) is partly an eval design issue — the assertion requires code changes but the task scope is a migration, making it unreachable without also generating service file patches."
+  }
+}

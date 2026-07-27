@@ -1,0 +1,45 @@
+{
+  "skill_name": "database-normalization",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I need to normalize the routes table. Currently it stores origin and destination as text with separate lat/lng columns. I want to extract these into a locations table. Generate a migration that creates a locations table, migrates existing data, updates the routes table to use FK references, and drops the old columns. Also update the route service file if needed.",
+      "expected_output": "Migration SQL that creates a locations table, migrates existing route origin/destination data, adds FK columns to routes, drops old columns, and updated route.service.js",
+      "files": [],
+      "expectations": [
+        "Migration creates a locations table with location_id, name, latitude, longitude columns",
+        "Migration adds origin_location_id and destination_location_id FK columns to routes table",
+        "Migration migrates existing route origin/destination data into the locations table",
+        "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes",
+        "Service files are updated to use Supabase joins for location data"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Run a full schema diagnostic on the FleetOps database. Read the migrations in supabase/migrations/ and the service files in src/services/ to identify all normalization issues. Give me a report organized by category (redundant columns, derived data, JSONB misuse, 1:1 tables, redundant FKs) with specific table/column references and recommended actions. Focus on the current state after all migrations are applied.",
+      "expected_output": "A diagnostic report listing real normalization issues found in the schema with specific table/column names, categorized and ordered by impact",
+      "files": [],
+      "expectations": [
+        "Report identifies redundant columns across tables with specific table/column names",
+        "Report identifies derived/aggregate columns stored as data",
+        "Report identifies JSONB columns that could be normalized into relational tables",
+        "Report identifies 1:1 tables that could potentially be merged",
+        "Report identifies redundant FK references",
+        "Report is organized by category and includes recommended actions"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "The drivers table has aggregate columns like total_trips, total_distance, total_hours, performance_score, and rating that are computed from other tables. I want to either remove them and use views, or add triggers to keep them in sync. Generate the migration and any view definitions. Also check if there are similar derived columns in other tables and handle those too.",
+      "expected_output": "Migration SQL with view definitions or trigger functions for derived columns, covering drivers and other tables with similar issues",
+      "files": [],
+      "expectations": [
+        "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)",
+        "Migration also addresses similar derived columns in other tables beyond drivers",
+        "Migration provides either view definitions or trigger functions to recompute the derived data",
+        "The approach is consistent across all derived columns",
+        "Service files are updated to work with the new structure"
+      ]
+    }
+  ]
+}

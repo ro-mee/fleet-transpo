@@ -1,0 +1,13 @@
+{
+  "eval_id": 1,
+  "eval_name": "full-schema-diagnostic",
+  "prompt": "Run a full schema diagnostic on the FleetOps database. Read the migrations in supabase/migrations/ and the service files in src/services/ to identify all normalization issues. Give me a report organized by category (redundant columns, derived data, JSONB misuse, 1:1 tables, redundant FKs) with specific table/column references and recommended actions. Focus on the current state after all migrations are applied.",
+  "assertions": [
+    "Report identifies redundant columns across tables with specific table/column names",
+    "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)",
+    "Report identifies JSONB columns that could be normalized into relational tables",
+    "Report identifies 1:1 tables that could potentially be merged",
+    "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)",
+    "Report is organized by category and includes recommended actions"
+  ]
+}

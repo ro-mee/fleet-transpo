@@ -98,20 +98,35 @@ export async function getMaintenanceReport(from, to) {
 
 export async function getDriverPerformanceReport(from, to) {
   const supabase = createClient();
+
   const { data: drivers } = await supabase
     .from("drivers")
-    .select("driver_id, performance_score, total_trips, rating, employees(first_name, last_name)");
+    .select("driver_id, employees(first_name, last_name)")
+    .is("deleted_at", null);
 
   if (!drivers?.length) return { totalDrivers: 0, avgScore: 0, topDrivers: [] };
 
+  const driverIds = drivers.map((d) => d.driver_id);
+
+  const { data: stats } = await supabase
+    .from("driver_stats")
+    .select("*")
+    .in("driver_id", driverIds);
+
+  const statsMap = {};
+  (stats || []).forEach((s) => { statsMap[s.driver_id] = s; });
+
   const scores = drivers
-    .filter((d) => d.performance_score > 0)
-    .map((d) => ({
-      name: d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "Unknown",
-      score: d.performance_score || 0,
-      trips: d.total_trips || 0,
-      rating: d.rating || 0,
-    }));
+    .filter((d) => (statsMap[d.driver_id]?.performance_score || 0) > 0)
+    .map((d) => {
+      const s = statsMap[d.driver_id] || {};
+      return {
+        name: d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "Unknown",
+        score: s.performance_score || 0,
+        trips: s.total_trips || 0,
+        rating: s.rating || 0,
+      };
+    });
 
   return {
     totalDrivers: drivers.length,

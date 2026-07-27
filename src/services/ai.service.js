@@ -140,15 +140,26 @@ export async function getAvailableDriversForDispatch(dispatchData) {
 
   if (error) throw error;
 
-  return drivers.map((d) => {
+  const driverIds = (drivers || []).map((d) => d.driver_id);
+  const statsMap = {};
+  if (driverIds.length > 0) {
+    const { data: stats } = await supabase
+      .from("driver_stats")
+      .select("*")
+      .in("driver_id", driverIds);
+    (stats || []).forEach((s) => { statsMap[s.driver_id] = s; });
+  }
+
+  return (drivers || []).map((d) => {
+    const s = statsMap[d.driver_id] || {};
     let score = 50;
     const reasons = [];
 
-    if (d.performance_score > 4) {
+    if (s.performance_score > 4) {
       score += 20;
       reasons.push("High performer");
     }
-    if (d.total_trips > 50) {
+    if (s.total_trips > 50) {
       score += 15;
       reasons.push("Experienced driver");
     }

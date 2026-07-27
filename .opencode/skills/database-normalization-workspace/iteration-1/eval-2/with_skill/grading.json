@@ -1,0 +1,86 @@
+{
+  "expectations": [
+    {
+      "text": "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)",
+      "passed": true,
+      "evidence": "Lines 144-149 of 007_normalization_derived_columns.sql: ALTER TABLE drivers DROP COLUMN IF EXISTS performance_score CASCADE, DROP COLUMN IF EXISTS total_trips CASCADE, DROP COLUMN IF EXISTS total_distance CASCADE, DROP COLUMN IF EXISTS total_hours CASCADE, DROP COLUMN IF EXISTS rating CASCADE. Lines 42-76 create driver_stats VIEW that computes all five columns from trips and tripperformance."
+    },
+    {
+      "text": "Migration also addresses similar derived columns in other tables beyond drivers",
+      "passed": true,
+      "evidence": "Lines 89-104 convert tripcostanalysis.total_cost to a generated column (computed from fuel_cost + toll_fees + parking_fees + driver_cost + maintenance_cost + miscellaneous_cost). Line 107 drops tripcostanalysis.cost_per_km. Lines 116-135 create trip_cost_details VIEW that includes cost_per_km computed as total_cost / trip.distance via a join to trips."
+    },
+    {
+      "text": "Migration provides either view definitions or trigger functions to recompute the derived data",
+      "passed": true,
+      "evidence": "Two view definitions provided: driver_stats VIEW (lines 42-76) computes driver aggregates, and trip_cost_details VIEW (lines 116-135) computes cost_per_km. A generated column (lines 92-101) handles total_cost recomputation."
+    },
+    {
+      "text": "The approach is consistent (all removed with views, or all kept with triggers, or clearly documented reasoning for mixed approach)",
+      "passed": true,
+      "evidence": "The approach is mixed (drivers→view, tripcostanalysis.total_cost→generated column, tripcostanalysis.cost_per_km→view). Lines 24-33 provide a clear Rationale section explaining each choice: driver aggregates use a view because they were never written by app code, total_cost is a generated column because it depends only on same-table columns, and cost_per_km is in a view because it requires a join to trips."
+    },
+    {
+      "text": "Service files are updated to work with the new structure (views or triggers)",
+      "passed": false,
+      "evidence": "No service files exist in the outputs directory. Only a single SQL migration file (007_normalization_derived_columns.sql) was produced. No .ts, .js, or other application code files were created or modified to reference the new views."
+    }
+  ],
+  "summary": {
+    "passed": 4,
+    "failed": 1,
+    "total": 5,
+    "pass_rate": 0.8
+  },
+  "execution_metrics": {
+    "output_chars": 3875,
+    "transcript_chars": 0
+  },
+  "timing": {},
+  "claims": [
+    {
+      "claim": "The migration drops 5 derived columns from the drivers table",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 144-149: ALTER TABLE drivers DROP COLUMN IF EXISTS performance_score, total_trips, total_distance, total_hours, rating."
+    },
+    {
+      "claim": "The migration creates a driver_stats view computing all 5 driver aggregate metrics",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 42-76: CREATE OR REPLACE VIEW driver_stats AS ... computes total_trips, total_distance, total_hours, performance_score (weighted avg), and rating from trips and tripperformance."
+    },
+    {
+      "claim": "The migration converts tripcostanalysis.total_cost to a generated column",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 89-101: Drops existing total_cost column then re-adds it as GENERATED ALWAYS AS (COALESCE(fuel_cost,0) + ... + COALESCE(miscellaneous_cost,0)) STORED."
+    },
+    {
+      "claim": "The performance_score uses a weighted formula (60% smooth_driving, 40% customer_rating)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Lines 67-71: performance_score = COALESCE(avg_smooth_driving_score,0)*0.6 + COALESCE(avg_customer_rating,0)*0.4"
+    },
+    {
+      "claim": "The approach is documented with rationale",
+      "type": "quality",
+      "verified": true,
+      "evidence": "Lines 24-33 contain a Rationale section explaining why each decision was made (view for driver aggregates, generated column for total_cost, view for cost_per_km)."
+    }
+  ],
+  "user_notes_summary": {
+    "uncertainties": [],
+    "needs_review": [],
+    "workarounds": []
+  },
+  "eval_feedback": {
+    "suggestions": [
+      {
+        "assertion": "Service files are updated to work with the new structure (views or triggers)",
+        "reason": "This assertion is discriminating — it correctly caught the gap. The migration produces SQL only, with no application-layer changes. A valid enhancement would be skipping this assertion when testing SQL-only outputs, or adding a second output file expectation for service code."
+      }
+    ],
+    "overall": "Four of five assertions pass with clear evidence. The SQL migration is thorough, well-documented, and correctly handles derived columns via views and a generated column. The one failure (no updated service files) is a genuine gap — the output is SQL-only with no application-layer changes."
+  }
+}

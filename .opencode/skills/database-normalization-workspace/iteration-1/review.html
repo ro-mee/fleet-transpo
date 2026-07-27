@@ -1,0 +1,1232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eval Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600&family=Lora:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-EnyY0/GSHQGSxSgMwaIPzSESbqoOLSexfnSMN2AP+39Ckmn92stwABZynq1JyzdT" crossorigin="anonymous"></script>
+  <style>
+    :root {
+      --bg: #faf9f5;
+      --surface: #ffffff;
+      --border: #e8e6dc;
+      --text: #141413;
+      --text-muted: #b0aea5;
+      --accent: #d97757;
+      --accent-hover: #c4613f;
+      --green: #788c5d;
+      --green-bg: #eef2e8;
+      --red: #c44;
+      --red-bg: #fceaea;
+      --header-bg: #141413;
+      --header-text: #faf9f5;
+      --radius: 6px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Lora', Georgia, serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 1rem 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 600;
+    }
+    .header .instructions {
+      font-size: 0.8rem;
+      opacity: 0.7;
+      margin-top: 0.25rem;
+    }
+    .header .progress {
+      font-size: 0.875rem;
+      opacity: 0.8;
+      text-align: right;
+    }
+
+    .main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 1.5rem 2rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      flex-shrink: 0;
+    }
+    .section-header {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.75rem 1rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .section-body {
+      padding: 1rem;
+    }
+
+    .config-badge {
+      display: inline-block;
+      padding: 0.2rem 0.625rem;
+      border-radius: 9999px;
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      margin-left: 0.75rem;
+      vertical-align: middle;
+    }
+    .config-badge.config-primary {
+      background: rgba(33, 150, 243, 0.12);
+      color: #1976d2;
+    }
+    .config-badge.config-baseline {
+      background: rgba(255, 193, 7, 0.15);
+      color: #f57f17;
+    }
+
+    .prompt-text {
+      white-space: pre-wrap;
+      font-size: 0.9375rem;
+      line-height: 1.6;
+    }
+
+    .output-file {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .output-file + .output-file {
+      margin-top: 1rem;
+    }
+    .output-file-header {
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .output-file-header .dl-btn {
+      font-size: 0.7rem;
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-weight: 500;
+      opacity: 0.8;
+    }
+    .output-file-header .dl-btn:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+    .output-file-content {
+      padding: 0.75rem;
+      overflow-x: auto;
+    }
+    .output-file-content pre {
+      font-size: 0.8125rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: 'SF Mono', SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+    }
+    .output-file-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+    .output-file-content iframe {
+      width: 100%;
+      height: 600px;
+      border: none;
+    }
+    .output-file-content table {
+      border-collapse: collapse;
+      font-size: 0.8125rem;
+      width: 100%;
+    }
+    .output-file-content table td,
+    .output-file-content table th {
+      border: 1px solid var(--border);
+      padding: 0.375rem 0.5rem;
+      text-align: left;
+    }
+    .output-file-content table th {
+      background: var(--bg);
+      font-weight: 600;
+    }
+    .output-file-content .download-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.875rem;
+      cursor: pointer;
+    }
+    .output-file-content .download-link:hover {
+      background: var(--border);
+    }
+    .empty-state {
+      color: var(--text-muted);
+      font-style: italic;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    .prev-feedback {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.625rem 0.75rem;
+      margin-top: 0.75rem;
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+    .prev-feedback-label {
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.25rem;
+      color: var(--text-muted);
+    }
+    .feedback-textarea {
+      width: 100%;
+      min-height: 100px;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.9375rem;
+      line-height: 1.5;
+      resize: vertical;
+      color: var(--text);
+    }
+    .feedback-textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    .feedback-status {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 0.5rem;
+      min-height: 1.1em;
+    }
+
+    .grades-toggle {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .grades-toggle:hover {
+      color: var(--accent);
+    }
+    .grades-toggle .arrow {
+      margin-right: 0.5rem;
+      transition: transform 0.15s;
+      font-size: 0.75rem;
+    }
+    .grades-toggle .arrow.open {
+      transform: rotate(90deg);
+    }
+    .grades-content {
+      display: none;
+      margin-top: 0.75rem;
+    }
+    .grades-content.open {
+      display: block;
+    }
+    .grades-summary {
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .grade-badge {
+      display: inline-block;
+      padding: 0.125rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .grade-pass { background: var(--green-bg); color: var(--green); }
+    .grade-fail { background: var(--red-bg); color: var(--red); }
+    .assertion-list {
+      list-style: none;
+    }
+    .assertion-item {
+      padding: 0.625rem 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.8125rem;
+    }
+    .assertion-item:last-child { border-bottom: none; }
+    .assertion-status {
+      font-weight: 600;
+      margin-right: 0.5rem;
+    }
+    .assertion-status.pass { color: var(--green); }
+    .assertion-status.fail { color: var(--red); }
+    .assertion-evidence {
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      margin-top: 0.25rem;
+      padding-left: 1.5rem;
+    }
+
+    .view-tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 2rem;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .view-tab {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.625rem 1.25rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: var(--text-muted);
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .view-tab:hover { color: var(--text); }
+    .view-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+    .view-panel { display: none; }
+    .view-panel.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+    .benchmark-view {
+      padding: 1.5rem 2rem;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .benchmark-table {
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 0.8125rem;
+      width: 100%;
+      margin-bottom: 1.5rem;
+    }
+    .benchmark-table th, .benchmark-table td {
+      padding: 0.625rem 0.75rem;
+      text-align: left;
+      border: 1px solid var(--border);
+    }
+    .benchmark-table th {
+      font-family: 'Poppins', sans-serif;
+      background: var(--header-bg);
+      color: var(--header-text);
+      font-weight: 500;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .benchmark-table tr:hover { background: var(--bg); }
+    .benchmark-table tr.benchmark-row-with { background: rgba(33, 150, 243, 0.06); }
+    .benchmark-table tr.benchmark-row-without { background: rgba(255, 193, 7, 0.06); }
+    .benchmark-table tr.benchmark-row-with:hover { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-without:hover { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-table tr.benchmark-row-avg { font-weight: 600; border-top: 2px solid var(--border); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-with { background: rgba(33, 150, 243, 0.12); }
+    .benchmark-table tr.benchmark-row-avg.benchmark-row-without { background: rgba(255, 193, 7, 0.12); }
+    .benchmark-delta-positive { color: var(--green); font-weight: 600; }
+    .benchmark-delta-negative { color: var(--red); font-weight: 600; }
+    .benchmark-notes {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }
+    .benchmark-notes h3 {
+      font-family: 'Poppins', sans-serif;
+      font-size: 0.875rem;
+      margin-bottom: 0.75rem;
+    }
+    .benchmark-notes ul {
+      list-style: disc;
+      padding-left: 1.25rem;
+    }
+    .benchmark-notes li {
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      margin-bottom: 0.375rem;
+    }
+    .benchmark-empty {
+      color: var(--text-muted);
+      font-style: italic;
+      text-align: center;
+      padding: 3rem;
+    }
+
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .nav-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--text);
+      transition: all 0.15s;
+    }
+    .nav-btn:hover:not(:disabled) {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .nav-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .done-btn {
+      font-family: 'Poppins', sans-serif;
+      padding: 0.5rem 1.5rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 0.875rem;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .done-btn:hover {
+      background: var(--bg);
+      border-color: var(--text-muted);
+    }
+    .done-btn.ready {
+      border: none;
+      background: var(--accent);
+      color: white;
+      font-weight: 600;
+    }
+    .done-btn.ready:hover {
+      background: var(--accent-hover);
+    }
+    .done-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .done-overlay.visible {
+      display: flex;
+    }
+    .done-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 2rem 3rem;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      max-width: 500px;
+    }
+    .done-card h2 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .done-card p {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+    .done-card .btn-row {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .done-card button {
+      padding: 0.5rem 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+    .done-card button:hover {
+      background: var(--bg);
+    }
+    .toast {
+      position: fixed;
+      bottom: 5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--header-bg);
+      color: var(--header-text);
+      padding: 0.625rem 1.25rem;
+      border-radius: var(--radius);
+      font-size: 0.875rem;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    .toast.visible {
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app" style="height:100vh; display:flex; flex-direction:column;">
+    <div class="header">
+      <div>
+        <h1>Eval Review: <span id="skill-name"></span></h1>
+        <div class="instructions">Review each output and leave feedback below. Navigate with arrow keys or buttons. When done, copy feedback and paste into Claude Code.</div>
+      </div>
+      <div class="progress" id="progress"></div>
+    </div>
+
+    <div class="view-tabs" id="view-tabs" style="display:none;">
+      <button class="view-tab active" onclick="switchView('outputs')">Outputs</button>
+      <button class="view-tab" onclick="switchView('benchmark')">Benchmark</button>
+    </div>
+
+    <div class="view-panel active" id="panel-outputs">
+    <div class="main">
+      <div class="section">
+        <div class="section-header">Prompt <span class="config-badge" id="config-badge" style="display:none;"></span></div>
+        <div class="section-body">
+          <div class="prompt-text" id="prompt-text"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">Output</div>
+        <div class="section-body" id="outputs-body">
+          <div class="empty-state">No output files found</div>
+        </div>
+      </div>
+
+      <div class="section" id="prev-outputs-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="togglePrevOutputs()">
+            <span class="arrow" id="prev-outputs-arrow">&#9654;</span>
+            Previous Output
+          </div>
+        </div>
+        <div class="grades-content" id="prev-outputs-content"></div>
+      </div>
+
+      <div class="section" id="grades-section" style="display:none;">
+        <div class="section-header">
+          <div class="grades-toggle" onclick="toggleGrades()">
+            <span class="arrow" id="grades-arrow">&#9654;</span>
+            Formal Grades
+          </div>
+        </div>
+        <div class="grades-content" id="grades-content"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-header">Your Feedback</div>
+        <div class="section-body">
+          <textarea
+            class="feedback-textarea"
+            id="feedback"
+            placeholder="What do you think of this output? Any issues, suggestions, or things that look great?"
+          ></textarea>
+          <div class="feedback-status" id="feedback-status"></div>
+          <div class="prev-feedback" id="prev-feedback" style="display:none;">
+            <div class="prev-feedback-label">Previous feedback</div>
+            <div id="prev-feedback-text"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="nav" id="outputs-nav">
+      <button class="nav-btn" id="prev-btn" onclick="navigate(-1)">&#8592; Previous</button>
+      <button class="done-btn" id="done-btn" onclick="showDoneDialog()">Submit All Reviews</button>
+      <button class="nav-btn" id="next-btn" onclick="navigate(1)">Next &#8594;</button>
+    </div>
+    </div>
+
+    <div class="view-panel" id="panel-benchmark">
+      <div class="benchmark-view" id="benchmark-content">
+        <div class="benchmark-empty">No benchmark data available. Run a benchmark to see quantitative results here.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="done-overlay" id="done-overlay">
+    <div class="done-card">
+      <h2>Review Complete</h2>
+      <p>Your feedback has been saved. Go back to your Claude Code session and tell Claude you're done reviewing.</p>
+      <div class="btn-row">
+        <button onclick="closeDoneDialog()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const EMBEDDED_DATA = {"skill_name": "database-normalization", "runs": [{"id": "eval-0-with_skill", "prompt": "I need to normalize the routes table. Currently it stores origin and destination as text with separate lat/lng columns. I want to extract these into a locations table. Generate a migration that creates a locations table, migrates existing data, updates the routes table to use FK references, and drops the old columns. Also update the route service file if needed.", "eval_id": 0, "outputs": [{"name": "007_normalize_routes_locations.sql", "type": "text", "content": "-- ============================================\n-- NORMALIZE ROUTES: Extract locations into separate table\n-- ============================================\n\n-- 1. Create locations table\nCREATE TABLE IF NOT EXISTS locations (\n  location_id SERIAL PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  address TEXT,\n  latitude DECIMAL(10, 7),\n  longitude DECIMAL(10, 7),\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 2. Add nullable FK columns to routes\nALTER TABLE routes\n  ADD COLUMN origin_location_id INT,\n  ADD COLUMN destination_location_id INT;\n\n-- 3. Migrate existing distinct origins into locations table\nINSERT INTO locations (name, latitude, longitude)\nSELECT DISTINCT ON (r.origin) r.origin, r.origin_latitude, r.origin_longitude\nFROM routes r\nWHERE r.origin IS NOT NULL\n  AND NOT EXISTS (SELECT 1 FROM locations l WHERE l.name = r.origin);\n\n-- 4. Migrate existing distinct destinations not yet inserted\nINSERT INTO locations (name, latitude, longitude)\nSELECT DISTINCT ON (r.destination) r.destination, r.destination_latitude, r.destination_longitude\nFROM routes r\nWHERE r.destination IS NOT NULL\n  AND NOT EXISTS (SELECT 1 FROM locations l WHERE l.name = r.destination);\n\n-- 5. Update routes with FK references to locations\nUPDATE routes r\nSET origin_location_id = l.location_id\nFROM locations l\nWHERE l.name = r.origin;\n\nUPDATE routes r\nSET destination_location_id = l.location_id\nFROM locations l\nWHERE l.name = r.destination;\n\n-- 6. Add NOT NULL constraints and foreign keys\nALTER TABLE routes\n  ALTER COLUMN origin_location_id SET NOT NULL,\n  ALTER COLUMN destination_location_id SET NOT NULL;\n\nALTER TABLE routes\n  ADD CONSTRAINT fk_routes_origin_location\n  FOREIGN KEY (origin_location_id) REFERENCES locations(location_id);\n\nALTER TABLE routes\n  ADD CONSTRAINT fk_routes_destination_location\n  FOREIGN KEY (destination_location_id) REFERENCES locations(location_id);\n\n-- 7. Drop old denormalized columns\nALTER TABLE routes\n  DROP COLUMN origin,\n  DROP COLUMN origin_latitude,\n  DROP COLUMN origin_longitude,\n  DROP COLUMN destination,\n  DROP COLUMN destination_latitude,\n  DROP COLUMN destination_longitude;\n\n-- 8. Add indexes on FK columns for join performance\nCREATE INDEX idx_routes_origin_location ON routes(origin_location_id);\nCREATE INDEX idx_routes_destination_location ON routes(destination_location_id);\n\n-- 9. Add updated_at trigger for locations table\nCREATE TRIGGER update_locations_updated_at\n  BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n"}, {"name": "dispatch.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nconst DISPATCH_SELECT = `*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), vehiclereservations(*), routes(route_id, route_name, estimated_distance, estimated_duration, waypoints, status, created_at, updated_at, deleted_at, origin_location:origin_location_id(*), destination_location:destination_location_id(*))`;\n\nexport async function getDispatches(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"dispatchschedules\")\n    .select(DISPATCH_SELECT)\n    .is(\"deleted_at\", null);\n\n  if (filters.status) query = query.eq(\"status\", filters.status);\n  if (filters.date) query = query.gte(\"scheduled_departure\", `${filters.date}T00:00:00`).lte(\"scheduled_departure\", `${filters.date}T23:59:59`);\n  if (filters.dispatch_number) query = query.ilike(\"dispatch_number\", `%${filters.dispatch_number}%`);\n\n  query = query.order(\"scheduled_departure\", { ascending: false });\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getDispatchesByStatus() {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .select(DISPATCH_SELECT)\n    .is(\"deleted_at\", null);\n\n  if (error) throw error;\n\n  return {\n    pending: data.filter((d) => d.status === \"Pending\"),\n    approved: data.filter((d) => d.status === \"Approved\"),\n    dispatched: data.filter((d) => d.status === \"Dispatched\"),\n    inProgress: data.filter((d) => d.status === \"In Progress\" || d.status === \"Driver Accepted\" || d.status === \"En Route\"),\n    completed: data.filter((d) => d.status === \"Completed\"),\n  };\n}\n\nexport async function getDispatch(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .select(`*, vehicles(*), drivers(*, employees(*)), vehiclereservations(*), routes(route_id, route_name, estimated_distance, estimated_duration, waypoints, status, created_at, updated_at, deleted_at, origin_location:origin_location_id(*), destination_location:destination_location_id(*))`)\n    .eq(\"dispatch_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createDispatch(dispatch) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .insert(dispatch)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateDispatch(id, dispatch) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .update(dispatch)\n    .eq(\"dispatch_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateDispatchStatus(id, status) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .update({ status })\n    .eq(\"dispatch_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n"}, {"name": "route.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nconst ROUTE_SELECT = \"*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)\";\n\nexport async function getRoutes(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"routes\")\n    .select(ROUTE_SELECT)\n    .is(\"deleted_at\", null)\n    .eq(\"status\", \"Active\");\n\n  if (filters.search) {\n    const { data: locs } = await supabase\n      .from(\"locations\")\n      .select(\"location_id\")\n      .ilike(\"name\", `%${filters.search}%`);\n    const ids = locs?.map(l => l.location_id) || [];\n    query = query.or(\n      `route_name.ilike.%${filters.search}%${\n        ids.length\n          ? `,origin_location_id.in.(${ids.join(\",\")}),destination_location_id.in.(${ids.join(\",\")})`\n          : \"\"\n      }`\n    );\n  }\n\n  query = query.order(\"route_name\");\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getRoute(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .select(ROUTE_SELECT)\n    .eq(\"route_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createRoute(route) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .insert(route)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateRoute(id, route) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .update(route)\n    .eq(\"route_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function deleteRoute(id) {\n  const supabase = createClient();\n  const { error } = await supabase\n    .from(\"routes\")\n    .update({ deleted_at: new Date().toISOString(), status: \"Inactive\" })\n    .eq(\"route_id\", id);\n  if (error) throw error;\n}\n"}, {"name": "trip.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nconst ROUTE_SUMMARY = \"route_id, route_name, estimated_distance, estimated_duration, origin_location:origin_location_id(name), destination_location:destination_location_id(name)\";\n\nexport async function getTrips(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"trips\")\n    .select(`*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number), routes(${ROUTE_SUMMARY})`)\n    .is(\"deleted_at\", null);\n\n  if (filters.status) query = query.eq(\"trip_status\", filters.status);\n  if (filters.vehicle_id) query = query.eq(\"vehicle_id\", filters.vehicle_id);\n  if (filters.driver_id) query = query.eq(\"driver_id\", filters.driver_id);\n  if (filters.from_date) query = query.gte(\"start_time\", filters.from_date);\n  if (filters.to_date) query = query.lte(\"start_time\", filters.to_date);\n\n  query = query.order(\"created_at\", { ascending: false });\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getActiveTrips() {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .select(\"*, vehicles(vehicle_id, plate_number, vehicle_name, vehicle_status), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number)\")\n    .in(\"trip_status\", [\"Dispatched\", \"Driver Accepted\", \"Trip Started\", \"En Route\", \"Arrived\"])\n    .is(\"deleted_at\", null)\n    .order(\"start_time\", { ascending: false });\n  if (error) throw error;\n  return data;\n}\n\nexport async function getTrip(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .select(`*, vehicles(*, vehiclecategories(*)), drivers(*, employees(*)), dispatchschedules(*), routes(route_id, route_name, estimated_distance, estimated_duration, waypoints, status, created_at, updated_at, deleted_at, origin_location:origin_location_id(*), destination_location:destination_location_id(*))`)\n    .eq(\"trip_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createTrip(trip) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .insert(trip)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateTrip(id, trip) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update(trip)\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateTripStatus(id, status) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({ trip_status: status })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function startTrip(id, startData) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({\n      trip_status: \"Trip Started\",\n      start_time: new Date().toISOString(),\n      start_odometer: startData.odometer,\n      ...startData,\n    })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n\n  if (error) throw error;\n  return data;\n}\n\nexport async function completeTrip(id, endData) {\n  const supabase = createClient();\n  const distance = endData.end_odometer - (endData.start_odometer || 0);\n  const duration = endData.start_time\n    ? Math.round((new Date() - new Date(endData.start_time)) / 60000)\n    : 0;\n\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({\n      trip_status: \"Completed\",\n      end_time: new Date().toISOString(),\n      end_odometer: endData.end_odometer,\n      distance: distance > 0 ? distance : endData.distance,\n      actual_duration: duration,\n      ...endData,\n    })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n\n  if (error) throw error;\n  return data;\n}\n\nexport async function getTripLocations(tripId) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"gpstracking\")\n    .select(\"*\")\n    .eq(\"trip_id\", tripId)\n    .order(\"recorded_at\", { ascending: true });\n  if (error) throw error;\n  return data;\n}\n\nexport async function getLatestLocations() {\n  const supabase = createClient();\n  const { data: activeTrips } = await supabase\n    .from(\"trips\")\n    .select(\"trip_id, vehicle_id, driver_id\")\n    .in(\"trip_status\", [\"Trip Started\", \"En Route\", \"Arrived\"]);\n\n  if (!activeTrips?.length) return [];\n\n  const vehicleIds = activeTrips.map((t) => t.vehicle_id);\n  const { data, error } = await supabase\n    .rpc(\"get_latest_vehicle_locations\", { vehicle_ids: vehicleIds });\n\n  if (error) {\n    const { data: fallback, error: fallbackError } = await supabase\n      .from(\"gpstracking\")\n      .select(\"*, vehicles(vehicle_id, plate_number, vehicle_name)\")\n      .in(\"vehicle_id\", vehicleIds)\n      .order(\"recorded_at\", { ascending: false });\n\n    if (fallbackError) throw fallbackError;\n\n    const latest = {};\n    fallback.forEach((loc) => {\n      if (!latest[loc.vehicle_id]) {\n        latest[loc.vehicle_id] = loc;\n      }\n    });\n    return Object.values(latest);\n  }\n\n  return data;\n}\n"}], "grading": {"expectations": [{"text": "Migration creates a locations table with location_id, name, latitude, longitude columns", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 6-14: CREATE TABLE IF NOT EXISTS locations (location_id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, ... latitude DECIMAL(10, 7), longitude DECIMAL(10, 7))"}, {"text": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 17-19: ALTER TABLE routes ADD COLUMN origin_location_id INT, ADD COLUMN destination_location_id INT. Lines 51-57 add FK constraints: ALTER TABLE routes ADD CONSTRAINT fk_routes_origin_location FOREIGN KEY (origin_location_id) REFERENCES locations(location_id)"}, {"text": "Migration migrates existing route origin/destination data into the locations table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 22-33: INSERT INTO locations (name, latitude, longitude) SELECT DISTINCT ON (r.origin) r.origin, r.origin_latitude, r.origin_longitude FROM routes r ... followed by similar for destinations. Lines 36-44 then UPDATE routes SET origin_location_id = l.location_id FROM locations l WHERE l.name = r.origin (and similarly for destination)"}, {"text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 60-66: ALTER TABLE routes DROP COLUMN origin, DROP COLUMN origin_latitude, DROP COLUMN origin_longitude, DROP COLUMN destination, DROP COLUMN destination_latitude, DROP COLUMN destination_longitude"}, {"text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data", "passed": true, "evidence": "route.service.js line 3: const ROUTE_SELECT = '*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.service.js line 3 and line 45 include origin_location:origin_location_id(*), destination_location:destination_location_id(*) in route sub-queries. trip.service.js line 3 uses origin_location:origin_location_id(name), destination_location:destination_location_id(name) and line 41 uses origin_location:origin_location_id(*), destination_location:destination_location_id(*)"}], "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}, "execution_metrics": {"output_chars": 5231, "transcript_chars": 0}, "claims": [{"claim": "The migration adds address, created_at, and updated_at columns to the locations table beyond the required columns", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 9, 12-13: address TEXT, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()"}, {"claim": "The migration sets NOT NULL constraints on origin_location_id and destination_location_id after migration", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 47-49: ALTER TABLE routes ALTER COLUMN origin_location_id SET NOT NULL, ALTER COLUMN destination_location_id SET NOT NULL"}, {"claim": "The migration adds indexes on the FK columns for join performance", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 69-70: CREATE INDEX idx_routes_origin_location ON routes(origin_location_id); CREATE INDEX idx_routes_destination_location ON routes(destination_location_id)"}, {"claim": "The route search functionality was updated to query the locations table instead of old origin/destination columns", "type": "factual", "verified": true, "evidence": "route.service.js lines 14-25: getRoutes now queries locations table for search by name and uses origin_location_id.in.() and destination_location_id.in.() in the or filter instead of the old origin.ilike and destination.ilike pattern"}, {"claim": "All three service files (route, dispatch, trip) were updated to use the new join syntax", "type": "factual", "verified": true, "evidence": "route.service.js line 3, dispatch.service.js lines 3 and 45, trip.service.js lines 3 and 41 all use origin_location:origin_location_id(*) or destination_location:destination_location_id(*) joins"}, {"claim": "The migration adds an updated_at trigger for the locations table", "type": "process", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 73-74: CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at()"}], "eval_feedback": {"suggestions": [{"assertion": "Migration creates a locations table with location_id, name, latitude, longitude columns", "reason": "This assertion would pass even if the migration created the table with wrong column types or missing constraints. Consider checking that location_id is a primary key and that latitude/longitude have appropriate numeric types."}, {"assertion": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "reason": "The assertion passes for just adding the columns, but doesn't verify the FK constraint references the correct table. Consider verifying: 'FOREIGN KEY (origin_location_id) REFERENCES locations(location_id)'."}, {"reason": "No assertion checks whether the migration handles edge cases like NULL origin/destination values. The NOT NULL constraint added after data migration could fail if routes have NULL origins."}, {"reason": "No transcript file was found to verify process claims (e.g., whether the executor actually ran the migration or only generated it). The assertions verify output content, not execution."}], "overall": "All 5 assertions pass with strong evidence. The migration is well-structured and complete. The main gap is that assertions verify output generation but not execution - if the intent is to test that the skill runs migrations, an execution verification step would be needed."}}}, {"id": "eval-0-without_skill", "prompt": "I need to normalize the routes table. Currently it stores origin and destination as text with separate lat/lng columns. I want to extract these into a locations table. Generate a migration that creates a locations table, migrates existing data, updates the routes table to use FK references, and drops the old columns. Also update the route service file if needed.", "eval_id": 0, "outputs": [{"name": "007_normalize_routes_locations.sql", "type": "text", "content": "-- ============================================\n-- NORMALIZE ROUTES: EXTRACT LOCATIONS\n-- Creates a locations table, migrates existing\n-- route origin/destination data, and replaces\n-- the text+coord columns with FK references.\n-- ============================================\n\n-- 1. Create locations table\nCREATE TABLE IF NOT EXISTS locations (\n  location_id SERIAL PRIMARY KEY,\n  name VARCHAR(255) NOT NULL,\n  address TEXT,\n  latitude DECIMAL(10, 7),\n  longitude DECIMAL(10, 7),\n  status VARCHAR(50) DEFAULT 'Active',\n  created_at TIMESTAMPTZ DEFAULT NOW(),\n  updated_at TIMESTAMPTZ DEFAULT NOW(),\n  deleted_at TIMESTAMPTZ\n);\n\nCREATE INDEX idx_locations_name ON locations(name);\nCREATE INDEX idx_locations_coords ON locations(latitude, longitude);\n\n-- 2. Add trigger for updated_at\nCREATE TRIGGER update_locations_updated_at\n  BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at();\n\n-- 3. Add FK columns to routes (nullable initially for migration)\nALTER TABLE routes\n  ADD COLUMN origin_location_id INT REFERENCES locations(location_id),\n  ADD COLUMN destination_location_id INT REFERENCES locations(location_id);\n\n-- 4. Migrate existing origin locations\nWITH origin_inserts AS (\n  INSERT INTO locations (name, latitude, longitude)\n  SELECT DISTINCT\n    origin,\n    origin_latitude,\n    origin_longitude\n  FROM routes\n  WHERE origin IS NOT NULL\n    AND deleted_at IS NULL\n  RETURNING location_id, name\n)\nUPDATE routes r\nSET origin_location_id = oi.location_id\nFROM origin_inserts oi\nWHERE r.origin = oi.name\n  AND r.deleted_at IS NULL;\n\n-- 5. Migrate existing destination locations\nWITH destination_inserts AS (\n  INSERT INTO locations (name, latitude, longitude)\n  SELECT DISTINCT\n    destination,\n    destination_latitude,\n    destination_longitude\n  FROM routes\n  WHERE destination IS NOT NULL\n    AND deleted_at IS NULL\n  RETURNING location_id, name\n)\nUPDATE routes r\nSET destination_location_id = di.location_id\nFROM destination_inserts di\nWHERE r.destination = di.name\n  AND r.deleted_at IS NULL;\n\n-- 6. Set NOT NULL after data is migrated\nALTER TABLE routes\n  ALTER COLUMN origin_location_id SET NOT NULL,\n  ALTER COLUMN destination_location_id SET NOT NULL;\n\n-- 7. Create indexes on FK columns\nCREATE INDEX idx_routes_origin_location ON routes(origin_location_id);\nCREATE INDEX idx_routes_destination_location ON routes(destination_location_id);\n\n-- 8. Drop old columns\nALTER TABLE routes\n  DROP COLUMN origin,\n  DROP COLUMN origin_latitude,\n  DROP COLUMN origin_longitude,\n  DROP COLUMN destination,\n  DROP COLUMN destination_latitude,\n  DROP COLUMN destination_longitude;\n"}, {"name": "dispatch.id.page.js", "type": "text", "content": "\"use client\";\n\nimport { useParams, useRouter } from \"next/navigation\";\nimport { useQuery } from \"@tanstack/react-query\";\nimport { getDispatch } from \"@/services/dispatch.service\";\nimport {\n  Card,\n  CardContent,\n  CardHeader,\n  CardTitle,\n} from \"@/components/ui/card\";\nimport { Badge } from \"@/components/ui/badge\";\nimport { Button } from \"@/components/ui/button\";\nimport { Skeleton } from \"@/components/ui/skeleton\";\nimport {\n  ArrowLeft,\n  Route,\n  Clock,\n  Calendar,\n  User,\n  Truck,\n  MapPin,\n  Phone,\n  Mail,\n} from \"lucide-react\";\n\nexport default function DispatchDetailPage() {\n  const params = useParams();\n  const router = useRouter();\n  const dispatchId = params.id;\n\n  const { data: dispatch, isLoading } = useQuery({\n    queryKey: [\"dispatch\", dispatchId],\n    queryFn: () => getDispatch(dispatchId),\n  });\n\n  if (isLoading) {\n    return (\n      <div className=\"space-y-6 p-6\">\n        <Skeleton className=\"h-8 w-48\" />\n        <Skeleton className=\"h-32 w-full\" />\n        <Skeleton className=\"h-32 w-full\" />\n      </div>\n    );\n  }\n\n  if (!dispatch) {\n    return (\n      <div className=\"p-6 text-center text-foreground-muted\">\n        Dispatch not found\n      </div>\n    );\n  }\n\n  return (\n    <div className=\"space-y-6\">\n      <div className=\"flex items-center gap-4\">\n        <Button variant=\"ghost\" size=\"icon\" onClick={() => router.back()}>\n          <ArrowLeft className=\"w-5 h-5\" />\n        </Button>\n        <div>\n          <h1 className=\"text-2xl font-bold text-foreground\">{dispatch.dispatch_number}</h1>\n          <p className=\"text-sm text-foreground-muted\">Dispatch Details</p>\n        </div>\n        <Badge variant={dispatch.status === \"Completed\" ? \"success\" : \"secondary\"}>\n          {dispatch.status}\n        </Badge>\n      </div>\n\n      <div className=\"grid grid-cols-1 lg:grid-cols-2 gap-6\">\n        <Card className=\"border-0 shadow-sm\">\n          <CardHeader className=\"pb-3\">\n            <CardTitle className=\"text-base font-semibold\">Schedule</CardTitle>\n          </CardHeader>\n          <CardContent className=\"space-y-4\">\n            <div className=\"flex items-center gap-3\">\n              <Calendar className=\"w-4 h-4 text-primary\" />\n              <div>\n                <p className=\"text-xs text-foreground-muted\">Scheduled Departure</p>\n                <p className=\"text-sm font-medium text-foreground\">\n                  {new Date(dispatch.scheduled_departure).toLocaleString()}\n                </p>\n              </div>\n            </div>\n            <div className=\"flex items-center gap-3\">\n              <Clock className=\"w-4 h-4 text-primary\" />\n              <div>\n                <p className=\"text-xs text-foreground-muted\">Scheduled Arrival</p>\n                <p className=\"text-sm font-medium text-foreground\">\n                  {dispatch.scheduled_arrival ? new Date(dispatch.scheduled_arrival).toLocaleString() : \"\u00e2\u20ac\u201d\"}\n                </p>\n              </div>\n            </div>\n          </CardContent>\n        </Card>\n\n        <Card className=\"border-0 shadow-sm\">\n          <CardHeader className=\"pb-3\">\n            <CardTitle className=\"text-base font-semibold\">Vehicle & Driver</CardTitle>\n          </CardHeader>\n          <CardContent className=\"space-y-4\">\n            {dispatch.vehicles && (\n              <div className=\"flex items-center gap-3\">\n                <Truck className=\"w-4 h-4 text-primary\" />\n                <div>\n                  <p className=\"text-xs text-foreground-muted\">Vehicle</p>\n                  <p className=\"text-sm font-medium text-foreground\">\n                    {dispatch.vehicles.plate_number} \u00e2\u20ac\u201d {dispatch.vehicles.vehicle_name}\n                  </p>\n                </div>\n              </div>\n            )}\n            {dispatch.drivers && (\n              <div className=\"flex items-center gap-3\">\n                <User className=\"w-4 h-4 text-primary\" />\n                <div>\n                  <p className=\"text-xs text-foreground-muted\">Driver</p>\n                  <p className=\"text-sm font-medium text-foreground\">\n                    {dispatch.drivers.employees?.first_name} {dispatch.drivers.employees?.last_name}\n                  </p>\n                </div>\n              </div>\n            )}\n          </CardContent>\n        </Card>\n      </div>\n\n      {dispatch.vehiclereservations && (\n        <Card className=\"border-0 shadow-sm\">\n          <CardHeader className=\"pb-3\">\n            <CardTitle className=\"text-base font-semibold\">Reservation</CardTitle>\n          </CardHeader>\n          <CardContent>\n            <div className=\"grid grid-cols-2 gap-4\">\n              <div className=\"flex items-center gap-3\">\n                <User className=\"w-4 h-4 text-primary\" />\n                <div>\n                  <p className=\"text-xs text-foreground-muted\">Guest</p>\n                  <p className=\"text-sm font-medium text-foreground\">{dispatch.vehiclereservations.guest_name}</p>\n                </div>\n              </div>\n            </div>\n          </CardContent>\n        </Card>\n      )}\n\n      {dispatch.routes && (\n        <Card className=\"border-0 shadow-sm\">\n          <CardHeader className=\"pb-3\">\n            <CardTitle className=\"text-base font-semibold\">Route</CardTitle>\n          </CardHeader>\n          <CardContent>\n            <div className=\"flex items-center justify-between p-3 rounded-xl bg-muted/30\">\n              <div className=\"flex items-center gap-3\">\n                <Route className=\"w-4 h-4 text-primary\" />\n                <div>\n                  <p className=\"text-sm font-medium text-foreground\">{dispatch.routes.route_name}</p>\n                  <p className=\"text-xs text-foreground-muted\">\n                    {dispatch.routes.origin_location?.name} \u00e2\u2020\u2019 {dispatch.routes.destination_location?.name}\n                  </p>\n                </div>\n              </div>\n              <span className=\"text-sm font-medium\">{dispatch.routes.estimated_distance} km</span>\n            </div>\n          </CardContent>\n        </Card>\n      )}\n    </div>\n  );\n}\n"}, {"name": "dispatch.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nconst ROUTES_WITH_LOCATIONS = \"routes!inner(route_id, route_name, estimated_distance, estimated_duration, status, waypoints, origin_location:origin_location_id(*), destination_location:destination_location_id(*))\";\n\nexport async function getDispatches(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"dispatchschedules\")\n    .select(`*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), vehiclereservations(*), ${ROUTES_WITH_LOCATIONS}`)\n    .is(\"deleted_at\", null);\n\n  if (filters.status) query = query.eq(\"status\", filters.status);\n  if (filters.date) query = query.gte(\"scheduled_departure\", `${filters.date}T00:00:00`).lte(\"scheduled_departure\", `${filters.date}T23:59:59`);\n  if (filters.dispatch_number) query = query.ilike(\"dispatch_number\", `%${filters.dispatch_number}%`);\n\n  query = query.order(\"scheduled_departure\", { ascending: false });\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getDispatchesByStatus() {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .select(\"*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name))\")\n    .is(\"deleted_at\", null);\n\n  if (error) throw error;\n\n  return {\n    pending: data.filter((d) => d.status === \"Pending\"),\n    approved: data.filter((d) => d.status === \"Approved\"),\n    dispatched: data.filter((d) => d.status === \"Dispatched\"),\n    inProgress: data.filter((d) => d.status === \"In Progress\" || d.status === \"Driver Accepted\" || d.status === \"En Route\"),\n    completed: data.filter((d) => d.status === \"Completed\"),\n  };\n}\n\nexport async function getDispatch(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .select(`*, vehicles(*), drivers(*, employees(*)), vehiclereservations(*), ${ROUTES_WITH_LOCATIONS}`)\n    .eq(\"dispatch_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createDispatch(dispatch) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .insert(dispatch)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateDispatch(id, dispatch) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .update(dispatch)\n    .eq(\"dispatch_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateDispatchStatus(id, status) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"dispatchschedules\")\n    .update({ status })\n    .eq(\"dispatch_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n"}, {"name": "route.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nexport async function getRoutes(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"routes\")\n    .select(\"*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)\")\n    .is(\"deleted_at\", null)\n    .eq(\"status\", \"Active\");\n\n  if (filters.search) {\n    query = query.or(\n      `route_name.ilike.%${filters.search}%,origin_location.name.ilike.%${filters.search}%,destination_location.name.ilike.%${filters.search}%`\n    );\n  }\n\n  query = query.order(\"route_name\");\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getRoute(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .select(\"*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)\")\n    .eq(\"route_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createRoute(route) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .insert(route)\n    .select(\"*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)\")\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateRoute(id, route) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"routes\")\n    .update(route)\n    .eq(\"route_id\", id)\n    .select(\"*, origin_location:origin_location_id(*), destination_location:destination_location_id(*)\")\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function deleteRoute(id) {\n  const supabase = createClient();\n  const { error } = await supabase\n    .from(\"routes\")\n    .update({ deleted_at: new Date().toISOString(), status: \"Inactive\" })\n    .eq(\"route_id\", id);\n  if (error) throw error;\n}\n\nexport async function upsertLocation(location) {\n  const supabase = createClient();\n  if (location.location_id) {\n    const { data, error } = await supabase\n      .from(\"locations\")\n      .update(location)\n      .eq(\"location_id\", location.location_id)\n      .select()\n      .single();\n    if (error) throw error;\n    return data;\n  }\n  const { data, error } = await supabase\n    .from(\"locations\")\n    .insert(location)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function getLocations(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"locations\")\n    .select(\"*\")\n    .is(\"deleted_at\", null)\n    .eq(\"status\", \"Active\")\n    .order(\"name\");\n\n  if (filters.search) {\n    query = query.ilike(\"name\", `%${filters.search}%`);\n  }\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n"}, {"name": "routes.page.js", "type": "text", "content": "\"use client\";\n\nimport { useMemo } from \"react\";\nimport { useQuery, useMutation, useQueryClient } from \"@tanstack/react-query\";\nimport { createColumnHelper } from \"@tanstack/react-table\";\nimport { DataTable } from \"@/components/tables/data-table\";\nimport { Badge } from \"@/components/ui/badge\";\nimport { Button } from \"@/components/ui/button\";\nimport { Card, CardContent, CardHeader, CardTitle } from \"@/components/ui/card\";\nimport { getVehicles } from \"@/services/vehicle.service\";\nimport { useRouter } from \"next/navigation\";\nimport { Plus, Route as RouteIcon, MapPin, ArrowRight } from \"lucide-react\";\nimport { getRoutes, deleteRoute } from \"@/services/route.service\";\n\nexport default function RoutesPage() {\n  const router = useRouter();\n  const queryClient = useQueryClient();\n\n  const { data: routes = [], isLoading } = useQuery({\n    queryKey: [\"routes\"],\n    queryFn: () => getRoutes(),\n  });\n\n  const deleteMutation = useMutation({\n    mutationFn: deleteRoute,\n    onSuccess: () => queryClient.invalidateQueries({ queryKey: [\"routes\"] }),\n  });\n\n  const columnHelper = createColumnHelper();\n\n  const columns = useMemo(\n    () => [\n      columnHelper.accessor(\"route_name\", {\n        header: \"Route\",\n        cell: (info) => (\n          <div className=\"flex items-center gap-2\">\n            <RouteIcon className=\"w-4 h-4 text-primary\" />\n            <span className=\"font-medium text-foreground\">{info.getValue()}</span>\n          </div>\n        ),\n      }),\n      columnHelper.accessor(\"origin_location.name\", {\n        header: \"Origin\",\n        id: \"origin\",\n        cell: (info) => (\n          <div className=\"flex items-center gap-1.5\">\n            <MapPin className=\"w-3.5 h-3.5 text-danger\" />\n            <span className=\"text-foreground-secondary\">{info.getValue()}</span>\n          </div>\n        ),\n      }),\n      columnHelper.accessor(\"destination_location.name\", {\n        header: \"Destination\",\n        id: \"destination\",\n        cell: (info) => (\n          <div className=\"flex items-center gap-1.5\">\n            <MapPin className=\"w-3.5 h-3.5 text-success\" />\n            <span className=\"text-foreground-secondary\">{info.getValue()}</span>\n          </div>\n        ),\n      }),\n      columnHelper.accessor(\"estimated_distance\", {\n        header: \"Distance\",\n        cell: (info) => (\n          <span className=\"font-medium text-foreground\">{info.getValue() || \"\u00e2\u20ac\u201d\"} km</span>\n        ),\n      }),\n      columnHelper.accessor(\"estimated_duration\", {\n        header: \"Duration\",\n        cell: (info) => {\n          const mins = info.getValue();\n          if (!mins) return <span className=\"text-foreground-secondary\">\u00e2\u20ac\u201d</span>;\n          const h = Math.floor(mins / 60);\n          const m = mins % 60;\n          return <span className=\"text-foreground-secondary\">{h}h {m}m</span>;\n        },\n      }),\n      columnHelper.accessor(\"status\", {\n        header: \"Status\",\n        cell: (info) => (\n          <Badge variant={info.getValue() === \"Active\" ? \"success\" : \"secondary\"}>\n            {info.getValue()}\n          </Badge>\n        ),\n      }),\n      columnHelper.display({\n        id: \"actions\",\n        header: \"\",\n        cell: (info) => (\n          <div className=\"flex items-center gap-1\">\n            <Button variant=\"ghost\" size=\"icon\" className=\"w-8 h-8\"><RouteIcon className=\"w-4 h-4\" /></Button>\n          </div>\n        ),\n      }),\n    ],\n    []\n  );\n\n  return (\n    <div className=\"space-y-6\">\n      <div className=\"flex items-center justify-between\">\n        <div>\n          <h1 className=\"text-2xl font-bold text-foreground\">Routes</h1>\n          <p className=\"text-foreground-secondary mt-1\">Manage predefined routes</p>\n        </div>\n        <Button className=\"h-10\">\n          <Plus className=\"w-4 h-4 mr-2\" />\n          Add Route\n        </Button>\n      </div>\n\n      <DataTable\n        columns={columns}\n        data={routes}\n        searchPlaceholder=\"Search routes...\"\n      />\n    </div>\n  );\n}\n"}, {"name": "trip.service.js", "type": "text", "content": "import { createClient } from \"@/lib/supabase/client\";\n\nconst ROUTES_WITH_LOCATIONS = \"routes!inner(route_id, route_name, estimated_distance, estimated_duration, status, waypoints, origin_location:origin_location_id(*), destination_location:destination_location_id(*))\";\n\nexport async function getTrips(filters = {}) {\n  const supabase = createClient();\n  let query = supabase\n    .from(\"trips\")\n    .select(`*, vehicles(vehicle_id, plate_number, vehicle_name), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number), ${ROUTES_WITH_LOCATIONS}`)\n    .is(\"deleted_at\", null);\n\n  if (filters.status) query = query.eq(\"trip_status\", filters.status);\n  if (filters.vehicle_id) query = query.eq(\"vehicle_id\", filters.vehicle_id);\n  if (filters.driver_id) query = query.eq(\"driver_id\", filters.driver_id);\n  if (filters.from_date) query = query.gte(\"start_time\", filters.from_date);\n  if (filters.to_date) query = query.lte(\"start_time\", filters.to_date);\n\n  query = query.order(\"created_at\", { ascending: false });\n\n  const { data, error } = await query;\n  if (error) throw error;\n  return data;\n}\n\nexport async function getActiveTrips() {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .select(\"*, vehicles(vehicle_id, plate_number, vehicle_name, vehicle_status), drivers(driver_id, employee_id, employees(first_name, last_name)), dispatchschedules(dispatch_number)\")\n    .in(\"trip_status\", [\"Dispatched\", \"Driver Accepted\", \"Trip Started\", \"En Route\", \"Arrived\"])\n    .is(\"deleted_at\", null)\n    .order(\"start_time\", { ascending: false });\n  if (error) throw error;\n  return data;\n}\n\nexport async function getTrip(id) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .select(`*, vehicles(*, vehiclecategories(*)), drivers(*, employees(*)), dispatchschedules(*), ${ROUTES_WITH_LOCATIONS}`)\n    .eq(\"trip_id\", id)\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function createTrip(trip) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .insert(trip)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateTrip(id, trip) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update(trip)\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function updateTripStatus(id, status) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({ trip_status: status })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n  if (error) throw error;\n  return data;\n}\n\nexport async function startTrip(id, startData) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({\n      trip_status: \"Trip Started\",\n      start_time: new Date().toISOString(),\n      start_odometer: startData.odometer,\n      ...startData,\n    })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n\n  if (error) throw error;\n  return data;\n}\n\nexport async function completeTrip(id, endData) {\n  const supabase = createClient();\n  const distance = endData.end_odometer - (endData.start_odometer || 0);\n  const duration = endData.start_time\n    ? Math.round((new Date() - new Date(endData.start_time)) / 60000)\n    : 0;\n\n  const { data, error } = await supabase\n    .from(\"trips\")\n    .update({\n      trip_status: \"Completed\",\n      end_time: new Date().toISOString(),\n      end_odometer: endData.end_odometer,\n      distance: distance > 0 ? distance : endData.distance,\n      actual_duration: duration,\n      ...endData,\n    })\n    .eq(\"trip_id\", id)\n    .select()\n    .single();\n\n  if (error) throw error;\n  return data;\n}\n\nexport async function getTripLocations(tripId) {\n  const supabase = createClient();\n  const { data, error } = await supabase\n    .from(\"gpstracking\")\n    .select(\"*\")\n    .eq(\"trip_id\", tripId)\n    .order(\"recorded_at\", { ascending: true });\n  if (error) throw error;\n  return data;\n}\n\nexport async function getLatestLocations() {\n  const supabase = createClient();\n  const { data: activeTrips } = await supabase\n    .from(\"trips\")\n    .select(\"trip_id, vehicle_id, driver_id\")\n    .in(\"trip_status\", [\"Trip Started\", \"En Route\", \"Arrived\"]);\n\n  if (!activeTrips?.length) return [];\n\n  const vehicleIds = activeTrips.map((t) => t.vehicle_id);\n  const { data, error } = await supabase\n    .rpc(\"get_latest_vehicle_locations\", { vehicle_ids: vehicleIds });\n\n  if (error) {\n    const { data: fallback, error: fallbackError } = await supabase\n      .from(\"gpstracking\")\n      .select(\"*, vehicles(vehicle_id, plate_number, vehicle_name)\")\n      .in(\"vehicle_id\", vehicleIds)\n      .order(\"recorded_at\", { ascending: false });\n\n    if (fallbackError) throw fallbackError;\n\n    const latest = {};\n    fallback.forEach((loc) => {\n      if (!latest[loc.vehicle_id]) {\n        latest[loc.vehicle_id] = loc;\n      }\n    });\n    return Object.values(latest);\n  }\n\n  return data;\n}\n"}], "grading": {"expectations": [{"text": "Migration creates a locations table with location_id, name, latitude, longitude columns", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 9-19: CREATE TABLE locations (location_id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, latitude DECIMAL(10,7), longitude DECIMAL(10,7), ...)"}, {"text": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 29-31: ALTER TABLE routes ADD COLUMN origin_location_id INT REFERENCES locations(location_id), ADD COLUMN destination_location_id INT REFERENCES locations(location_id)"}, {"text": "Migration migrates existing route origin/destination data into the locations table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 34-67: Two CTEs INSERT DISTINCT origins/destinations INTO locations, then UPDATE routes to set FKs by matching name"}, {"text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 79-85: DROP COLUMN origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude"}, {"text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data", "passed": true, "evidence": "route.service.js:7,28,40,52 uses 'origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.service.js:3 and trip.service.js:3 use 'origin_location:origin_location_id(*), destination_location:destination_location_id(*)'. dispatch.id.page.js:159 and routes.page.js:42,52 reference origin_location?.name / destination_location?.name"}], "summary": {"passed": 5, "failed": 0, "total": 5, "pass_rate": 1.0}, "execution_metrics": null, "timing": null, "claims": [{"claim": "Migration creates indexes on locations(name) and locations(latitude, longitude)", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 21-22: CREATE INDEX idx_locations_name ON locations(name); CREATE INDEX idx_locations_coords ON locations(latitude, longitude)"}, {"claim": "Migration creates indexes on FK columns routes(origin_location_id) and routes(destination_location_id)", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 75-76: CREATE INDEX idx_routes_origin_location ON routes(origin_location_id); CREATE INDEX idx_routes_destination_location ON routes(destination_location_id)"}, {"claim": "Migration sets NOT NULL on FK columns after data migration", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 70-72: ALTER TABLE routes ALTER COLUMN origin_location_id SET NOT NULL, ALTER COLUMN destination_location_id SET NOT NULL"}, {"claim": "Migration adds a trigger for updated_at on locations table", "type": "factual", "verified": true, "evidence": "007_normalize_routes_locations.sql lines 25-26: CREATE TRIGGER update_locations_updated_at BEFORE UPDATE ON locations FOR EACH ROW EXECUTE FUNCTION update_updated_at()"}], "user_notes_summary": null, "eval_feedback": {"suggestions": [{"assertion": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "reason": "The assertion passes on column creation, but doesn't check that NOT NULL is enforced after migration. The migration sets NOT NULL on lines 70-72, which could fail on existing rows with NULL origin/destination \u00e2\u20ac\u201d this edge case is worth an explicit assertion."}, {"assertion": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data", "reason": "All files mentioned in the outputs use the join pattern, but the assertion doesn't verify that getDispatchesByStatus (dispatch.service.js:24-30) and getActiveTrips (trip.service.js:25-35) intentionally omit location joins \u00e2\u20ac\u201d these are real code paths that could accidentally miss the join."}], "overall": "The five expectations are well-focused and all pass with clear evidence. The assertions could be strengthened by checking for post-migration NOT NULL enforcement and verifying that all query paths (including filtered/list endpoints) include the location joins."}}}, {"id": "eval-1-with_skill", "prompt": "Run a full schema diagnostic on the FleetOps database. Read the migrations in supabase/migrations/ and the service files in src/services/ to identify all normalization issues. Give me a report organized by category (redundant columns, derived data, JSONB misuse, 1:1 tables, redundant FKs) with specific table/column references and recommended actions. Focus on the current state after all migrations are applied.", "eval_id": 1, "outputs": [{"name": "fleetops_schema_diagnostic_report.md", "type": "text", "content": "# FleetOps Schema Diagnostic Report\n\n**Date:** 2026-07-27\n**Scope:** All migrations (001\u00e2\u20ac\u201c006) applied in order\n**Tables remaining:** 23 (after 005 cleanup dropped 17+ tables)\n**Service files analyzed:** 12 in `src/services/`\n\n---\n\n## 1. Redundant / Duplicated Columns\n\n### 1.1 License info in `employees` vs `drivers`\n\n| Table | Columns |\n|-------|---------|\n| `employees` | `license_number VARCHAR(100)`, `license_expiry DATE` |\n| `drivers` | `license_number VARCHAR(100)`, `license_expiry DATE` |\n\nEvery driver is an employee (via `drivers.employee_id \u00e2\u2020\u2019 employees`), so the copies on `employees` are redundant for any driver record. Only non-driver employees would need license info on `employees`, but a license is logically a driver attribute.\n\n**Recommendation:** Drop `employees.license_number` and `employees.license_expiry`. Migrate any existing data to `drivers` for driver records, then remove the columns.\n\n### 1.2 Origin/destination location text in `routes`, `trips`, `vehiclereservations`\n\n| Table | Columns |\n|-------|---------|\n| `routes` | `origin`, `origin_latitude`, `origin_longitude`, `destination`, `destination_latitude`, `destination_longitude` |\n| `trips` | `origin`, `destination` (text only, no coordinates) |\n| `vehiclereservations` | `pickup_location`, `pickup_latitude`, `pickup_longitude`, `dropoff_location`, `dropoff_latitude`, `dropoff_longitude` |\n\nThree tables model the same concept (a location with a name and optional coordinates) in slightly different column names. `trips.origin/destination` is a snapshot of route text at trip time (justified for historical accuracy), but `routes` and `vehiclereservations` represent the same kind of location data in parallel structures.\n\n**Recommendation:** Extract a `locations` table (location_id, name, address, latitude, longitude). Replace `routes.origin/origin_latitude/origin_longitude` with `route.origin_location_id \u00e2\u2020\u2019 locations`, and similarly `routes.destination_location_id`. For `vehiclereservations`, also replace with `pickup_location_id` and `dropoff_location_id`. Keep `trips.origin/destination` as historical snapshots (they record what was displayed at trip time).\n\n### 1.3 Estimated distance/duration in `routes`, `dispatchschedules`, and `trips`\n\n| Table | Columns |\n|-------|---------|\n| `routes` | `estimated_distance`, `estimated_duration` |\n| `dispatchschedules` | `estimated_distance`, `estimated_duration` |\n| `trips` | `estimated_distance`, `estimated_duration` |\n\n`dispatchschedules` has `route_id` FK, `trips` has both `route_id` and `dispatch_id` FKs. The estimated values on `dispatchschedules` and `trips` are copies of route data.\n\n**Recommendation:** Drop `dispatchschedules.estimated_distance` and `dispatchschedules.estimated_duration` \u00e2\u20ac\u201d these are always derivable from the linked route. For `trips`, the `estimated_distance`/`estimated_duration` may be kept as a snapshot of what was planned vs actual (they represent pre-trip estimates that could differ from route defaults), so they are borderline acceptable.\n\n---\n\n## 2. JSONB Misuse\n\n### 2.1 `roles.permissions` JSONB\n\nOriginally created with normalized `permissions` + `role_permissions` tables (migration 001). Migration 005 denormalized into `roles.permissions JSONB DEFAULT '[]'` and dropped both tables.\n\n**Issues:**\n- Cannot enforce referential integrity on permission values\n- Cannot query \"which roles have permission X\" efficiently (requires `jsonb_array_elements`)\n- RLS policies cannot check individual permissions \u00e2\u20ac\u201d they rely on `has_role()` which checks role name only\n- Application code must parse JSONB to check permissions client-side\n- Migration 005's comment says \"Simplify RBAC\" but sacrifices data integrity\n\n**Recommendation:** Restore `permissions` and `role_permissions` tables if the application needs to check granular permissions. If roles are only ever checked by name (current RLS only checks role name), JSONB is acceptable but document that granular permission checks are not supported.\n\n### 2.2 `vehicles.documents` JSONB\n\nOriginally a proper `vehicledocuments` table (migration 001) with columns: `document_type`, `document_number`, `file_url`, `expiry_date`, `status`. Migration 005 merged into `vehicles.documents JSONB` and dropped the table.\n\n**Issues:**\n- Cannot query \"which vehicles have expired insurance\" or \"count documents by type\"\n- The notification trigger for document expiry (`notify_document_expiry`) was dropped (005:117-118) because the structured table no longer exists\n- File URLs and expiry dates inside JSONB have no type enforcement\n- No UNIQUE constraint possible on document number\n\n**Recommendation:** Restore `vehicledocuments` table. The structured document data (type, number, file_url, expiry_date, status) is not genuinely schema-less. Reinstate the `notify_document_expiry` trigger.\n\n### 2.3 `routes.waypoints` JSONB\n\n**Assessment:** Acceptable. Waypoints are genuinely variable-length data with no fixed schema. The service layer (`route.service.js`) does not query into waypoints \u00e2\u20ac\u201d it reads/writes the full column as a unit.\n\n**Recommendation:** Keep as JSONB. Add a CHECK constraint to validate shape if needed.\n\n### 2.4 `vehiclereservations.ai_vehicle_recommendation` and `ai_driver_recommendation` JSONB\n\n**Assessment:** Borderline. These contain structured fields (vehicle_id, score, reasons) that could be relational. However, they are written once by the AI service and read as opaque blobs in the reservation detail view. The service files never query into these JSONB fields with path operators.\n\n**Recommendation:** Keep as JSONB but document that if querying becomes necessary (e.g., \"which reservations got recommended vehicle X\"), extract to `ai_recommendations` instead.\n\n---\n\n## 3. Derived / Aggregate Data Stored as Columns\n\n### 3.1 `drivers` aggregate columns\n\n| Column | Derivation |\n|--------|-----------|\n| `performance_score DECIMAL(3,2)` | From `tripperformance.smooth_driving_score`, dispatch feedback, etc. |\n| `total_trips INT` | `SELECT COUNT(*) FROM trips WHERE driver_id = drivers.driver_id` |\n| `total_distance DECIMAL(12,2)` | `SELECT COALESCE(SUM(distance),0) FROM trips WHERE driver_id = drivers.driver_id` |\n| `total_hours DECIMAL(10,2)` | `SELECT COALESCE(SUM(actual_duration),0) FROM trips WHERE driver_id = drivers.driver_id` |\n| `rating DECIMAL(2,1)` | `SELECT AVG(customer_rating) FROM tripperformance WHERE driver_id = drivers.driver_id` |\n\n**Usage in services:** `ai.service.js:147-152` reads `performance_score` and `total_trips` to score drivers for dispatch recommendations. `report.service.js:103` reads `performance_score`, `total_trips`, `rating` for the driver performance report.\n\n**Recommendation:** These are write-heavy aggregates (every trip completion changes them). Keep as cached columns but add a trigger on `trips` and `tripperformance` to recalculate them on INSERT/UPDATE/DELETE. Currently there is no trigger keeping them in sync \u00e2\u20ac\u201d they will drift out of date.\n\n### 3.2 `tripcostanalysis.total_cost` and `tripcostanalysis.cost_per_km`\n\n| Column | Derivation |\n|--------|-----------|\n| `total_cost` | `fuel_cost + toll_fees + parking_fees + driver_cost + maintenance_cost + miscellaneous_cost` |\n| `cost_per_km` | `total_cost / trips.distance` |\n\n**Recommendation:** `total_cost` is a simple sum of other columns in the same row \u00e2\u20ac\u201d it should be a generated column (`GENERATED ALWAYS AS (...) STORED`). `cost_per_km` depends on `trips.distance`, which is in a different table, so it cannot be a generated column \u00e2\u20ac\u201d compute it in a view or application code.\n\n### 3.3 `fuelrecords.price_per_liter`\n\nDerivable as `amount / liters`. Only one of (liters, amount, price_per_liter) is strictly needed.\n\n**Usage:** `fuel.service.js:54` computes `avgCostPerLiter` from `amount / liters` rather than reading `price_per_liter`.\n\n**Recommendation:** Drop `price_per_liter` or make it a generated column.\n\n### 3.4 `vehiclemaintenance.next_schedule_date` and `next_schedule_mileage`\n\nPartially derivable from `maintenance_date`, `mileage_at_service`, `recurring_interval_days`, `recurring_interval_km`. However, the business logic for recalculating these may involve dispatcher discretion (manual override). Acceptable to keep as editable columns.\n\n---\n\n## 4. Columns with the Same Meaning Across Tables\n\n### 4.1 Location data (3 representations)\n\nSee \u00c2\u00a71.2 above \u00e2\u20ac\u201d same root cause.\n\n### 4.2 Estimated distance/duration (3 tables)\n\nSee \u00c2\u00a71.3 above \u00e2\u20ac\u201d same root cause.\n\n### 4.3 `vehiclereservations.guest_name/guest_phone/guest_email` + parent-system `guest_id`\n\nThese are explicitly documented as \"denormalized cache\" of parent system data (004 migration comments). The parent system is the source of truth; these are cached for quick display.\n\n**Recommendation:** Acceptable as cached data, but add a `guest_synced_at TIMESTAMPTZ` column to track cache staleness.\n\n---\n\n## 5. 1:1 Tables That Could Be Merged\n\n### 5.1 `tripcostanalysis` \u00e2\u2020\u201d `trips`\n\nEvery `tripcostanalysis` record references exactly one `trip` via `tripcostanalysis.trip_id \u00e2\u2020\u2019 trips.trip_id (UNIQUE)`. The seven cost columns (fuel_cost, toll_fees, parking_fees, driver_cost, maintenance_cost, miscellaneous_cost, total_cost, cost_per_km) are attributes of the trip itself.\n\n**Service usage:** No service file queries `tripcostanalysis` directly \u00e2\u20ac\u201d not used in any `src/services/` file. It's only populated by triggers or background processes.\n\n**Recommendation:** Merge into `trips` as nullable columns (`cost_fuel`, `cost_toll`, `cost_parking`, `cost_driver`, `cost_maintenance`, `cost_misc`, `cost_total`, `cost_per_km`). Drop the `tripcostanalysis` table.\n\n### 5.2 `tripperformance` \u00e2\u2020\u201d `trips`\n\nEvery `tripperformance` record references exactly one `trip` via `tripperformance.trip_id \u00e2\u2020\u2019 trips.trip_id (UNIQUE)`. Columns are: `driver_id`, `on_time_completion`, `time_variance`, `fuel_efficiency`, `avg_speed`, `max_speed`, `idle_time`, `smooth_driving_score`, `customer_rating`, `notes`.\n\n**Note:** Many of these columns overlap with `trips` (which already has `avg_speed`, `max_speed`, `idle_time`). `tripperformance.avg_speed`/`max_speed`/`idle_time` duplicate `trips.avg_speed`/`max_speed`/`idle_time`.\n\n**Service usage:** Not queried directly in any `src/services/` file. The driver performance report (`report.service.js:101-103`) reads aggregate columns from `drivers` instead.\n\n**Recommendation:** Merge unique tripperformance columns into `trips` (`on_time_completion`, `time_variance`, `fuel_efficiency`, `smooth_driving_score`, `customer_rating`, `performance_notes`). Drop the redundant `avg_speed`/`max_speed`/`idle_time` copies from `tripperformance`. Drop `tripperformance.driver_id` (already on `trips`). Drop the `tripperformance` table.\n\n### 5.3 `drivers` \u00e2\u2020\u201d `employees`\n\nEvery driver is an employee (FK `drivers.employee_id` is NOT NULL). Not all employees are drivers. This is a genuine subtype/supertype relationship.\n\n**Recommendation:** Keep separate \u00e2\u20ac\u201d this is correct for 1:0..1 relationships. Non-driver employees should not have driver-specific columns cluttering the `employees` table.\n\n---\n\n## 6. Redundant FK References\n\n### 6.1 `gpstracking.vehicle_id` and `gpstracking.driver_id`\n\nThe `gpstracking.trip_id` FK already links to `trips`, which has `vehicle_id` and `driver_id`. Both `vehicle_id` and `driver_id` on `gpstracking` are derivable through the trip join.\n\n| Column | Reachable via |\n|--------|--------------|\n| `vehicle_id` | `trip_id \u00e2\u2020\u2019 trips.vehicle_id` |\n| `driver_id` | `trip_id \u00e2\u2020\u2019 trips.driver_id` |\n\n**However:**\n- `trip_id` is nullable \u00e2\u20ac\u201d GPS data can exist without an active trip\n- `getLatestLocations()` in `trip.service.js:151` queries `gpstracking` directly by `vehicle_id` (no join to trips). This is a hot path (checking latest positions for active vehicles).\n\n**Recommendation:** Keep `vehicle_id` for time-series query performance (it's queried by vehicle_id without a trip join). Drop `driver_id` \u00e2\u20ac\u201d it is never queried directly from `gpstracking` in any service file. If driver-specific GPS lookups are needed, they can join through `trip_id`.\n\n### 6.2 `dispatchschedules.vehicle_id` and `dispatchschedules.driver_id`\n\nReachable through `reservation_id \u00e2\u2020\u2019 vehiclereservations.vehicle_id/driver_id`. However:\n- `reservation_id` is nullable on dispatchschedules\n- The dispatch represents a concrete assignment that may differ from reservation defaults\n- Service code queries dispatches directly without joining through reservations\n\n**Recommendation:** Keep both \u00e2\u20ac\u201d this is intentional denormalization for dispatch snapshot integrity.\n\n### 6.3 `tripperformance.driver_id`\n\nReachable through `trip_id \u00e2\u2020\u2019 trips.driver_id`. The trip already knows which driver performed it.\n\n**Recommendation:** Drop \u00e2\u20ac\u201d the driver is always reachable from `trips.driver_id`. See \u00c2\u00a75.2 for the full merge recommendation.\n\n---\n\n## 7. Additional Issues\n\n### 7.1 Polymorphic foreign keys\n\n| Table | Columns | Issue |\n|-------|---------|-------|\n| `audit_logs` | `resource VARCHAR(100), resource_id INT` | No FK enforcement \u00e2\u20ac\u201d can reference any table or a nonexistent row |\n| `ai_recommendations` | `reference_type VARCHAR(100), reference_id INT` | Same polymorphic anti-pattern |\n| `notifications` | `reference_type VARCHAR(100), reference_id INT` | Same issue |\n\n**Recommendation:** Replace with separate nullable FK columns per resource type (e.g., `trip_id INT REFERENCES trips`, `vehicle_id INT REFERENCES vehicles`) or accept the polymorphic pattern as a pragmatic trade-off for a generic notification/audit system. Document that no referential integrity is enforced.\n\n### 7.2 `notifications.employee_id` vs `notifications.user_id`\n\nTwo columns reference the recipient, one via employee FK and one via auth.users FK. This is confusing and redundant \u00e2\u20ac\u201d one should be sufficient.\n\n**Recommendation:** Pick one. `employee_id` is preferred (it's already Fked to employees). Drop `user_id` and adjust the `getCurrentEmployee()` lookup pattern in notification queries.\n\n### 7.3 `trips.estimated_duration` vs `trips.actual_duration`\n\n`estimated_duration` is an INT (minutes), while `actual_duration` is also an INT. But `actual_duration` is computed in `completeTrip()` as `Math.round((new Date() - new Date(endData.start_time)) / 60000)` and stored as INT. The column type is correct but the name `estimated_duration` vs `actual_duration` could be clearer (both are INT, right now).\n\n**Recommendation:** Minor \u00e2\u20ac\u201d rename `trips.estimated_duration` to `trips.estimated_duration_min` and `trips.actual_duration` to `trips.actual_duration_min` for clarity, or add column comments.\n\n### 7.4 `trips.distance` re-computed in application code\n\nIn `trip.service.js:101`:\n```js\nconst distance = endData.end_odometer - (endData.start_odometer || 0);\n```\nThis is computed client-side and then stored. The database has `start_odometer` and `end_odometer` \u00e2\u20ac\u201d `distance` is derivable from them.\n\n**Recommendation:** Make `trips.distance` a generated column: `GENERATED ALWAYS AS (end_odometer - start_odometer) STORED`. Or keep as-is since it allows manual override.\n\n---\n\n## Summary of Recommended Actions\n\n| Priority | Category | Action | Affected Tables |\n|----------|----------|--------|----------------|\n| **High** | Redundant columns | Drop `employees.license_number`, `employees.license_expiry` | `employees`, `drivers` |\n| **High** | JSONB misuse | Restore `vehicledocuments` table from JSONB blob | `vehicles` |\n| **High** | Derived data | Add triggers to sync `drivers.performance_score`, `total_trips`, `total_distance`, `total_hours`, `rating` | `drivers` |\n| **High** | Redundant FKs | Drop `gpstracking.driver_id` | `gpstracking` |\n| **Medium** | JSONB misuse | Consider restoring `permissions`/`role_permissions` if granular permission checks needed | `roles` |\n| **Medium** | 1:1 tables | Merge `tripcostanalysis` into `trips` as nullable columns | `tripcostanalysis`, `trips` |\n| **Medium** | 1:1 tables | Merge `tripperformance` into `trips` (dedup avg_speed/max_speed/idle_time) | `tripperformance`, `trips` |\n| **Medium** | Redundant columns | Drop `dispatchschedules.estimated_distance`, `estimated_duration` | `dispatchschedules` |\n| **Medium** | Derived data | Make `tripcostanalysis.total_cost` a generated column | `tripcostanalysis` |\n| **Medium** | Derived data | Drop `fuelrecords.price_per_liter` or make generated | `fuelrecords` |\n| **Low** | Same-meaning columns | Extract `locations` table; reference from `routes` and `vehiclereservations` | `routes`, `vehiclereservations`, new `locations` |\n| **Low** | Redundant FKs | Drop `tripperformance.driver_id` | `tripperformance` |\n| **Low** | Polymorphic FKs | Consider replacing `audit_logs.resource+resource_id` with typed FKs | `audit_logs`, `ai_recommendations`, `notifications` |\n| **Low** | Redundant columns | Drop `notifications.user_id` (keep `employee_id`) | `notifications` |\n| **Low** | Derived data | Make `trips.distance` a generated column | `trips` |\n"}], "grading": {"expectations": [{"text": "Report identifies redundant columns across tables with specific table/column names", "passed": true, "evidence": "Section 1 (Redundant / Duplicated Columns) identifies: \u00c2\u00a71.1 license_number and license_expiry on both employees and drivers; \u00c2\u00a71.2 origin/destination location columns repeated across routes, trips, and vehiclereservations with full column lists; \u00c2\u00a71.3 estimated_distance and estimated_duration on routes, dispatchschedules, and trips. Also \u00c2\u00a74 extends the same analysis. All references include explicit table.column names."}, {"text": "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)", "passed": true, "evidence": "Section 3 (Derived / Aggregate Data Stored as Columns) lists: \u00c2\u00a73.1 drivers.performance_score, drivers.total_trips, drivers.total_distance, drivers.total_hours, drivers.rating with SQL derivations; \u00c2\u00a73.2 tripcostanalysis.total_cost and cost_per_km; \u00c2\u00a73.3 fuelrecords.price_per_liter; \u00c2\u00a73.4 vehiclemaintenance.next_schedule_date and next_schedule_mileage. The example drivers.performance_score is explicitly covered in \u00c2\u00a73.1 with its derivation from tripperformance data."}, {"text": "Report identifies JSONB columns that could be normalized into relational tables", "passed": true, "evidence": "Section 2 (JSONB Misuse) covers: \u00c2\u00a72.1 roles.permissions JSONB (recommends restoring normalized permissions/role_permissions tables); \u00c2\u00a72.2 vehicles.documents JSONB (recommends restoring vehicledocuments table, notes that notify_document_expiry trigger was dropped as a consequence); \u00c2\u00a72.3 routes.waypoints JSONB (assessed as acceptable); \u00c2\u00a72.4 vehiclereservations.ai_vehicle_recommendation and ai_driver_recommendation JSONB (assessed as borderline). Each includes specific rationale and recommendation."}, {"text": "Report identifies 1:1 tables that could potentially be merged", "passed": true, "evidence": "Section 5 (1:1 Tables That Could Be Merged) covers: \u00c2\u00a75.1 tripcostanalysis \u00e2\u2020\u201d trips (UNIQUE FK, all columns are trip attributes, not queried in any service file); \u00c2\u00a75.2 tripperformance \u00e2\u2020\u201d trips (UNIQUE FK, columns overlap with trips including duplicated avg_speed/max_speed/idle_time); \u00c2\u00a75.3 drivers \u00e2\u2020\u201d employees (correctly assessed as keep separate \u00e2\u20ac\u201d genuine subtype relationship). Each has a clear merge recommendation."}, {"text": "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)", "passed": true, "evidence": "Section 6 (Redundant FK References) covers: \u00c2\u00a76.1 gpstracking.vehicle_id and gpstracking.driver_id \u00e2\u20ac\u201d notes both are derivable through trips (vehicle_id via trips.vehicle_id, driver_id via trips.driver_id) and recommends dropping driver_id while keeping vehicle_id for query performance; \u00c2\u00a76.2 dispatchschedules.vehicle_id and driver_id (assessed as intentional denormalization); \u00c2\u00a76.3 tripperformance.driver_id (recommended to drop, reachable via trips.driver_id)."}, {"text": "Report is organized by category and includes recommended actions", "passed": true, "evidence": "Report is organized into 7 numbered categories: 1. Redundant/Duplicated Columns, 2. JSONB Misuse, 3. Derived/Aggregate Data, 4. Same-Meaning Columns, 5. 1:1 Tables, 6. Redundant FK References, 7. Additional Issues. Every finding includes a specific recommendation (e.g., 'Drop employees.license_number and employees.license_expiry', 'Restore vehicledocuments table', 'Merge tripcostanalysis into trips'). The final Summary of Recommended Actions table prioritizes actions as High/Medium/Low."}], "summary": {"passed": 6, "failed": 0, "total": 6, "pass_rate": 1.0}, "execution_metrics": {"output_chars": 16947, "transcript_chars": 0}, "timing": null, "claims": [{"claim": "23 tables remain after migration 005 cleanup dropped 17+ tables", "type": "factual", "verified": true, "evidence": "Report header states 'Tables remaining: 23 (after 005 cleanup dropped 17+ tables)'"}, {"claim": "Service files analyzed: 12 in src/services/", "type": "process", "verified": true, "evidence": "Report header states 'Service files analyzed: 12 in src/services/'"}, {"claim": "Migration 005 denormalized roles.permissions from normalized tables", "type": "factual", "verified": true, "evidence": "Section 2.1: 'Originally created with normalized permissions + role_permissions tables (migration 001). Migration 005 denormalized into roles.permissions JSONB DEFAULT '[]' and dropped both tables.'"}, {"claim": "notification trigger for document expiry (notify_document_expiry) was dropped at migration 005 lines 117-118", "type": "process", "verified": true, "evidence": "Section 2.2: 'The notification trigger for document expiry (notify_document_expiry) was dropped (005:117-118) because the structured table no longer exists'"}, {"claim": "No service file queries tripcostanalysis directly", "type": "factual", "verified": true, "evidence": "Section 5.1: 'No service file queries tripcostanalysis directly \u00e2\u20ac\u201d not used in any src/services/ file. It's only populated by triggers or background processes.'"}, {"claim": "tripperformance is not queried directly in any src/services/ file", "type": "factual", "verified": true, "evidence": "Section 5.2: 'Not queried directly in any src/services/ file. The driver performance report (report.service.js:101-103) reads aggregate columns from drivers instead.'"}, {"claim": "getLatestLocations() in trip.service.js:151 queries gpstracking directly by vehicle_id", "type": "factual", "verified": true, "evidence": "Section 6.1: 'getLatestLocations() in trip.service.js:151 queries gpstracking directly by vehicle_id (no join to trips). This is a hot path (checking latest positions for active vehicles).'"}], "user_notes_summary": {"uncertainties": [], "needs_review": [], "workarounds": []}, "eval_feedback": {"suggestions": [{"assertion": "Report identifies redundant columns across tables with specific table/column names", "reason": "This assertion passes on column name presence alone \u00e2\u20ac\u201d a hallucinated report listing plausible-sounding but nonexistent columns would also pass. Consider adding a ground-truth check that verifies the named columns actually exist in the real migration files."}], "overall": "All 6 expectations pass with strong, specific evidence. The report is thorough, well-organized, and grounded in concrete references to migration line numbers and service file locations. The evals are well-designed and cover the main schema normalization categories. The only gap is that assertions rely entirely on the report's self-reported claims without verifying column existence against the actual migration files \u00e2\u20ac\u201d but this is a practical limitation of grading an unstructured text output."}}}, {"id": "eval-1-without_skill", "prompt": "Run a full schema diagnostic on the FleetOps database. Read the migrations in supabase/migrations/ and the service files in src/services/ to identify all normalization issues. Give me a report organized by category (redundant columns, derived data, JSONB misuse, 1:1 tables, redundant FKs) with specific table/column references and recommended actions. Focus on the current state after all migrations are applied.", "eval_id": 1, "outputs": [{"name": "schema-diagnostic-report.md", "type": "text", "content": "# FleetOps Schema Diagnostic Report\n\n**Date:** 2026-07-27\n**Scope:** All 6 migrations applied (001\u00e2\u20ac\u201c006)\n**Tables remaining:** 25\n\n---\n\n## 1. REDUNDANT COLUMNS\n\n### 1a. `drivers.license_number`, `drivers.license_expiry`\n- **Tables:** `employees.license_number`, `employees.license_expiry` vs. `drivers.license_number`, `drivers.license_expiry`\n- **Issue:** `employees` already stores license fields. Since `drivers.employee_id` FK \u00e2\u2020\u2019 `employees`, these columns are duplicated.\n- **Action:** Drop `drivers.license_number`, `drivers.license_expiry`. Access via `employees` join.\n\n### 1b. `drivers.current_latitude`, `drivers.current_longitude`, `drivers.last_location_update`\n- **Issue:** Real-time driver location is also stored in `gpstracking` (per-trip GPS breadcrumbs). This denormalized copy drifts if the app fails to update it.\n- **Action:** Drop these columns from `drivers`. Derive current location via `SELECT DISTINCT ON (driver_id) ... FROM gpstracking ORDER BY driver_id, recorded_at DESC`.\n\n### 1c. `trips.estimated_distance`, `trips.estimated_duration`\n- **Tables:** `routes.estimated_distance`, `routes.estimated_duration` vs. `trips.estimated_distance`, `trips.estimated_duration`\n- **Issue:** `trips.route_id` \u00e2\u2020\u2019 `routes`. The route's estimates are copied onto the trip row.\n- **Action:** Drop `trips.estimated_distance`, `trips.estimated_duration`. Compute at query time from the joined route.\n\n### 1d. `dispatchschedules.estimated_distance`, `dispatchschedules.estimated_duration`\n- **Same issue as 1c.** `dispatchschedules.route_id` \u00e2\u2020\u2019 `routes`.\n- **Action:** Drop from `dispatchschedules`.\n\n### 1e. `trips.avg_speed`, `trips.max_speed`, `trips.idle_time`\n- **Table:** `tripperformance.avg_speed`, `tripperformance.max_speed`, `tripperformance.idle_time`\n- **Issue:** These three columns are duplicated between `trips` and `tripperformance` (which is 1:1 with trips).\n- **Action:** Drop from `trips`. Keep only in `tripperformance` (or merge that table into `trips` \u00e2\u20ac\u201d see \u00c2\u00a74).\n\n### 1f. `trips.distance` vs. computed odometer delta\n- **Issue:** `trips.distance` is stored explicitly, but the service code (`trip.service.js:101`) computes `distance = end_odometer - start_odometer`. The stored column can drift from the computed value.\n- **Action:** Keep as cached computed column or drop and compute on read.\n\n### 1g. `vehicles.seating_capacity`\n- **Tables:** `vehiclecategories.seating_capacity` vs. `vehicles.seating_capacity`\n- **Issue:** The category defines a default capacity; the vehicle row copies it with a default of 4.\n- **Action:** Keep only if vehicles genuinely have different capacity than their category. Otherwise drop and join to category.\n\n### 1h. `vehicles.fuel_level`\n- **Issue:** This is a scalar state column that represents a point-in-time measurement. It is not updated by any trigger and can only be kept current via application logic. It duplicates the data in `fuelrecords` (last known fill level).\n- **Action:** Derive from latest `fuelrecords.odometer` + consumption model, or drop.\n\n### 1i. `fuelrecords.price_per_liter`\n- **Issue:** Computable as `amount / liters`. Storing it introduces a possible inconsistency.\n- **Action:** Drop; compute as a generated column or on read.\n\n---\n\n## 2. DERIVED / AGGREGATE DATA\n\n### 2a. `drivers.performance_score`, `drivers.total_trips`, `drivers.total_distance`, `drivers.total_hours`, `drivers.rating`\n- **Tables:** `drivers` (aggregate columns) vs. `trips` + `tripperformance` + `tripcostanalysis`\n- **Issue:** These are materialized aggregates that must be refreshed after every trip. The application may forget to update them, leading to stale reports.\n- **Action:** Replace with a view or materialized view (`driver_aggregates`) that computes from `trips`, `tripperformance`, `tripcostanalysis`.\n\n### 2b. `tripcostanalysis.total_cost`\n- **Issue:** `fuel_cost + toll_fees + parking_fees + driver_cost + maintenance_cost + miscellaneous_cost`. Computed but stored.\n- **Action:** Replace with a generated column (`GENERATED ALWAYS AS (...) STORED`) or drop.\n\n### 2c. `tripcostanalysis.cost_per_km`\n- **Issue:** `total_cost / trip.distance`. Computed but stored.\n- **Action:** Drop or use generated column.\n\n---\n\n## 3. JSONB MISUSE\n\n### 3a. `roles.permissions` (added in migration 005)\n- **Table:** `roles.permissions JSONB DEFAULT '[]'`\n- **Issue:** Replaced the normalized `role_permissions` / `permissions` tables with a JSONB array. This loses referential integrity, makes permission queries require `jsonb_array_elements`, and prevents FK enforcement.\n- **Action:** **Strongly consider restoring a normalized `role_permissions` join table.** If JSONB must stay, add a CHECK constraint validating the structure and document that joins must be done in application code.\n\n### 3b. `vehicles.documents` (added in migration 005)\n- **Table:** `vehicles.documents JSONB DEFAULT '[]'`\n- **Issue:** Replaced `vehicledocuments` table. Loses: FK to a document type table, per-document expiry indexing, per-document status tracking.\n- **Action:** If document metadata needs querying (expiry notifications, filtering by type), restore the normalized table. Keep JSONB only if documents are purely display metadata.\n\n### 3c. `vehiclereservations.ai_vehicle_recommendation`, `vehiclereservations.ai_driver_recommendation`\n- **Table:** `vehiclereservations` (JSONB columns)\n- **Issue:** These duplicate what `ai_recommendations` exists for. The AI recommendation table already supports `reference_type = 'reservation'` + `reference_id`.\n- **Action:** Drop these two JSONB columns from `vehiclereservations`. Use `ai_recommendations` with a FK.\n\n### 3d. `ai_insights.related_data`\n- **Table:** `ai_insights.related_data JSONB`\n- **Issue:** Generic catch-all JSONB with no schema validation. Data quality degrades over time.\n- **Action:** Define a documented schema contract. Add a CHECK constraint (`jsonb_typeof(related_data) = 'object'`).\n\n### 3e. `routes.waypoints`\n- **Status:** ACCEPTABLE \u00e2\u20ac\u201d waypoints are inherently schema-less geo coordinate lists. No action needed.\n\n### 3f. `vehiclemaintenance.inspection_checklist`\n- **Status:** ACCEPTABLE \u00e2\u20ac\u201d checklist structure varies by maintenance type. Merged from `vehicleinspection` in m005. Valid JSONB use.\n\n---\n\n## 4. 1:1 TABLES (Merge Candidates)\n\n### 4a. `tripcostanalysis` \u00e2\u2020\u2019 `trips`\n- **Relationship:** 1:1 with `trips` (`tripcostanalysis.trip_id` FK, no UNIQUE constraint declared but logically 1:1)\n- **Columns:** `fuel_cost`, `toll_fees`, `parking_fees`, `driver_cost`, `maintenance_cost`, `miscellaneous_cost`, `total_cost` (derived), `cost_per_km` (derived)\n- **Action:** Merge columns into `trips` table. Use generated columns for `total_cost` and `cost_per_km`. Drop `tripcostanalysis`.\n\n### 4b. `tripperformance` \u00e2\u2020\u2019 `trips`\n- **Relationship:** 1:1 with `trips` (`tripperformance.trip_id` FK, also 1:1 logically)\n- **Columns:** `on_time_completion`, `time_variance`, `fuel_efficiency`, `avg_speed`, `max_speed`, `idle_time`, `smooth_driving_score`, `customer_rating`, `notes`\n- **Note:** `avg_speed`, `max_speed`, `idle_time` duplicate `trips` columns (see 1e).\n- **Action:** Merge into `trips`. Drop duplicates during merge.\n\n### 4c. `drivers` \u00e2\u2020\u2019 `employees` (partial merge)\n- **Relationship:** `drivers.employee_id` is effectively 1:1 (an employee is either a driver or not, but if they are, one driver record per employee)\n- **Issue:** `drivers` extends `employees` with driver-specific fields. It's a subtype relationship.\n- **Action:** This is a valid normalized pattern (class-table inheritance). **No merge needed**, but consider whether all employees could be drivers (eliminate the separate table) or if some truly are not. Current design with FK is fine.\n\n---\n\n## 5. REDUNDANT FOREIGN KEYS\n\n### 5a. `trips.vehicle_id`, `trips.driver_id` (redundant with `dispatchschedules`)\n- **Chain:** `trips.dispatch_id` \u00e2\u2020\u2019 `dispatchschedules.dispatch_id` (which has `vehicle_id`, `driver_id`)\n- **Issue:** Vehicle and driver are already known via the dispatch join. The trip-level FKs duplicate dispatch-level FKs.\n- **Action:** Drop `trips.vehicle_id`, `trips.driver_id`. Resolve via `trips \u00e2\u2020\u2019 dispatchschedules \u00e2\u2020\u2019 vehicle/driver`.\n\n### 5b. `gpstracking.vehicle_id`, `gpstracking.driver_id` (partially redundant with `trips`)\n- **Issue:** When `gpstracking.trip_id` is set, `vehicle_id` and `driver_id` can be derived from the trip.\n- **Note:** For time-series query performance, denormalizing these is acceptable. GPS data is append-only and joins are expensive.\n- **Action:** No change needed \u00e2\u20ac\u201d document as intentional denormalization for performance.\n\n### 5c. `tripperformance.driver_id`\n- **Issue:** Redundant with `trips.driver_id` (if 1e/4b merges are applied).\n- **Action:** Drop if `tripperformance` is merged into `trips` (per \u00c2\u00a74b); otherwise drop the column.\n\n### 5d. `vehiclereservations.vehicle_id`, `vehiclereservations.driver_id`\n- **Issue:** Also stored in `dispatchschedules` (which references the reservation). But reservations can exist without a dispatch, so these are not strictly redundant.\n- **Action:** Keep. Only redundant once a dispatch is created \u00e2\u20ac\u201d acceptable design for the reservation lifecycle.\n\n---\n\n## 6. SUMMARY OF RECOMMENDED ACTIONS\n\n| Priority | Table | Column(s) | Action |\n|----------|-------|-----------|--------|\n| HIGH | `drivers` | `license_number`, `license_expiry` | Drop |\n| HIGH | `drivers` | `performance_score`, `total_trips`, `total_distance`, `total_hours`, `rating` | Move to view/MV |\n| HIGH | `trips` | `estimated_distance`, `estimated_duration` | Drop |\n| HIGH | `trips` | `vehicle_id`, `driver_id` | Drop (redundant w/ dispatch) |\n| HIGH | `dispatchschedules` | `estimated_distance`, `estimated_duration` | Drop |\n| HIGH | `tripcostanalysis` | entire table | Merge into `trips` |\n| HIGH | `tripperformance` | entire table | Merge into `trips` |\n| MEDIUM | `roles` | `permissions` (JSONB) | Restore normalized `role_permissions` |\n| MEDIUM | `vehicles` | `documents` (JSONB) | Restore `vehicledocuments` table |\n| MEDIUM | `vehiclereservations` | `ai_vehicle_recommendation`, `ai_driver_recommendation` | Drop, use `ai_recommendations` |\n| MEDIUM | `tripperformance` | `driver_id` | Drop (redundant w/ trips) |\n| LOW | `vehicles` | `fuel_level` | Drop or compute |\n| LOW | `fuelrecords` | `price_per_liter` | Generated column |\n| LOW | `tripcostanalysis` | `total_cost`, `cost_per_km` | Generated columns |\n| LOW | `trips` | `avg_speed`, `max_speed`, `idle_time` | Drop (keep in performance merge) |\n| LOW | `drivers` | `current_latitude`, `current_longitude`, `last_location_update` | Drop, derive from GPS |\n| LOW | `ai_insights` | `related_data` | Add JSONB schema constraint |\n\n**Total addressable issues: 16 (6 HIGH, 5 MEDIUM, 5 LOW)**\n"}], "grading": {"expectations": [{"text": "Report identifies redundant columns across tables with specific table/column names", "passed": true, "evidence": "Section 1 (REDUNDANT COLUMNS) subsections 1a\u00e2\u20ac\u201c1i. Each names specific tables and columns: e.g., 'drivers.license_number, drivers.license_expiry' vs 'employees.license_number, employees.license_expiry' (1a); 'vehicles.seating_capacity' vs 'vehiclecategories.seating_capacity' (1g); 'fuelrecords.price_per_liter' computed as amount/liters (1i). All cite the duplicating table and the canonical source."}, {"text": "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)", "passed": true, "evidence": "Section 2 (DERIVED / AGGREGATE DATA) covers 2a: 'drivers.performance_score, drivers.total_trips, drivers.total_distance, drivers.total_hours, drivers.rating' identified as materialized aggregates from trips/tripperformance/tripcostanalysis. Also 2b\u00e2\u20ac\u201c2c: tripcostanalysis.total_cost and cost_per_km flagged as computed-but-stored."}, {"text": "Report identifies JSONB columns that could be normalized into relational tables", "passed": true, "evidence": "Section 3 (JSONB MISUSE) identifies 3a roles.permissions (replaced normalized role_permissions), 3b vehicles.documents (replaced vehicledocuments), 3c vehiclereservations.ai_vehicle_recommendation and ai_driver_recommendation (duplicate ai_recommendations), 3d ai_insights.related_data (no schema). Correctly flags 3e routes.waypoints and 3f vehiclemaintenance.inspection_checklist as acceptable JSONB uses."}, {"text": "Report identifies 1:1 tables that could potentially be merged", "passed": true, "evidence": "Section 4 (1:1 TABLES) identifies 4a tripcostanalysis \u00e2\u2020\u2019 trips (logically 1:1 with trip_id FK), 4b tripperformance \u00e2\u2020\u2019 trips (1:1 with trip_id FK). Also discusses 4c drivers \u00e2\u2020\u2019 employees as subtype relationship, concluding it's valid normalized design (no merge needed)."}, {"text": "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)", "passed": true, "evidence": "Section 5 (REDUNDANT FOREIGN KEYS) covers 5a trips.vehicle_id and trips.driver_id as redundant with dispatchschedules. 5b addresses gpstracking.vehicle_id and gpstracking.driver_id as partially redundant with trips (notes intentional denormalization for performance is acceptable). 5c tripperformance.driver_id flagged as redundant. 5d vehiclereservations.vehicle_id and driver_id discussed."}, {"text": "Report is organized by category and includes recommended actions", "passed": true, "evidence": "Report organized into five numbered sections by category: REDUNDANT COLUMNS, DERIVED / AGGREGATE DATA, JSONB MISUSE, 1:1 TABLES, REDUNDANT FOREIGN KEYS. Every subsection includes an Action item. Section 6 provides a summary table ordered by Priority (HIGH/MEDIUM/LOW) with Table, Column(s), and Action columns."}], "summary": {"passed": 6, "failed": 0, "total": 6, "pass_rate": 1.0}, "claims": [{"claim": "All 6 migrations were applied (001\u00e2\u20ac\u201c006)", "type": "process", "verified": true, "evidence": "Report header states 'All 6 migrations applied (001\u00e2\u20ac\u201c006)' and references schema details from those migrations (e.g., roles.permissions JSONB 'added in migration 005', vehiclemaintenance.inspection_checklist 'Merged from vehicleinspection in m005')"}, {"claim": "25 tables remain after migrations", "type": "factual", "verified": false, "evidence": "Header states 'Tables remaining: 25' but this cannot be independently verified from the single output file \u00e2\u20ac\u201d no schema listing or table count is provided to confirm."}, {"claim": "Total addressable issues: 16 (6 HIGH, 5 MEDIUM, 5 LOW)", "type": "factual", "verified": false, "evidence": "Internal inconsistency: the summary table lists 7 HIGH items (drivers license, drivers aggregates, trips estimated cols, trips vehicle_id/driver_id, dispatchschedules estimated cols, tripcostanalysis merge, tripperformance merge), 4 MEDIUM items (roles permissions JSONB, vehicles documents JSONB, vehiclereservations JSONB, tripperformance driver_id), and 6 LOW items (vehicles fuel_level, fuelrecords price_per_liter, tripcostanalysis generated cols, trips avg/max/idle, drivers current_location, ai_insights related_data). That totals 17 items with different counts by priority than claimed."}], "eval_feedback": {"suggestions": [{"assertion": "Report identifies redundant columns across tables with specific table/column names", "reason": "Trivially satisfiable: any list of column-name pairs passes. Consider checking that the report correctly distinguishes between actual redundancy (same data sourced from different tables) vs. coincidental naming (different data with same column name). A stronger assertion would verify at least one specific redundant pair is correctly reasoned about."}], "overall": "All 6 expectations pass, but they are broad presence checks that almost any reasonable diagnostic report would satisfy. The most valuable finding comes from the claims verification: the report claims 16 issues (6/5/5 split) but the table contains 17 items with a different priority distribution. This suggests a counting/accounting error the expectations don't catch. Consider adding an assertion that verifies internal consistency (e.g., count matches items)."}}}, {"id": "eval-2-with_skill", "prompt": "The drivers table has aggregate columns like total_trips, total_distance, total_hours, performance_score, and rating that are computed from other tables. I want to either remove them and use views, or add triggers to keep them in sync. Generate the migration and any view definitions. Also check if there are similar derived columns in other tables and handle those too.", "eval_id": 2, "outputs": [{"name": "007_normalization_derived_columns.sql", "type": "text", "content": "-- ============================================\n-- MIGRATION 007: Remove Derived/Aggregate Columns\n--\n-- Purpose:\n--   Remove columns that can be computed from\n--   other tables and replace them with views\n--   and generated columns.\n--\n-- Changes:\n--   1. Create driver_stats VIEW (computes\n--      performance_score, total_trips,\n--      total_distance, total_hours, rating\n--      from trips and tripperformance)\n--   2. Convert tripcostanalysis.total_cost\n--      to a generated column (computed from\n--      individual cost columns in same table)\n--   3. Create trip_cost_details VIEW (includes\n--      cost_per_km computed with join to trips)\n--   4. Drop derived columns from drivers table\n--   5. Update seed data\n--\n-- Rationale:\n--   - Drivers aggregates: Removed in favor of a\n--     view because they were never written by\n--     application code, only read. No trigger\n--     kept them in sync, so they could drift.\n--     A view guarantees consistency at read time.\n--   - tripcostanalysis.total_cost: Converted to\n--     a generated column because it depends only\n--     on other columns in the same table.\n--   - tripcostanalysis.cost_per_km: Moved to a\n--     view because it requires a join to trips\n--     for the distance value.\n-- ============================================\n\n-- ============================================\n-- 1. CREATE driver_stats VIEW\n-- Computes driver aggregate metrics from trips\n-- and tripperformance data.\n-- ============================================\n\nCREATE OR REPLACE VIEW driver_stats AS\nWITH driver_trip_aggregates AS (\n  SELECT\n    t.driver_id,\n    COUNT(t.trip_id) FILTER (WHERE t.trip_status = 'Completed') AS total_trips,\n    COALESCE(SUM(t.distance) FILTER (WHERE t.trip_status = 'Completed'), 0) AS total_distance,\n    COALESCE(SUM(t.actual_duration) FILTER (WHERE t.trip_status = 'Completed'), 0) AS total_duration_minutes\n  FROM trips t\n  WHERE t.deleted_at IS NULL\n  GROUP BY t.driver_id\n),\ndriver_performance_aggregates AS (\n  SELECT\n    tp.driver_id,\n    ROUND(AVG(tp.smooth_driving_score)::numeric, 2) AS avg_smooth_driving_score,\n    ROUND(AVG(tp.customer_rating)::numeric, 1) AS avg_customer_rating\n  FROM tripperformance tp\n  GROUP BY tp.driver_id\n)\nSELECT\n  d.driver_id,\n  COALESCE(pta.total_trips, 0) AS total_trips,\n  COALESCE(pta.total_distance, 0) AS total_distance,\n  ROUND((COALESCE(pta.total_duration_minutes, 0) / 60.0)::numeric, 2) AS total_hours,\n  ROUND(\n    (\n      COALESCE(dpa.avg_smooth_driving_score, 0) * 0.6\n      + COALESCE(dpa.avg_customer_rating, 0) * 0.4\n    )::numeric,\n    2\n  ) AS performance_score,\n  COALESCE(dpa.avg_customer_rating, 0) AS rating\nFROM drivers d\nLEFT JOIN driver_trip_aggregates pta ON d.driver_id = pta.driver_id\nLEFT JOIN driver_performance_aggregates dpa ON d.driver_id = dpa.driver_id;\n\nCOMMENT ON VIEW driver_stats IS\n  'Driver aggregate metrics computed from trips and tripperformance data.\n   performance_score = weighted avg of smooth_driving_score (60%) and customer_rating (40%).\n   total_hours = actual_duration in minutes / 60.';\n\n-- ============================================\n-- 2. CONVERT tripcostanalysis.total_cost TO\n--    a generated column\n-- ============================================\n\n-- Drop the existing column that was manually stored\nALTER TABLE tripcostanalysis DROP COLUMN IF EXISTS total_cost;\n\n-- Re-add it as a generated column\nALTER TABLE tripcostanalysis\n  ADD COLUMN total_cost DECIMAL(14, 2)\n  GENERATED ALWAYS AS (\n    COALESCE(fuel_cost, 0)\n    + COALESCE(toll_fees, 0)\n    + COALESCE(parking_fees, 0)\n    + COALESCE(driver_cost, 0)\n    + COALESCE(maintenance_cost, 0)\n    + COALESCE(miscellaneous_cost, 0)\n  ) STORED;\n\nCOMMENT ON COLUMN tripcostanalysis.total_cost IS\n  'Generated column: sum of all individual cost columns.';\n\n-- Drop cost_per_km since it is now computed in trip_cost_details view\nALTER TABLE tripcostanalysis DROP COLUMN IF EXISTS cost_per_km;\n\n-- ============================================\n-- 3. CREATE trip_cost_details VIEW\n-- Includes cost_per_km (needs join to trips\n-- for distance, so cannot be a generated\n-- column in tripcostanalysis alone).\n-- ============================================\n\nCREATE OR REPLACE VIEW trip_cost_details AS\nSELECT\n  tca.cost_id,\n  tca.trip_id,\n  tca.fuel_cost,\n  tca.toll_fees,\n  tca.parking_fees,\n  tca.driver_cost,\n  tca.maintenance_cost,\n  tca.miscellaneous_cost,\n  tca.total_cost,\n  CASE\n    WHEN t.distance IS NOT NULL AND t.distance > 0\n    THEN ROUND((tca.total_cost / t.distance)::numeric, 2)\n    ELSE NULL\n  END AS cost_per_km,\n  t.distance AS trip_distance,\n  t.created_at\nFROM tripcostanalysis tca\nJOIN trips t ON tca.trip_id = t.trip_id;\n\nCOMMENT ON VIEW trip_cost_details IS\n  'Trip cost analysis with computed cost_per_km (total_cost / trip distance).';\n\n-- ============================================\n-- 4. DROP derived columns from drivers table\n-- ============================================\n\nALTER TABLE drivers\n  DROP COLUMN IF EXISTS performance_score CASCADE,\n  DROP COLUMN IF EXISTS total_trips CASCADE,\n  DROP COLUMN IF EXISTS total_distance CASCADE,\n  DROP COLUMN IF EXISTS total_hours CASCADE,\n  DROP COLUMN IF EXISTS rating CASCADE;\n\n-- ============================================\n-- 5. RE-ENABLE RLS ON NEW VIEWS\n-- (Views inherit permissions from underlying\n--  tables when accessed via SECURITY INVOKER,\n--  which is the default. Explicit policies are\n--  only needed if you want to restrict access\n--  further.)\n-- ============================================\n-- The driver_stats and trip_cost_details views\n-- use SECURITY INVOKER by default, so they will\n-- respect the RLS policies of the underlying\n-- drivers, trips, tripperformance, and\n-- tripcostanalysis tables.\n-- No additional policies needed.\n"}], "grading": {"expectations": [{"text": "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)", "passed": true, "evidence": "Lines 144-149 of 007_normalization_derived_columns.sql: ALTER TABLE drivers DROP COLUMN IF EXISTS performance_score CASCADE, DROP COLUMN IF EXISTS total_trips CASCADE, DROP COLUMN IF EXISTS total_distance CASCADE, DROP COLUMN IF EXISTS total_hours CASCADE, DROP COLUMN IF EXISTS rating CASCADE. Lines 42-76 create driver_stats VIEW that computes all five columns from trips and tripperformance."}, {"text": "Migration also addresses similar derived columns in other tables beyond drivers", "passed": true, "evidence": "Lines 89-104 convert tripcostanalysis.total_cost to a generated column (computed from fuel_cost + toll_fees + parking_fees + driver_cost + maintenance_cost + miscellaneous_cost). Line 107 drops tripcostanalysis.cost_per_km. Lines 116-135 create trip_cost_details VIEW that includes cost_per_km computed as total_cost / trip.distance via a join to trips."}, {"text": "Migration provides either view definitions or trigger functions to recompute the derived data", "passed": true, "evidence": "Two view definitions provided: driver_stats VIEW (lines 42-76) computes driver aggregates, and trip_cost_details VIEW (lines 116-135) computes cost_per_km. A generated column (lines 92-101) handles total_cost recomputation."}, {"text": "The approach is consistent (all removed with views, or all kept with triggers, or clearly documented reasoning for mixed approach)", "passed": true, "evidence": "The approach is mixed (drivers\u00e2\u2020\u2019view, tripcostanalysis.total_cost\u00e2\u2020\u2019generated column, tripcostanalysis.cost_per_km\u00e2\u2020\u2019view). Lines 24-33 provide a clear Rationale section explaining each choice: driver aggregates use a view because they were never written by app code, total_cost is a generated column because it depends only on same-table columns, and cost_per_km is in a view because it requires a join to trips."}, {"text": "Service files are updated to work with the new structure (views or triggers)", "passed": false, "evidence": "No service files exist in the outputs directory. Only a single SQL migration file (007_normalization_derived_columns.sql) was produced. No .ts, .js, or other application code files were created or modified to reference the new views."}], "summary": {"passed": 4, "failed": 1, "total": 5, "pass_rate": 0.8}, "execution_metrics": {"output_chars": 3875, "transcript_chars": 0}, "timing": {}, "claims": [{"claim": "The migration drops 5 derived columns from the drivers table", "type": "factual", "verified": true, "evidence": "Lines 144-149: ALTER TABLE drivers DROP COLUMN IF EXISTS performance_score, total_trips, total_distance, total_hours, rating."}, {"claim": "The migration creates a driver_stats view computing all 5 driver aggregate metrics", "type": "factual", "verified": true, "evidence": "Lines 42-76: CREATE OR REPLACE VIEW driver_stats AS ... computes total_trips, total_distance, total_hours, performance_score (weighted avg), and rating from trips and tripperformance."}, {"claim": "The migration converts tripcostanalysis.total_cost to a generated column", "type": "factual", "verified": true, "evidence": "Lines 89-101: Drops existing total_cost column then re-adds it as GENERATED ALWAYS AS (COALESCE(fuel_cost,0) + ... + COALESCE(miscellaneous_cost,0)) STORED."}, {"claim": "The performance_score uses a weighted formula (60% smooth_driving, 40% customer_rating)", "type": "factual", "verified": true, "evidence": "Lines 67-71: performance_score = COALESCE(avg_smooth_driving_score,0)*0.6 + COALESCE(avg_customer_rating,0)*0.4"}, {"claim": "The approach is documented with rationale", "type": "quality", "verified": true, "evidence": "Lines 24-33 contain a Rationale section explaining why each decision was made (view for driver aggregates, generated column for total_cost, view for cost_per_km)."}], "user_notes_summary": {"uncertainties": [], "needs_review": [], "workarounds": []}, "eval_feedback": {"suggestions": [{"assertion": "Service files are updated to work with the new structure (views or triggers)", "reason": "This assertion is discriminating \u00e2\u20ac\u201d it correctly caught the gap. The migration produces SQL only, with no application-layer changes. A valid enhancement would be skipping this assertion when testing SQL-only outputs, or adding a second output file expectation for service code."}], "overall": "Four of five assertions pass with clear evidence. The SQL migration is thorough, well-documented, and correctly handles derived columns via views and a generated column. The one failure (no updated service files) is a genuine gap \u00e2\u20ac\u201d the output is SQL-only with no application-layer changes."}}}, {"id": "eval-2-without_skill", "prompt": "The drivers table has aggregate columns like total_trips, total_distance, total_hours, performance_score, and rating that are computed from other tables. I want to either remove them and use views, or add triggers to keep them in sync. Generate the migration and any view definitions. Also check if there are similar derived columns in other tables and handle those too.", "eval_id": 2, "outputs": [{"name": "007_remove_derived_columns.sql", "type": "text", "content": "-- ============================================\n-- MIGRATION 007: Remove Derived / Aggregate Columns\n--\n-- Purpose:\n--   Remove aggregate columns from drivers that\n--   are computed from other tables (trips,\n--   tripperformance) and replace with a computed\n--   view. Also add triggers for same-table\n--   derived columns in tripcostanalysis.\n--\n-- Changes:\n--   1. Drop aggregate columns from drivers:\n--      total_trips, total_distance, total_hours,\n--      performance_score, rating\n--   2. Create driver_stats VIEW that computes\n--      them from trips + tripperformance\n--   3. Create vehicle_trip_stats VIEW for\n--      vehicle-side aggregates from trips\n--   4. Add trigger on tripcostanalysis to\n--      auto-compute total_cost and cost_per_km\n-- ============================================\n\n-- ============================================\n-- 1. DROP AGGREGATE COLUMNS FROM drivers\n-- ============================================\n\nALTER TABLE drivers\n  DROP COLUMN IF EXISTS total_trips CASCADE,\n  DROP COLUMN IF EXISTS total_distance CASCADE,\n  DROP COLUMN IF EXISTS total_hours CASCADE,\n  DROP COLUMN IF EXISTS performance_score CASCADE,\n  DROP COLUMN IF EXISTS rating CASCADE;\n\n-- ============================================\n-- 2. CREATE driver_stats VIEW\n--\n-- Computes driver aggregate metrics from\n-- trips and tripperformance.\n-- Excludes soft-deleted trips.\n-- Returns one row per driver.\n-- ============================================\n\nCREATE OR REPLACE VIEW driver_stats AS\nSELECT\n  d.driver_id,\n  d.employee_id,\n  COUNT(DISTINCT t.trip_id)::INT AS total_trips,\n  COALESCE(SUM(t.distance), 0) AS total_distance,\n  ROUND(COALESCE(SUM(t.actual_duration), 0) / 60.0, 2) AS total_hours,\n  ROUND(COALESCE(AVG(tp.smooth_driving_score), 0), 2) AS performance_score,\n  ROUND(COALESCE(AVG(tp.customer_rating), 0), 1) AS rating\nFROM drivers d\nLEFT JOIN trips t ON d.driver_id = t.driver_id AND t.deleted_at IS NULL\nLEFT JOIN tripperformance tp ON t.trip_id = tp.trip_id\nWHERE d.deleted_at IS NULL\nGROUP BY d.driver_id, d.employee_id;\n\nCOMMENT ON VIEW driver_stats IS\n  'Real-time computed aggregate metrics per driver from trips and tripperformance. Replaces the dropped pre-computed columns on the drivers table.';\n\n-- ============================================\n-- 3. CREATE vehicle_trip_stats VIEW\n--\n-- Vehicle-side trip aggregates (similar\n-- derived columns pattern found on vehicles).\n-- ============================================\n\nCREATE OR REPLACE VIEW vehicle_trip_stats AS\nSELECT\n  v.vehicle_id,\n  COUNT(DISTINCT t.trip_id)::INT AS total_trips,\n  COALESCE(SUM(t.distance), 0) AS total_distance,\n  ROUND(COALESCE(SUM(t.actual_duration), 0) / 60.0, 2) AS total_hours,\n  COALESCE(SUM(t.fuel_consumed), 0) AS total_fuel_consumed,\n  ROUND(AVG(t.avg_speed), 2) AS avg_speed,\n  MAX(t.max_speed) AS max_speed\nFROM vehicles v\nLEFT JOIN trips t ON v.vehicle_id = t.vehicle_id AND t.deleted_at IS NULL\nWHERE v.deleted_at IS NULL\nGROUP BY v.vehicle_id;\n\nCOMMENT ON VIEW vehicle_trip_stats IS\n  'Real-time computed trip aggregate metrics per vehicle from the trips table.';\n\n-- ============================================\n-- 4. TRIGGER: Auto-compute derived columns\n--    on tripcostanalysis\n--\n-- total_cost = sum of all cost components\n-- cost_per_km = total_cost / trip.distance\n-- ============================================\n\nCREATE OR REPLACE FUNCTION compute_trip_cost()\nRETURNS TRIGGER AS $$\nBEGIN\n  NEW.total_cost := COALESCE(NEW.fuel_cost, 0)\n                  + COALESCE(NEW.toll_fees, 0)\n                  + COALESCE(NEW.parking_fees, 0)\n                  + COALESCE(NEW.driver_cost, 0)\n                  + COALESCE(NEW.maintenance_cost, 0)\n                  + COALESCE(NEW.miscellaneous_cost, 0);\n\n  NEW.cost_per_km := CASE\n    WHEN NEW.trip_id IS NOT NULL\n      AND EXISTS (SELECT 1 FROM trips WHERE trip_id = NEW.trip_id AND COALESCE(distance, 0) > 0)\n    THEN ROUND(NEW.total_cost / (SELECT distance FROM trips WHERE trip_id = NEW.trip_id), 2)\n    ELSE NULL\n  END;\n\n  RETURN NEW;\nEND;\n$$ LANGUAGE plpgsql;\n\nCREATE TRIGGER trigger_compute_trip_cost\n  BEFORE INSERT OR UPDATE\n  ON tripcostanalysis\n  FOR EACH ROW\n  EXECUTE FUNCTION compute_trip_cost();\n\nCOMMENT ON FUNCTION compute_trip_cost IS\n  'Automatically computes total_cost (sum of components) and cost_per_km (total_cost / trip.distance) before INSERT or UPDATE on tripcostanalysis.';\n\n-- ============================================\n-- 5. HELPER VIEW: driver_details\n--\n-- Convenience view that joins drivers,\n-- employees, and driver_stats for easy\n-- querying. Replaces the common pattern of\n-- \"select *, employees(*) from drivers\"\n-- with aggregates included.\n-- ============================================\n\nCREATE OR REPLACE VIEW driver_details AS\nSELECT\n  d.*,\n  e.first_name,\n  e.last_name,\n  e.email,\n  e.phone AS employee_phone,\n  e.position,\n  e.status AS employee_status,\n  e.avatar_url,\n  e.user_id,\n  e.branch_id AS employee_branch_id,\n  ds.total_trips,\n  ds.total_distance,\n  ds.total_hours,\n  ds.performance_score,\n  ds.rating\nFROM drivers d\nJOIN employees e ON d.employee_id = e.employee_id\nLEFT JOIN driver_stats ds ON d.driver_id = ds.driver_id;\n\nCOMMENT ON VIEW driver_details IS\n  'Convenience view joining drivers, employees, and driver_stats. One row per driver with denormalized employee info and computed aggregate metrics.';\n"}], "grading": {"expectations": [{"text": "Migration addresses derived columns in the drivers table (total_trips, total_distance, total_hours, performance_score, rating)", "passed": true, "evidence": "007_remove_derived_columns.sql lines 27-32 ALTER TABLE drivers DROP COLUMN IF EXISTS total_trips, total_distance, total_hours, performance_score, rating CASCADE. Lines 43-56 define driver_stats VIEW that recomputes all five from trips and tripperformance."}, {"text": "Migration also addresses similar derived columns in other tables beyond drivers", "passed": true, "evidence": "Lines 68-80 create vehicle_trip_stats VIEW for vehicle-side aggregates (total_trips, total_distance, total_hours, total_fuel_consumed, avg_speed, max_speed). Lines 93-118 add a BEFORE INSERT OR UPDATE trigger on tripcostanalysis to auto-compute total_cost and cost_per_km."}, {"text": "Migration provides either view definitions or trigger functions to recompute the derived data", "passed": true, "evidence": "Three recomputation mechanisms provided: driver_stats VIEW (lines 43-56), vehicle_trip_stats VIEW (lines 68-80), and compute_trip_cost() trigger function (lines 93-118)."}, {"text": "The approach is consistent (all removed with views, or all kept with triggers, or clearly documented reasoning for mixed approach)", "passed": true, "evidence": "The header comment (lines 4-10) documents the mixed approach: drivers columns are dropped and replaced with a view (cross-table aggregates), while tripcostanalysis uses a trigger for same-table computed columns. The rationale is implicit but clear: views suit cross-table aggregation (drivers stats from trips + tripperformance), triggers suit same-column computation (total_cost from components in same row)."}, {"text": "Service files are updated to work with the new structure (views or triggers)", "passed": false, "evidence": "Only a single SQL migration file was produced (007_remove_derived_columns.sql). No service files were created or modified in the outputs. The existing service files (driver.service.js, report.service.js, ai.service.js) already query driver_stats, but these references predate the migration and no updates were made as part of this output."}], "summary": {"passed": 4, "failed": 1, "total": 5, "pass_rate": 0.8}, "execution_metrics": null, "timing": null, "claims": [{"claim": "The migration drops all five derived columns from the drivers table", "type": "factual", "verified": true, "evidence": "Lines 27-32: ALTER TABLE drivers DROP COLUMN IF EXISTS total_trips, total_distance, total_hours, performance_score, rating"}, {"claim": "The migration creates a driver_stats view that computes aggregates from trips and tripperformance", "type": "factual", "verified": true, "evidence": "Lines 43-56: CREATE OR REPLACE VIEW driver_stats AS SELECT ... COUNT(DISTINCT t.trip_id) AS total_trips, SUM(t.distance) AS total_distance, SUM(t.actual_duration)/60 AS total_hours, AVG(tp.smooth_driving_score) AS performance_score, AVG(tp.customer_rating) AS rating ... FROM drivers d LEFT JOIN trips t ... LEFT JOIN tripperformance tp"}, {"claim": "The migration addresses vehicle-side derived columns", "type": "factual", "verified": true, "evidence": "Lines 68-80: CREATE OR REPLACE VIEW vehicle_trip_stats AS SELECT ... total_trips, total_distance, total_hours, total_fuel_consumed, avg_speed, max_speed FROM vehicles v LEFT JOIN trips t"}, {"claim": "The migration addresses tripcostanalysis derived columns with a trigger", "type": "factual", "verified": true, "evidence": "Lines 93-118: CREATE OR REPLACE FUNCTION compute_trip_cost() RETURNS TRIGGER ... NEW.total_cost := sum of cost components; NEW.cost_per_km := NEW.total_cost / trip.distance. Trigger trigger_compute_trip_cost BEFORE INSERT OR UPDATE ON tripcostanalysis"}, {"claim": "Service files are updated to use the new views", "type": "process", "verified": false, "evidence": "No service file modifications were produced in outputs. Only 007_remove_derived_columns.sql exists. The existing service files already reference driver_stats from prior work, not as part of this migration."}], "user_notes_summary": null, "eval_feedback": {"suggestions": [{"assertion": "Service files are updated to work with the new structure (views or triggers)", "reason": "This assertion checks for service file updates but the migration only produces SQL. The eval should either (a) accept that the SQL migration alone is sufficient and remove this assertion, or (b) scope the task to include service file changes in the prompt if that is genuinely expected. As written, the assertion will always fail unless the executor also produces code changes."}, {"reason": "No assertion checks the correctness of the derived column logic \u00e2\u20ac\u201d e.g., whether total_hours correctly converts minutes to hours, or whether the trigger's cost_per_km handles division by zero. A migration that drops columns but computes wrong values in the view would still pass all assertions except the service files one."}], "overall": "The SQL migration is solid and addresses all database-level requirements. The sole failure (service files) is partly an eval design issue \u00e2\u20ac\u201d the assertion requires code changes but the task scope is a migration, making it unreachable without also generating service file patches."}}}], "previous_feedback": {}, "previous_outputs": {}, "benchmark": {"metadata": {"skill_name": "database-normalization", "skill_path": "C:\\Users\\Joseph T Lopez\\OneDrive\\Documents\\fleet-transpo\\.opencode\\skills\\database-normalization", "executor_model": "claude-sonnet-4-20250514", "analyzer_model": "most-capable-model", "timestamp": "2026-07-27T15:30:00Z", "evals_run": [0, 1, 2], "runs_per_configuration": 1}, "runs": [{"eval_id": 0, "eval_name": "normalize-routes-locations", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 5, "failed": 0, "total": 5, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Migration creates a locations table with location_id, name, latitude, longitude columns", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 6-14 create locations table with all required columns"}, {"text": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 17-19 add FK columns, lines 51-57 add FK constraints"}, {"text": "Migration migrates existing route origin/destination data into the locations table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 22-33 use INSERT INTO ... SELECT DISTINCT, lines 36-44 UPDATE routes with FK references"}, {"text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 60-66 DROP COLUMN statements"}, {"text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data", "passed": true, "evidence": "route.service.js, dispatch.service.js, trip.service.js all use origin_location:origin_location_id(*) joins"}], "notes": []}, {"eval_id": 0, "eval_name": "normalize-routes-locations", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 5, "failed": 0, "total": 5, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Migration creates a locations table with location_id, name, latitude, longitude columns", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 9-19 create locations table"}, {"text": "Migration adds origin_location_id and destination_location_id FK columns to routes table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 29-31 add FK columns"}, {"text": "Migration migrates existing route origin/destination data into the locations table", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 34-67 use two CTEs to INSERT DISTINCT and UPDATE FKs"}, {"text": "Migration drops the old origin, origin_latitude, origin_longitude, destination, destination_latitude, destination_longitude columns from routes", "passed": true, "evidence": "007_normalize_routes_locations.sql lines 79-85 DROP COLUMN statements"}, {"text": "Service files are updated to use Supabase joins (origin_location:origin_location_id(*)) for location data", "passed": true, "evidence": "route.service.js, dispatch.service.js, trip.service.js all use origin_location:origin_location_id(*) joins"}], "notes": []}, {"eval_id": 1, "eval_name": "full-schema-diagnostic", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Report identifies redundant columns across tables with specific table/column names", "passed": true, "evidence": "Section 1 identifies redundant license fields, location columns, and estimated distance/duration across tables"}, {"text": "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)", "passed": true, "evidence": "Section 3 lists drivers aggregates, tripcostanalysis computed columns, and fuelrecords.price_per_liter"}, {"text": "Report identifies JSONB columns that could be normalized into relational tables", "passed": true, "evidence": "Section 2 covers roles.permissions, vehicles.documents, routes.waypoints with nuanced recommendations"}, {"text": "Report identifies 1:1 tables that could potentially be merged", "passed": true, "evidence": "Section 5 covers tripcostanalysis, tripperformance, and drivers/employees relationship"}, {"text": "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)", "passed": true, "evidence": "Section 6 covers gpstracking redundant FKs, dispatchschedules, and tripperformance.driver_id"}, {"text": "Report is organized by category and includes recommended actions", "passed": true, "evidence": "Report organized into 7 numbered sections with prioritized Summary table of recommended actions"}], "notes": []}, {"eval_id": 1, "eval_name": "full-schema-diagnostic", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 1.0, "passed": 6, "failed": 0, "total": 6, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Report identifies redundant columns across tables with specific table/column names", "passed": true, "evidence": "Section 1 (REDUNDANT COLUMNS) identifies 9 instances with specific table/column names"}, {"text": "Report identifies derived/aggregate columns stored as data (e.g., drivers.performance_score)", "passed": true, "evidence": "Section 2 covers drivers aggregates and tripcostanalysis computed columns"}, {"text": "Report identifies JSONB columns that could be normalized into relational tables", "passed": true, "evidence": "Section 3 covers 6 JSONB columns with nuanced recommendations"}, {"text": "Report identifies 1:1 tables that could potentially be merged", "passed": true, "evidence": "Section 4 covers tripcostanalysis and tripperformance as 1:1 with trips"}, {"text": "Report identifies redundant FK references (e.g., gpstracking having vehicle_id + driver_id + trip_id)", "passed": true, "evidence": "Section 5 covers 5 instances of redundant FKs across tables"}, {"text": "Report is organized by category and includes recommended actions", "passed": true, "evidence": "Report organized into 5 numbered sections with ordered priority summary table"}], "notes": []}, {"eval_id": 2, "eval_name": "derived-columns-handling", "configuration": "with_skill", "run_number": 1, "result": {"pass_rate": 0.8, "passed": 4, "failed": 1, "total": 5, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Migration addresses derived columns in the drivers table", "passed": true, "evidence": "007_normalization_derived_columns.sql drops 5 driver aggregate columns and creates driver_stats VIEW"}, {"text": "Migration also addresses similar derived columns in other tables beyond drivers", "passed": true, "evidence": "Converts tripcostanalysis.total_cost to generated column, drops cost_per_km, creates trip_cost_details VIEW"}, {"text": "Migration provides either view definitions or trigger functions", "passed": true, "evidence": "driver_stats VIEW, trip_cost_details VIEW, and total_cost generated column provided"}, {"text": "The approach is consistent with documented reasoning", "passed": true, "evidence": "Rationale section explains view vs generated column choices based on query patterns"}, {"text": "Service files are updated to work with the new structure", "passed": false, "evidence": "No service file updates produced \u00e2\u20ac\u201d SQL migration only"}], "notes": ["Service files not updated \u00e2\u20ac\u201d SQL migration only output"]}, {"eval_id": 2, "eval_name": "derived-columns-handling", "configuration": "without_skill", "run_number": 1, "result": {"pass_rate": 0.8, "passed": 4, "failed": 1, "total": 5, "time_seconds": 0, "tokens": 0, "tool_calls": 0, "errors": 0}, "expectations": [{"text": "Migration addresses derived columns in the drivers table", "passed": true, "evidence": "007_remove_derived_columns.sql drops 5 driver aggregate columns and creates driver_stats VIEW"}, {"text": "Migration also addresses similar derived columns in other tables beyond drivers", "passed": true, "evidence": "vehicle_trip_stats VIEW added, compute_trip_cost trigger on tripcostanalysis"}, {"text": "Migration provides either view definitions or trigger functions", "passed": true, "evidence": "driver_stats VIEW, vehicle_trip_stats VIEW, compute_trip_cost trigger function"}, {"text": "The approach is consistent with documented reasoning", "passed": true, "evidence": "Mixed approach: views for cross-table aggregates, trigger for same-row computation"}, {"text": "Service files are updated to work with the new structure", "passed": false, "evidence": "No service file updates produced \u00e2\u20ac\u201d SQL migration only"}], "notes": ["Service files not updated \u00e2\u20ac\u201d SQL migration only output"]}], "run_summary": {"with_skill": {"pass_rate": {"mean": 0.933, "stddev": 0.094, "min": 0.8, "max": 1.0}, "time_seconds": {"mean": 0, "stddev": 0, "min": 0, "max": 0}, "tokens": {"mean": 0, "stddev": 0, "min": 0, "max": 0}}, "without_skill": {"pass_rate": {"mean": 0.933, "stddev": 0.094, "min": 0.8, "max": 1.0}, "time_seconds": {"mean": 0, "stddev": 0, "min": 0, "max": 0}, "tokens": {"mean": 0, "stddev": 0, "min": 0, "max": 0}}, "delta": {"pass_rate": "+0.00", "time_seconds": "+0.0", "tokens": "+0"}}, "notes": ["Both with_skill and without_skill achieved 100% on evals 0 and 1 \u00e2\u20ac\u201d these tasks are well within the model's baseline capability and the assertions don't differentiate skill value", "Assertions on evals 0 and 1 check for presence (does the output exist with expected structure) but not depth/quality \u00e2\u20ac\u201d a superficial migration or report passes just as well as a thorough one", "Eval 2 (derived columns) shows a shared 0.8 pass rate for both \u00e2\u20ac\u201d the service file update assertion failed for both because the prompt scope (migration) didn't naturally generate code changes", "The with_skill output on eval 0 produced service files that reference new join columns, while the without_skill output also updated frontend pages \u00e2\u20ac\u201d both approaches are valid but differ in thoroughness", "The with_skill diagnostic report (eval 1) was more detailed (16,947 chars, 7 categories) than the baseline (5 categories) with more thorough migration line-number references and service-file evidence", "The with_skill derived columns migration (eval 2) included explicit rationale documentation for mixed approach \u00e2\u20ac\u201d the baseline didn't include comparable justification", "Current assertions measure surface compliance well but don't capture the skill's main value: structured methodology, thoroughness, and rationale documentation"]}};
+
+    let feedbackMap = {};
+    let currentIndex = 0;
+    let visitedRuns = new Set();
+
+    async function init() {
+      const hasPrevious = Object.keys(EMBEDDED_DATA.previous_feedback || {}).length > 0
+        || Object.keys(EMBEDDED_DATA.previous_outputs || {}).length > 0;
+      if (!hasPrevious) {
+        try {
+          const resp = await fetch("/api/feedback");
+          const data = await resp.json();
+          if (data.reviews) {
+            for (const r of data.reviews) feedbackMap[r.run_id] = r.feedback;
+          }
+        } catch {}
+      }
+
+      document.getElementById("skill-name").textContent = EMBEDDED_DATA.skill_name;
+      showRun(0);
+
+      const textarea = document.getElementById("feedback");
+      let saveTimeout = null;
+      textarea.addEventListener("input", () => {
+        clearTimeout(saveTimeout);
+        document.getElementById("feedback-status").textContent = "";
+        saveTimeout = setTimeout(() => saveCurrentFeedback(), 800);
+      });
+    }
+
+    function navigate(delta) {
+      const newIndex = currentIndex + delta;
+      if (newIndex >= 0 && newIndex < EMBEDDED_DATA.runs.length) {
+        saveCurrentFeedback();
+        showRun(newIndex);
+      }
+    }
+
+    function updateNavButtons() {
+      document.getElementById("prev-btn").disabled = currentIndex === 0;
+      document.getElementById("next-btn").disabled = currentIndex === EMBEDDED_DATA.runs.length - 1;
+    }
+
+    function showRun(index) {
+      currentIndex = index;
+      const run = EMBEDDED_DATA.runs[index];
+
+      document.getElementById("progress").textContent = `${index + 1} of ${EMBEDDED_DATA.runs.length}`;
+      document.getElementById("prompt-text").textContent = run.prompt;
+
+      const badge = document.getElementById("config-badge");
+      const configMatch = run.id.match(/(with_skill|without_skill|new_skill|old_skill)/);
+      if (configMatch) {
+        const config = configMatch[1];
+        const isBaseline = config === "without_skill" || config === "old_skill";
+        badge.textContent = config.replace(/_/g, " ");
+        badge.className = "config-badge " + (isBaseline ? "config-baseline" : "config-primary");
+        badge.style.display = "inline-block";
+      } else {
+        badge.style.display = "none";
+      }
+
+      renderOutputs(run);
+      renderPrevOutputs(run);
+      renderGrades(run);
+
+      const prevFb = (EMBEDDED_DATA.previous_feedback || {})[run.id];
+      const prevEl = document.getElementById("prev-feedback");
+      if (prevFb) {
+        document.getElementById("prev-feedback-text").textContent = prevFb;
+        prevEl.style.display = "block";
+      } else {
+        prevEl.style.display = "none";
+      }
+
+      document.getElementById("feedback").value = feedbackMap[run.id] || "";
+      document.getElementById("feedback-status").textContent = "";
+
+      updateNavButtons();
+
+      visitedRuns.add(index);
+      const doneBtn = document.getElementById("done-btn");
+      if (visitedRuns.size >= EMBEDDED_DATA.runs.length) {
+        doneBtn.classList.add("ready");
+      }
+
+      document.querySelector(".main").scrollTop = 0;
+    }
+
+    function renderOutputs(run) {
+      const container = document.getElementById("outputs-body");
+      container.innerHTML = "";
+
+      const outputs = run.outputs || [];
+      if (outputs.length === 0) {
+        container.innerHTML = '<div class="empty-state">No output files</div>';
+        return;
+      }
+
+      for (const file of outputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const content = document.createElement("div");
+        content.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          content.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          content.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          content.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(content, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          content.appendChild(a);
+        } else if (file.type === "error") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          pre.style.color = "var(--red)";
+          content.appendChild(pre);
+        }
+
+        fileDiv.appendChild(content);
+        container.appendChild(fileDiv);
+      }
+    }
+
+    function renderXlsx(container, b64Data) {
+      try {
+        const raw = Uint8Array.from(atob(b64Data), c => c.charCodeAt(0));
+        const wb = XLSX.read(raw, { type: "array" });
+
+        for (let i = 0; i < wb.SheetNames.length; i++) {
+          const sheetName = wb.SheetNames[i];
+          const ws = wb.Sheets[sheetName];
+
+          if (wb.SheetNames.length > 1) {
+            const sheetLabel = document.createElement("div");
+            sheetLabel.style.cssText = "font-weight:600; font-size:0.8rem; color:#b0aea5; margin-top:0.5rem; margin-bottom:0.25rem;";
+            sheetLabel.textContent = "Sheet: " + sheetName;
+            container.appendChild(sheetLabel);
+          }
+
+          const htmlStr = XLSX.utils.sheet_to_html(ws, { editable: false });
+          const wrapper = document.createElement("div");
+          wrapper.innerHTML = htmlStr;
+          container.appendChild(wrapper);
+        }
+      } catch (err) {
+        container.textContent = "Error rendering spreadsheet: " + err.message;
+      }
+    }
+
+    function renderGrades(run) {
+      const section = document.getElementById("grades-section");
+      const content = document.getElementById("grades-content");
+
+      if (!run.grading) {
+        section.style.display = "none";
+        return;
+      }
+
+      const grading = run.grading;
+      section.style.display = "block";
+      content.classList.remove("open");
+      document.getElementById("grades-arrow").classList.remove("open");
+
+      const summary = grading.summary || {};
+      const expectations = grading.expectations || [];
+
+      let html = '<div style="padding: 1rem;">';
+
+      const passRate = summary.pass_rate != null ? Math.round(summary.pass_rate * 100) + "%" : "?";
+      const badgeClass = summary.pass_rate >= 0.8 ? "grade-pass" : summary.pass_rate >= 0.5 ? "" : "grade-fail";
+      html += '<div class="grades-summary">';
+      html += '<span class="grade-badge ' + badgeClass + '">' + passRate + '</span>';
+      html += '<span>' + (summary.passed || 0) + ' passed, ' + (summary.failed || 0) + ' failed of ' + (summary.total || 0) + '</span>';
+      html += '</div>';
+
+      html += '<ul class="assertion-list">';
+      for (const exp of expectations) {
+        const statusClass = exp.passed ? "pass" : "fail";
+        const statusIcon = exp.passed ? "\u2713" : "\u2717";
+        html += '<li class="assertion-item">';
+        html += '<span class="assertion-status ' + statusClass + '">' + statusIcon + '</span>';
+        html += '<span>' + escapeHtml(exp.text) + '</span>';
+        if (exp.evidence) {
+          html += '<div class="assertion-evidence">' + escapeHtml(exp.evidence) + '</div>';
+        }
+        html += '</li>';
+      }
+      html += '</ul>';
+      html += '</div>';
+      content.innerHTML = html;
+    }
+
+    function toggleGrades() {
+      const content = document.getElementById("grades-content");
+      const arrow = document.getElementById("grades-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    function renderPrevOutputs(run) {
+      const section = document.getElementById("prev-outputs-section");
+      const content = document.getElementById("prev-outputs-content");
+      const prevOutputs = (EMBEDDED_DATA.previous_outputs || {})[run.id];
+
+      if (!prevOutputs || prevOutputs.length === 0) {
+        section.style.display = "none";
+        return;
+      }
+
+      section.style.display = "block";
+      content.classList.remove("open");
+      document.getElementById("prev-outputs-arrow").classList.remove("open");
+
+      content.innerHTML = "";
+      const wrapper = document.createElement("div");
+      wrapper.style.padding = "1rem";
+
+      for (const file of prevOutputs) {
+        const fileDiv = document.createElement("div");
+        fileDiv.className = "output-file";
+
+        const header = document.createElement("div");
+        header.className = "output-file-header";
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = file.name;
+        header.appendChild(nameSpan);
+        const dlBtn = document.createElement("a");
+        dlBtn.className = "dl-btn";
+        dlBtn.textContent = "Download";
+        dlBtn.download = file.name;
+        dlBtn.href = getDownloadUri(file);
+        header.appendChild(dlBtn);
+        fileDiv.appendChild(header);
+
+        const fc = document.createElement("div");
+        fc.className = "output-file-content";
+
+        if (file.type === "text") {
+          const pre = document.createElement("pre");
+          pre.textContent = file.content;
+          fc.appendChild(pre);
+        } else if (file.type === "image") {
+          const img = document.createElement("img");
+          img.src = file.data_uri;
+          img.alt = file.name;
+          fc.appendChild(img);
+        } else if (file.type === "pdf") {
+          const iframe = document.createElement("iframe");
+          iframe.src = file.data_uri;
+          fc.appendChild(iframe);
+        } else if (file.type === "xlsx") {
+          renderXlsx(fc, file.data_b64);
+        } else if (file.type === "binary") {
+          const a = document.createElement("a");
+          a.className = "download-link";
+          a.href = file.data_uri;
+          a.download = file.name;
+          a.textContent = "Download " + file.name;
+          fc.appendChild(a);
+        }
+
+        fileDiv.appendChild(fc);
+        wrapper.appendChild(fileDiv);
+      }
+
+      content.appendChild(wrapper);
+    }
+
+    function togglePrevOutputs() {
+      const content = document.getElementById("prev-outputs-content");
+      const arrow = document.getElementById("prev-outputs-arrow");
+      content.classList.toggle("open");
+      arrow.classList.toggle("open");
+    }
+
+    function saveCurrentFeedback() {
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      const reviews = [];
+      for (const [run_id, feedback] of Object.entries(feedbackMap)) {
+        if (feedback.trim()) {
+          reviews.push({ run_id, feedback, timestamp: new Date().toISOString() });
+        }
+      }
+
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reviews, status: "in_progress" }),
+      }).then(() => {
+        document.getElementById("feedback-status").textContent = "Saved";
+      }).catch(() => {
+        document.getElementById("feedback-status").textContent = "Will download on submit";
+      });
+    }
+
+    function showDoneDialog() {
+      const run = EMBEDDED_DATA.runs[currentIndex];
+      const text = document.getElementById("feedback").value;
+      if (text.trim() === "") {
+        delete feedbackMap[run.id];
+      } else {
+        feedbackMap[run.id] = text;
+      }
+
+      const reviews = [];
+      const ts = new Date().toISOString();
+      for (const r of EMBEDDED_DATA.runs) {
+        reviews.push({ run_id: r.id, feedback: feedbackMap[r.id] || "", timestamp: ts });
+      }
+      const payload = JSON.stringify({ reviews, status: "complete" }, null, 2);
+      fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+      }).then(() => {
+        document.getElementById("done-overlay").classList.add("visible");
+      }).catch(() => {
+        const blob = new Blob([payload], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "feedback.json";
+        a.click();
+        URL.revokeObjectURL(url);
+        document.getElementById("done-overlay").classList.add("visible");
+      });
+    }
+
+    function closeDoneDialog() {
+      saveCurrentFeedback();
+      document.getElementById("done-overlay").classList.remove("visible");
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      toast.textContent = message;
+      toast.classList.add("visible");
+      setTimeout(() => toast.classList.remove("visible"), 2000);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "TEXTAREA") return;
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        navigate(-1);
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        navigate(1);
+      }
+    });
+
+    function getDownloadUri(file) {
+      if (file.data_uri) return file.data_uri;
+      if (file.data_b64) return "data:application/octet-stream;base64," + file.data_b64;
+      if (file.type === "text") return "data:text/plain;charset=utf-8," + encodeURIComponent(file.content);
+      return "#";
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function switchView(view) {
+      document.querySelectorAll(".view-tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".view-panel").forEach(p => p.classList.remove("active"));
+      document.querySelector(`[onclick="switchView('${view}')"]`).classList.add("active");
+      document.getElementById("panel-" + view).classList.add("active");
+    }
+
+    function renderBenchmark() {
+      const data = EMBEDDED_DATA.benchmark;
+      if (!data) return;
+
+      document.getElementById("view-tabs").style.display = "flex";
+
+      const container = document.getElementById("benchmark-content");
+      const summary = data.run_summary || {};
+      const metadata = data.metadata || {};
+      const notes = data.notes || [];
+
+      let html = "";
+
+      html += "<h2 style='font-family: Poppins, sans-serif; margin-bottom: 0.5rem;'>Benchmark Results</h2>";
+      html += "<p style='color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;'>";
+      if (metadata.skill_name) html += "<strong>" + escapeHtml(metadata.skill_name) + "</strong> &mdash; ";
+      if (metadata.timestamp) html += metadata.timestamp + " &mdash; ";
+      if (metadata.evals_run) html += "Evals: " + metadata.evals_run.join(", ") + " &mdash; ";
+      html += (metadata.runs_per_configuration || "?") + " runs per configuration";
+      html += "</p>";
+
+      html += '<table class="benchmark-table">';
+
+      function fmtStat(stat, pct) {
+        if (!stat) return "\u2014";
+        const suffix = pct ? "%" : "";
+        const m = pct ? (stat.mean * 100).toFixed(0) : stat.mean.toFixed(1);
+        const s = pct ? (stat.stddev * 100).toFixed(0) : stat.stddev.toFixed(1);
+        return m + suffix + " \u00b1 " + s + suffix;
+      }
+
+      function deltaClass(val) {
+        if (!val) return "";
+        const n = parseFloat(val);
+        if (n > 0) return "benchmark-delta-positive";
+        if (n < 0) return "benchmark-delta-negative";
+        return "";
+      }
+
+      const configs = Object.keys(summary).filter(k => k !== "delta");
+      const configA = configs[0] || "config_a";
+      const configB = configs[1] || "config_b";
+      const labelA = configA.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const labelB = configB.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      const a = summary[configA] || {};
+      const b = summary[configB] || {};
+      const delta = summary.delta || {};
+
+      html += "<thead><tr><th>Metric</th><th>" + escapeHtml(labelA) + "</th><th>" + escapeHtml(labelB) + "</th><th>Delta</th></tr></thead>";
+      html += "<tbody>";
+
+      html += "<tr><td><strong>Pass Rate</strong></td>";
+      html += "<td>" + fmtStat(a.pass_rate, true) + "</td>";
+      html += "<td>" + fmtStat(b.pass_rate, true) + "</td>";
+      html += '<td class="' + deltaClass(delta.pass_rate) + '">' + (delta.pass_rate || "\u2014") + "</td></tr>";
+
+      if (a.time_seconds || b.time_seconds) {
+        html += "<tr><td><strong>Time (s)</strong></td>";
+        html += "<td>" + fmtStat(a.time_seconds, false) + "</td>";
+        html += "<td>" + fmtStat(b.time_seconds, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.time_seconds) + '">' + (delta.time_seconds ? delta.time_seconds + "s" : "\u2014") + "</td></tr>";
+      }
+
+      if (a.tokens || b.tokens) {
+        html += "<tr><td><strong>Tokens</strong></td>";
+        html += "<td>" + fmtStat(a.tokens, false) + "</td>";
+        html += "<td>" + fmtStat(b.tokens, false) + "</td>";
+        html += '<td class="' + deltaClass(delta.tokens) + '">' + (delta.tokens || "\u2014") + "</td></tr>";
+      }
+
+      html += "</tbody></table>";
+
+      const runs = data.runs || [];
+      if (runs.length > 0) {
+        const evalIds = [...new Set(runs.map(r => r.eval_id))].sort((a, b) => a - b);
+
+        html += "<h3 style='font-family: Poppins, sans-serif; margin-bottom: 0.75rem;'>Per-Eval Breakdown</h3>";
+
+        const hasTime = runs.some(r => r.result && r.result.time_seconds != null);
+        const hasErrors = runs.some(r => r.result && r.result.errors > 0);
+
+        for (const evalId of evalIds) {
+          const evalRuns = runs.filter(r => r.eval_id === evalId);
+          const evalName = evalRuns[0] && evalRuns[0].eval_name ? evalRuns[0].eval_name : "Eval " + evalId;
+
+          html += "<h4 style='font-family: Poppins, sans-serif; margin: 1rem 0 0.5rem; color: var(--text);'>" + escapeHtml(evalName) + "</h4>";
+          html += '<table class="benchmark-table">';
+          html += "<thead><tr><th>Config</th><th>Run</th><th>Pass Rate</th>";
+          if (hasTime) html += "<th>Time (s)</th>";
+          if (hasErrors) html += "<th>Crashes During Execution</th>";
+          html += "</tr></thead>";
+          html += "<tbody>";
+
+          const configGroups = [...new Set(evalRuns.map(r => r.configuration))];
+          for (let ci = 0; ci < configGroups.length; ci++) {
+            const config = configGroups[ci];
+            const configRuns = evalRuns.filter(r => r.configuration === config);
+            if (configRuns.length === 0) continue;
+
+            const rowClass = ci === 0 ? "benchmark-row-with" : "benchmark-row-without";
+            const configLabel = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+
+            for (const run of configRuns) {
+              const r = run.result || {};
+              const prClass = r.pass_rate >= 0.8 ? "benchmark-delta-positive" : r.pass_rate < 0.5 ? "benchmark-delta-negative" : "";
+              html += '<tr class="' + rowClass + '">';
+              html += "<td>" + configLabel + "</td>";
+              html += "<td>" + run.run_number + "</td>";
+              html += '<td class="' + prClass + '">' + ((r.pass_rate || 0) * 100).toFixed(0) + "% (" + (r.passed || 0) + "/" + (r.total || 0) + ")</td>";
+              if (hasTime) html += "<td>" + (r.time_seconds != null ? r.time_seconds.toFixed(1) : "\u2014") + "</td>";
+              if (hasErrors) html += "<td>" + (r.errors || 0) + "</td>";
+              html += "</tr>";
+            }
+
+            const rates = configRuns.map(r => (r.result || {}).pass_rate || 0);
+            const avgRate = rates.reduce((a, b) => a + b, 0) / rates.length;
+            const avgPrClass = avgRate >= 0.8 ? "benchmark-delta-positive" : avgRate < 0.5 ? "benchmark-delta-negative" : "";
+            html += '<tr class="benchmark-row-avg ' + rowClass + '">';
+            html += "<td>" + configLabel + "</td>";
+            html += "<td>Avg</td>";
+            html += '<td class="' + avgPrClass + '">' + (avgRate * 100).toFixed(0) + "%</td>";
+            if (hasTime) {
+              const times = configRuns.map(r => (r.result || {}).time_seconds).filter(t => t != null);
+              html += "<td>" + (times.length ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : "\u2014") + "</td>";
+            }
+            if (hasErrors) html += "<td></td>";
+            html += "</tr>";
+          }
+          html += "</tbody></table>";
+
+          const runsWithExpectations = {};
+          for (const config of configGroups) {
+            runsWithExpectations[config] = evalRuns.filter(r => r.configuration === config && r.expectations && r.expectations.length > 0);
+          }
+          const hasAnyExpectations = Object.values(runsWithExpectations).some(runs => runs.length > 0);
+          if (hasAnyExpectations) {
+            const allAssertions = [];
+            const seen = new Set();
+            for (const config of configGroups) {
+              for (const run of runsWithExpectations[config]) {
+                for (const exp of (run.expectations || [])) {
+                  if (!seen.has(exp.text)) {
+                    seen.add(exp.text);
+                    allAssertions.push(exp.text);
+                  }
+                }
+              }
+            }
+
+            html += '<table class="benchmark-table" style="margin-top: 0.5rem;">';
+            html += "<thead><tr><th>Assertion</th>";
+            for (const config of configGroups) {
+              const label = config.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+              html += "<th>" + escapeHtml(label) + "</th>";
+            }
+            html += "</tr></thead><tbody>";
+
+            for (const assertionText of allAssertions) {
+              html += "<tr><td>" + escapeHtml(assertionText) + "</td>";
+              for (const config of configGroups) {
+                html += "<td>";
+                for (const run of runsWithExpectations[config]) {
+                  const exp = (run.expectations || []).find(e => e.text === assertionText);
+                  if (exp) {
+                    const cls = exp.passed ? "benchmark-delta-positive" : "benchmark-delta-negative";
+                    const icon = exp.passed ? "\u2713" : "\u2717";
+                    html += '<span class="' + cls + '" title="Run ' + run.run_number + ': ' + escapeHtml(exp.evidence || "") + '">' + icon + "</span> ";
+                  } else {
+                    html += "\u2014 ";
+                  }
+                }
+                html += "</td>";
+              }
+              html += "</tr>";
+            }
+            html += "</tbody></table>";
+          }
+        }
+      }
+
+      if (notes.length > 0) {
+        html += '<div class="benchmark-notes">';
+        html += "<h3>Analysis Notes</h3>";
+        html += "<ul>";
+        for (const note of notes) {
+          html += "<li>" + escapeHtml(note) + "</li>";
+        }
+        html += "</ul></div>";
+      }
+
+      container.innerHTML = html;
+    }
+
+    init();
+    renderBenchmark();
+  </script>
+</body>
+</html>
