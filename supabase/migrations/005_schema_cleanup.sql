@@ -8,86 +8,8 @@
 -- ============================================
 
 -- ============================================
--- 1. SIMPLIFY RBAC: Merge permissions into roles
--- ============================================
-
-ALTER TABLE roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
-
-DROP TABLE IF EXISTS role_permissions CASCADE;
-DROP TABLE IF EXISTS permissions CASCADE;
-
--- ============================================
--- 2. MERGE vehicleinspection INTO vehiclemaintenance
--- ============================================
-
-ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS inspection_checklist JSONB;
-ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS inspection_findings TEXT;
-ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS severity VARCHAR(20);
-
-DROP TABLE IF EXISTS vehicleinspection CASCADE;
-
--- ============================================
--- 3. MERGE vehicledocuments INTO vehicles
--- ============================================
-
-ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;
-
-DROP TABLE IF EXISTS vehicledocuments CASCADE;
-
--- ============================================
--- 4. DROP vehicleassignment (redundant with dispatch)
--- ============================================
-
-DROP TABLE IF EXISTS vehicleassignment CASCADE;
-
--- ============================================
--- 5. SIMPLIFY fuelrecords: drop station FK, add text field
--- ============================================
-
-ALTER TABLE fuelrecords DROP COLUMN IF EXISTS station_id CASCADE;
-ALTER TABLE fuelrecords ADD COLUMN IF NOT EXISTS station_name VARCHAR(255);
-
-DROP TABLE IF EXISTS fuelstations CASCADE;
-DROP TABLE IF EXISTS fuelrequests CASCADE;
-DROP TABLE IF EXISTS fuelallocations CASCADE;
-DROP TABLE IF EXISTS fuelconsumption CASCADE;
-
--- ============================================
--- 6. DROP driver extras
--- ============================================
-
-DROP TABLE IF EXISTS driverattendance CASCADE;
-DROP TABLE IF EXISTS driverincidents CASCADE;
-
--- ============================================
--- 7. DROP mobile/offline tables
--- ============================================
-
-DROP TABLE IF EXISTS offlinesync CASCADE;
-DROP TABLE IF EXISTS mobiledevices CASCADE;
-
--- ============================================
--- 8. DROP automation tables
--- ============================================
-
-DROP TABLE IF EXISTS automation_logs CASCADE;
-DROP TABLE IF EXISTS automation_rules CASCADE;
-
--- ============================================
--- 9. DROP scheduling tables
--- ============================================
-
-DROP TABLE IF EXISTS scheduled_reports CASCADE;
-DROP TABLE IF EXISTS scheduled_tasks CASCADE;
-
--- ============================================
--- 10. DROP system_config
--- ============================================
-
-DROP TABLE IF EXISTS system_config CASCADE;
-
--- ============================================
--- 11. UPDATE RLS: Remove policies for dropped tables
+-- 1. DROP RLS policies for tables that will be dropped
+-- (MUST come before DROP TABLE to avoid "relation does not exist")
 -- ============================================
 
 DROP POLICY IF EXISTS "Admin can manage permissions" ON permissions;
@@ -103,7 +25,88 @@ DROP POLICY IF EXISTS "Admin can view automation logs" ON automation_logs;
 DROP POLICY IF EXISTS "Only system admin can manage config" ON system_config;
 
 -- ============================================
--- 12. CLEANUP: Remove empty or redundant indexes
+-- 2. SIMPLIFY RBAC: Merge permissions into roles
+-- ============================================
+
+ALTER TABLE roles ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
+
+DROP TABLE IF EXISTS role_permissions CASCADE;
+DROP TABLE IF EXISTS permissions CASCADE;
+
+-- ============================================
+-- 3. MERGE vehicleinspection INTO vehiclemaintenance
+-- ============================================
+
+ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS inspection_checklist JSONB;
+ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS inspection_findings TEXT;
+ALTER TABLE vehiclemaintenance ADD COLUMN IF NOT EXISTS severity VARCHAR(20);
+
+DROP TABLE IF EXISTS vehicleinspection CASCADE;
+
+-- ============================================
+-- 4. MERGE vehicledocuments INTO vehicles
+-- ============================================
+
+ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb;
+
+DROP TRIGGER IF EXISTS trigger_notify_document_expiry ON vehicledocuments;
+
+DROP TABLE IF EXISTS vehicledocuments CASCADE;
+
+-- ============================================
+-- 5. DROP vehicleassignment (redundant with dispatch)
+-- ============================================
+
+DROP TABLE IF EXISTS vehicleassignment CASCADE;
+
+-- ============================================
+-- 6. SIMPLIFY fuelrecords: drop station FK, add text field
+-- ============================================
+
+ALTER TABLE fuelrecords DROP COLUMN IF EXISTS station_id CASCADE;
+ALTER TABLE fuelrecords ADD COLUMN IF NOT EXISTS station_name VARCHAR(255);
+
+DROP TABLE IF EXISTS fuelstations CASCADE;
+DROP TABLE IF EXISTS fuelrequests CASCADE;
+DROP TABLE IF EXISTS fuelallocations CASCADE;
+DROP TABLE IF EXISTS fuelconsumption CASCADE;
+
+-- ============================================
+-- 7. DROP driver extras
+-- ============================================
+
+DROP TABLE IF EXISTS driverattendance CASCADE;
+DROP TABLE IF EXISTS driverincidents CASCADE;
+
+-- ============================================
+-- 8. DROP mobile/offline tables
+-- ============================================
+
+DROP TABLE IF EXISTS offlinesync CASCADE;
+DROP TABLE IF EXISTS mobiledevices CASCADE;
+
+-- ============================================
+-- 9. DROP automation tables
+-- ============================================
+
+DROP TABLE IF EXISTS automation_logs CASCADE;
+DROP TABLE IF EXISTS automation_rules CASCADE;
+
+-- ============================================
+-- 10. DROP scheduling tables
+-- ============================================
+
+DROP TABLE IF EXISTS scheduled_reports CASCADE;
+DROP TABLE IF EXISTS scheduled_tasks CASCADE;
+
+-- ============================================
+-- 11. DROP system_config
+-- ============================================
+
+DROP TABLE IF EXISTS system_config CASCADE;
+
+-- ============================================
+-- 11. CLEANUP: Remove empty or redundant indexes
 -- ============================================
 
 DROP INDEX IF EXISTS idx_attendance_driver;
@@ -111,14 +114,13 @@ DROP INDEX IF EXISTS idx_attendance_date;
 DROP INDEX IF EXISTS idx_integration_created;
 
 -- ============================================
--- 13. REMOVE triggers for dropped tables
+-- 12. REMOVE functions for dropped tables
 -- ============================================
 
-DROP TRIGGER IF EXISTS trigger_notify_document_expiry ON vehicledocuments;
 DROP FUNCTION IF EXISTS notify_document_expiry;
 
 -- ============================================
--- 14. UPDATE NOTIFICATION TRIGGERS
+-- 13. UPDATE NOTIFICATION TRIGGERS
 -- Remove reference to deleted tables
 -- ============================================
 

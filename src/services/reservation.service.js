@@ -5,7 +5,9 @@ const reservationSelect = `
   vehicles(vehicle_id, plate_number, vehicle_name),
   drivers(driver_id, employee_id, employees(first_name, last_name)),
   service_types(service_type_id, service_name, icon, color),
-  booking_channels(channel_id, channel_name)
+  booking_channels(channel_id, channel_name),
+  pickup_location:pickup_location_id(*),
+  dropoff_location:dropoff_location_id(*)
 `;
 
 export async function getReservations(filters = {}) {

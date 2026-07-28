@@ -183,3 +183,47 @@ export async function updateVehicleMaintenance(id, record) {
   if (error) throw error;
   return data;
 }
+
+export async function getVehicleDocuments(vehicleId) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vehicledocuments")
+    .select("*")
+    .eq("vehicle_id", vehicleId)
+    .is("deleted_at", null)
+    .order("expiry_date", { ascending: true });
+  if (error) throw error;
+  return data;
+}
+
+export async function createVehicleDocument(doc) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vehicledocuments")
+    .insert(doc)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateVehicleDocument(id, doc) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vehicledocuments")
+    .update(doc)
+    .eq("document_id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteVehicleDocument(id) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("vehicledocuments")
+    .update({ deleted_at: new Date().toISOString(), status: "Inactive" })
+    .eq("document_id", id);
+  if (error) throw error;
+}

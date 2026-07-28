@@ -68,12 +68,12 @@ INSERT INTO employees (first_name, last_name, position, email, phone, status, br
 -- ============================================
 -- DRIVERS (with performance data stored directly)
 -- ============================================
-INSERT INTO drivers (employee_id, driver_status, license_number, license_class, license_type, license_expiry, years_of_experience, performance_score, total_trips, total_distance, rating) VALUES
-(5, 'Available', 'D12-34-567890', 'Professional 1', 'Commercial', '2027-05-15', 8, 4.6, 156, 45200, 4.8),
-(6, 'On Trip', 'D98-76-543210', 'Professional 1', 'Commercial', '2027-08-20', 5, 4.3, 98, 28400, 4.5),
-(7, 'Available', 'D55-44-332211', 'Professional 2', 'Commercial', '2027-03-10', 10, 4.8, 210, 62500, 4.9),
-(8, 'On Trip', 'D77-88-990011', 'Professional 1', 'Commercial', '2027-11-25', 6, 4.0, 72, 19600, 4.2),
-(9, 'Off Duty', 'D22-11-334455', 'Professional 2', 'Commercial', '2027-07-30', 12, 4.5, 180, 51000, 4.6);
+INSERT INTO drivers (employee_id, driver_status, license_number, license_class, license_type, license_expiry, years_of_experience) VALUES
+(5, 'Available', 'D12-34-567890', 'Professional 1', 'Commercial', '2027-05-15', 8),
+(6, 'On Trip', 'D98-76-543210', 'Professional 1', 'Commercial', '2027-08-20', 5),
+(7, 'Available', 'D55-44-332211', 'Professional 2', 'Commercial', '2027-03-10', 10),
+(8, 'On Trip', 'D77-88-990011', 'Professional 1', 'Commercial', '2027-11-25', 6),
+(9, 'Off Duty', 'D22-11-334455', 'Professional 2', 'Commercial', '2027-07-30', 12);
 
 -- ============================================
 -- ROUTES
@@ -113,11 +113,10 @@ INSERT INTO trips (vehicle_id, driver_id, dispatch_id, route_id, trip_status, st
 (2, 2, 2, 5, 'Trip Started', '2026-07-28 14:00:00+08', 8940, 'Proceeding to Tagaytay');
 
 -- ============================================
--- TRIP COST ANALYSIS
+-- TRIP COST (merged into trips table after normalization)
 -- ============================================
-INSERT INTO tripcostanalysis (trip_id, fuel_cost, toll_fees, parking_fees, driver_cost, total_cost, cost_per_km) VALUES
-(1, 450.00, 35.00, 0, 300.00, 785.00, 15.70),
-(2, 1200.00, 250.00, 100.00, 800.00, 2350.00, 18.80);
+UPDATE trips SET fuel_cost = 450.00, toll_fees = 35.00, parking_fees = 0, driver_cost = 300.00, total_cost = 785.00, cost_per_km = 15.70 WHERE trip_id = 1;
+UPDATE trips SET fuel_cost = 1200.00, toll_fees = 250.00, parking_fees = 100.00, driver_cost = 800.00, total_cost = 2350.00, cost_per_km = 18.80 WHERE trip_id = 2;
 
 -- ============================================
 -- FUEL RECORDS
