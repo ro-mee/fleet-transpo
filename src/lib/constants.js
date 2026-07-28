@@ -8,6 +8,7 @@ export const ROLES = {
   DRIVER: "driver",
   RECEPTION_STAFF: "reception_staff",
   RESTAURANT_STAFF: "restaurant_staff",
+  CONCIERGE: "concierge",
   MANAGEMENT: "management",
   SYSTEM_ADMIN: "system_admin",
 };

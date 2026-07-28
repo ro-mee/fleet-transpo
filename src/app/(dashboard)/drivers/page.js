@@ -8,8 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
 import { getDrivers, getDriverStats } from "@/services/driver.service";
+<<<<<<< HEAD
+import { useRequireRole } from "@/lib/auth/role-guard";
+import { Users, UserCheck, UserX, Truck, Clock, Ban } from "lucide-react";
+=======
 import { Users, UserCheck, UserX, Truck, Clock, Ban, Download } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 const statusColors = {
   "Available": "success",
@@ -57,6 +62,7 @@ const columns = [
 ];
 
 export default function DriversPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const [search, setSearch] = useState("");
 
   const { data: drivers = [] } = useQuery({

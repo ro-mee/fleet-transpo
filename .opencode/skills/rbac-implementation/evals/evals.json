@@ -1,0 +1,23 @@
+{
+  "skill_name": "rbac-implementation",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Fix all RBAC gaps in FleetOps — apply the full model from the doc. Read docs/rbac-model.md and implement every change it describes: fix the concierge role in constants, generate an RLS migration for all missing tables, create the frontend role guard utility, add route protection, and add API middleware. This is a full end-to-end implementation.",
+      "expected_output": "All RBAC gaps closed — constants.js updated, migration 008_rbac_policies.sql created with policies for all 16+ missing tables, role-guard.js and use-role-access.js created, sidebar and layout updated with guards, API middleware created.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "The routes and fuel tables in FleetOps have RLS enabled but no policies defined — all access is denied by default. Read docs/rbac-model.md Section 5 and create a new Supabase migration file that adds the correct RLS policies for: routes, fuelstations, fuelconsumption, fuelrequests, fuelallocations, and fuelrecords. Follow the patterns in the existing 002_rls_policies.sql file.",
+      "expected_output": "A migration file or policy statements that add RLS policies for routes and all fuel-related tables, following the existing policy patterns.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Add frontend guards so drivers can't access dispatch, fleet management, or settings pages. Read docs/rbac-model.md Section 6, then create the role-guard utility at src/lib/auth/role-guard.js with a NAV_ROLES map, filterNavByRole function, and canAccessRoute check. Then update the Sidebar component to filter nav items based on the user's role. Also add route-level protection in the dashboard layout so navigating directly to restricted pages redirects to /dashboard.",
+      "expected_output": "src/lib/auth/role-guard.js created, src/hooks/use-role-access.js created (or equivalent), src/components/layout/app-shell.jsx updated to filter nav items, dashboard layout updated with route guard.",
+      "files": []
+    }
+  ]
+}

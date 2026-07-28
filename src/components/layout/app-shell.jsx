@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/hooks/use-auth";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   LayoutDashboard,
   Truck,
@@ -98,6 +99,9 @@ function isActive(pathname, href) {
 
 export function Sidebar({ collapsed, setCollapsed }) {
   const pathname = usePathname();
+  const { employee } = useAuth();
+  const { filterNav, userRole } = useRoleAccess();
+  const visibleGroups = filterNav(navGroups);
 
   return (
     <aside
@@ -136,7 +140,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto scrollbar-none px-2 py-4 space-y-6">
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.label}>
             {!collapsed && (
               <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-foreground-muted">
@@ -153,6 +157,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
                       item={item}
                       pathname={pathname}
                       collapsed={collapsed}
+                      userRole={userRole}
                     />
                   );
                 }
@@ -192,16 +197,24 @@ export function Sidebar({ collapsed, setCollapsed }) {
         {!collapsed ? (
           <div className="flex items-center gap-2.5">
             <Avatar className="h-7 w-7">
-              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">SA</AvatarFallback>
+              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
+                {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
+              </AvatarFallback>
             </Avatar>
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate leading-tight">System Admin</p>
-              <p className="text-[11px] text-foreground-muted truncate">admin@fleetops.com</p>
+              <p className="text-sm font-medium text-foreground truncate leading-tight">
+                {employee ? employee.first_name + " " + employee.last_name : "User"}
+              </p>
+              <p className="text-[11px] text-foreground-muted truncate">
+                {employee?.roles?.role_name ?? ""}
+              </p>
             </div>
           </div>
         ) : (
           <Avatar className="h-7 w-7">
-            <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">SA</AvatarFallback>
+            <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
+              {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
+            </AvatarFallback>
           </Avatar>
         )}
       </div>
@@ -209,11 +222,13 @@ export function Sidebar({ collapsed, setCollapsed }) {
   );
 }
 
-function NavGroupItem({ item, pathname, collapsed }) {
+function NavGroupItem({ item, pathname, collapsed, userRole }) {
   const [expanded, setExpanded] = useState(
     pathname.startsWith(item.href) && item.href !== "/dashboard"
   );
   const active = isActive(pathname, item.href);
+
+  const { canAccess } = useRoleAccess();
 
   if (collapsed) {
     return (
@@ -234,6 +249,12 @@ function NavGroupItem({ item, pathname, collapsed }) {
       </Link>
     );
   }
+
+  const visibleChildren = item.children
+    ? item.children.filter((child) => canAccess(child.href))
+    : [];
+
+  if (visibleChildren.length === 0) return null;
 
   return (
     <div>
@@ -261,7 +282,7 @@ function NavGroupItem({ item, pathname, collapsed }) {
         expanded ? "mt-0.5" : "h-0"
       )}>
         <div className="ml-6 space-y-0.5 border-l border-border pl-2">
-          {item.children.map((child) => {
+          {visibleChildren.map((child) => {
             const isChildActive = pathname === child.href;
             return (
               <Link

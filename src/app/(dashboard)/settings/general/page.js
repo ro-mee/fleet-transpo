@@ -5,8 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { APP_NAME } from "@/lib/constants";
 import { Save, Globe, Clock, Palette, Bell, Share2 } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function SettingsGeneralPage() {
+  useRequireRole(["admin", "system_admin"]);
   return (
     <div className="space-y-6">
       <div>

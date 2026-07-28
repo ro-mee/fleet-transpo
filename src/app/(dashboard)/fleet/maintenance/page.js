@@ -14,6 +14,16 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles } from "@/services/vehicle.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
+<<<<<<< HEAD
+import { Pencil, Trash2, Eye, Wrench } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useRequireRole } from "@/lib/auth/role-guard";
+
+export default function MaintenancePage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  const router = useRouter();
+  const supabase = createClient();
+=======
 import { Pencil, Archive, Eye, Wrench } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 
@@ -32,6 +42,7 @@ const priorityVariant = {
 };
 
 export default function MaintenancePage() {
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewingRecord, setViewingRecord] = useState(null);

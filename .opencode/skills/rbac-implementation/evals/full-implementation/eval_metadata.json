@@ -1,0 +1,14 @@
+{
+  "eval_id": 1,
+  "eval_name": "full-implementation",
+  "prompt": "Fix all RBAC gaps in FleetOps — apply the full model from the doc. Read docs/rbac-model.md and implement every change it describes: fix the concierge role in constants, generate an RLS migration for all missing tables, create the frontend role guard utility, add route protection, and add API middleware. This is a full end-to-end implementation.",
+  "expectations": [
+    "Constants file src/lib/constants.js is updated with the concierge role",
+    "A new migration file supabase/migrations/008_rbac_policies.sql is created",
+    "The migration includes policies for routes, vehicleinspection, and fuelrecords tables",
+    "The migration includes helper functions get_current_employee_branch, get_current_employee_id, get_current_driver_id",
+    "The file src/lib/auth/role-guard.js is created with NAV_ROLES, canAccessRoute, filterNavByRole",
+    "The file src/hooks/use-role-access.js is created with useRoleAccess and useRequireRole",
+    "The file src/lib/auth/api-auth.js is created with withRole and getServerRole"
+  ]
+}

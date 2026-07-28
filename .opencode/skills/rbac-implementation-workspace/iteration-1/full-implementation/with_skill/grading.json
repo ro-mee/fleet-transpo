@@ -1,0 +1,45 @@
+{
+  "expectations": [
+    {
+      "text": "Constants file src/lib/constants.js is updated with the concierge role",
+      "passed": true,
+      "evidence": "constants.js line 11: CONCIERGE: \"concierge\""
+    },
+    {
+      "text": "A new migration file supabase/migrations/008_rbac_policies.sql is created",
+      "passed": true,
+      "evidence": "008_rbac_policies.sql created (479 lines, 16063 bytes)"
+    },
+    {
+      "text": "The migration includes policies for routes, vehicleinspection, and fuelrecords tables",
+      "passed": true,
+      "evidence": "CREATE POLICY statements found for routes (lines 120-133), vehicleinspection (lines 141-153), and fuelrecords (line 404)"
+    },
+    {
+      "text": "The migration includes helper functions get_current_employee_branch, get_current_employee_id, get_current_driver_id",
+      "passed": true,
+      "evidence": "Three helper functions defined in Section 1 (lines 12-52)"
+    },
+    {
+      "text": "The file src/lib/auth/role-guard.js is created with NAV_ROLES, canAccessRoute, filterNavByRole",
+      "passed": true,
+      "evidence": "role-guard.js has NAV_ROLES (21 routes), canAccessRoute() (line 33), filterNavByRole() (line 41)"
+    },
+    {
+      "text": "The file src/hooks/use-role-access.js is created with useRoleAccess and useRequireRole",
+      "passed": true,
+      "evidence": "use-role-access.js has useRoleAccess() (line 6) and useRequireRole() (line 29)"
+    },
+    {
+      "text": "The file src/lib/auth/api-auth.js is created with withRole and getServerRole",
+      "passed": true,
+      "evidence": "api-auth.js has withRole() (line 3) and getServerRole() (line 49)"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  }
+}

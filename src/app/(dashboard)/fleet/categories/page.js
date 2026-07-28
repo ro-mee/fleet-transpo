@@ -7,6 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+<<<<<<< HEAD
+import { getVehicleCategories } from "@/services/vehicle.service";
+import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
+
+export default function CategoriesPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  const router = useRouter();
+=======
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -15,6 +24,7 @@ import { Plus, Pencil, Archive } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 
 export default function CategoriesPage() {
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
   const queryClient = useQueryClient();
   const [editingCategory, setEditingCategory] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);

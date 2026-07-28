@@ -1,0 +1,14 @@
+{
+  "eval_id": 3,
+  "eval_name": "frontend-guards",
+  "prompt": "Add frontend guards so drivers can't access dispatch, fleet management, or settings pages. Read docs/rbac-model.md Section 6, then create the role-guard utility at src/lib/auth/role-guard.js with a NAV_ROLES map, filterNavByRole function, and canAccessRoute check. Then update the Sidebar component to filter nav items based on the user's role. Also add route-level protection in the dashboard layout so navigating directly to restricted pages redirects to /dashboard.",
+  "expectations": [
+    "The file src/lib/auth/role-guard.js is created with NAV_ROLES constant",
+    "role-guard.js exports canAccessRoute function that checks pathname against NAV_ROLES",
+    "role-guard.js exports filterNavByRole function that filters nav groups by user role",
+    "The file src/hooks/use-role-access.js is created with useRequireRole hook that redirects unauthorized users",
+    "The sidebar in app-shell.jsx is updated to filter nav items using the new utility",
+    "The dashboard layout applies route-level protection that redirects unauthorized users",
+    "Driver role cannot access /dispatch, /fleet, /drivers, or /settings routes"
+  ]
+}

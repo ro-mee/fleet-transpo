@@ -8,9 +8,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
+<<<<<<< HEAD
+import { useRequireRole } from "@/lib/auth/role-guard";
+=======
 import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 export default function FleetVehiclesPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const router = useRouter();
   const [filters, setFilters] = useState({});
 

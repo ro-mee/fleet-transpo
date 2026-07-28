@@ -11,9 +11,14 @@ import { getVehicles } from "@/services/vehicle.service";
 import { useRouter } from "next/navigation";
 import { Plus, Route as RouteIcon, MapPin, ArrowRight } from "lucide-react";
 import { getRoutes, deleteRoute } from "@/services/route.service";
+<<<<<<< HEAD
 import { toast } from "@/components/ui/toast";
+=======
+import { useRequireRole } from "@/lib/auth/role-guard";
+>>>>>>> 6a5a1b26589a236b0d3cda8184e287e688d89102
 
 export default function RoutesPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
   const queryClient = useQueryClient();
 

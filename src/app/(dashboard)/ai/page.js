@@ -6,8 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
 import { formatDate } from "@/lib/utils";
 import { Brain, Lightbulb, Wrench, TrendingUp, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function AiDashboardPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const { data: insights = [] } = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),

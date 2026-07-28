@@ -8,8 +8,13 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
 import { getFuelRecords } from "@/services/fuel.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
+<<<<<<< HEAD
+import { Fuel, Plus } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
+=======
 import { Fuel, Plus, Download } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 const columns = [
   {
@@ -43,6 +48,7 @@ const columns = [
 ];
 
 export default function FuelPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "driver"]);
   const [search, setSearch] = useState("");
 
   const { data: records = [] } = useQuery({

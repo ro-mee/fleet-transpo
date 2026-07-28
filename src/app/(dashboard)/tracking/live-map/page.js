@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
 import { Truck, MapPin, Navigation, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function LiveMapPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
   const [mapLoaded, setMapLoaded] = useState(false);
 

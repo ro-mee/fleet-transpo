@@ -10,8 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
 import { formatDate, formatTime, formatDuration, formatDistance } from "@/lib/utils";
+<<<<<<< HEAD
+import { Route, Play, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
+=======
 import { Route, Play, Download, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 const statusVariant = {
   Pending: "warning",
@@ -26,6 +31,7 @@ const statusVariant = {
 };
 
 export default function TripsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
 
   const { data: trips = [] } = useQuery({

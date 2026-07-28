@@ -14,6 +14,7 @@ import {
   getFinancialSummary,
 } from "@/services/report.service";
 import { formatCurrency, formatDistance } from "@/lib/utils";
+import { useRequireRole } from "@/lib/auth/role-guard";
 import {
   BarChart3, Truck, Fuel, Wrench, Users, DollarSign,
   Download, CalendarDays, TrendingUp, PieChart,
@@ -28,6 +29,7 @@ const reportTypes = [
 ];
 
 export default function ReportsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const [selectedReport, setSelectedReport] = useState("fleet");
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
 

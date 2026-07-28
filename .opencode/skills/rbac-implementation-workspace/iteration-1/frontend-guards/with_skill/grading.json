@@ -1,0 +1,45 @@
+{
+  "expectations": [
+    {
+      "text": "The file src/lib/auth/role-guard.js is created with NAV_ROLES constant",
+      "passed": true,
+      "evidence": "role-guard.js has NAV_ROLES with 18 route entries"
+    },
+    {
+      "text": "role-guard.js exports canAccessRoute function that checks pathname against NAV_ROLES",
+      "passed": true,
+      "evidence": "canAccessRoute() exported at line 33"
+    },
+    {
+      "text": "role-guard.js exports filterNavByRole function that filters nav groups by user role",
+      "passed": true,
+      "evidence": "filterNavByRole() exported at line 41"
+    },
+    {
+      "text": "The file src/hooks/use-role-access.js is created with useRequireRole hook that redirects unauthorized users",
+      "passed": true,
+      "evidence": "use-role-access.js has useRoleAccess() and useRequireRole()"
+    },
+    {
+      "text": "The sidebar in app-shell.jsx is updated to filter nav items using the new utility",
+      "passed": true,
+      "evidence": "modified app-shell.jsx uses useRoleAccess().filterNav(navGroups) for sidebar"
+    },
+    {
+      "text": "The dashboard layout applies route-level protection that redirects unauthorized users",
+      "passed": true,
+      "evidence": "modified dashboard-layout.jsx includes RouteGuard component with role check"
+    },
+    {
+      "text": "Driver role cannot access /dispatch, /fleet, /drivers, or /settings routes",
+      "passed": true,
+      "evidence": "NAV_ROLES excludes driver from dispatch, fleet, drivers, and settings routes"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  }
+}

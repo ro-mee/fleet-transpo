@@ -2,8 +2,10 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Wrench } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function MaintenancePage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   return (
     <div className="space-y-6">
       <div>
