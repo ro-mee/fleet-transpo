@@ -9,22 +9,36 @@ export async function signIn(email, password) {
 
 export async function signUp(email, password, userData) {
   const supabase = createClient();
+  const lowerEmail = email.toLowerCase();
   const { data: authData, error: authError } = await supabase.auth.signUp({
-    email,
+    email: lowerEmail,
     password,
     options: { data: userData },
   });
   if (authError) throw authError;
 
   if (authData.user) {
-    const { error: profileError } = await supabase.from("employees").insert({
-      user_id: authData.user.id,
-      email,
-      first_name: userData.first_name,
-      last_name: userData.last_name,
-      role_id: userData.role_id || 4,
-    });
-    if (profileError) throw profileError;
+    const { data: existingEmp } = await supabase
+      .from("employees")
+      .select("employee_id")
+      .eq("email", lowerEmail)
+      .single();
+
+    if (existingEmp) {
+      await supabase
+        .from("employees")
+        .update({ user_id: authData.user.id })
+        .eq("employee_id", existingEmp.employee_id);
+    } else {
+      const { error: profileError } = await supabase.from("employees").insert({
+        user_id: authData.user.id,
+        email: lowerEmail,
+        first_name: userData.first_name,
+        last_name: userData.last_name,
+        role_id: userData.role_id || 1,
+      });
+      if (profileError) throw profileError;
+    }
   }
 
   return authData;
@@ -55,13 +69,32 @@ export async function getCurrentEmployee() {
   const user = await getUser();
   if (!user) return null;
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("employees")
     .select("*, roles(*), branches(*)")
     .eq("user_id", user.id)
     .single();
 
-  if (error) return null;
+  if ((error || !data) && user.email) {
+    const { data: emailEmp, error: emailErr } = await supabase
+      .from("employees")
+      .select("*, roles(*), branches(*)")
+      .eq("email", user.email.toLowerCase())
+      .single();
+
+    if (!emailErr && emailEmp) {
+      data = emailEmp;
+      if (!data.user_id) {
+        await supabase
+          .from("employees")
+          .update({ user_id: user.id })
+          .eq("employee_id", data.employee_id);
+        data.user_id = user.id;
+      }
+    }
+  }
+
+  if (error && !data) return null;
   return data;
 }
 

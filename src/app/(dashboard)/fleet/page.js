@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +10,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function FleetDashboardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  const [sevenDaysFromNow] = useState(() => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
   const { data: vehicles = [] } = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => getVehicles(),
@@ -25,11 +27,13 @@ export default function FleetDashboardPage() {
   const maintenance = vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length;
   const utilization = total ? Math.round((inUse / total) * 100) : 0;
 
-  const vehiclesDueForService = vehicles.filter(
-    (v) =>
-      v.next_service_date &&
-      new Date(v.next_service_date) <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-  );
+  const vehiclesDueForService = useMemo(() => {
+    return vehicles.filter(
+      (v) =>
+        v.next_service_date &&
+        new Date(v.next_service_date) <= sevenDaysFromNow
+    );
+  }, [vehicles, sevenDaysFromNow]);
 
   return (
     <div className="space-y-6">

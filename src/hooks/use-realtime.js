@@ -1,17 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export function useRealtime(channel, event, callback) {
   const [isConnected, setIsConnected] = useState(false);
+  const callbackRef = useRef(callback);
+
+  useEffect(() => {
+    callbackRef.current = callback;
+  }, [callback]);
 
   useEffect(() => {
     const supabase = createClient();
     const subscription = supabase
       .channel(channel)
       .on("postgres_changes", { event: "*", schema: "public" }, (payload) => {
-        callback(payload);
+        callbackRef.current?.(payload);
       })
       .subscribe((status) => {
         setIsConnected(status === "SUBSCRIBED");
@@ -26,11 +31,18 @@ export function useRealtime(channel, event, callback) {
 }
 
 export function useTrackingRealtime(vehicleIds, callback) {
-  const supabase = createClient();
+  const callbackRef = useRef(callback);
 
   useEffect(() => {
-    if (!vehicleIds?.length) return;
+    callbackRef.current = callback;
+  }, [callback]);
 
+  const vehicleIdString = vehicleIds?.join(",");
+
+  useEffect(() => {
+    if (!vehicleIdString) return;
+
+    const supabase = createClient();
     const subscription = supabase
       .channel("tracking-updates")
       .on(
@@ -39,10 +51,10 @@ export function useTrackingRealtime(vehicleIds, callback) {
           event: "INSERT",
           schema: "public",
           table: "gpstracking",
-          filter: `vehicle_id=in.(${vehicleIds.join(",")})`,
+          filter: `vehicle_id=in.(${vehicleIdString})`,
         },
         (payload) => {
-          callback(payload.new);
+          callbackRef.current?.(payload.new);
         }
       )
       .subscribe();
@@ -50,5 +62,5 @@ export function useTrackingRealtime(vehicleIds, callback) {
     return () => {
       supabase.removeChannel(subscription);
     };
-  }, [vehicleIds?.join(",")]);
+  }, [vehicleIdString]);
 }

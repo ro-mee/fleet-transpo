@@ -96,14 +96,14 @@ export function useConfirm() {
   }, []);
 
   const handleConfirm = useCallback(() => {
-    state.resolve(true);
+    state.resolve?.(true);
     setState((prev) => ({ ...prev, open: false }));
-  }, [state.resolve]);
+  }, [state]);
 
   const handleCancel = useCallback(() => {
-    state.resolve(false);
+    state.resolve?.(false);
     setState((prev) => ({ ...prev, open: false }));
-  }, [state.resolve]);
+  }, [state]);
 
   const ConfirmDialogComponent = state.open ? (
     <ConfirmDialog

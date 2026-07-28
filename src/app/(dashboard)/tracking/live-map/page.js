@@ -22,8 +22,9 @@ export default function LiveMapPage() {
   });
 
   useEffect(() => {
-    import("leaflet/dist/leaflet.css");
-    setMapLoaded(true);
+    import("leaflet/dist/leaflet.css").then(() => {
+      setMapLoaded(true);
+    });
   }, []);
 
   return (

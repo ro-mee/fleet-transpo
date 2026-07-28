@@ -1,4 +1,5 @@
 import { Geist, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
+import Script from "next/script";
 import { Providers } from "@/components/providers";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import "./globals.css";
@@ -44,7 +45,11 @@ export default function RootLayout({ children }) {
       suppressHydrationWarning
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeScript }}
+        />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>

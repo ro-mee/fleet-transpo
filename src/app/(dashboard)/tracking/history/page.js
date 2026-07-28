@@ -10,6 +10,8 @@ import { createClient } from "@/lib/supabase/client";
 import { formatDateTime, formatDistance } from "@/lib/utils";
 import { MapPin, Clock, Truck, Navigation } from "lucide-react";
 
+const columnHelper = createColumnHelper();
+
 export default function TrackingHistoryPage() {
   const supabase = createClient();
 
@@ -27,8 +29,6 @@ export default function TrackingHistoryPage() {
       return data;
     },
   });
-
-  const columnHelper = createColumnHelper();
 
   const columns = useMemo(
     () => [

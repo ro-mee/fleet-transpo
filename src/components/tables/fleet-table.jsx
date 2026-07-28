@@ -24,6 +24,8 @@ const statusVariant = {
   Reserved: "default",
 };
 
+const columnHelper = createColumnHelper();
+
 export function FleetTable({ filters = {} }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -45,8 +47,6 @@ export function FleetTable({ filters = {} }) {
   });
 
   const [archivingId, setArchivingId] = useState(null);
-
-  const columnHelper = createColumnHelper();
 
   const columns = useMemo(
     () => [
@@ -141,7 +141,7 @@ export function FleetTable({ filters = {} }) {
         ),
       }),
     ],
-    [router, archiveMutation, setArchivingId]
+    [router]
   );
 
   if (isLoading) {

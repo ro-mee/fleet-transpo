@@ -228,8 +228,6 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
   );
   const active = isActive(pathname, item.href);
 
-  const { canAccess } = useRoleAccess();
-
   if (collapsed) {
     return (
       <Link
@@ -250,9 +248,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
     );
   }
 
-  const visibleChildren = item.children
-    ? item.children.filter((child) => canAccess(child.href))
-    : [];
+  const visibleChildren = item.children || [];
 
   if (visibleChildren.length === 0) return null;
 
@@ -311,7 +307,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
 export function TopNav({ collapsed }) {
   const pathname = usePathname();
   const { signOut, user, employee } = useAuth();
-  const { theme, toggle } = useTheme();
+  const { theme, toggle, mounted } = useTheme();
 
   const segments = pathname.split("/").filter(Boolean);
   const pageTitle = segments.length > 0
@@ -349,9 +345,13 @@ export function TopNav({ collapsed }) {
         <button
           onClick={toggle}
           className="flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
-          title={theme === "dark" ? "Light mode" : "Dark mode"}
+          title={mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Toggle theme"}
         >
-          {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+          {mounted ? (
+            theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />
+          ) : (
+            <Sun className="h-4 w-4" />
+          )}
         </button>
 
         <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer">

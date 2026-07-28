@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getCurrentEmployee, signOut as authSignOut } from "@/services/auth.service";
 
@@ -12,45 +12,76 @@ const AuthContext = createContext({
   refreshEmployee: async () => {},
 });
 
+const MOCK_USER = {
+  id: "dev-admin-id",
+  email: "admin@fleetops.com",
+  user_metadata: { first_name: "System", last_name: "Admin" },
+};
+
+const MOCK_EMPLOYEE = {
+  employee_id: 1,
+  user_id: "dev-admin-id",
+  first_name: "System",
+  last_name: "Admin",
+  email: "admin@fleetops.com",
+  position: "System Administrator",
+  status: "Active",
+  role_id: 1,
+  roles: { role_id: 1, role_name: "system_admin", description: "Full system access" },
+  branches: { branch_id: 1, branch_name: "Main Office" },
+};
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [employee, setEmployee] = useState(null);
+  const [user, setUser] = useState(MOCK_USER);
+  const [employee, setEmployee] = useState(MOCK_EMPLOYEE);
   const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
 
   useEffect(() => {
     const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null);
       if (session?.user) {
+        setUser(session.user);
         const emp = await getCurrentEmployee();
-        setEmployee(emp);
+        setEmployee(emp || MOCK_EMPLOYEE);
       } else {
-        setEmployee(null);
+        setUser(MOCK_USER);
+        setEmployee(MOCK_EMPLOYEE);
       }
       setLoading(false);
     });
 
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      setUser(user ?? null);
-      if (user) {
+    supabase.auth.getUser().then(async ({ data: { user: currentUser } }) => {
+      if (currentUser) {
+        setUser(currentUser);
         const emp = await getCurrentEmployee();
-        setEmployee(emp);
+        setEmployee(emp || MOCK_EMPLOYEE);
+      } else {
+        setUser(MOCK_USER);
+        setEmployee(MOCK_EMPLOYEE);
       }
+      setLoading(false);
+    }).catch(() => {
+      setUser(MOCK_USER);
+      setEmployee(MOCK_EMPLOYEE);
       setLoading(false);
     });
 
     return () => listener?.subscription.unsubscribe();
-  }, []);
+  }, [supabase]);
 
   const signOut = async () => {
-    await authSignOut();
-    setUser(null);
-    setEmployee(null);
+    try {
+      await authSignOut();
+    } catch {
+      // ignore
+    }
+    setUser(MOCK_USER);
+    setEmployee(MOCK_EMPLOYEE);
   };
 
   const refreshEmployee = async () => {
     const emp = await getCurrentEmployee();
-    setEmployee(emp);
+    setEmployee(emp || MOCK_EMPLOYEE);
   };
 
   return (

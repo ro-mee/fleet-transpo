@@ -22,6 +22,8 @@ const statusVariant = {
   Completed: "default",
 };
 
+const columnHelper = createColumnHelper();
+
 export default function ReservationsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -41,8 +43,6 @@ export default function ReservationsPage() {
     },
     onError: (err) => toast.error(err.message),
   });
-
-  const columnHelper = createColumnHelper();
 
   const columns = useMemo(
     () => [

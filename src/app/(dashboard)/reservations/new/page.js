@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -85,13 +85,7 @@ export default function NewReservationPage() {
   const watchPassengerCount = form.watch("passenger_count");
   const watchDate = form.watch("reservation_date");
 
-  useEffect(() => {
-    if (watchPassengerCount && watchDate) {
-      loadAiRecommendations();
-    }
-  }, [watchPassengerCount, watchDate]);
-
-  const loadAiRecommendations = async () => {
+  const loadAiRecommendations = useCallback(async () => {
     setLoadingAi(true);
     try {
       const data = form.getValues();
@@ -105,7 +99,13 @@ export default function NewReservationPage() {
     } finally {
       setLoadingAi(false);
     }
-  };
+  }, [form]);
+
+  useEffect(() => {
+    if (watchPassengerCount && watchDate) {
+      loadAiRecommendations();
+    }
+  }, [watchPassengerCount, watchDate, loadAiRecommendations]);
 
   const [createError, setCreateError] = useState(null);
 

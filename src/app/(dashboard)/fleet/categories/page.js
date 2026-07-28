@@ -7,24 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-<<<<<<< HEAD
-import { getVehicleCategories } from "@/services/vehicle.service";
-import { Plus, Pencil, Trash2 } from "lucide-react";
-import { useRequireRole } from "@/lib/auth/role-guard";
-
-export default function CategoriesPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
-  const router = useRouter();
-=======
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleCategories, createCategory, updateCategory, deleteCategory } from "@/services/vehicle.service";
-import { Plus, Pencil, Archive } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function CategoriesPage() {
->>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const queryClient = useQueryClient();
   const [editingCategory, setEditingCategory] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -230,7 +222,7 @@ export default function CategoriesPage() {
                 </Tooltip>
                 <Tooltip content="Archive">
                   <Button variant="ghost" size="icon" className="w-8 h-8 text-danger" onClick={() => handleDelete(cat)}>
-                    <Archive className="w-4 h-4" />
+                    <Trash2 className="w-4 h-4" />
                   </Button>
                 </Tooltip>
               </div>

@@ -4,9 +4,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { hasRole, can, filterNavItems, NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
 export function useRoleAccess() {
-  const { employee, loading } = useAuth();
+  const { user, employee, loading } = useAuth();
 
   return {
+    user,
     employee,
     loading,
     userRole: employee?.roles?.role_name || null,
