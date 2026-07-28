@@ -214,7 +214,19 @@ export function getRequiredRolesForPath(pathname) {
   return prefixMatch.length > 0 ? prefixMatch[0][1] : ["*"];
 }
 
-// AUTH DISABLED FOR DEVELOPMENT — no-op
 export function useRequireRole(requiredRoles) {
-  // intentionally empty
+  const { employee, loading } = useAuth();
+  const router = useRouter();
+  const role = employee?.roles?.role_name;
+
+  const isAuthorized = !loading && (requiredRoles.includes('*') || (role && requiredRoles.includes(role)));
+
+  useEffect(() => {
+    if (loading) return;
+    if (!isAuthorized) {
+      router.replace('/dashboard');
+    }
+  }, [loading, isAuthorized, router]);
+
+  return { authorized: isAuthorized, role };
 }

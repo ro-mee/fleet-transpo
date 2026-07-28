@@ -3,8 +3,10 @@
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { FileText } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function NotificationTemplatesPage() {
+  useRequireRole(["admin", "system_admin"]);
   return (
     <div className="space-y-6">
       <div>

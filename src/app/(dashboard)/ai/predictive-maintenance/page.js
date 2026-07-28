@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { getPredictiveMaintenance } from "@/services/ai.service";
 import { formatDate } from "@/lib/utils";
 import { Wrench, AlertTriangle, CheckCircle2, CalendarDays, Gauge, Activity } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const riskColors = {
   overdue: "danger",
@@ -16,6 +17,7 @@ const riskColors = {
 };
 
 export default function PredictiveMaintenancePage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const { data: predictions = [] } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),

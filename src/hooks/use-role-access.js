@@ -1,7 +1,9 @@
 "use client";
 
 import { useAuth } from "@/hooks/use-auth";
-import { hasRole, can, filterNavItems, NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
+import { hasRole, can, filterNavItems, NAV_ROLES, getRequiredRolesForPath, useRequireRole } from "@/lib/auth/role-guard";
+
+export { useRequireRole };
 
 export function useRoleAccess() {
   const { user, employee, loading } = useAuth();

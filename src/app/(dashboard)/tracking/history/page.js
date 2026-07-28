@@ -9,10 +9,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/client";
 import { formatDateTime, formatDistance } from "@/lib/utils";
 import { MapPin, Clock, Truck, Navigation } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const columnHelper = createColumnHelper();
 
 export default function TrackingHistoryPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
   const supabase = createClient();
 
   const { data: trips = [] } = useQuery({

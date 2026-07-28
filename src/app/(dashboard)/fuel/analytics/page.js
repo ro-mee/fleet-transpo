@@ -6,8 +6,10 @@ import { Badge } from "@/components/ui/badge";
 import { getFuelAnalytics } from "@/services/fuel.service";
 import { formatCurrency } from "@/lib/utils";
 import { Fuel, TrendingDown, DollarSign, BarChart3, PieChart, TrendingUp } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function FuelAnalyticsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const { data: analytics } = useQuery({
     queryKey: ["fuel-analytics"],
     queryFn: () => getFuelAnalytics(),

@@ -8,8 +8,10 @@ import { getAiInsights, dismissAiInsight } from "@/services/ai.service";
 import { formatDate } from "@/lib/utils";
 import { Lightbulb, AlertTriangle, Info, X, RefreshCw } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function AiInsightsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const queryClient = useQueryClient();
 
   const { data: insights = [] } = useQuery({

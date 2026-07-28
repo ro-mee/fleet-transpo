@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRoleAccess } from "@/hooks/use-role-access";
+import { useRequireRole } from "@/hooks/use-role-access";
 import { NAV_ROLES } from "@/lib/auth/role-guard";
 
 const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
@@ -92,8 +92,15 @@ function RoleNotConfiguredCard({ email, router }) {
   );
 }
 
-// AUTH DISABLED FOR DEVELOPMENT — just render children directly
 function RouteGuard({ pathname, children }) {
+  const entry = Object.entries(NAV_ROLES).find(
+    ([route]) => pathname === route || pathname.startsWith(route + '/')
+  );
+
+  const requiredRoles = entry ? entry[1] : ['*'];
+  const { authorized } = useRequireRole(requiredRoles);
+
+  if (!authorized) return null;
   return <>{children}</>;
 }
 
