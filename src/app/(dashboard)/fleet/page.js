@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getVehicles, getVehicleCategories } from "@/services/vehicle.service";
 import { Truck, CheckCircle2, Wrench, AlertTriangle, Fuel, Gauge, CalendarDays } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function FleetDashboardPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const { data: vehicles = [] } = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => getVehicles(),

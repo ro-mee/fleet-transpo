@@ -1,0 +1,14 @@
+{
+  "eval_id": 2,
+  "eval_name": "database-rls-policies",
+  "prompt": "The routes and fuel tables in FleetOps have RLS enabled but no policies defined — all access is denied by default. Read docs/rbac-model.md Section 5 and create a new Supabase migration file that adds the correct RLS policies for: routes, fuelstations, fuelconsumption, fuelrequests, fuelallocations, and fuelrecords. Follow the patterns in the existing 002_rls_policies.sql file.",
+  "expectations": [
+    "A migration file is created for the new RLS policies",
+    "Policies for the 'routes' table are defined covering SELECT, INSERT, UPDATE, DELETE",
+    "Policies for the 'fuelstations' table are defined covering SELECT and CRUD operations",
+    "Policies for the 'fuelrecords' table are defined covering SELECT, INSERT, UPDATE, DELETE",
+    "The migration uses the existing pattern (has_role helper, auth.role checks)",
+    "The management role is given appropriate read-only access where specified in the model",
+    "The driver role can insert into fuelrecords"
+  ]
+}

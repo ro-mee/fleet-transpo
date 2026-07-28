@@ -11,6 +11,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
 import { formatDate, formatTime, formatDuration, formatDistance } from "@/lib/utils";
 import { Route, Play, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const statusVariant = {
   Pending: "warning",
@@ -25,6 +26,7 @@ const statusVariant = {
 };
 
 export default function TripsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
 
   const { data: trips = [] } = useQuery({

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getFleetUtilizationReport, getFuelConsumptionReport, getFinancialSummary } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
+import { useRequireRole } from "@/lib/auth/role-guard";
 import { formatCurrency, formatDistance } from "@/lib/utils";
 import {
   BarChart3, TrendingUp, TrendingDown, Activity,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 
 export default function AnalyticsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const { data: fleet } = useQuery({
     queryKey: ["analytics-fleet"],
     queryFn: () => getFleetUtilizationReport(),

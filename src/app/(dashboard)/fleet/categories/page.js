@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getVehicleCategories } from "@/services/vehicle.service";
 import { Plus, Pencil, Trash2 } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function CategoriesPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const router = useRouter();
   const queryClient = useQueryClient();
 

@@ -10,8 +10,10 @@ import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Pencil, Trash2, Eye, Wrench } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function MaintenancePage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const router = useRouter();
   const supabase = createClient();
   const queryClient = useQueryClient();

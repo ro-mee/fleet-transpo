@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RBAC Implementation Skill — Test Results</title>
+<style>
+body { font-family: system-ui, -apple-system, sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; background: #f8f9fa; color: #1a1a2e; }
+h1 { border-bottom: 3px solid #4361ee; padding-bottom: 0.5rem; }
+h2 { margin-top: 2rem; color: #4361ee; }
+h3 { margin-top: 1.5rem; }
+table { border-collapse: collapse; width: 100%; margin: 1rem 0; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+th, td { padding: 0.75rem 1rem; text-align: left; border-bottom: 1px solid #dee2e6; }
+th { background: #4361ee; color: white; font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+.pass { color: #2d6a4f; font-weight: 600; }
+.fail { color: #d00000; font-weight: 600; }
+.eval-card { background: white; border-radius: 8px; padding: 1.5rem; margin: 1rem 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.config-tag { display: inline-block; padding: 0.25rem 0.75rem; border-radius: 4px; font-size: 0.85rem; font-weight: 600; }
+.with-skill { background: #d3f8e2; color: #155d2f; }
+.without-skill { background: #ffe5d9; color: #9d3300; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem; margin: 1rem 0; }
+.stat-card { background: white; border-radius: 8px; padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+.stat-value { font-size: 2rem; font-weight: 700; color: #4361ee; }
+.stat-label { font-size: 0.85rem; color: #6c757d; margin-top: 0.25rem; }
+.note { background: #fff3cd; border-left: 4px solid #ffc107; padding: 0.75rem 1rem; margin: 0.5rem 0; border-radius: 4px; }
+pre { background: #1e1e2e; color: #cdd6f4; padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+
+<h1>🏎️ RBAC Implementation Skill — Test Results</h1>
+
+<h2>Benchmark Summary</h2>
+<div class="summary-grid">
+  <div class="stat-card">
+    <div class="stat-value">100%</div>
+    <div class="stat-label">With Skill Pass Rate</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">100%</div>
+    <div class="stat-label">Without Skill Pass Rate</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">-4.3s</div>
+    <div class="stat-label">Time Saved (With Skill)</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">-4K</div>
+    <div class="stat-label">Tokens Saved (With Skill)</div>
+  </div>
+</div>
+
+<table>
+<tr><th>Metric</th><th>With Skill</th><th>Without Skill</th><th>Delta</th></tr>
+<tr><td>Pass Rate</td><td>100% ± 0%</td><td>100% ± 0%</td><td>+0.00</td></tr>
+<tr><td>Time</td><td>39.0s ± 11.5s</td><td>43.3s ± 13.6s</td><td>-4.3s</td></tr>
+<tr><td>Tokens</td><td>45,000 ± 14,500</td><td>49,000 ± 16,500</td><td>-4,000</td></tr>
+</table>
+
+<h2>Eval Results</h2>
+
+<div class="eval-card">
+  <h3>Eval 1: Full RBAC Implementation</h3>
+  <p><span class="config-tag with-skill">With Skill</span> <span class="config-tag without-skill">Without Skill</span></p>
+  <p><strong>Prompt:</strong> Fix all RBAC gaps in FleetOps — apply the full model from the doc. Fix concierge role in constants, generate RLS migration, create role guard utility, add route protection, add API middleware.</p>
+  <table>
+    <tr><th>Expectation</th><th>With Skill</th><th>Without Skill</th></tr>
+    <tr><td>Constants updated with concierge</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Migration 008_rbac_policies.sql created</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Policies for routes, vehicleinspection, fuelrecords</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>3 helper functions</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>role-guard.js with NAV_ROLES, canAccessRoute, filterNavByRole</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>use-role-access.js with useRoleAccess and useRequireRole</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>api-auth.js with withRole and getServerRole</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+  </table>
+  <div class="note"><strong>Note:</strong> With-skill output followed doc section numbering in migration (Section 1: Helpers, Section 2: Fixes, Section 3: New Policies). Without-skill produced a larger migration (716 vs 479 lines) with per-table naming that didn't reference the doc structure.</div>
+</div>
+
+<div class="eval-card">
+  <h3>Eval 2: Database RLS Policies</h3>
+  <p><span class="config-tag with-skill">With Skill</span> <span class="config-tag without-skill">Without Skill</span></p>
+  <p><strong>Prompt:</strong> Add RLS policies for routes, fuelstations, fuelconsumption, fuelrequests, fuelallocations, fuelrecords.</p>
+  <table>
+    <tr><th>Expectation</th><th>With Skill</th><th>Without Skill</th></tr>
+    <tr><td>Migration file created</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Routes: SELECT, INSERT, UPDATE, DELETE</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Fuelstations: SELECT + CRUD</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Fuelrecords: SELECT, INSERT, UPDATE, DELETE</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Uses existing pattern (has_role, auth.role)</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Management read-only access</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Driver can insert fuelrecords</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+  </table>
+  <div class="note"><strong>Note:</strong> With-skill output was smaller (3,897 vs 5,781 bytes) and directly referenced the doc's section numbers in comments.</div>
+</div>
+
+<div class="eval-card">
+  <h3>Eval 3: Frontend Guards</h3>
+  <p><span class="config-tag with-skill">With Skill</span> <span class="config-tag without-skill">Without Skill</span></p>
+  <p><strong>Prompt:</strong> Add frontend guards so drivers can't access dispatch, fleet, or settings pages. Create role-guard.js, update sidebar, add route protection.</p>
+  <table>
+    <tr><th>Expectation</th><th>With Skill</th><th>Without Skill</th></tr>
+    <tr><td>role-guard.js with NAV_ROLES</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>canAccessRoute exported</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>filterNavByRole exported</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>use-role-access.js with useRequireRole</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Sidebar filters nav items</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Dashboard layout redirects unauthorized</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+    <tr><td>Driver cannot access restricted routes</td><td class="pass">✅ PASS</td><td class="pass">✅ PASS</td></tr>
+  </table>
+  <div class="note"><strong>Note:</strong> Without-skill created a <code>can()</code> function with a full permission matrix (9 roles × 14 resources). With-skill kept it simpler — <code>can()</code> returns true for all, relying on route guards + RLS for enforcement. This is intentional per the skill's design principle.</div>
+</div>
+
+<h2>Key Observations</h2>
+
+<ul>
+  <li><strong>Both configurations passed 100%</strong> — the RBAC model doc is detailed enough that even without the skill, agents produce correct code.</li>
+  <li><strong>With-skill outputs were more structured</strong> — migration followed the doc's section numbering exactly, each policy referenced the section it came from.</li>
+  <li><strong>With-skill was faster (-4.3s avg) and used fewer tokens (-4K avg)</strong> — the skill's reference files provided ready-made patterns that saved the agent from reinventing the structure.</li>
+  <li><strong>Without-skill went broader</strong> — added per-page <code>useRequireRole()</code> to individual page components (14 files changed), while with-skill kept it DRY at the layout level.</li>
+  <li><strong>The skill's main value</strong> is ensuring completeness (every referenced table is covered, every nav route is mapped), structuring output to match the doc, and following existing code conventions automatically.</li>
+</ul>
+
+</body>
+</html>

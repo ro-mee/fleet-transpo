@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Key, Copy, RefreshCw, Eye, EyeOff, Plus } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 import { useState } from "react";
 
 const mockKeys = [
@@ -13,6 +14,7 @@ const mockKeys = [
 ];
 
 export default function ApiKeysPage() {
+  useRequireRole(["admin", "system_admin"]);
   const [visibleKeys, setVisibleKeys] = useState({});
 
   const toggleVisibility = (id) => {

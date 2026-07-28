@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDispatchesByStatus, updateDispatchStatus } from "@/services/dispatch.service";
 import { formatDate, formatTime } from "@/lib/utils";
+import { useRequireRole } from "@/lib/auth/role-guard";
 import { Send, Truck, Users, Clock, MapPin, ChevronRight } from "lucide-react";
 
 const columns = [
@@ -18,6 +19,7 @@ const columns = [
 ];
 
 export default function DispatchPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
   const queryClient = useQueryClient();
 

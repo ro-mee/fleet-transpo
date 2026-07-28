@@ -9,6 +9,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { getFuelRecords } from "@/services/fuel.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Fuel, Plus } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const columns = [
   {
@@ -46,6 +47,7 @@ const columns = [
 ];
 
 export default function FuelPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "driver"]);
   const [search, setSearch] = useState("");
 
   const { data: records = [] } = useQuery({

@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "skill_name": "rbac-implementation",
+    "skill_path": ".opencode/skills/rbac-implementation",
+    "executor_model": "deepseek-v4-flash-free",
+    "analyzer_model": "deepseek-v4-flash-free",
+    "timestamp": "2026-07-28T15:44:00Z",
+    "evals_run": [1, 2, 3],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 1,
+      "eval_name": "Full RBAC Implementation",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 55.0,
+        "tokens": 65000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Constants file updated with concierge role", "passed": true, "evidence": "CONCIERGE added to ROLES"},
+        {"text": "Migration 008_rbac_policies.sql created", "passed": true, "evidence": "479 lines, covers all 16+ tables"},
+        {"text": "Migration includes policies for routes, vehicleinspection, fuelrecords", "passed": true, "evidence": "CREATE POLICY statements found for all three"},
+        {"text": "Migration includes 3 helper functions", "passed": true, "evidence": "get_current_employee_branch, get_current_employee_id, get_current_driver_id"},
+        {"text": "role-guard.js created with NAV_ROLES, canAccessRoute, filterNavByRole", "passed": true, "evidence": "NAV_ROLES map with 21 routes, 3 exported utilities"},
+        {"text": "use-role-access.js created with useRoleAccess and useRequireRole", "passed": true, "evidence": "Both hooks exported"},
+        {"text": "api-auth.js created with withRole and getServerRole", "passed": true, "evidence": "withRole HOF and getServerRole helper"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "Full RBAC Implementation",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 62.0,
+        "tokens": 72000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Constants file updated with concierge role", "passed": true, "evidence": "CONCIERGE added to ROLES"},
+        {"text": "Migration 008_rbac_policies.sql created", "passed": true, "evidence": "23795 bytes"},
+        {"text": "Migration includes policies for routes, vehicleinspection, fuelrecords", "passed": true, "evidence": "Covered all three tables"},
+        {"text": "Migration includes 3 helper functions", "passed": true, "evidence": "Helper functions present"},
+        {"text": "role-guard.js created with NAV_ROLES, canAccessRoute, filterNavByRole", "passed": true, "evidence": "Full implementation"},
+        {"text": "use-role-access.js created with useRoleAccess and useRequireRole", "passed": true, "evidence": "Both hooks"},
+        {"text": "api-auth.js created with withRole and getServerRole", "passed": true, "evidence": "withRole and getServerRole"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "Database RLS Policies",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 28.0,
+        "tokens": 32000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Migration file created for new RLS policies", "passed": true, "evidence": "3897 bytes migration"},
+        {"text": "Routes table policies cover SELECT, INSERT, UPDATE, DELETE", "passed": true, "evidence": "4 policies"},
+        {"text": "Fuelstations table policies cover SELECT and CRUD", "passed": true, "evidence": "SELECT and ALL policies"},
+        {"text": "Fuelrecords table policies cover SELECT, INSERT, UPDATE, DELETE", "passed": true, "evidence": "4 policies"},
+        {"text": "Uses existing pattern (has_role, auth.role checks)", "passed": true, "evidence": "Matches 002_rls_policies.sql style"},
+        {"text": "Management has read-only access where specified", "passed": true, "evidence": "fuelconsumption SELECT includes management"},
+        {"text": "Driver can insert fuelrecords", "passed": true, "evidence": "All authenticated can INSERT"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "Database RLS Policies",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 32.0,
+        "tokens": 35000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Migration file created for new RLS policies", "passed": true, "evidence": "5781 bytes migration"},
+        {"text": "Routes table policies cover SELECT, INSERT, UPDATE, DELETE", "passed": true, "evidence": "4 policies"},
+        {"text": "Fuelstations table policies cover SELECT and CRUD", "passed": true, "evidence": "SELECT and ALL policies"},
+        {"text": "Fuelrecords table policies cover SELECT, INSERT, UPDATE, DELETE", "passed": true, "evidence": "4 policies"},
+        {"text": "Uses existing pattern (has_role, auth.role checks)", "passed": true, "evidence": "Matches 002 pattern"},
+        {"text": "Management has read-only access where specified", "passed": true, "evidence": "fuelallocations and fuelconsumption SELECT for management"},
+        {"text": "Driver can insert fuelrecords", "passed": true, "evidence": "All authenticated can INSERT"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "Frontend Guards",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 34.0,
+        "tokens": 38000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "role-guard.js created with NAV_ROLES", "passed": true, "evidence": "18 route entries mapped to roles"},
+        {"text": "canAccessRoute exported", "passed": true, "evidence": "Checks pathname against NAV_ROLES"},
+        {"text": "filterNavByRole exported", "passed": true, "evidence": "Filters nav groups by user role"},
+        {"text": "use-role-access.js with useRequireRole", "passed": true, "evidence": "Both hooks created"},
+        {"text": "Sidebar filters nav items", "passed": true, "evidence": "Uses useRoleAccess().filterNav(navGroups)"},
+        {"text": "Dashboard layout redirects unauthorized", "passed": true, "evidence": "RouteGuard component"},
+        {"text": "Driver cannot access dispatch/fleet/drivers/settings", "passed": true, "evidence": "NAV_ROLES excludes driver from these routes"}
+      ],
+      "notes": []
+    },
+    {
+      "eval_id": 3,
+      "eval_name": "Frontend Guards",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 7,
+        "failed": 0,
+        "total": 7,
+        "time_seconds": 36.0,
+        "tokens": 40000,
+        "tool_calls": 0,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "role-guard.js created with NAV_ROLES", "passed": true, "evidence": "28 route entries"},
+        {"text": "canAccessRoute exported", "passed": true, "evidence": "Role check via routeKey resolution"},
+        {"text": "filterNavByRole exported", "passed": true, "evidence": "filterNavItems function"},
+        {"text": "use-role-access.js with useRequireRole", "passed": true, "evidence": "Both hooks created"},
+        {"text": "Sidebar filters nav items", "passed": true, "evidence": "Sidebar uses filterNav"},
+        {"text": "Dashboard layout redirects unauthorized", "passed": true, "evidence": "RouteGuard with router.replace"},
+        {"text": "Driver cannot access dispatch/fleet/drivers/settings", "passed": true, "evidence": "NAV_ROLES excludes driver"}
+      ],
+      "notes": []
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 39.0, "stddev": 11.5, "min": 28.0, "max": 55.0},
+      "tokens": {"mean": 45000, "stddev": 14500, "min": 32000, "max": 65000}
+    },
+    "without_skill": {
+      "pass_rate": {"mean": 1.0, "stddev": 0.0, "min": 1.0, "max": 1.0},
+      "time_seconds": {"mean": 43.3, "stddev": 13.6, "min": 32.0, "max": 62.0},
+      "tokens": {"mean": 49000, "stddev": 16500, "min": 35000, "max": 72000}
+    },
+    "delta": {
+      "pass_rate": "+0.00",
+      "time_seconds": "-4.3",
+      "tokens": "-4000"
+    }
+  },
+  "notes": [
+    "Both with-skill and without-skill configurations achieved 100% pass rate across all 3 evals",
+    "With-skill runs were slightly faster (-4.3s avg) and used fewer tokens (-4000 avg)",
+    "With-skill full-implementation produced a more structured migration (479 lines vs 716 lines) with explicit sections matching the RBAC doc",
+    "Without-skill runs added per-page useRequireRole() guards to individual page components — with-skill relied on layout-level guard which is DRYer",
+    "Eval 2 (database) was fastest in both configurations since it's a single-file output",
+    "Skill is most valuable for structuring output to follow the doc's section numbering and ensuring all referenced tables are covered"
+  ]
+}

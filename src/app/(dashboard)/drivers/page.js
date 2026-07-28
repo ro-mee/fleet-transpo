@@ -7,6 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/tables/data-table";
 import { getDrivers, getDriverStats } from "@/services/driver.service";
+import { useRequireRole } from "@/lib/auth/role-guard";
 import { Users, UserCheck, UserX, Truck, Clock, Ban } from "lucide-react";
 
 const statusColors = {
@@ -55,6 +56,7 @@ const columns = [
 ];
 
 export default function DriversPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const [search, setSearch] = useState("");
 
   const { data: drivers = [] } = useQuery({

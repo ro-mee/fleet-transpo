@@ -1,0 +1,45 @@
+{
+  "expectations": [
+    {
+      "text": "A migration file is created for the new RLS policies",
+      "passed": true,
+      "evidence": "008_rbac_policies.sql created (5781 bytes)"
+    },
+    {
+      "text": "Policies for the 'routes' table are defined covering SELECT, INSERT, UPDATE, DELETE",
+      "passed": true,
+      "evidence": "4 policies covering SELECT, INSERT, UPDATE, DELETE"
+    },
+    {
+      "text": "Policies for the 'fuelstations' table are defined covering SELECT and CRUD operations",
+      "passed": true,
+      "evidence": "Fuelstations policies cover SELECT and ALL"
+    },
+    {
+      "text": "Policies for the 'fuelrecords' table are defined covering SELECT, INSERT, UPDATE, DELETE",
+      "passed": true,
+      "evidence": "4 policies covering all operations"
+    },
+    {
+      "text": "The migration uses the existing pattern (has_role helper, auth.role checks)",
+      "passed": true,
+      "evidence": "Uses same pattern as 002 with has_role() checks"
+    },
+    {
+      "text": "The management role is given appropriate read-only access where specified in the model",
+      "passed": true,
+      "evidence": "management has SELECT on fuelallocations and fuelconsumption"
+    },
+    {
+      "text": "The driver role can insert into fuelrecords",
+      "passed": true,
+      "evidence": "INSERT policy allows all authenticated users"
+    }
+  ],
+  "summary": {
+    "passed": 7,
+    "failed": 0,
+    "total": 7,
+    "pass_rate": 1.0
+  }
+}
