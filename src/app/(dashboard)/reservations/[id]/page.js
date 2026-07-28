@@ -63,7 +63,7 @@ export default function ReservationDetailPage() {
   const supabase = createClient();
   const reservationId = Number(params.id);
 
-  const { data: reservation, isLoading } = useQuery({
+  const { data: reservation, isLoading, error } = useQuery({
     queryKey: ["reservation", reservationId],
     queryFn: () => getReservation(reservationId),
     enabled: !!reservationId,
@@ -136,6 +136,11 @@ export default function ReservationDetailPage() {
       <div className="text-center py-12 text-foreground-muted">
         <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
         <p className="text-lg font-medium">Reservation not found</p>
+        <p className="text-sm mt-2">The reservation could not be loaded. It may have been deleted or you may not have permission to view it.</p>
+        {error && <p className="text-xs mt-2 text-destructive">Error: {error.message}</p>}
+        <Button variant="outline" className="mt-4" onClick={() => router.push("/reservations")}>
+          Back to Reservations
+        </Button>
       </div>
     );
   }

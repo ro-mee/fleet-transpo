@@ -1,0 +1,15 @@
+{
+  "eval_id": 2,
+  "eval_name": "code-review",
+  "prompt": "Look at the dispatch service in src/services/dispatch-service.js and the dispatch API route in src/app/api/dispatch/route.js. Review them thoroughly \u2014 check for security issues, architectural problems, error handling, performance issues, and code quality. Suggest specific improvements. If there are bugs, point them out. Don't rewrite the code \u2014 just tell me what to fix and why.",
+  "assertions": [
+    "Output identifies that the API route file does not exist (missing route.js)",
+    "Output identifies client-side data mutations as a security concern",
+    "Output identifies the fire-and-forget bug where updateReservation is called without await",
+    "Output identifies the lack of input validation (missing Zod schemas)",
+    "Output includes specific, actionable fix suggestions (not just general criticism)",
+    "Output has a structured format organized by severity or category",
+    "Output identifies authorization gaps (no server-side auth checks beyond RLS)",
+    "Output identifies the premature 'Dispatched' status issue on dispatch creation"
+  ]
+}

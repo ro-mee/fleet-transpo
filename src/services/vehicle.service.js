@@ -99,6 +99,49 @@ export async function getVehicleCategories() {
   return data;
 }
 
+export async function getBranches() {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("branches")
+    .select("*")
+    .is("deleted_at", null)
+    .order("branch_name");
+  if (error) throw error;
+  return data;
+}
+
+export async function createCategory(category) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vehiclecategories")
+    .insert(category)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateCategory(id, category) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("vehiclecategories")
+    .update(category)
+    .eq("category_id", id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function deleteCategory(id) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("vehiclecategories")
+    .update({ deleted_at: new Date().toISOString(), status: "Inactive" })
+    .eq("category_id", id);
+  if (error) throw error;
+}
+
 export async function getVehicleMaintenance(filters = {}) {
   const supabase = createClient();
   let query = supabase

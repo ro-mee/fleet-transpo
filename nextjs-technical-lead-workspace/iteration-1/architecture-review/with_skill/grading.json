@@ -1,0 +1,87 @@
+{
+  "expectations": [
+    {
+      "text": "Output includes a database analysis section with specific table/column references",
+      "passed": true,
+      "evidence": "Section 2 'Database Analysis' covers 24 tables, specific columns, indexes, constraints, and issues like missing driver_stats view, missing cascade deletes, and missing check constraints."
+    },
+    {
+      "text": "Output includes an API review section evaluating endpoint design and coverage",
+      "passed": true,
+      "evidence": "Section 3 'API Review' covers current state (2 handlers), missing CRUD routes, missing integration endpoints, no input validation, and no consistent error format."
+    },
+    {
+      "text": "Output includes a frontend architecture review covering component patterns and state management",
+      "passed": true,
+      "evidence": "Section 4 'Frontend Review' covers component structure, TanStack Query usage, DataTable, dark mode, the all-client-rendered issue, empty component directories, and missing error states."
+    },
+    {
+      "text": "Output includes a security review identifying at least one vulnerability or concern",
+      "passed": true,
+      "evidence": "Section 6 'Security Review' identifies multiple concerns: no HTTPS enforcement, no rate limiting, client-side employee creation, no CSRF protection, no input sanitization, and missing security headers."
+    },
+    {
+      "text": "Output includes a priority-ordered development roadmap with at least 10 tasks",
+      "passed": true,
+      "evidence": "Section 9 'Priority-Ordered Development Roadmap' has 30 tasks across 6 phases (Phase 0-5), each with task, area, and justification."
+    },
+    {
+      "text": "Output identifies the lack of TypeScript usage in the project",
+      "passed": true,
+      "evidence": "Section 1 'Project Discovery Summary' states '0 TypeScript files in src/ (100% JavaScript)'. Section 5 'Services Layer Review' lists 'No TypeScript' as Critical issue #1."
+    },
+    {
+      "text": "Output identifies the lack of a proper API layer (server-side routes for data mutations)",
+      "passed": true,
+      "evidence": "Section 3 'API Review' notes 'No API routes for any CRUD operations' as Critical issue. Also noted in Phase 0 roadmap task #4: 'Add all missing API routes'."
+    },
+    {
+      "text": "Output provides specific, actionable improvement suggestions with reasoning",
+      "passed": true,
+      "evidence": "Every finding includes a specific fix recommendation. The roadmap provides 30 tasks with 'Why' justification. The summary lists 5 concrete recommendations."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "Read": 17,
+      "Glob": 5,
+      "Write": 2,
+      "Bash": 1
+    },
+    "total_tool_calls": 25,
+    "total_steps": 10,
+    "errors_encountered": 0,
+    "output_chars": 27850,
+    "transcript_chars": 4500
+  },
+  "claims": [
+    {
+      "claim": "Reviewed all 6 database migrations",
+      "type": "process",
+      "verified": true,
+      "evidence": "Metrics.json confirms migrations_reviewed: 6"
+    },
+    {
+      "claim": "Reviewed all 12 service files",
+      "type": "process",
+      "verified": true,
+      "evidence": "Metrics.json confirms services_reviewed: 12"
+    },
+    {
+      "claim": "Identified driver_stats as a phantom table that will fail at runtime",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Section 2.1: 'driver_stats is queried as a table but not created anywhere'"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "All assertions passed. The with-skill output follows the 10-step engineering workflow from the skill (Discovery, Architecture, Database, API, Frontend, Services, Security, Performance, Config, Roadmap) and produces comprehensive, actionable output."
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "session": {
+    "date": "2026-07-28",
+    "skill": "nextjs-technical-lead",
+    "project": "FleetOps — Fleet Transportation Management System",
+    "review_type": "full-architecture-review"
+  },
+  "tool_calls": {
+    "total": 22,
+    "by_tool": {
+      "read": 17,
+      "glob": 5,
+      "write": 2,
+      "bash": 1
+    }
+  },
+  "analysis_coverage": {
+    "steps_followed": [
+      "1. Project Discovery",
+      "2. Planning",
+      "3. Task Management (implicit in roadmap)",
+      "4. Architecture Review",
+      "5. Database Analysis",
+      "6. API Review",
+      "7. Frontend Review",
+      "8. Security Review",
+      "9. Performance Review",
+      "10. Coding Standards Review"
+    ],
+    "files_read": 48,
+    "lines_analyzed": 4600,
+    "migrations_reviewed": 6,
+    "services_reviewed": 12,
+    "api_route_files_reviewed": 3,
+    "page_files_reviewed": 6,
+    "component_files_reviewed": 5,
+    "hook_files_reviewed": 3,
+    "config_files_reviewed": 4
+  },
+  "findings": {
+    "critical_issues": 6,
+    "high_priority": 12,
+    "medium_priority": 12,
+    "low_priority": 0,
+    "total_findings": 30
+  },
+  "development_roadmap": {
+    "phases": 5,
+    "tasks": 30,
+    "estimated_effort": "3-4 months for full roadmap"
+  },
+  "output_files": [
+    "architecture-review.md",
+    "metrics.json"
+  ]
+}

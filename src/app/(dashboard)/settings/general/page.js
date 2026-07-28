@@ -3,6 +3,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { APP_NAME } from "@/lib/constants";
 import { Save, Globe, Clock, Palette, Bell, Share2 } from "lucide-react";
 
 export default function SettingsGeneralPage() {
@@ -23,7 +24,7 @@ export default function SettingsGeneralPage() {
           <CardContent className="space-y-4">
             <div>
               <label className="text-sm text-foreground-secondary mb-1 block">Application Name</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm font-medium">FleetOps</div>
+              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm font-medium">{APP_NAME}</div>
             </div>
             <div>
               <label className="text-sm text-foreground-secondary mb-1 block">Timezone</label>

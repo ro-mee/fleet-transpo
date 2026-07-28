@@ -1,12 +1,14 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { getVehicle } from "@/services/vehicle.service";
-import { ArrowLeft, Pencil, Trash2, Truck, Fuel, Gauge, CalendarDays, Wrench, Shield, FileText } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { getVehicle, deleteVehicle } from "@/services/vehicle.service";
+import { ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge, CalendarDays, Wrench, Shield, FileText } from "lucide-react";
 import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
 
 const statusVariant = {
@@ -20,6 +22,7 @@ const statusVariant = {
 export default function VehicleDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const vehicleId = Number(params.id);
 
   const { data: vehicle, isLoading } = useQuery({
@@ -27,6 +30,16 @@ export default function VehicleDetailPage() {
     queryFn: () => getVehicle(vehicleId),
     enabled: !!vehicleId,
   });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => deleteVehicle(vehicleId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      router.push("/fleet/vehicles");
+    },
+  });
+
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -75,10 +88,19 @@ export default function VehicleDetailPage() {
             <Pencil className="w-4 h-4 mr-2" />
             Edit
           </Button>
-          <Button variant="outline" size="sm" className="text-danger border-danger/20 hover:bg-danger/10">
-            <Trash2 className="w-4 h-4 mr-2" />
-            Delete
+          <Button variant="outline" size="sm" className="text-danger border-danger/20 hover:bg-danger/10" onClick={() => setArchiveOpen(true)} disabled={archiveMutation.isPending}>
+            <Archive className="w-4 h-4 mr-2" />
+            {archiveMutation.isPending ? "Archiving..." : "Archive"}
           </Button>
+          <ConfirmDialog
+            open={archiveOpen}
+            onOpenChange={setArchiveOpen}
+            title="Archive Vehicle?"
+            message="This vehicle will be hidden from active lists. You can restore it later."
+            confirmLabel="Archive"
+            variant="archive"
+            onConfirm={() => archiveMutation.mutate()}
+          />
         </div>
       </div>
 

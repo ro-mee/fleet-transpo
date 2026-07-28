@@ -1,0 +1,250 @@
+{
+  "metadata": {
+    "skill_name": "nextjs-technical-lead",
+    "skill_path": "C:\\Users\\lenovo\\OneDrive\\Desktop\\capstone\\.opencode\\skills\\nextjs-technical-lead",
+    "executor_model": "deepseek-v4-flash-free",
+    "analyzer_model": "deepseek-v4-flash-free",
+    "timestamp": "2026-07-28T13:00:00Z",
+    "evals_run": [
+      "architecture-review",
+      "feature-planning",
+      "code-review"
+    ],
+    "runs_per_configuration": 1
+  },
+  "runs": [
+    {
+      "eval_id": 0,
+      "eval_name": "architecture-review",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 180,
+        "tokens": 8200,
+        "tool_calls": 53,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output includes a database analysis section with specific table/column references", "passed": true, "evidence": "Database analysis covers specific tables and migration details"},
+        {"text": "Output includes an API review section evaluating endpoint design and coverage", "passed": true, "evidence": "Evaluates existing routes and identifies missing CRUD layer"},
+        {"text": "Output includes a frontend architecture review covering component patterns and state management", "passed": true, "evidence": "Covers component structure, rendering patterns, state management"},
+        {"text": "Output includes a security review identifying at least one vulnerability or concern", "passed": true, "evidence": "Identifies client-side data access and missing auth middleware"},
+        {"text": "Output includes a priority-ordered development roadmap with at least 10 tasks", "passed": true, "evidence": "7-phase roadmap with 31 tasks"},
+        {"text": "Output identifies the lack of TypeScript usage in the project", "passed": true, "evidence": "Flags JS-only codebase as critical issue"},
+        {"text": "Output identifies the lack of a proper API layer", "passed": true, "evidence": "Flags client-only architecture"},
+        {"text": "Output provides specific, actionable improvement suggestions with reasoning", "passed": true, "evidence": "Each finding has specific fix recommendations"}
+      ],
+      "notes": [
+        "12-section review following the skill's expanded workflow including Business Logic Review",
+        "53 tool calls — more thorough analysis than iteration 1"
+      ]
+    },
+    {
+      "eval_id": 0,
+      "eval_name": "architecture-review",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 240,
+        "tokens": 7500,
+        "tool_calls": 71,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output includes a database analysis section", "passed": true, "evidence": "Section 1.1 covers schema"},
+        {"text": "Output includes an API review section", "passed": true, "evidence": "Section 2.3 covers missing API routes"},
+        {"text": "Output includes a frontend architecture review", "passed": true, "evidence": "Sections 1.3 and 2.4"},
+        {"text": "Output includes a security review", "passed": true, "evidence": "Covers RLS and anon key concerns"},
+        {"text": "Output includes a priority-ordered development roadmap", "passed": true, "evidence": "30 tasks across 7 phases"},
+        {"text": "Output identifies lack of TypeScript", "passed": true, "evidence": "Section 2.1"},
+        {"text": "Output identifies missing API layer", "passed": true, "evidence": "Section 2.3"},
+        {"text": "Output provides actionable suggestions", "passed": true, "evidence": "Every issue has fix with effort estimates"}
+      ],
+      "notes": [
+        "Reused from iteration 1 — baseline unchanged"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "feature-planning",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 160,
+        "tokens": 8000,
+        "tool_calls": 10,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output includes analysis of existing infrastructure", "passed": true, "evidence": "Section 2 has 11-row status table"},
+        {"text": "Output proposes notification_preferences table", "passed": true, "evidence": "Section 3.2 with FK"},
+        {"text": "Output includes database schema design with SQL", "passed": true, "evidence": "Section 3 with full SQL"},
+        {"text": "Output includes implementation plan with sequenced steps", "passed": true, "evidence": "5-phase, 26-task roadmap"},
+        {"text": "Output covers security considerations", "passed": true, "evidence": "Section 10 on RLS"},
+        {"text": "Output identifies at least 5 edge cases", "passed": true, "evidence": "Section 12 identifies 12 edge cases"},
+        {"text": "Output addresses auth system integration", "passed": true, "evidence": "Section 6 on RLS and auth"},
+        {"text": "Output proposes real-time subscription architecture", "passed": true, "evidence": "Sections 5.1-5.3"}
+      ],
+      "notes": [
+        "604-line plan with architecture diagrams and data flow",
+        "Internal completeness rubric scored 100/100"
+      ]
+    },
+    {
+      "eval_id": 1,
+      "eval_name": "feature-planning",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 200,
+        "tokens": 8500,
+        "tool_calls": 27,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output includes current state analysis", "passed": true, "evidence": "Detailed status table"},
+        {"text": "Output proposes notification_preferences table", "passed": true, "evidence": "Section 3.1"},
+        {"text": "Output includes database schema design", "passed": true, "evidence": "SQL in Section 3"},
+        {"text": "Output includes implementation plan", "passed": true, "evidence": "14-step plan"},
+        {"text": "Output covers security considerations", "passed": true, "evidence": "Section 10"},
+        {"text": "Output identifies edge cases", "passed": true, "evidence": "10 edge cases in Section 11"},
+        {"text": "Output addresses auth integration", "passed": true, "evidence": "Sections 6.1 and 10"},
+        {"text": "Output proposes real-time subscriptions", "passed": true, "evidence": "Section 6"}
+      ],
+      "notes": [
+        "Reused from iteration 1 — baseline unchanged"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "code-review",
+      "configuration": "with_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 140,
+        "tokens": 7200,
+        "tool_calls": 23,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output identifies that the API route file does not exist", "passed": true, "evidence": "Section 2.1"},
+        {"text": "Output identifies client-side data mutations as a security concern", "passed": true, "evidence": "Section 2.2"},
+        {"text": "Output identifies the fire-and-forget bug", "passed": true, "evidence": "Section 1.3"},
+        {"text": "Output identifies lack of input validation", "passed": true, "evidence": "Section 4.1"},
+        {"text": "Output includes specific actionable fix suggestions", "passed": true, "evidence": "Every finding has specific fix"},
+        {"text": "Output has structured format organized by severity", "passed": true, "evidence": "7 categories with severity count"},
+        {"text": "Output identifies authorization gaps", "passed": true, "evidence": "Section 3.2"},
+        {"text": "Output identifies the premature 'Dispatched' status issue", "passed": true, "evidence": "Section 1.2 — was MISSED in iteration 1, now CAUGHT"}
+      ],
+      "notes": [
+        "The improved skill with Business Logic Review section now catches the premature 'Dispatched' status issue that was missed in iteration 1",
+        "22 findings across 7 categories — more comprehensive than iteration 1's 14 findings",
+        "Discovered additional bugs: missing DB trigger for dispatch_number, driver/vehicle status not updated, race condition on reservation_id"
+      ]
+    },
+    {
+      "eval_id": 2,
+      "eval_name": "code-review",
+      "configuration": "without_skill",
+      "run_number": 1,
+      "result": {
+        "pass_rate": 1.0,
+        "passed": 8,
+        "failed": 0,
+        "total": 8,
+        "time_seconds": 100,
+        "tokens": 5000,
+        "tool_calls": 15,
+        "errors": 0
+      },
+      "expectations": [
+        {"text": "Output identifies the missing API route", "passed": true, "evidence": "Section 1"},
+        {"text": "Output identifies client-side mutations", "passed": true, "evidence": "Section 2.1"},
+        {"text": "Output identifies fire-and-forget bug", "passed": true, "evidence": "Section 3.1"},
+        {"text": "Output identifies lack of input validation", "passed": true, "evidence": "Section 2.4"},
+        {"text": "Output includes actionable fix suggestions", "passed": true, "evidence": "Each finding has fix"},
+        {"text": "Output has structured format", "passed": true, "evidence": "P0-P3 priority summary"},
+        {"text": "Output identifies authorization gaps", "passed": true, "evidence": "Section 2.3"},
+        {"text": "Output identifies premature 'Dispatched' status", "passed": true, "evidence": "Section 3.2"}
+      ],
+      "notes": [
+        "Reused from iteration 1 — baseline unchanged"
+      ]
+    }
+  ],
+  "run_summary": {
+    "with_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 160.0,
+        "stddev": 20.0,
+        "min": 140,
+        "max": 180
+      },
+      "tokens": {
+        "mean": 7800,
+        "stddev": 529,
+        "min": 7200,
+        "max": 8200
+      }
+    },
+    "without_skill": {
+      "pass_rate": {
+        "mean": 1.0,
+        "stddev": 0.0,
+        "min": 1.0,
+        "max": 1.0
+      },
+      "time_seconds": {
+        "mean": 180.0,
+        "stddev": 72.1,
+        "min": 100,
+        "max": 240
+      },
+      "tokens": {
+        "mean": 7000,
+        "stddev": 1802,
+        "min": 5000,
+        "max": 8500
+      }
+    },
+    "delta": {
+      "pass_rate": "0.00",
+      "time_seconds": "-20.0",
+      "tokens": "+800"
+    }
+  },
+  "notes": [
+    "IMPROVEMENT FROM ITERATION 1: The with-skill code review now passes all 8 assertions (up from 7/8 in iteration 1) — the Business Logic Review section directly enabled catching the premature 'Dispatched' status bug",
+    "With-skill code review found 22 findings vs baseline's 12 findings — more thorough coverage",
+    "Additional bugs discovered by improved skill that neither iteration 1 nor baseline found: missing CREATE TRIGGER for dispatch_number, driver/vehicle status not updated on dispatch, race condition on reservation_id UNIQUE",
+    "Architecture-review and feature-planning remain at 100% pass rate across both iterations",
+    "With-skill used fewer tool calls than baseline on average (29 vs 38), suggesting the skill's workflow guidance makes analysis more efficient",
+    "Small eval set (1 run per config) — results indicative but not statistically significant"
+  ]
+}

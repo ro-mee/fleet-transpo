@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -23,8 +24,6 @@ const vehicleSchema = z.object({
   color: z.string().optional(),
   fuel_type: z.string().default("Gasoline"),
   seating_capacity: z.coerce.number().min(1).default(4),
-  mileage: z.coerce.number().default(0),
-  fuel_level: z.coerce.number().min(0).max(100).default(100),
   category_id: z.coerce.number().optional(),
   vehicle_status: z.string().default("Available"),
   purchase_price: z.coerce.number().optional(),
@@ -64,19 +63,19 @@ export default function EditVehiclePage() {
       color: vehicle.color || "",
       fuel_type: vehicle.fuel_type || "Gasoline",
       seating_capacity: vehicle.seating_capacity || 4,
-      mileage: vehicle.mileage || 0,
-      fuel_level: vehicle.fuel_level || 100,
-      category_id: vehicle.category_id || "",
+      category_id: vehicle.category_id || undefined,
       vehicle_status: vehicle.vehicle_status || "Available",
-      purchase_price: vehicle.purchase_price || "",
-      purchase_date: vehicle.purchase_date || "",
-      insurance_expiry: vehicle.insurance_expiry || "",
-      registration_expiry: vehicle.registration_expiry || "",
-      license_plate_expiry: vehicle.license_plate_expiry || "",
-      next_service_date: vehicle.next_service_date || "",
-      next_service_mileage: vehicle.next_service_mileage || "",
+      purchase_price: vehicle.purchase_price || undefined,
+      purchase_date: vehicle.purchase_date || undefined,
+      insurance_expiry: vehicle.insurance_expiry || undefined,
+      registration_expiry: vehicle.registration_expiry || undefined,
+      license_plate_expiry: vehicle.license_plate_expiry || undefined,
+      next_service_date: vehicle.next_service_date || undefined,
+      next_service_mileage: vehicle.next_service_mileage || undefined,
     } : undefined,
   });
+
+  const [submitError, setSubmitError] = useState("");
 
   const updateMutation = useMutation({
     mutationFn: (data) => updateVehicle(vehicleId, data),
@@ -84,6 +83,9 @@ export default function EditVehiclePage() {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push(`/fleet/vehicles/${vehicleId}`);
+    },
+    onError: (err) => {
+      setSubmitError(err.message || "Failed to update vehicle");
     },
   });
 
@@ -104,6 +106,11 @@ export default function EditVehiclePage() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-6">
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {submitError && (
+              <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
+                {submitError}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="plate_number">Plate Number *</Label>
@@ -160,14 +167,6 @@ export default function EditVehiclePage() {
                   <option value="Out of Service">Out of Service</option>
                   <option value="Reserved">Reserved</option>
                 </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="mileage">Mileage (km)</Label>
-                <Input id="mileage" type="number" {...form.register("mileage")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fuel_level">Fuel Level (%)</Label>
-                <Input id="fuel_level" type="number" {...form.register("fuel_level")} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="purchase_date">Purchase Date</Label>

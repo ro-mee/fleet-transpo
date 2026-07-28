@@ -8,19 +8,20 @@ import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
 import { getFuelRecords } from "@/services/fuel.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
-import { Fuel, Plus } from "lucide-react";
+import { Fuel, Plus, Download } from "lucide-react";
+import { exportToCSV } from "@/lib/export";
 
 const columns = [
   {
-    key: "refuel_date", label: "Date", sortable: true,
-    render: (val) => formatDate(val),
+    key: "fuel_date", label: "Date", sortable: true,
+    render: (val) => val ? formatDate(val) : "—",
   },
   {
-    key: "vehicle", label: "Vehicle",
+    key: "vehicle_info", label: "Vehicle",
     render: (_, row) => row.vehicles?.plate_number || "—",
   },
   {
-    key: "driver", label: "Driver",
+    key: "driver_info", label: "Driver",
     render: (_, row) => {
       const emp = row.drivers?.employees;
       return emp ? `${emp.first_name} ${emp.last_name}` : "—";
@@ -28,20 +29,16 @@ const columns = [
   },
   { key: "fuel_type", label: "Type" },
   {
-    key: "quantity", label: "Liters",
+    key: "liters", label: "Liters",
     render: (val) => val ? `${val} L` : "—",
   },
   {
-    key: "unit_cost", label: "Unit Price",
+    key: "price_per_liter", label: "Unit Price",
     render: (val) => val ? formatCurrency(val) : "—",
   },
   {
-    key: "total_cost", label: "Total", sortable: true,
+    key: "amount", label: "Total", sortable: true,
     render: (val) => val ? formatCurrency(val) : "—",
-  },
-  {
-    key: "station", label: "Station",
-    render: (_, row) => row.fuelstations?.station_name || "—",
   },
 ];
 
@@ -63,10 +60,29 @@ export default function FuelPage() {
           <h1 className="text-2xl font-bold text-foreground">Fuel Records</h1>
           <p className="text-foreground-secondary mt-1">Track fuel consumption and costs</p>
         </div>
-        <Button className="h-10">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Record
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="h-10"
+            onClick={() => exportToCSV(records, "fuel-records", [
+              { label: "Date", key: "fuel_date" },
+              { label: "Vehicle", accessor: (r) => r.vehicles?.plate_number || "" },
+              { label: "Driver", accessor: (r) => r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "" },
+              { label: "Fuel Type", key: "fuel_type" },
+              { label: "Liters", key: "liters" },
+              { label: "Price/Liter", key: "price_per_liter" },
+              { label: "Total Amount", key: "amount" },
+              { label: "Odometer", key: "odometer" },
+            ])}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+          <Button className="h-10">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Record
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

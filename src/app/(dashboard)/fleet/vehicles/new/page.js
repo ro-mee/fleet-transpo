@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -22,8 +23,6 @@ const vehicleSchema = z.object({
   color: z.string().optional(),
   fuel_type: z.string().default("Gasoline"),
   seating_capacity: z.coerce.number().min(1).default(4),
-  mileage: z.coerce.number().default(0),
-  fuel_level: z.coerce.number().min(0).max(100).default(100),
   category_id: z.coerce.number().optional(),
   vehicle_status: z.string().default("Available"),
   purchase_price: z.coerce.number().optional(),
@@ -63,25 +62,28 @@ export default function VehicleFormPage({ params }) {
       color: "",
       fuel_type: "Gasoline",
       seating_capacity: 4,
-      mileage: 0,
-      fuel_level: 100,
-      category_id: "",
+      category_id: undefined,
       vehicle_status: "Available",
-      purchase_price: "",
-      purchase_date: "",
-      insurance_expiry: "",
-      registration_expiry: "",
-      license_plate_expiry: "",
-      next_service_date: "",
-      next_service_mileage: "",
+      purchase_price: undefined,
+      purchase_date: undefined,
+      insurance_expiry: undefined,
+      registration_expiry: undefined,
+      license_plate_expiry: undefined,
+      next_service_date: undefined,
+      next_service_mileage: undefined,
     },
   });
+
+  const [submitError, setSubmitError] = useState("");
 
   const createMutation = useMutation({
     mutationFn: createVehicle,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       router.push("/fleet/vehicles");
+    },
+    onError: (err) => {
+      setSubmitError(err.message || "Failed to create vehicle");
     },
   });
 
@@ -126,6 +128,11 @@ export default function VehicleFormPage({ params }) {
         </CardHeader>
         <CardContent>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            {submitError && (
+              <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
+                {submitError}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="plate_number">Plate Number *</Label>
@@ -198,8 +205,8 @@ export default function VehicleFormPage({ params }) {
             </div>
 
             <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Status & Mileage</h3>
-              <div className="grid grid-cols-3 gap-4">
+              <h3 className="text-sm font-semibold text-foreground mb-4">Status</h3>
+              <div className="grid grid-cols-1 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="vehicle_status">Status</Label>
                   <select
@@ -213,14 +220,6 @@ export default function VehicleFormPage({ params }) {
                     <option value="Out of Service">Out of Service</option>
                     <option value="Reserved">Reserved</option>
                   </select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="mileage">Mileage (km)</Label>
-                  <Input id="mileage" type="number" {...form.register("mileage")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="fuel_level">Fuel Level (%)</Label>
-                  <Input id="fuel_level" type="number" min="0" max="100" {...form.register("fuel_level")} />
                 </div>
               </div>
             </div>

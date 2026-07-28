@@ -1,0 +1,15 @@
+{
+  "eval_id": 1,
+  "eval_name": "feature-planning",
+  "prompt": "I want to add a real-time notification system to my FleetOps app. Users should get notified when a trip is assigned to them, when a vehicle needs maintenance, and when a dispatch changes. We use Supabase for the backend. I need you to plan this feature \u2014 design the database tables, the API endpoints, the real-time subscriptions, the UI components, and give me a step-by-step implementation plan. Think about architecture, edge cases, security, and how it integrates with the existing system. Don't write any code yet \u2014 just the plan.",
+  "assertions": [
+    "Output includes an analysis of existing notification infrastructure before proposing new work",
+    "Output proposes a notification_preferences table design with proper foreign keys",
+    "Output includes a database schema design with SQL or schema notation",
+    "Output includes an implementation plan with sequenced steps (what to build first, second, third)",
+    "Output covers security considerations including RLS policies",
+    "Output identifies at least 5 edge cases or potential failure modes",
+    "Output addresses integration with existing auth system (employee_id, user_id)",
+    "Output proposes real-time subscription architecture using Supabase Realtime"
+  ]
+}

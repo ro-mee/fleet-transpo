@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
 import { formatDate, formatTime, formatDuration, formatDistance } from "@/lib/utils";
-import { Route, Play, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
+import { Route, Play, Download, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
+import { exportToCSV } from "@/lib/export";
 
 const statusVariant = {
   Pending: "warning",
@@ -117,6 +118,26 @@ export default function TripsPage() {
           <p className="text-foreground-secondary mt-1">Monitor and manage all trips</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => exportToCSV(trips, "trips", [
+              { label: "ID", key: "trip_id" },
+              { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
+              { label: "Driver", accessor: (t) => t.drivers?.employees ? `${t.drivers.employees.first_name} ${t.drivers.employees.last_name}` : "" },
+              { label: "Dispatch", accessor: (t) => t.dispatchschedules?.dispatch_number || "" },
+              { label: "Route", accessor: (t) => t.routes?.route_name || "" },
+              { label: "Start Time", key: "start_time" },
+              { label: "End Time", key: "end_time" },
+              { label: "Distance (km)", key: "distance" },
+              { label: "Duration (min)", key: "actual_duration" },
+              { label: "Status", key: "trip_status" },
+              { label: "Notes", key: "notes" },
+            ])}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
           <Button variant="outline" size="sm" onClick={() => router.push("/trips/active")}>
             <Play className="w-4 h-4 mr-2" />
             Active Trips ({activeTrips.length})

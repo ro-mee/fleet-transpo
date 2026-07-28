@@ -1,0 +1,26 @@
+{
+  "skill_name": "nextjs-technical-lead",
+  "evals": [
+    {
+      "id": 0,
+      "name": "architecture-review",
+      "prompt": "I need you to review my FleetOps project. This is a Next.js fleet management system I'm building. I want you to do a full architecture review — look at the folder structure, the database schema (check supabase/migrations/), the services in src/services/, the API routes in src/app/api/, and the components in src/components/. Tell me what's good, what's missing, what needs improvement, and give me a priority-ordered development roadmap. Don't write any code — just analyze and plan.",
+      "expected_output": "A comprehensive architecture review document covering project analysis, database review, API review, frontend review, and a priority-ordered development roadmap with critical/high/medium/low tasks.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "feature-planning",
+      "prompt": "I want to add a real-time notification system to my FleetOps app. Users should get notified when a trip is assigned to them, when a vehicle needs maintenance, and when a dispatch changes. We use Supabase for the backend. I need you to plan this feature — design the database tables, the API endpoints, the real-time subscriptions, the UI components, and give me a step-by-step implementation plan. Think about architecture, edge cases, security, and how it integrates with the existing system. Don't write any code yet — just the plan.",
+      "expected_output": "A complete feature plan for a real-time notification system including database schema design, API design, real-time subscription architecture, UI component hierarchy, integration points with existing system, security considerations, and a sequenced implementation plan.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "code-review",
+      "prompt": "Look at the dispatch service in src/services/dispatch-service.js and the dispatch API route in src/app/api/dispatch/route.js. Review them thoroughly — check for security issues, architectural problems, error handling, performance issues, and code quality. Suggest specific improvements. If there are bugs, point them out. Don't rewrite the code — just tell me what to fix and why.",
+      "expected_output": "A thorough code review identifying security issues, architectural problems, error handling gaps, performance concerns, and code quality issues with specific, actionable improvement suggestions.",
+      "files": []
+    }
+  ]
+}

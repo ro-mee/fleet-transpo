@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getReservations, cancelReservation } from "@/services/reservation.service";
 import { formatDate, formatTime } from "@/lib/utils";
-import { Plus, CalendarCheck, Calendar, Clock, Users, XCircle, Building } from "lucide-react";
+import { Plus, Download, CalendarCheck, Calendar, Clock, Users, XCircle, Building } from "lucide-react";
+import { exportToCSV } from "@/lib/export";
 
 const statusVariant = {
   Pending: "warning",
@@ -146,10 +147,33 @@ export default function ReservationsPage() {
           <h1 className="text-2xl font-bold text-foreground">Reservations</h1>
           <p className="text-foreground-secondary mt-1">Manage vehicle reservations</p>
         </div>
-        <Button onClick={() => router.push("/reservations/new")} className="h-10">
-          <Plus className="w-4 h-4 mr-2" />
-          New Reservation
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="h-10"
+            onClick={() => exportToCSV(reservations, "reservations", [
+              { label: "ID", key: "reservation_id" },
+              { label: "Guest Name", key: "guest_name" },
+              { label: "Guest Phone", key: "guest_phone" },
+              { label: "Pickup Location", key: "pickup_location" },
+              { label: "Dropoff Location", key: "dropoff_location" },
+              { label: "Date", key: "reservation_date" },
+              { label: "Pickup Time", key: "pickup_time" },
+              { label: "Return Time", key: "estimated_return_time" },
+              { label: "Passengers", key: "passenger_count" },
+              { label: "Service", accessor: (r) => r.service_types?.service_name || "" },
+              { label: "Status", key: "status" },
+              { label: "Purpose", key: "purpose" },
+            ])}
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+          <Button onClick={() => router.push("/reservations/new")} className="h-10">
+            <Plus className="w-4 h-4 mr-2" />
+            New Reservation
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-4">

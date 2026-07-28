@@ -1,0 +1,15 @@
+{
+  "eval_id": 0,
+  "eval_name": "architecture-review",
+  "prompt": "I need you to review my FleetOps project. This is a Next.js fleet management system I'm building. I want you to do a full architecture review \u2014 look at the folder structure, the database schema (check supabase/migrations/), the services in src/services/, the API routes in src/app/api/, and the components in src/components/. Tell me what's good, what's missing, what needs improvement, and give me a priority-ordered development roadmap. Don't write any code \u2014 just analyze and plan.",
+  "assertions": [
+    "Output includes a database analysis section with specific table/column references",
+    "Output includes an API review section evaluating endpoint design and coverage",
+    "Output includes a frontend architecture review covering component patterns and state management",
+    "Output includes a security review identifying at least one vulnerability or concern",
+    "Output includes a priority-ordered development roadmap with at least 10 tasks",
+    "Output identifies the lack of TypeScript usage in the project",
+    "Output identifies the lack of a proper API layer (server-side routes for data mutations)",
+    "Output provides specific, actionable improvement suggestions with reasoning"
+  ]
+}
