@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "./status.service";
 
 export async function getDispatches(filters = {}) {
   const supabase = createClient();
@@ -55,11 +56,22 @@ export async function createDispatch(dispatch) {
     .select()
     .single();
   if (error) throw error;
+
+  const promises = [];
+  if (data?.vehicle_id) promises.push(syncVehicleStatus(data.vehicle_id));
+  if (data?.driver_id) promises.push(syncDriverStatus(data.driver_id));
+  await Promise.all(promises);
+
   return data;
 }
 
 export async function updateDispatch(id, dispatch) {
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("dispatchschedules")
+    .select("vehicle_id, driver_id")
+    .eq("dispatch_id", id)
+    .single();
   const { data, error } = await supabase
     .from("dispatchschedules")
     .update(dispatch)
@@ -67,11 +79,25 @@ export async function updateDispatch(id, dispatch) {
     .select()
     .single();
   if (error) throw error;
+
+  const vehicleId = dispatch.vehicle_id || before?.vehicle_id;
+  const driverId = dispatch.driver_id || before?.driver_id;
+  const promises = [];
+  if (vehicleId) promises.push(syncVehicleStatus(vehicleId));
+  if (driverId) promises.push(syncDriverStatus(driverId));
+  if (data?.reservation_id) promises.push(syncDispatchReservation(id));
+  await Promise.all(promises);
+
   return data;
 }
 
 export async function updateDispatchStatus(id, status) {
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("dispatchschedules")
+    .select("vehicle_id, driver_id")
+    .eq("dispatch_id", id)
+    .single();
   const { data, error } = await supabase
     .from("dispatchschedules")
     .update({ status })
@@ -79,5 +105,12 @@ export async function updateDispatchStatus(id, status) {
     .select()
     .single();
   if (error) throw error;
+
+  const promises = [];
+  if (before?.vehicle_id) promises.push(syncVehicleStatus(before.vehicle_id));
+  if (before?.driver_id) promises.push(syncDriverStatus(before.driver_id));
+  promises.push(syncDispatchReservation(id));
+  await Promise.all(promises);
+
   return data;
 }

@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { getDispatchesByStatus, updateDispatchStatus } from "@/services/dispatch.service";
 import { formatDate, formatTime } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import { Send, Truck, Users, Clock, MapPin, ChevronRight } from "lucide-react";
 
 const columns = [
@@ -28,7 +29,21 @@ export default function DispatchPage() {
 
   const updateMutation = useMutation({
     mutationFn: ({ id, status }) => updateDispatchStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["dispatches-status"] }),
+    onSuccess: (_data, variables) => {
+      toast.success(`Dispatch moved to ${variables.status}`);
+      queryClient.invalidateQueries({ queryKey: ["dispatches-status"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatch"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["reservation"] });
+      queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const getNextStatus = (currentStatus) => {

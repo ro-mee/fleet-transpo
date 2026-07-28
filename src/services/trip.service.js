@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "./status.service";
 
 export async function getTrips(filters = {}) {
   const supabase = createClient();
@@ -80,6 +81,11 @@ export async function updateTripStatus(id, status) {
 
 export async function startTrip(id, startData) {
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("trips")
+    .select("vehicle_id, driver_id")
+    .eq("trip_id", id)
+    .single();
   const { data, error } = await supabase
     .from("trips")
     .update({
@@ -93,11 +99,22 @@ export async function startTrip(id, startData) {
     .single();
 
   if (error) throw error;
+
+  const promises = [];
+  if (before?.vehicle_id) promises.push(syncVehicleStatus(before.vehicle_id));
+  if (before?.driver_id) promises.push(syncDriverStatus(before.driver_id));
+  await Promise.all(promises);
+
   return data;
 }
 
 export async function completeTrip(id, endData) {
   const supabase = createClient();
+  const { data: before } = await supabase
+    .from("trips")
+    .select("vehicle_id, driver_id, dispatch_id")
+    .eq("trip_id", id)
+    .single();
   const distance = endData.end_odometer - (endData.start_odometer || 0);
   const duration = endData.start_time
     ? Math.round((new Date() - new Date(endData.start_time)) / 60000)
@@ -118,6 +135,13 @@ export async function completeTrip(id, endData) {
     .single();
 
   if (error) throw error;
+
+  const promises = [];
+  if (before?.vehicle_id) promises.push(syncVehicleStatus(before.vehicle_id));
+  if (before?.driver_id) promises.push(syncDriverStatus(before.driver_id));
+  if (before?.dispatch_id) promises.push(syncDispatchReservation(before.dispatch_id));
+  await Promise.all(promises);
+
   return data;
 }
 

@@ -13,6 +13,7 @@ import {
   Fuel, DollarSign, CheckCircle2, Loader2, Play, Square, ChevronRight,
   TrendingUp, Star
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const tripSteps = [
   "Pending", "Approved", "Dispatched", "Driver Accepted",
@@ -40,9 +41,16 @@ export default function TripDetailPage() {
   const startMutation = useMutation({
     mutationFn: () => startTrip(tripId, { odometer: trip?.start_odometer || 0 }),
     onSuccess: () => {
+      toast.success("Trip started");
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const completeMutation = useMutation({
@@ -51,17 +59,36 @@ export default function TripDetailPage() {
       start_odometer: trip?.start_odometer,
     }),
     onSuccess: () => {
+      toast.success("Trip completed");
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatches-status"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatch"] });
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["reservation"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const statusMutation = useMutation({
     mutationFn: (status) => updateTripStatus(tripId, status),
-    onSuccess: () => {
+    onSuccess: (_data, status) => {
+      toast.success(`Trip status: ${status}`);
       queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
       queryClient.invalidateQueries({ queryKey: ["trips"] });
+      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   if (isLoading) {

@@ -31,6 +31,7 @@ import {
   DoorOpen,
   CreditCard,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const statusSteps = [
   "Pending",
@@ -81,25 +82,37 @@ export default function ReservationDetailPage() {
   const approveMutation = useMutation({
     mutationFn: () => updateReservation(reservationId, { status: "Approved" }),
     onSuccess: () => {
+      toast.success("Reservation approved");
       queryClient.invalidateQueries({ queryKey: ["reservation", reservationId] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const rejectMutation = useMutation({
     mutationFn: () => updateReservation(reservationId, { status: "Rejected" }),
     onSuccess: () => {
+      toast.success("Reservation rejected");
       queryClient.invalidateQueries({ queryKey: ["reservation", reservationId] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelReservation(reservationId),
     onSuccess: () => {
+      toast.success("Reservation cancelled");
       queryClient.invalidateQueries({ queryKey: ["reservation", reservationId] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const dispatchMutation = useMutation({
@@ -115,11 +128,18 @@ export default function ReservationDetailPage() {
       });
     },
     onSuccess: () => {
+      toast.success("Reservation dispatched");
       updateReservation(reservationId, { status: "Dispatched" });
       queryClient.invalidateQueries({ queryKey: ["reservation", reservationId] });
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
       queryClient.invalidateQueries({ queryKey: ["dispatches"] });
+      queryClient.invalidateQueries({ queryKey: ["dispatches-status"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   if (isLoading) {

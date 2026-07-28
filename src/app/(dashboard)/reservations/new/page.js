@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { createReservation, getServiceTypes, getBookingChannels } from "@/services/reservation.service";
 import { getAvailableVehiclesForReservation } from "@/services/ai.service";
 import { ArrowLeft, Loader2, Truck, CheckCircle2, ChevronRight, Brain, Sparkles, Building, ExternalLink } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const reservationSchema = z.object({
   guest_name: z.string().optional(),
@@ -111,7 +112,10 @@ export default function NewReservationPage() {
   const createMutation = useMutation({
     mutationFn: createReservation,
     onSuccess: (data) => {
+      toast.success("Reservation created");
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
       router.push(`/reservations/${data.reservation_id}`);
     },
     onError: (err) => {
@@ -157,20 +161,20 @@ export default function NewReservationPage() {
             </CardHeader>
             <CardContent>
               <form id="reservation-form" onSubmit={form.handleSubmit(onSubmit)}>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
                     <Label htmlFor="guest_name">Guest Name</Label>
                     <Input id="guest_name" {...form.register("guest_name")} placeholder="Guest name" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="guest_phone">Phone</Label>
                     <Input id="guest_phone" {...form.register("guest_phone")} placeholder="+63 912 345 6789" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="guest_email">Email</Label>
                     <Input id="guest_email" type="email" {...form.register("guest_email")} placeholder="guest@example.com" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="passenger_count">Passenger Count</Label>
                     <Input id="passenger_count" type="number" min="1" {...form.register("passenger_count")} />
                   </div>
@@ -184,8 +188,8 @@ export default function NewReservationPage() {
               <CardTitle className="text-base font-semibold">Service Details</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="service_type">Service Type</Label>
                   <Select
                     value={form.watch("service_type_id")?.toString() || ""}
@@ -203,7 +207,7 @@ export default function NewReservationPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="booking_channel">Booking Channel</Label>
                   <Select
                     value={form.watch("booking_channel_id")?.toString() || ""}
@@ -221,35 +225,35 @@ export default function NewReservationPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="reservation_date">Date *</Label>
+                  <Input id="reservation_date" type="date" {...form.register("reservation_date")} />
+                </div>
+                <div className="space-y-1.5">
                   <Label htmlFor="pickup_location">Pickup Location *</Label>
                   <Input id="pickup_location" {...form.register("pickup_location")} placeholder="Hotel lobby, restaurant, etc." />
                   {form.formState.errors.pickup_location && (
                     <p className="text-xs text-danger">{form.formState.errors.pickup_location.message}</p>
                   )}
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="dropoff_location">Dropoff Location</Label>
                   <Input id="dropoff_location" {...form.register("dropoff_location")} placeholder="Destination (optional)" />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="reservation_date">Date *</Label>
-                  <Input id="reservation_date" type="date" {...form.register("reservation_date")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pickup_time">Pickup Time *</Label>
-                  <Input id="pickup_time" type="time" {...form.register("pickup_time")} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="estimated_return_time">Est. Return Time</Label>
-                  <Input id="estimated_return_time" type="time" {...form.register("estimated_return_time")} />
-                </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="purpose">Purpose</Label>
                   <Input id="purpose" {...form.register("purpose")} placeholder="Airport transfer, delivery, etc." />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="pickup_time">Pickup Time *</Label>
+                  <Input id="pickup_time" type="time" {...form.register("pickup_time")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="estimated_return_time">Est. Return Time</Label>
+                  <Input id="estimated_return_time" type="time" {...form.register("estimated_return_time")} />
+                </div>
               </div>
-              <div className="mt-4 space-y-2">
+              <div className="mt-3 space-y-1.5">
                 <Label htmlFor="notes">Notes</Label>
                 <textarea
                   id="notes"
@@ -278,12 +282,12 @@ export default function NewReservationPage() {
             </CardHeader>
             {showIntegrationFields && (
               <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label htmlFor="external_booking_id">External Booking ID</Label>
                     <Input id="external_booking_id" {...form.register("external_booking_id")} placeholder="From PMS, POS, etc." />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="integration_source">Source System</Label>
                     <Select
                       value={form.watch("integration_source") || ""}
@@ -300,15 +304,15 @@ export default function NewReservationPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="room_number">Room Number</Label>
                     <Input id="room_number" {...form.register("room_number")} placeholder="e.g. 1205" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="space-y-1.5">
                     <Label htmlFor="guest_id">Guest ID (Parent System)</Label>
                     <Input id="guest_id" {...form.register("guest_id")} placeholder="From parent system" />
                   </div>
-                  <div className="flex items-center gap-2 pt-6">
+                  <div className="flex items-center gap-2 pt-5">
                     <input
                       type="checkbox"
                       id="bill_to_room"

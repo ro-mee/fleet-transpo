@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { getAiInsights, dismissAiInsight } from "@/services/ai.service";
 import { formatDate } from "@/lib/utils";
 import { Lightbulb, AlertTriangle, Info, X, RefreshCw } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 export default function AiInsightsPage() {
   const queryClient = useQueryClient();
@@ -18,7 +19,11 @@ export default function AiInsightsPage() {
 
   const dismissMutation = useMutation({
     mutationFn: dismissAiInsight,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-insights"] }),
+    onSuccess: () => {
+      toast.success("Insight dismissed");
+      queryClient.invalidateQueries({ queryKey: ["ai-insights"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const highImpact = insights.filter((i) => i.impact === "high").length;

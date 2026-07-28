@@ -15,6 +15,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles } from "@/services/vehicle.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Pencil, Archive, Eye, Wrench } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const statusVariant = {
   Scheduled: "default",
@@ -64,7 +65,11 @@ export default function MaintenancePage() {
   const createMutation = useMutation({
     mutationFn: createVehicleMaintenance,
     onSuccess: () => {
+      toast.success("Maintenance record created");
       queryClient.invalidateQueries({ queryKey: ["maintenance"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles-for-maintenance"] });
       closeDialog();
     },
     onError: (err) => setFormError(err.message),
@@ -73,7 +78,11 @@ export default function MaintenancePage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => updateVehicleMaintenance(id, data),
     onSuccess: () => {
+      toast.success("Maintenance record updated");
       queryClient.invalidateQueries({ queryKey: ["maintenance"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles-for-maintenance"] });
       closeDialog();
     },
     onError: (err) => setFormError(err.message),
@@ -88,7 +97,14 @@ export default function MaintenancePage() {
         .eq("maintenance_id", id);
       if (error) throw error;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["maintenance"] }),
+    onSuccess: () => {
+      toast.success("Maintenance record archived");
+      queryClient.invalidateQueries({ queryKey: ["maintenance"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles-for-maintenance"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const [archivingId, setArchivingId] = useState(null);
@@ -278,14 +294,14 @@ export default function MaintenancePage() {
             <Wrench className="w-4 h-4 mr-2" />
             Add Record
           </Button>
-          <DialogContent>
+          <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 {viewingRecord ? "Maintenance Details" : editingRecord ? "Edit Maintenance Record" : "Add Maintenance Record"}
               </DialogTitle>
             </DialogHeader>
             {viewingRecord ? (
-              <div className="space-y-4">
+              <div className="p-6 pt-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <p className="text-foreground-muted text-xs">Vehicle</p>
@@ -349,22 +365,22 @@ export default function MaintenancePage() {
                 </div>
               </div>
             ) : (
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <Label htmlFor="vehicle_id">Vehicle *</Label>
-                  <Select value={formData.vehicle_id} onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}>
-                    <SelectTrigger><SelectValue placeholder="Select a vehicle" /></SelectTrigger>
-                    <SelectContent>
-                      {vehicles.filter((v) => !v.deleted_at).map((v) => (
-                        <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>
-                          {v.plate_number} — {v.vehicle_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+              <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vehicle_id">Vehicle *</Label>
+                    <Select value={formData.vehicle_id} onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}>
+                      <SelectTrigger><SelectValue placeholder="Select a vehicle" /></SelectTrigger>
+                      <SelectContent>
+                        {vehicles.filter((v) => !v.deleted_at).map((v) => (
+                          <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>
+                            {v.plate_number} — {v.vehicle_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
                     <Label htmlFor="maintenance_type">Type</Label>
                     <Select value={formData.maintenance_type} onValueChange={(val) => setFormData({ ...formData, maintenance_type: val })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -377,7 +393,14 @@ export default function MaintenancePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="maintenance_date">Date *</Label>
+                    <Input id="maintenance_date" type="date" value={formData.maintenance_date} onChange={(e) => setFormData({ ...formData, maintenance_date: e.target.value })} required />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
                     <Label htmlFor="priority">Priority</Label>
                     <Select value={formData.priority} onValueChange={(val) => setFormData({ ...formData, priority: val })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -389,13 +412,7 @@ export default function MaintenancePage() {
                       </SelectContent>
                     </Select>
                   </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="maintenance_date">Maintenance Date *</Label>
-                    <Input id="maintenance_date" type="date" value={formData.maintenance_date} onChange={(e) => setFormData({ ...formData, maintenance_date: e.target.value })} required />
-                  </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label htmlFor="status">Status</Label>
                     <Select value={formData.status} onValueChange={(val) => setFormData({ ...formData, status: val })}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -407,39 +424,44 @@ export default function MaintenancePage() {
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="completed_date">Completed Date</Label>
+                    <Input id="completed_date" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
+                  </div>
                 </div>
-                <div>
-                  <Label htmlFor="description">Description</Label>
-                  <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe the maintenance work" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label htmlFor="cost">Cost (₱)</Label>
                     <Input id="cost" type="number" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label htmlFor="mileage_at_service">Mileage at Service (km)</Label>
                     <Input id="mileage_at_service" type="number" min="0" value={formData.mileage_at_service} onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })} placeholder="e.g. 10000" />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
                     <Label htmlFor="service_provider">Service Provider</Label>
                     <Input id="service_provider" value={formData.service_provider} onChange={(e) => setFormData({ ...formData, service_provider: e.target.value })} placeholder="e.g. Toyota Cebu" />
                   </div>
-                  <div>
+                  <div className="space-y-1.5">
                     <Label htmlFor="service_center">Service Center</Label>
                     <Input id="service_center" value={formData.service_center} onChange={(e) => setFormData({ ...formData, service_center: e.target.value })} placeholder="e.g. Main Branch" />
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="completed_date">Completed Date</Label>
-                  <Input id="completed_date" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="description">Description</Label>
+                  <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe the maintenance work" />
                 </div>
-                <div>
+
+                <div className="space-y-1.5">
                   <Label htmlFor="remarks">Remarks</Label>
                   <Input id="remarks" value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} placeholder="Additional notes" />
                 </div>
+
                 {formError && <p className="text-sm text-destructive">{formError}</p>}
                 <div className="flex items-center justify-end gap-3 pt-2">
                   <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>

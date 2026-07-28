@@ -12,6 +12,7 @@ import { getReservations, cancelReservation } from "@/services/reservation.servi
 import { formatDate, formatTime } from "@/lib/utils";
 import { Plus, Download, CalendarCheck, Calendar, Clock, Users, XCircle, Building } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
 
 const statusVariant = {
   Pending: "warning",
@@ -32,7 +33,13 @@ export default function ReservationsPage() {
 
   const cancelMutation = useMutation({
     mutationFn: cancelReservation,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reservations"] }),
+    onSuccess: () => {
+      toast.success("Reservation cancelled");
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const columnHelper = createColumnHelper();

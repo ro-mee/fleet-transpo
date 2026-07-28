@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleCategories, createCategory, updateCategory, deleteCategory } from "@/services/vehicle.service";
 import { Plus, Pencil, Archive } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 export default function CategoriesPage() {
   const queryClient = useQueryClient();
@@ -28,6 +29,7 @@ export default function CategoriesPage() {
   const createMutation = useMutation({
     mutationFn: createCategory,
     onSuccess: () => {
+      toast.success("Category created");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
       closeDialog();
     },
@@ -37,6 +39,7 @@ export default function CategoriesPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => updateCategory(id, data),
     onSuccess: () => {
+      toast.success("Category updated");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
       closeDialog();
     },
@@ -45,7 +48,11 @@ export default function CategoriesPage() {
 
   const archiveMutation = useMutation({
     mutationFn: (id) => deleteCategory(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] }),
+    onSuccess: () => {
+      toast.success("Category archived");
+      queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const [archivingCategory, setArchivingCategory] = useState(null);
@@ -119,35 +126,35 @@ export default function CategoriesPage() {
               Add Category
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="max-w-xl">
             <DialogHeader>
               <DialogTitle>{editingCategory ? "Edit Category" : "Add Category"}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
+            <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-3">
+              <div className="space-y-1.5">
                 <Label htmlFor="category_name">Category Name *</Label>
                 <Input id="category_name" value={formData.category_name} onChange={(e) => setFormData({ ...formData, category_name: e.target.value })} placeholder="e.g. Sedan, SUV, Van" required />
               </div>
-              <div>
+              <div className="space-y-1.5">
                 <Label htmlFor="description">Description</Label>
                 <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Brief description" />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="seating_capacity">Seating Capacity</Label>
                   <Input id="seating_capacity" type="number" min="1" value={formData.seating_capacity} onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })} placeholder="e.g. 4" />
                 </div>
-                <div>
+                <div className="space-y-1.5">
                   <Label htmlFor="base_rate">Base Rate (₱)</Label>
                   <Input id="base_rate" type="number" min="0" step="0.01" value={formData.base_rate} onChange={(e) => setFormData({ ...formData, base_rate: e.target.value })} placeholder="0.00" />
                 </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
+                <div className="space-y-1.5">
                   <Label htmlFor="per_km_rate">Per KM Rate (₱)</Label>
                   <Input id="per_km_rate" type="number" min="0" step="0.01" value={formData.per_km_rate} onChange={(e) => setFormData({ ...formData, per_km_rate: e.target.value })} placeholder="0.00" />
                 </div>
-                <div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="per_hour_rate">Per Hour Rate (₱)</Label>
                   <Input id="per_hour_rate" type="number" min="0" step="0.01" value={formData.per_hour_rate} onChange={(e) => setFormData({ ...formData, per_hour_rate: e.target.value })} placeholder="0.00" />
                 </div>

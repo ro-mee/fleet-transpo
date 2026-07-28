@@ -6,7 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const vehicleSchema = z.object({
   plate_number: z.string().min(1, "Plate number is required"),
@@ -80,6 +81,7 @@ export default function EditVehiclePage() {
   const updateMutation = useMutation({
     mutationFn: (data) => updateVehicle(vehicleId, data),
     onSuccess: () => {
+      toast.success("Vehicle updated");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push(`/fleet/vehicles/${vehicleId}`);
@@ -92,7 +94,7 @@ export default function EditVehiclePage() {
   const onSubmit = (data) => updateMutation.mutate(data);
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-5xl">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="w-5 h-5" />
@@ -105,98 +107,123 @@ export default function EditVehiclePage() {
 
       <Card className="border-0 shadow-sm">
         <CardContent className="p-6">
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             {submitError && (
               <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
                 {submitError}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="plate_number">Plate Number *</Label>
-                <Input id="plate_number" {...form.register("plate_number")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vehicle_name">Vehicle Name *</Label>
-                <Input id="vehicle_name" {...form.register("vehicle_name")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manufacturer">Manufacturer</Label>
-                <Input id="manufacturer" {...form.register("manufacturer")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                <Input id="model" {...form.register("model")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="year">Year</Label>
-                <Input id="year" type="number" {...form.register("year")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="color">Color</Label>
-                <Input id="color" {...form.register("color")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="category_id">Category</Label>
-                <select id="category_id" {...form.register("category_id")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
-                  <option value="">Select category</option>
-                  {categories.map((cat) => (
-                    <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="fuel_type">Fuel Type</Label>
-                <select id="fuel_type" {...form.register("fuel_type")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
-                  <option value="Gasoline">Gasoline</option>
-                  <option value="Diesel">Diesel</option>
-                  <option value="Electric">Electric</option>
-                  <option value="Hybrid">Hybrid</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="seating_capacity">Seating Capacity</Label>
-                <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vehicle_status">Status</Label>
-                <select id="vehicle_status" {...form.register("vehicle_status")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
-                  <option value="Available">Available</option>
-                  <option value="In Use">In Use</option>
-                  <option value="Under Maintenance">Under Maintenance</option>
-                  <option value="Out of Service">Out of Service</option>
-                  <option value="Reserved">Reserved</option>
-                </select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="purchase_date">Purchase Date</Label>
-                <Input id="purchase_date" type="date" {...form.register("purchase_date")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="purchase_price">Purchase Price (₱)</Label>
-                <Input id="purchase_price" type="number" {...form.register("purchase_price")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="insurance_expiry">Insurance Expiry</Label>
-                <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="registration_expiry">Registration Expiry</Label>
-                <Input id="registration_expiry" type="date" {...form.register("registration_expiry")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="license_plate_expiry">License Plate Expiry</Label>
-                <Input id="license_plate_expiry" type="date" {...form.register("license_plate_expiry")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="next_service_date">Next Service Date</Label>
-                <Input id="next_service_date" type="date" {...form.register("next_service_date")} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="next_service_mileage">Next Service Mileage</Label>
-                <Input id="next_service_mileage" type="number" {...form.register("next_service_mileage")} />
+
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-3">General Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="plate_number">Plate Number *</Label>
+                  <Input id="plate_number" {...form.register("plate_number")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vehicle_name">Vehicle Name *</Label>
+                  <Input id="vehicle_name" {...form.register("vehicle_name")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="manufacturer">Manufacturer</Label>
+                  <Input id="manufacturer" {...form.register("manufacturer")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="model">Model</Label>
+                  <Input id="model" {...form.register("model")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="year">Year</Label>
+                  <Input id="year" type="number" {...form.register("year")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="color">Color</Label>
+                  <Input id="color" {...form.register("color")} />
+                </div>
               </div>
             </div>
+
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Classification</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="category_id">Category</Label>
+                  <select id="category_id" {...form.register("category_id")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
+                    <option value="">Select category</option>
+                    {categories.map((cat) => (
+                      <option key={cat.category_id} value={cat.category_id}>{cat.category_name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fuel_type">Fuel Type</Label>
+                  <select id="fuel_type" {...form.register("fuel_type")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
+                    <option value="Gasoline">Gasoline</option>
+                    <option value="Diesel">Diesel</option>
+                    <option value="Electric">Electric</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="seating_capacity">Seating Capacity</Label>
+                  <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vehicle_status">Status</Label>
+                  <select id="vehicle_status" {...form.register("vehicle_status")} className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm">
+                    <option value="Available">Available</option>
+                    <option value="In Use">In Use</option>
+                    <option value="Under Maintenance">Under Maintenance</option>
+                    <option value="Out of Service">Out of Service</option>
+                    <option value="Reserved">Reserved</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Financial & Compliance</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="purchase_date">Purchase Date</Label>
+                  <Input id="purchase_date" type="date" {...form.register("purchase_date")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="purchase_price">Purchase Price (₱)</Label>
+                  <Input id="purchase_price" type="number" {...form.register("purchase_price")} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="insurance_expiry">Insurance Expiry</Label>
+                  <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="registration_expiry">Registration Expiry</Label>
+                  <Input id="registration_expiry" type="date" {...form.register("registration_expiry")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="license_plate_expiry">License Plate Expiry</Label>
+                  <Input id="license_plate_expiry" type="date" {...form.register("license_plate_expiry")} />
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Service Schedule</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="next_service_date">Next Service Date</Label>
+                  <Input id="next_service_date" type="date" {...form.register("next_service_date")} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="next_service_mileage">Next Service Mileage</Label>
+                  <Input id="next_service_mileage" type="number" {...form.register("next_service_mileage")} />
+                </div>
+              </div>
+            </div>
+
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
               <Button type="button" variant="outline" onClick={() => router.back()}>Cancel</Button>
               <Button type="submit" disabled={updateMutation.isPending}>

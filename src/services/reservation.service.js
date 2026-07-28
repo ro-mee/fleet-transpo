@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { syncVehicleStatus } from "./status.service";
 
 const reservationSelect = `
   *,
@@ -54,6 +55,9 @@ export async function createReservation(reservation) {
     .select()
     .single();
   if (error) throw error;
+  if (data?.vehicle_id && (data.status === "Approved" || data.status === "Pending")) {
+    await syncVehicleStatus(data.vehicle_id);
+  }
   return data;
 }
 
@@ -66,6 +70,9 @@ export async function updateReservation(id, reservation) {
     .select()
     .single();
   if (error) throw error;
+  if (data?.vehicle_id) {
+    await syncVehicleStatus(data.vehicle_id);
+  }
   return data;
 }
 
@@ -73,6 +80,11 @@ export async function cancelReservation(id, reason = null) {
   const supabase = createClient();
   const updates = { status: "Cancelled" };
   if (reason) updates.cancellation_reason = reason;
+  const { data: before } = await supabase
+    .from("vehiclereservations")
+    .select("vehicle_id")
+    .eq("reservation_id", id)
+    .single();
   const { data, error } = await supabase
     .from("vehiclereservations")
     .update(updates)
@@ -80,6 +92,9 @@ export async function cancelReservation(id, reason = null) {
     .select()
     .single();
   if (error) throw error;
+  if (before?.vehicle_id) {
+    await syncVehicleStatus(before.vehicle_id);
+  }
   return data;
 }
 

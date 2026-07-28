@@ -6,13 +6,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const vehicleSchema = z.object({
   plate_number: z.string().min(1, "Plate number is required"),
@@ -79,6 +79,7 @@ export default function VehicleFormPage({ params }) {
   const createMutation = useMutation({
     mutationFn: createVehicle,
     onSuccess: () => {
+      toast.success("Vehicle added");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       router.push("/fleet/vehicles");
     },
@@ -90,10 +91,12 @@ export default function VehicleFormPage({ params }) {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => updateVehicle(id, data),
     onSuccess: () => {
+      toast.success("Vehicle updated");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push(`/fleet/vehicles/${vehicleId}`);
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const onSubmit = async (data) => {
@@ -107,7 +110,7 @@ export default function VehicleFormPage({ params }) {
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6 max-w-3xl">
+    <div className="space-y-6 max-w-5xl">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft className="w-5 h-5" />
@@ -123,53 +126,54 @@ export default function VehicleFormPage({ params }) {
       </div>
 
       <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Basic Information</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <CardContent className="p-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
             {submitError && (
               <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
                 {submitError}
               </div>
             )}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="plate_number">Plate Number *</Label>
-                <Input id="plate_number" {...form.register("plate_number")} placeholder="ABC-1234" />
-                {form.formState.errors.plate_number && (
-                  <p className="text-xs text-danger">{form.formState.errors.plate_number.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vehicle_name">Vehicle Name *</Label>
-                <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="Toyota HiAce" />
-                {form.formState.errors.vehicle_name && (
-                  <p className="text-xs text-danger">{form.formState.errors.vehicle_name.message}</p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="manufacturer">Manufacturer</Label>
-                <Input id="manufacturer" {...form.register("manufacturer")} placeholder="Toyota" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                <Input id="model" {...form.register("model")} placeholder="HiAce Commuter" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="year">Year</Label>
-                <Input id="year" type="number" {...form.register("year")} placeholder="2024" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="color">Color</Label>
-                <Input id="color" {...form.register("color")} placeholder="White" />
+
+            <div>
+              <h3 className="text-sm font-semibold text-foreground mb-3">General Information</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="plate_number">Plate Number *</Label>
+                  <Input id="plate_number" {...form.register("plate_number")} placeholder="ABC-1234" />
+                  {form.formState.errors.plate_number && (
+                    <p className="text-xs text-danger">{form.formState.errors.plate_number.message}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="vehicle_name">Vehicle Name *</Label>
+                  <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="Toyota HiAce" />
+                  {form.formState.errors.vehicle_name && (
+                    <p className="text-xs text-danger">{form.formState.errors.vehicle_name.message}</p>
+                  )}
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="manufacturer">Manufacturer</Label>
+                  <Input id="manufacturer" {...form.register("manufacturer")} placeholder="Toyota" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="model">Model</Label>
+                  <Input id="model" {...form.register("model")} placeholder="HiAce Commuter" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="year">Year</Label>
+                  <Input id="year" type="number" {...form.register("year")} placeholder="2024" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="color">Color</Label>
+                  <Input id="color" {...form.register("color")} placeholder="White" />
+                </div>
               </div>
             </div>
 
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Specifications</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Classification</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="category_id">Category</Label>
                   <select
                     id="category_id"
@@ -184,7 +188,7 @@ export default function VehicleFormPage({ params }) {
                     ))}
                   </select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="fuel_type">Fuel Type</Label>
                   <select
                     id="fuel_type"
@@ -197,17 +201,11 @@ export default function VehicleFormPage({ params }) {
                     <option value="Hybrid">Hybrid</option>
                   </select>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="seating_capacity">Seating Capacity</Label>
                   <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} />
                 </div>
-              </div>
-            </div>
-
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Status</h3>
-              <div className="grid grid-cols-1 gap-4">
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="vehicle_status">Status</Label>
                   <select
                     id="vehicle_status"
@@ -224,46 +222,42 @@ export default function VehicleFormPage({ params }) {
               </div>
             </div>
 
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Purchase & Financial</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Financial & Compliance</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="purchase_date">Purchase Date</Label>
                   <Input id="purchase_date" type="date" {...form.register("purchase_date")} />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="purchase_price">Purchase Price (₱)</Label>
                   <Input id="purchase_price" type="number" {...form.register("purchase_price")} />
                 </div>
               </div>
-            </div>
-
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Compliance Dates</h3>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="insurance_expiry">Insurance Expiry</Label>
                   <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="registration_expiry">Registration Expiry</Label>
                   <Input id="registration_expiry" type="date" {...form.register("registration_expiry")} />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="license_plate_expiry">License Plate Expiry</Label>
                   <Input id="license_plate_expiry" type="date" {...form.register("license_plate_expiry")} />
                 </div>
               </div>
             </div>
 
-            <div className="border-t border-border pt-6">
-              <h3 className="text-sm font-semibold text-foreground mb-4">Service Schedule</h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
+            <div className="border-t border-border pt-4">
+              <h3 className="text-sm font-semibold text-foreground mb-3">Service Schedule</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
                   <Label htmlFor="next_service_date">Next Service Date</Label>
                   <Input id="next_service_date" type="date" {...form.register("next_service_date")} />
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   <Label htmlFor="next_service_mileage">Next Service Mileage</Label>
                   <Input id="next_service_mileage" type="number" {...form.register("next_service_mileage")} />
                 </div>

@@ -11,6 +11,7 @@ import {
   Bell, Info, AlertTriangle, CheckCircle2, CalendarCheck,
   Send, Wrench, Fuel, Route, X, CheckCheck, Trash2,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 
 const typeIcons = {
   Info: Info,
@@ -59,17 +60,29 @@ export default function NotificationsPage() {
 
   const markReadMutation = useMutation({
     mutationFn: markAsRead,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    onSuccess: () => {
+      toast.success("Notification marked as read");
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const markAllMutation = useMutation({
     mutationFn: markAllAsRead,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    onSuccess: () => {
+      toast.success("All notifications marked as read");
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const deleteMutation = useMutation({
     mutationFn: deleteNotification,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+    onSuccess: () => {
+      toast.success("Notification deleted");
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const unread = notifications.filter((n) => !n.is_read).length;

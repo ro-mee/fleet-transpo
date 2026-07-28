@@ -7,6 +7,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getVehicles, deleteVehicle } from "@/services/vehicle.service";
 import { formatDate, formatNumber } from "@/lib/utils";
@@ -35,9 +36,12 @@ export function FleetTable({ filters = {} }) {
 
   const archiveMutation = useMutation({
     mutationFn: deleteVehicle,
-    onSuccess: () => {
+    onSuccess: (_, vehicleId) => {
+      toast.success("Vehicle archived");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const [archivingId, setArchivingId] = useState(null);

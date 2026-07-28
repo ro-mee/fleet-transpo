@@ -11,6 +11,7 @@ import { getVehicles } from "@/services/vehicle.service";
 import { useRouter } from "next/navigation";
 import { Plus, Route as RouteIcon, MapPin, ArrowRight } from "lucide-react";
 import { getRoutes, deleteRoute } from "@/services/route.service";
+import { toast } from "@/components/ui/toast";
 
 export default function RoutesPage() {
   const router = useRouter();
@@ -23,7 +24,11 @@ export default function RoutesPage() {
 
   const deleteMutation = useMutation({
     mutationFn: deleteRoute,
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["routes"] }),
+    onSuccess: () => {
+      toast.success("Route deleted");
+      queryClient.invalidateQueries({ queryKey: ["routes"] });
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   const columnHelper = createColumnHelper();

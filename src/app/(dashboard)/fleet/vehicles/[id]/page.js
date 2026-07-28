@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getVehicle, deleteVehicle } from "@/services/vehicle.service";
 import { ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge, CalendarDays, Wrench, Shield, FileText } from "lucide-react";
+import { toast } from "@/components/ui/toast";
 import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
 
 const statusVariant = {
@@ -34,9 +35,12 @@ export default function VehicleDetailPage() {
   const archiveMutation = useMutation({
     mutationFn: () => deleteVehicle(vehicleId),
     onSuccess: () => {
+      toast.success("Vehicle archived");
       queryClient.invalidateQueries({ queryKey: ["vehicles"] });
+      queryClient.invalidateQueries({ queryKey: ["vehicle", vehicleId] });
       router.push("/fleet/vehicles");
     },
+    onError: (err) => toast.error(err.message),
   });
 
   const [archiveOpen, setArchiveOpen] = useState(false);

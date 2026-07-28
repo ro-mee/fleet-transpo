@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { syncVehicleStatus } from "./status.service";
 
 export async function getVehicles(filters = {}) {
   const supabase = createClient();
@@ -169,6 +170,9 @@ export async function createVehicleMaintenance(record) {
     .select()
     .single();
   if (error) throw error;
+  if (data?.vehicle_id) {
+    await syncVehicleStatus(data.vehicle_id);
+  }
   return data;
 }
 
@@ -181,6 +185,9 @@ export async function updateVehicleMaintenance(id, record) {
     .select()
     .single();
   if (error) throw error;
+  if (data?.vehicle_id) {
+    await syncVehicleStatus(data.vehicle_id);
+  }
   return data;
 }
 
