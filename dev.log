@@ -1,0 +1,17 @@
+
+> capstone@0.1.0 dev
+> next dev
+
+▲ Next.js 16.2.11 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://192.168.1.5:3000
+- Environments: .env
+✓ Ready in 1388ms
+
+ GET /fuel 200 in 1095ms (next.js: 608ms, application-code: 487ms)
+○ Compiling /dispatch ...
+ GET /trips 200 in 4.7s (next.js: 4.3s, application-code: 386ms)
+ GET /dispatch 200 in 4.7s (next.js: 4.5s, application-code: 263ms)
+ GET /dashboard 200 in 122ms (next.js: 67ms, application-code: 55ms)
+
+C:\Users\Joseph T Lopez\OneDrive\Documents\fleet-transpo>
