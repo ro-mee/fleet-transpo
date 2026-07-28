@@ -5,10 +5,16 @@ import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/tables/data-table";
 import { getDrivers, getDriverStats } from "@/services/driver.service";
+<<<<<<< HEAD
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Users, UserCheck, UserX, Truck, Clock, Ban } from "lucide-react";
+=======
+import { Users, UserCheck, UserX, Truck, Clock, Ban, Download } from "lucide-react";
+import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 const statusColors = {
   "Available": "success",
@@ -81,9 +87,29 @@ export default function DriversPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Drivers</h1>
-        <p className="text-foreground-secondary mt-1">Manage driver profiles, attendance, and performance</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Drivers</h1>
+          <p className="text-foreground-secondary mt-1">Manage driver profiles, attendance, and performance</p>
+        </div>
+        <Button
+          variant="outline"
+          className="h-10"
+          onClick={() => exportToCSV(drivers, "drivers", [
+            { label: "ID", key: "driver_id" },
+            { label: "Name", accessor: (d) => d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "" },
+            { label: "Email", accessor: (d) => d.employees?.email || "" },
+            { label: "Phone", accessor: (d) => d.employees?.phone || "" },
+            { label: "License #", key: "license_number" },
+            { label: "License Expiry", key: "license_expiry" },
+            { label: "License Type", key: "license_type" },
+            { label: "Experience (years)", key: "years_of_experience" },
+            { label: "Status", key: "driver_status" },
+          ])}
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Export
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">

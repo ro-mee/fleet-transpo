@@ -8,7 +8,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
+<<<<<<< HEAD
 import { useRequireRole } from "@/lib/auth/role-guard";
+=======
+import { exportToCSV } from "@/lib/export";
+>>>>>>> 37cd408469108f4cb811eff90df67a03bf97045a
 
 export default function FleetVehiclesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -36,7 +40,27 @@ export default function FleetVehiclesPage() {
           <p className="text-foreground-secondary mt-1">Manage and monitor your vehicle fleet</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="h-10">
+          <Button
+            variant="outline"
+            className="h-10"
+            onClick={() => exportToCSV(vehicles, "fleet-vehicles", [
+              { label: "Plate Number", key: "plate_number" },
+              { label: "Vehicle Name", key: "vehicle_name" },
+              { label: "Manufacturer", key: "manufacturer" },
+              { label: "Model", key: "model" },
+              { label: "Year", key: "year" },
+              { label: "Color", key: "color" },
+              { label: "Fuel Type", key: "fuel_type" },
+              { label: "Seating Capacity", key: "seating_capacity" },
+              { label: "Mileage (km)", key: "mileage" },
+              { label: "Fuel Level (%)", key: "fuel_level" },
+              { label: "Status", key: "vehicle_status" },
+              { label: "Category", accessor: (v) => v.vehiclecategories?.category_name || "" },
+              { label: "Purchase Price", key: "purchase_price" },
+              { label: "Insurance Expiry", key: "insurance_expiry" },
+              { label: "Registration Expiry", key: "registration_expiry" },
+            ])}
+          >
             <Download className="w-4 h-4 mr-2" />
             Export
           </Button>

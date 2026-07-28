@@ -1,0 +1,48 @@
+{
+  "task": "Code Review: Dispatch Service & API Route",
+  "skill": "nextjs-technical-lead",
+  "iteration": 2,
+  "workflow_steps": [
+    "1. Load skill instructions from SKILL.md",
+    "2. Project Discovery — read dispatch service, search for API route, scan folder structure",
+    "3. Database Analysis — read schema migrations (001, 002, 003, 005), seed.sql",
+    "4. Security Review — read RLS policies, client/server/admin supabase clients",
+    "5. Business Logic Review — trace state machines, side effects, data consistency across dispatch ↔ reservation ↔ vehicle ↔ driver",
+    "6. API Review — verify existence and design of API route layer",
+    "7. Performance Review — analyze select patterns, N+1 queries, pagination, date filtering",
+    "8. Error Handling Review — check error propagation, retry, resilience",
+    "9. Code Quality Review — check DRY violations, naming, typing, duplication",
+    "10. Compile findings into structured report with severity ratings",
+    "11. Generate priority-ordered action items"
+  ],
+  "tool_calls": {
+    "read": 12,
+    "write": 2,
+    "glob": 5,
+    "grep": 3,
+    "bash": 1
+  },
+  "files_reviewed": [
+    "src/services/dispatch.service.js",
+    "src/app/api/dispatch/route.js (not found)",
+    "src/app/(dashboard)/dispatch/page.js",
+    "src/app/(dashboard)/dispatch/[id]/page.js",
+    "src/app/(dashboard)/reservations/[id]/page.js",
+    "src/services/reservation.service.js",
+    "src/lib/supabase/client.js",
+    "src/lib/supabase/server.js",
+    "src/lib/supabase/admin.js",
+    "supabase/migrations/001_schema.sql",
+    "supabase/migrations/002_rls_policies.sql",
+    "supabase/migrations/003_notification_triggers.sql",
+    "supabase/migrations/005_schema_cleanup.sql",
+    "supabase/seed.sql"
+  ],
+  "findings": {
+    "critical": 5,
+    "high": 7,
+    "medium": 6,
+    "low": 4,
+    "total": 22
+  }
+}

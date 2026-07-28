@@ -1,0 +1,110 @@
+{
+  "feature": "real-time-notification-system",
+  "project": "FleetOps",
+  "engineer_role": "nextjs-technical-lead",
+  "planning_timestamp": "2026-07-28T12:00:00Z",
+  "tool_calls": {
+    "total": 14,
+    "read": 12,
+    "glob": 2,
+    "grep": 0,
+    "write": 2,
+    "bash": 0
+  },
+  "analysis_coverage": {
+    "files_read": [
+      ".opencode/skills/nextjs-technical-lead/SKILL.md",
+      "supabase/migrations/001_schema.sql",
+      "supabase/migrations/002_rls_policies.sql",
+      "supabase/migrations/003_notification_triggers.sql",
+      "supabase/migrations/004_integration_sub_system.sql",
+      "supabase/migrations/005_schema_cleanup.sql",
+      "supabase/migrations/006_driver_attendance_face.sql",
+      "src/services/notification.service.js",
+      "src/hooks/use-realtime.js",
+      "src/hooks/use-auth.js",
+      "src/components/providers.jsx",
+      "src/components/layout/app-shell.jsx",
+      "src/components/layout/dashboard-layout.jsx",
+      "src/lib/supabase/client.js",
+      "src/lib/supabase/server.js",
+      "src/lib/constants.js",
+      "src/app/layout.js",
+      "src/app/(dashboard)/notifications/page.js",
+      "src/app/(dashboard)/notifications/preferences/page.js",
+      "src/app/(dashboard)/notifications/templates/page.js",
+      "package.json"
+    ],
+    "schema_tables_reviewed": [
+      "notifications",
+      "employees",
+      "drivers",
+      "vehicles",
+      "dispatchschedules",
+      "trips",
+      "vehiclemaintenance",
+      "vehiclereservations",
+      "roles",
+      "vehiclecategories"
+    ],
+    "existing_notification_coverage": {
+      "triggers_exist": [
+        "notify_reservation_approved",
+        "notify_dispatch_created",
+        "notify_maintenance_due",
+        "notify_trip_completed"
+      ],
+      "triggers_needed": [
+        "notify_dispatch_updated",
+        "notify_trip_assigned",
+        "notify_vehicle_maintenance_needed",
+        "notify_maintenance_overdue"
+      ],
+      "service_methods_exist": [
+        "getNotifications",
+        "markAsRead",
+        "markAllAsRead",
+        "deleteNotification",
+        "sendNotification",
+        "getNotificationIcon"
+      ],
+      "service_methods_needed": [
+        "getUnreadCount",
+        "getPreferences",
+        "updatePreferences"
+      ]
+    }
+  },
+  "plan_phases": {
+    "phase_1_database_and_service": {
+      "steps": 6,
+      "estimated_hours": 10
+    },
+    "phase_2_realtime_infrastructure": {
+      "steps": 3,
+      "estimated_hours": 3.5
+    },
+    "phase_3_ui_components": {
+      "steps": 8,
+      "estimated_hours": 11
+    },
+    "phase_4_integration": {
+      "steps": 4,
+      "estimated_hours": 3
+    },
+    "phase_5_polish_and_testing": {
+      "steps": 6,
+      "estimated_hours": 6.5
+    },
+    "total_estimated_hours": 34
+  },
+  "edge_cases_documented": 12,
+  "security_considerations": 8,
+  "notification_event_types_defined": 11,
+  "ui_components_planned": 8,
+  "new_tables_required": 1,
+  "existing_tables_modified": 1,
+  "new_db_triggers_required": 4,
+  "existing_triggers_updated": 4,
+  "server_actions_planned": 5
+}

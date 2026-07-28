@@ -1,0 +1,81 @@
+{
+  "expectations": [
+    {
+      "text": "Output includes a database analysis section with specific table/column references",
+      "passed": true,
+      "evidence": "Database analysis section covers specific tables, migration details, columns, and issues like phantom driver_stats table."
+    },
+    {
+      "text": "Output includes an API review section evaluating endpoint design and coverage",
+      "passed": true,
+      "evidence": "API review section evaluates the 3 existing API routes and identifies missing CRUD layer."
+    },
+    {
+      "text": "Output includes a frontend architecture review covering component patterns and state management",
+      "passed": true,
+      "evidence": "Frontend review covers component structure, rendering patterns, and state management."
+    },
+    {
+      "text": "Output includes a security review identifying at least one vulnerability or concern",
+      "passed": true,
+      "evidence": "Security review identifies multiple concerns including client-side data access and missing auth middleware."
+    },
+    {
+      "text": "Output includes a priority-ordered development roadmap with at least 10 tasks",
+      "passed": true,
+      "evidence": "7-phase development roadmap with 31 tasks across phases."
+    },
+    {
+      "text": "Output identifies the lack of TypeScript usage in the project",
+      "passed": true,
+      "evidence": "Identifies JS-only codebase as a critical issue."
+    },
+    {
+      "text": "Output identifies the lack of a proper API layer (server-side routes for data mutations)",
+      "passed": true,
+      "evidence": "Flags the client-only architecture as the primary architectural issue."
+    },
+    {
+      "text": "Output provides specific, actionable improvement suggestions with reasoning",
+      "passed": true,
+      "evidence": "Each finding includes specific fix recommendations. Roadmap has phases with task descriptions."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "Read": 48,
+      "Glob": 2,
+      "Write": 2,
+      "Bash": 1
+    },
+    "total_tool_calls": 53,
+    "total_steps": 10,
+    "errors_encountered": 0,
+    "output_chars": 16012,
+    "transcript_chars": 4500
+  },
+  "claims": [
+    {
+      "claim": "Analyzed 46 files across the project",
+      "type": "process",
+      "verified": true,
+      "evidence": "Metrics.json confirms 46 files analyzed"
+    },
+    {
+      "claim": "Identified 6 critical and 8 high-priority issues",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Finding counts: 6 critical, 8 high, 8 medium, 6 low"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "All 8 assertions passed. Comprehensive review following the skill's structured workflow."
+  }
+}

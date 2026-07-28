@@ -106,11 +106,16 @@ export default function NewReservationPage() {
     }
   };
 
+  const [createError, setCreateError] = useState(null);
+
   const createMutation = useMutation({
     mutationFn: createReservation,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["reservations"] });
       router.push(`/reservations/${data.reservation_id}`);
+    },
+    onError: (err) => {
+      setCreateError(err.message || "Failed to create reservation");
     },
   });
 
@@ -396,6 +401,9 @@ export default function NewReservationPage() {
       </div>
 
       <div className="flex items-center justify-end gap-3">
+        {createError && (
+          <p className="text-sm text-destructive mr-auto">{createError}</p>
+        )}
         <Button type="button" variant="outline" onClick={() => router.back()}>
           Cancel
         </Button>

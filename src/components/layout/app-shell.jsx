@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/hooks/use-auth";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
@@ -118,7 +119,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
             <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground">
               <CarFront className="h-4 w-4 text-surface" />
             </div>
-            <span className="text-base font-semibold tracking-tight text-foreground">FleetOps</span>
+            <span className="text-base font-semibold tracking-tight text-foreground">{APP_NAME}</span>
           </Link>
         ) : (
           <Link href="/dashboard">
@@ -130,7 +131,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
         <button
           onClick={() => setCollapsed(!collapsed)}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded text-foreground-muted hover:text-foreground hover:bg-hover transition-colors",
+            "flex h-7 w-7 items-center justify-center rounded text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer",
             collapsed ? "mt-4" : "ml-auto"
           )}
         >
@@ -165,7 +166,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
+                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors relative",
                       collapsed && "justify-center px-1",
                       active
                         ? "bg-hover text-foreground font-medium"
@@ -173,6 +174,12 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     )}
                     title={collapsed ? item.label : undefined}
                   >
+                    {active && !collapsed && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
+                    )}
+                    {active && collapsed && (
+                      <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none" />
+                    )}
                     <item.icon className="h-4 w-4 flex-shrink-0" />
                     {!collapsed && <span>{item.label}</span>}
                   </Link>
@@ -228,13 +235,16 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
       <Link
         href={item.children?.[0]?.href || item.href}
         className={cn(
-          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-colors",
+          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-colors relative",
           active
             ? "bg-hover text-foreground"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
         )}
         title={item.label}
       >
+        {active && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none" />
+        )}
         <item.icon className="h-4 w-4" />
       </Link>
     );
@@ -251,12 +261,15 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors",
+          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors relative cursor-pointer",
           active
             ? "bg-hover text-foreground font-medium"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
         )}
       >
+        {active && (
+          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
+        )}
         <item.icon className="h-4 w-4 flex-shrink-0" />
         <span className="flex-1 text-left">{item.label}</span>
         <ChevronDown className={cn(
@@ -276,12 +289,15 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
                 key={child.href}
                 href={child.href}
                 className={cn(
-                  "block rounded px-2 py-1.5 text-sm transition-colors",
+                  "block rounded px-2 py-1.5 text-sm transition-colors relative",
                   isChildActive
                     ? "text-foreground font-medium"
                     : "text-foreground-secondary hover:text-foreground"
                 )}
               >
+                {isChildActive && (
+                  <span className="absolute left-[-9px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-foreground border-2 border-sidebar pointer-events-none" />
+                )}
                 {child.label}
               </Link>
             );
@@ -332,13 +348,13 @@ export function TopNav({ collapsed }) {
       <div className="ml-auto flex items-center gap-2 px-6">
         <button
           onClick={toggle}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
           title={theme === "dark" ? "Light mode" : "Dark mode"}
         >
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </button>
 
-        <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors">
+        <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer">
           <Bell className="h-4 w-4" />
           <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-surface">
             3

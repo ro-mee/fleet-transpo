@@ -1,0 +1,81 @@
+{
+  "expectations": [
+    {
+      "text": "Output identifies that the API route file does not exist (missing route.js)",
+      "passed": true,
+      "evidence": "Section 1 'Critical Architectural Finding — Missing API Route' explicitly states the file does not exist."
+    },
+    {
+      "text": "Output identifies client-side data mutations as a security concern",
+      "passed": true,
+      "evidence": "Section 2.1 'Direct Client-Side Database Access' explains the risks of mutations running client-side with the anon key."
+    },
+    {
+      "text": "Output identifies the fire-and-forget bug where updateReservation is called without await",
+      "passed": true,
+      "evidence": "Section 3.1 'Fire-and-Forget updateReservation in onSuccess' explicitly cites the missing await and data consistency implications."
+    },
+    {
+      "text": "Output identifies the lack of input validation (missing Zod schemas)",
+      "passed": true,
+      "evidence": "Section 2.4 'No Input Validation' shows the raw object insertion and recommends defining strict validation with Zod."
+    },
+    {
+      "text": "Output includes specific, actionable fix suggestions (not just general criticism)",
+      "passed": true,
+      "evidence": "Every finding includes a specific fix recommendation: 'Add an API route', 'Wrap errors in sanitized structure', 'Validate status against a whitelist', 'Fix: Start dispatch status as Pending'."
+    },
+    {
+      "text": "Output has a structured format organized by severity or category",
+      "passed": true,
+      "evidence": "Organized into sections: Critical Architectural, Security Issues, Bugs, Performance Issues, Code Quality & Maintainability, with a Summary table (Section 6) using P0-P3 severity."
+    },
+    {
+      "text": "Output identifies authorization gaps (no server-side auth checks beyond RLS)",
+      "passed": true,
+      "evidence": "Section 2.3 'No Authorization Checks' explicitly identifies the gap and recommends fixes at API route level or via RLS."
+    },
+    {
+      "text": "Output identifies the premature 'Dispatched' status issue on dispatch creation",
+      "passed": true,
+      "evidence": "Section 3.2 'Premature Dispatched Status on Create' specifically flags that dispatches should start as 'Pending' and only move to 'Dispatched' after a separate action."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "Read": 10,
+      "Glob": 3,
+      "Write": 2,
+      "Bash": 0
+    },
+    "total_tool_calls": 15,
+    "total_steps": 6,
+    "errors_encountered": 0,
+    "output_chars": 12500,
+    "transcript_chars": 3000
+  },
+  "claims": [
+    {
+      "claim": "Identified duplicate dispatch number collision risk",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Section 3.4 explains the collision scenario with deleted-then-recreated dispatches"
+    },
+    {
+      "claim": "Recommended 12 prioritized action items",
+      "type": "process",
+      "verified": true,
+      "evidence": "Section 6 lists 12 items from P0 to P3 with file/line references"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "All 8 assertions passed. The without-skill output is concise (167 lines) but covers all findings including the premature 'Dispatched' status that the with-skill version missed."
+  }
+}

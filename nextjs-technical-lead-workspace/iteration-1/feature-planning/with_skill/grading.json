@@ -1,0 +1,81 @@
+{
+  "expectations": [
+    {
+      "text": "Output includes an analysis of existing notification infrastructure before proposing new work",
+      "passed": true,
+      "evidence": "Section 2 'Current State Analysis' covers the existing notifications table, DB triggers, RLS, service layer, hooks, UI pages, and identifies specific gaps."
+    },
+    {
+      "text": "Output proposes a notification_preferences table design with proper foreign keys",
+      "passed": true,
+      "evidence": "Section 3.1 defines notification_preferences with employee_id FK to employees, unique constraint on (employee_id, event_type), and indexes."
+    },
+    {
+      "text": "Output includes a database schema design with SQL or schema notation",
+      "passed": true,
+      "evidence": "Section 3 provides full SQL CREATE TABLE, ALTER TABLE, CREATE INDEX, and RLS policy statements."
+    },
+    {
+      "text": "Output includes an implementation plan with sequenced steps (what to build first, second, third)",
+      "passed": true,
+      "evidence": "Section 9 'Implementation Sequence' has 6 phases with specific steps, files, and estimated hours per step."
+    },
+    {
+      "text": "Output covers security considerations including RLS policies",
+      "passed": true,
+      "evidence": "Section 7 'Security Considerations' covers 8 concerns with mitigations including RLS policies, channel leakage prevention, trigger safety, and rate limiting."
+    },
+    {
+      "text": "Output identifies at least 5 edge cases or potential failure modes",
+      "passed": true,
+      "evidence": "Section 8 'Edge Cases' identifies 11 edge cases covering offline, multi-tab, deleted user, bulk notifications, race conditions, and more."
+    },
+    {
+      "text": "Output addresses integration with existing auth system (employee_id, user_id)",
+      "passed": true,
+      "evidence": "Section 6 'Integration with Existing System' covers auth integration through employee_id scoping, RLS enforcement, and unauthenticated user handling."
+    },
+    {
+      "text": "Output proposes real-time subscription architecture using Supabase Realtime",
+      "passed": true,
+      "evidence": "Section 4.3 defines real-time channels filtered by employee_id. Section 5.1 describes NotificationProvider subscribing to Supabase Realtime."
+    }
+  ],
+  "summary": {
+    "passed": 8,
+    "failed": 0,
+    "total": 8,
+    "pass_rate": 1.0
+  },
+  "execution_metrics": {
+    "tool_calls": {
+      "Read": 15,
+      "Glob": 8,
+      "Write": 2,
+      "Bash": 1
+    },
+    "total_tool_calls": 26,
+    "total_steps": 8,
+    "errors_encountered": 0,
+    "output_chars": 30500,
+    "transcript_chars": 4800
+  },
+  "claims": [
+    {
+      "claim": "Identified existing notification infrastructure (table, triggers, service, UI)",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Section 2 provides an 11-row status table of existing infrastructure"
+    },
+    {
+      "claim": "Proposed 6 implementation phases with time estimates",
+      "type": "factual",
+      "verified": true,
+      "evidence": "Section 9 has 6 phases totaling ~34 hours with per-step estimates"
+    }
+  ],
+  "eval_feedback": {
+    "suggestions": [],
+    "overall": "All assertions passed. The with-skill output follows the skill's workflow (current state analysis first, then database, API, UI, integration, security, edge cases, sequenced plan)."
+  }
+}

@@ -1,5 +1,5 @@
-export const APP_NAME = "FleetOps";
-export const APP_DESCRIPTION = "AI-Driven Fleet Transportation Management System";
+export const APP_NAME = process.env.NEXT_PUBLIC_APP_NAME || "FleetOps";
+export const APP_DESCRIPTION = process.env.NEXT_PUBLIC_APP_DESCRIPTION || "AI-Driven Fleet Transportation Management System";
 
 export const ROLES = {
   ADMIN: "admin",

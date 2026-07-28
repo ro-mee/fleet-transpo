@@ -1,0 +1,41 @@
+{
+  "tool_call_counts": {
+    "read": 56,
+    "glob": 12,
+    "write": 2,
+    "bash": 1
+  },
+  "total_tool_calls": 71,
+  "steps_completed": [
+    "explore project root structure",
+    "inspect package.json for dependencies and scripts",
+    "read supabase migrations (001–006) for full schema and RLS",
+    "read supabase seed.sql for sample data",
+    "read all 12 service files in src/services",
+    "read lib directory: supabase client/server/admin, constants, utils",
+    "read all 3 hooks: use-auth, use-realtime, use-theme",
+    "read app layout, providers, dashboard-layout, app-shell",
+    "read API routes: auth/callback, auth/logout, manifest",
+    "read sample pages: dashboard, fleet, fleet/vehicles, AI dashboard",
+    "read reusable components: DataTable, FleetTable, loading",
+    "verify all component subdirectories (forms, cards, dialogs, etc.)",
+    "read .env.local.example for environment variable requirements",
+    "read next.config.mjs and Supabase Edge Function",
+    "review eslint config and AGENTS.md"
+  ],
+  "files_created": [
+    "outputs/architecture-review.md",
+    "outputs/metrics.json"
+  ],
+  "project_scope": {
+    "total_pages": 39,
+    "total_services": 12,
+    "total_components": 10,
+    "total_migrations": 6,
+    "total_hooks": 3,
+    "total_api_routes": 3,
+    "total_edge_functions": 1
+  },
+  "analysis_duration_minutes": "~15",
+  "analysis_date": "2026-07-28"
+}
