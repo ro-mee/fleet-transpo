@@ -177,16 +177,16 @@ export function can(employee, resource, action) {
 }
 
 export function filterNavItems(navGroups, employee) {
-  if (!employee || !employee.roles) return navGroups;
+  if (!employee) return [];
 
-  const userRole = employee.roles.role_name;
+  const userRole = employee?.roles?.role_name;
 
   return navGroups.map((group) => ({
     ...group,
     items: group.items.filter((item) => {
       const allowedRoles = NAV_ROLES[item.href];
       if (!allowedRoles) return true;
-      return allowedRoles.includes("*") || allowedRoles.includes(userRole);
+      return allowedRoles.includes("*") || (userRole && allowedRoles.includes(userRole));
     }).map((item) => {
       if (item.children) {
         return {
@@ -194,7 +194,7 @@ export function filterNavItems(navGroups, employee) {
           children: item.children.filter((child) => {
             const childRoles = NAV_ROLES[child.href];
             if (!childRoles) return true;
-            return childRoles.includes("*") || childRoles.includes(userRole);
+            return childRoles.includes("*") || (userRole && childRoles.includes(userRole));
           }),
         };
       }

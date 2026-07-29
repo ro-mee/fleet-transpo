@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
-import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles } from "@/services/vehicle.service";
+import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Pencil, Trash2, Eye, Wrench } from "lucide-react";
 import { toast } from "@/components/ui/toast";
@@ -93,14 +93,7 @@ export default function MaintenancePage() {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: async (id) => {
-      const supabase = (await import("@/lib/supabase/client")).createClient();
-      const { error } = await supabase
-        .from("vehiclemaintenance")
-        .update({ deleted_at: new Date().toISOString() })
-        .eq("maintenance_id", id);
-      if (error) throw error;
-    },
+    mutationFn: archiveVehicleMaintenance,
     onSuccess: () => {
       toast.success("Maintenance record archived");
       queryClient.invalidateQueries({ queryKey: ["maintenance"] });

@@ -1,6 +1,7 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { SessionProvider } from "next-auth/react";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -23,14 +24,16 @@ export function Providers({ children }) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider>
-        <AuthProvider>
-          <TooltipProvider>
-            {children}
-            <Toaster />
-          </TooltipProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <SessionProvider>
+        <ThemeProvider>
+          <AuthProvider>
+            <TooltipProvider>
+              {children}
+              <Toaster />
+            </TooltipProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </SessionProvider>
     </QueryClientProvider>
   );
 }

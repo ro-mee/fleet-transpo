@@ -11,6 +11,7 @@ import {
   User, IdCard, CalendarDays, Star,
   Phone, Mail, MapPin, Award, TrendingUp
 } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const statusColors = {
   Available: "success",
@@ -21,6 +22,7 @@ const statusColors = {
 };
 
 export default function DriverDetailPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const { id } = useParams();
 
   const { data: driver, isLoading } = useQuery({

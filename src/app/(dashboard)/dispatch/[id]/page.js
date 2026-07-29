@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { getDispatch } from "@/services/dispatch.service";
 import { formatDateTime } from "@/lib/utils";
 import { ArrowLeft, Truck, Users, Route, Clock, MapPin, Send, FileText } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function DispatchDetailPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const params = useParams();
   const router = useRouter();
   const dispatchId = Number(params.id);

@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { UserDropdown } from "@/components/ui/user-dropdown";
 import { getInitials } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 
@@ -87,19 +88,14 @@ const navGroups = [
 ];
 
 function isActive(pathname, href) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  if (href === "/fleet") return pathname.startsWith("/fleet");
-  if (href === "/drivers") return pathname.startsWith("/drivers");
-  if (href === "/fuel") return pathname.startsWith("/fuel");
-  if (href === "/ai") return pathname.startsWith("/ai");
-  if (href === "/notifications") return pathname.startsWith("/notifications");
-  if (href === "/settings/general") return pathname.startsWith("/settings");
-  return pathname === href;
+  if (pathname === href) return true;
+  if (href === "/dashboard") return false;
+  return pathname.startsWith(href + "/");
 }
 
 export function Sidebar({ collapsed, setCollapsed }) {
   const pathname = usePathname();
-  const { employee } = useAuth();
+  const { employee, signOut, loading } = useAuth();
   const { filterNav, userRole } = useRoleAccess();
   const visibleGroups = filterNav(navGroups);
 
@@ -190,34 +186,52 @@ export function Sidebar({ collapsed, setCollapsed }) {
         ))}
       </nav>
 
-      <div className={cn(
-        "border-t border-sidebar-border py-3",
-        collapsed ? "flex justify-center px-2" : "px-3"
-      )}>
-        {!collapsed ? (
-          <div className="flex items-center gap-2.5">
-            <Avatar className="h-7 w-7">
-              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-                {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-foreground truncate leading-tight">
-                {employee ? employee.first_name + " " + employee.last_name : "User"}
-              </p>
-              <p className="text-[11px] text-foreground-muted truncate">
-                {employee?.roles?.role_name ?? ""}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <Avatar className="h-7 w-7">
-            <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-              {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-            </AvatarFallback>
-          </Avatar>
-        )}
-      </div>
+      {!loading && (
+        <div className={cn(
+          "border-t border-sidebar-border py-3",
+          collapsed ? "flex justify-center px-2" : "px-3"
+        )}>
+          {!collapsed ? (
+            <UserDropdown
+              employee={employee}
+              signOut={signOut}
+              side="top"
+              align="start"
+              chevron="up"
+              triggerClassName="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-hover transition-colors duration-150"
+            >
+              <Avatar className="h-7 w-7">
+                <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
+                  {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-sm font-medium text-foreground truncate leading-tight">
+                  {employee ? employee.first_name + " " + employee.last_name : "User"}
+                </p>
+                <p className="text-[11px] text-foreground-muted truncate">
+                  {employee?.roles?.role_name ?? ""}
+                </p>
+              </div>
+            </UserDropdown>
+          ) : (
+            <UserDropdown
+              employee={employee}
+              signOut={signOut}
+              side="top"
+              align="start"
+              chevron="up"
+              triggerClassName="justify-center w-full rounded-md px-1 py-1.5 hover:bg-hover transition-colors duration-150"
+            >
+              <Avatar className="h-7 w-7">
+                <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
+                  {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
+                </AvatarFallback>
+              </Avatar>
+            </UserDropdown>
+          )}
+        </div>
+      )}
     </aside>
   );
 }
@@ -277,22 +291,24 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
         "overflow-hidden transition-all duration-200",
         expanded ? "mt-0.5" : "h-0"
       )}>
-        <div className="ml-6 space-y-0.5 border-l border-border pl-2">
+        <div className="ml-3 space-y-0.5">
           {visibleChildren.map((child) => {
-            const isChildActive = pathname === child.href;
+            const isChildActive = child.href === item.href
+              ? pathname === child.href
+              : isActive(pathname, child.href);
             return (
               <Link
                 key={child.href}
                 href={child.href}
                 className={cn(
-                  "block rounded px-2 py-1.5 text-sm transition-colors relative",
+                  "relative block rounded-md px-3 py-1.5 text-sm transition-colors",
                   isChildActive
-                    ? "text-foreground font-medium"
-                    : "text-foreground-secondary hover:text-foreground"
+                    ? "bg-hover text-foreground font-medium"
+                    : "text-foreground-secondary hover:text-foreground hover:bg-hover"
                 )}
               >
                 {isChildActive && (
-                  <span className="absolute left-[-9px] top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-foreground border-2 border-sidebar pointer-events-none" />
+                  <span className="absolute left-0 top-1 bottom-1 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
                 )}
                 {child.label}
               </Link>
@@ -306,7 +322,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
 
 export function TopNav({ collapsed }) {
   const pathname = usePathname();
-  const { signOut, user, employee } = useAuth();
+  const { signOut, user, employee, loading } = useAuth();
   const { theme, toggle, mounted } = useTheme();
 
   const segments = pathname.split("/").filter(Boolean);
@@ -363,11 +379,9 @@ export function TopNav({ collapsed }) {
 
         <div className="h-5 w-px bg-border" />
 
-        <Avatar className="h-7 w-7 cursor-pointer">
-          <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-            {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-          </AvatarFallback>
-        </Avatar>
+        {!loading && (
+          <UserDropdown employee={employee} signOut={signOut} side="bottom" align="end" chevron="down" />
+        )}
       </div>
     </header>
   );

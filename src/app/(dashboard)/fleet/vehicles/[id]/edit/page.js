@@ -15,6 +15,7 @@ import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const vehicleSchema = z.object({
   plate_number: z.string().min(1, "Plate number is required"),
@@ -37,6 +38,7 @@ const vehicleSchema = z.object({
 });
 
 export default function EditVehiclePage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();

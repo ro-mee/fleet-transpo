@@ -1,8 +1,24 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
-import { createClient } from "@/lib/supabase/client";
-import { getCurrentEmployee, signOut as authSignOut } from "@/services/auth.service";
+import { createContext, useContext } from "react";
+import { useSession, signOut as nextAuthSignOut } from "next-auth/react";
+
+function mapSessionToEmployee(session) {
+  if (!session?.user) return null;
+  const u = session.user;
+  return {
+    employee_id: u.employeeId,
+    user_id: u.employeeId,
+    first_name: u.firstName,
+    last_name: u.lastName,
+    email: u.email,
+    position: u.position,
+    status: "Active",
+    role_id: null,
+    roles: { role_id: null, role_name: u.role, description: "" },
+    branches: { branch_id: u.branchId, branch_name: u.branchName },
+  };
+}
 
 const AuthContext = createContext({
   user: null,
@@ -12,80 +28,23 @@ const AuthContext = createContext({
   refreshEmployee: async () => {},
 });
 
-const MOCK_USER = {
-  id: "dev-admin-id",
-  email: "admin@fleetops.com",
-  user_metadata: { first_name: "System", last_name: "Admin" },
-};
-
-const MOCK_EMPLOYEE = {
-  employee_id: 1,
-  user_id: "dev-admin-id",
-  first_name: "System",
-  last_name: "Admin",
-  email: "admin@fleetops.com",
-  position: "System Administrator",
-  status: "Active",
-  role_id: 1,
-  roles: { role_id: 1, role_name: "system_admin", description: "Full system access" },
-  branches: { branch_id: 1, branch_name: "Main Office" },
-};
-
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(MOCK_USER);
-  const [employee, setEmployee] = useState(MOCK_EMPLOYEE);
-  const [loading, setLoading] = useState(true);
-  const supabase = useMemo(() => createClient(), []);
+  const { data: session, status, update } = useSession();
 
-  useEffect(() => {
-    const { data: listener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        const emp = await getCurrentEmployee();
-        setEmployee(emp || MOCK_EMPLOYEE);
-      } else {
-        setUser(MOCK_USER);
-        setEmployee(MOCK_EMPLOYEE);
-      }
-      setLoading(false);
-    });
+  const user = session?.user || null;
+  const employee = mapSessionToEmployee(session);
+  const loading = status === "loading";
 
-    supabase.auth.getUser().then(async ({ data: { user: currentUser } }) => {
-      if (currentUser) {
-        setUser(currentUser);
-        const emp = await getCurrentEmployee();
-        setEmployee(emp || MOCK_EMPLOYEE);
-      } else {
-        setUser(MOCK_USER);
-        setEmployee(MOCK_EMPLOYEE);
-      }
-      setLoading(false);
-    }).catch(() => {
-      setUser(MOCK_USER);
-      setEmployee(MOCK_EMPLOYEE);
-      setLoading(false);
-    });
-
-    return () => listener?.subscription.unsubscribe();
-  }, [supabase]);
-
-  const signOut = async () => {
-    try {
-      await authSignOut();
-    } catch {
-      // ignore
-    }
-    setUser(MOCK_USER);
-    setEmployee(MOCK_EMPLOYEE);
+  const handleSignOut = async () => {
+    await nextAuthSignOut({ callbackUrl: "/login" });
   };
 
   const refreshEmployee = async () => {
-    const emp = await getCurrentEmployee();
-    setEmployee(emp || MOCK_EMPLOYEE);
+    await update();
   };
 
   return (
-    <AuthContext.Provider value={{ user, employee, loading, signOut, refreshEmployee }}>
+    <AuthContext.Provider value={{ user, employee, loading, signOut: handleSignOut, refreshEmployee }}>
       {children}
     </AuthContext.Provider>
   );

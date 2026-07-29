@@ -1,11 +1,55 @@
 "use client";
 
+import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { User, Mail, Phone, Building2, Shield, Save } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
+import { User, Mail, Phone, Building2, Shield, Save, Loader2 } from "lucide-react";
+import { useRoleAccess } from "@/hooks/use-role-access";
+
+function formatRole(role) {
+  if (!role) return "";
+  return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
 
 export default function ProfilePage() {
+  const { employee, refreshEmployee } = useAuth();
+  const { userRole } = useRoleAccess();
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    first_name: employee?.first_name || "",
+    last_name: employee?.last_name || "",
+    email: employee?.email || "",
+    phone: employee?.phone || "",
+  });
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update profile");
+      await refreshEmployee();
+      toast.success("Profile updated");
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -13,72 +57,96 @@ export default function ProfilePage() {
         <p className="text-foreground-secondary mt-1">Manage your account profile and personal information</p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="border-0 shadow-sm lg:col-span-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">Personal Information</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm text-foreground-secondary mb-1 block">First Name</label>
-                <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">John</div>
+      <form onSubmit={handleSubmit}>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <Card className="border-0 shadow-sm lg:col-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Personal Information</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm text-foreground-secondary">First Name</label>
+                  <Input
+                    name="first_name"
+                    value={form.first_name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm text-foreground-secondary">Last Name</label>
+                  <Input
+                    name="last_name"
+                    value={form.last_name}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
               </div>
-              <div>
-                <label className="text-sm text-foreground-secondary mb-1 block">Last Name</label>
-                <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">Doe</div>
+              <div className="space-y-2">
+                <label className="text-sm text-foreground-secondary">Email</label>
+                <Input
+                  name="email"
+                  type="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  required
+                />
               </div>
-            </div>
-            <div>
-              <label className="text-sm text-foreground-secondary mb-1 block">Email</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted gap-2">
-                <Mail className="w-4 h-4 text-foreground-muted" />
-                john.doe@fleetops.com
+              <div className="space-y-2">
+                <label className="text-sm text-foreground-secondary">Phone</label>
+                <Input
+                  name="phone"
+                  type="tel"
+                  value={form.phone}
+                  onChange={handleChange}
+                  placeholder="+63 912 345 6789"
+                />
               </div>
-            </div>
-            <div>
-              <label className="text-sm text-foreground-secondary mb-1 block">Phone</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted gap-2">
-                <Phone className="w-4 h-4 text-foreground-muted" />
-                +63 912 345 6789
-              </div>
-            </div>
-            <Button className="mt-2">
-              <Save className="w-4 h-4 mr-2" />
-              Save Changes
-            </Button>
-          </CardContent>
-        </Card>
+              <Button type="submit" disabled={saving} className="mt-2">
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                {saving ? "Saving..." : "Save Changes"}
+              </Button>
+            </CardContent>
+          </Card>
 
-        <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base font-semibold">Account Info</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10"><User className="w-5 h-5 text-primary" /></div>
-              <div>
-                <p className="text-sm font-medium">Role</p>
-                <Badge variant="default" className="mt-0.5">System Admin</Badge>
+          <Card className="border-0 shadow-sm">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Account Info</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-primary/10">
+                  <User className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Role</p>
+                  <Badge variant="default" className="mt-0.5">{formatRole(userRole)}</Badge>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-success/10"><Building2 className="w-5 h-5 text-success" /></div>
-              <div>
-                <p className="text-sm font-medium">Branch</p>
-                <p className="text-xs text-foreground-muted">Main Office</p>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-success/10">
+                  <Building2 className="w-5 h-5 text-success" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Branch</p>
+                  <p className="text-xs text-foreground-muted">{employee?.branches?.branch_name || "—"}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-info/10"><Shield className="w-5 h-5 text-info" /></div>
-              <div>
-                <p className="text-sm font-medium">Two-Factor Auth</p>
-                <Badge variant="secondary" className="mt-0.5">Not Enabled</Badge>
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-info/10">
+                  <Shield className="w-5 h-5 text-info" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium">Two-Factor Auth</p>
+                  <Badge variant="secondary" className="mt-0.5">Not Enabled</Badge>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      </form>
     </div>
   );
 }

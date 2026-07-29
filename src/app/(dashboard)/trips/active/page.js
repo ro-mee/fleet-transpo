@@ -8,8 +8,10 @@ import { Button } from "@/components/ui/button";
 import { getActiveTrips } from "@/services/trip.service";
 import { formatTime, formatDistance, formatDuration } from "@/lib/utils";
 import { Truck, Users, MapPin, Navigation, Clock, ArrowRight } from "lucide-react";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function ActiveTripsPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
 
   const { data: activeTrips = [] } = useQuery({

@@ -3,13 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signUp } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CarFront } from "lucide-react";
-import { APP_NAME } from "@/lib/constants";
+import { APP_NAME, REGISTRATION_ROLES } from "@/lib/constants";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -19,6 +18,7 @@ export default function RegisterPage() {
     email: "",
     password: "",
     confirmPassword: "",
+    role_id: 5,
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -35,10 +35,19 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      await signUp(formData.email, formData.password, {
-        first_name: formData.first_name,
-        last_name: formData.last_name,
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          first_name: formData.first_name,
+          last_name: formData.last_name,
+          role_id: formData.role_id,
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Registration failed");
       router.push("/login?registered=true");
     } catch (err) {
       setError(err.message);
@@ -124,6 +133,22 @@ export default function RegisterPage() {
                   onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
                   required
                 />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="role_id">Role</Label>
+                <select
+                  id="role_id"
+                  value={formData.role_id}
+                  onChange={(e) => setFormData({ ...formData, role_id: Number(e.target.value) })}
+                  className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                  required
+                >
+                  {REGISTRATION_ROLES.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
               </div>
               <Button type="submit" className="w-full h-11 text-base" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}

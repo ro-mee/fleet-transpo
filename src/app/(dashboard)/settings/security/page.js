@@ -1,11 +1,64 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Shield, Key, Lock, Smartphone, History, AlertTriangle } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/toast";
+import { Shield, Key, Lock, Smartphone, History, Loader2, Eye, EyeOff } from "lucide-react";
 
 export default function SecurityPage() {
+  const [form, setForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const validate = () => {
+    if (!form.currentPassword) return "Current password is required";
+    if (!form.newPassword) return "New password is required";
+    if (form.newPassword.length < 6) return "New password must be at least 6 characters";
+    if (form.newPassword === form.currentPassword) return "New password must be different from current password";
+    if (form.newPassword !== form.confirmPassword) return "Passwords do not match";
+    return null;
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const error = validate();
+    if (error) {
+      toast.error(error);
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/auth/change-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: form.currentPassword,
+          newPassword: form.newPassword,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to update password");
+      toast.success("Password updated successfully");
+      setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -20,20 +73,57 @@ export default function SecurityPage() {
               <Key className="w-4 h-4 text-primary" /> Change Password
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm text-foreground-secondary mb-1 block">Current Password</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">••••••••</div>
-            </div>
-            <div>
-              <label className="text-sm text-foreground-secondary mb-1 block">New Password</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">••••••••</div>
-            </div>
-            <div>
-              <label className="text-sm text-foreground-secondary mb-1 block">Confirm New Password</label>
-              <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">••••••••</div>
-            </div>
-            <Button>Update Password</Button>
+          <CardContent>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm text-foreground-secondary">Current Password</label>
+                <div className="relative">
+                  <Input
+                    name="currentPassword"
+                    type={showPasswords ? "text" : "password"}
+                    value={form.currentPassword}
+                    onChange={handleChange}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-foreground-secondary">New Password</label>
+                <Input
+                  name="newPassword"
+                  type={showPasswords ? "text" : "password"}
+                  value={form.newPassword}
+                  onChange={handleChange}
+                  required
+                  minLength={6}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-foreground-secondary">Confirm New Password</label>
+                <Input
+                  name="confirmPassword"
+                  type={showPasswords ? "text" : "password"}
+                  value={form.confirmPassword}
+                  onChange={handleChange}
+                  required
+                  minLength={6}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowPasswords(!showPasswords)}
+                  className="flex items-center gap-1.5 text-xs text-foreground-muted hover:text-foreground transition-colors cursor-pointer"
+                >
+                  {showPasswords ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showPasswords ? "Hide" : "Show"} passwords
+                </button>
+              </div>
+              <Button type="submit" disabled={saving}>
+                {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Lock className="w-4 h-4 mr-2" />}
+                {saving ? "Updating..." : "Update Password"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
 
@@ -54,7 +144,7 @@ export default function SecurityPage() {
             <p className="text-sm text-foreground-secondary">
               Add an extra layer of security to your account by enabling two-factor authentication.
             </p>
-            <Button variant="outline">Enable 2FA</Button>
+            <Button variant="outline" disabled>Enable 2FA</Button>
           </CardContent>
         </Card>
       </div>

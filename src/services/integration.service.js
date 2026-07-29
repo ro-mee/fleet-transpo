@@ -1,107 +1,34 @@
-import { createClient } from "@/lib/supabase/client";
+import { apiFetch, buildQuery } from "@/lib/api/client";
 
 export async function getIntegrationLogs(filters = {}) {
-  const supabase = createClient();
-  let query = supabase
-    .from("integration_log")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (filters.status) query = query.eq("status", filters.status);
-  if (filters.direction) query = query.eq("direction", filters.direction);
-  if (filters.source_system) query = query.eq("source_system", filters.source_system);
-  if (filters.event_type) query = query.eq("event_type", filters.event_type);
-  if (filters.external_booking_id) query = query.eq("external_booking_id", filters.external_booking_id);
-  if (filters.limit) query = query.limit(filters.limit);
-
-  const { data, error } = await query;
-  if (error) throw error;
-  return data || [];
+  return apiFetch(`/api/integration/logs${buildQuery(filters)}`);
 }
 
-export async function logInboundEvent({
-  sourceSystem,
-  eventType,
-  referenceType = null,
-  referenceId = null,
-  externalBookingId = null,
-  payload = null,
-}) {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("integration_log")
-    .insert({
-      direction: "inbound",
-      source_system: sourceSystem,
-      event_type: eventType,
-      reference_type: referenceType,
-      reference_id: referenceId,
-      external_booking_id: externalBookingId,
-      payload,
-      status: "pending",
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+export async function logInboundEvent(args) {
+  return apiFetch("/api/integration/inbound", { method: "POST", body: args });
 }
 
-export async function logOutboundEvent({
-  sourceSystem,
-  eventType,
-  referenceType = null,
-  referenceId = null,
-  externalBookingId = null,
-  payload = null,
-}) {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("integration_log")
-    .insert({
-      direction: "outbound",
-      source_system: sourceSystem,
-      event_type: eventType,
-      reference_type: referenceType,
-      reference_id: referenceId,
-      external_booking_id: externalBookingId,
-      payload,
-      status: "pending",
-    })
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+export async function logOutboundEvent(args) {
+  return apiFetch("/api/integration/outbound", { method: "POST", body: args });
 }
 
 export async function markIntegrationProcessed(logId) {
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("integration_log")
-    .update({ status: "processed", processed_at: new Date().toISOString() })
-    .eq("log_id", logId);
-  if (error) throw error;
+  return apiFetch(`/api/integration/logs/${logId}`, { method: "PUT", body: { status: "processed" } });
 }
 
 export async function markIntegrationFailed(logId, errorMessage) {
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("integration_log")
-    .update({ status: "failed", error_message: errorMessage, processed_at: new Date().toISOString() })
-    .eq("log_id", logId);
-  if (error) throw error;
+  return apiFetch(`/api/integration/logs/${logId}`, { method: "PUT", body: { status: "failed", error_message: errorMessage } });
 }
 
 export async function processInboundBooking(bookingData) {
-  const supabase = createClient();
   const log = await logInboundEvent({
     sourceSystem: bookingData.source_system || "PMS",
     eventType: "booking_created",
     externalBookingId: bookingData.external_booking_id,
     payload: bookingData,
   });
-
   try {
-    const reservation = {
+    const data = await apiFetch("/api/reservations", { method: "POST", body: {
       external_booking_id: bookingData.external_booking_id,
       integration_source: bookingData.source_system || "PMS",
       guest_name: bookingData.guest_name,
@@ -120,16 +47,7 @@ export async function processInboundBooking(bookingData) {
       purpose: bookingData.purpose,
       notes: bookingData.notes,
       status: "Pending",
-    };
-
-    const { data, error } = await supabase
-      .from("vehiclereservations")
-      .insert(reservation)
-      .select()
-      .single();
-
-    if (error) throw error;
-
+    }});
     await markIntegrationProcessed(log.log_id);
     return data;
   } catch (err) {

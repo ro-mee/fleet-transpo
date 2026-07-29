@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const vehicleSchema = z.object({
   plate_number: z.string().min(1, "Plate number is required"),
@@ -35,6 +36,7 @@ const vehicleSchema = z.object({
 });
 
 export default function VehicleFormPage({ params }) {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = params?.id;

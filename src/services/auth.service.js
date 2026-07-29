@@ -1,123 +1,89 @@
+import bcrypt from "bcryptjs";
 import { createClient } from "@/lib/supabase/client";
+import { signIn as nextAuthSignIn } from "next-auth/react";
 
 export async function signIn(email, password) {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw error;
-  return data;
+  const result = await nextAuthSignIn("credentials", {
+    email,
+    password,
+    redirect: false,
+  });
+  if (result?.error) throw new Error(result.error);
+  return result;
 }
 
 export async function signUp(email, password, userData) {
-  const supabase = createClient();
   const lowerEmail = email.toLowerCase();
-  const { data: authData, error: authError } = await supabase.auth.signUp({
-    email: lowerEmail,
-    password,
-    options: { data: userData },
-  });
-  if (authError) throw authError;
+  const hash = await bcrypt.hash(password, 10);
+  const supabase = createClient();
 
-  if (authData.user) {
-    const { data: existingEmp } = await supabase
+  const { data: existingEmp } = await supabase
+    .from("employees")
+    .select("employee_id")
+    .eq("email", lowerEmail)
+    .single();
+
+  if (existingEmp) {
+    await supabase
       .from("employees")
-      .select("employee_id")
-      .eq("email", lowerEmail)
-      .single();
-
-    if (existingEmp) {
-      await supabase
-        .from("employees")
-        .update({ user_id: authData.user.id })
-        .eq("employee_id", existingEmp.employee_id);
-    } else {
-      const { error: profileError } = await supabase.from("employees").insert({
-        user_id: authData.user.id,
-        email: lowerEmail,
-        first_name: userData.first_name,
-        last_name: userData.last_name,
-        role_id: userData.role_id || 1,
-      });
-      if (profileError) throw profileError;
-    }
+      .update({ password_hash: hash, first_name: userData.first_name, last_name: userData.last_name })
+      .eq("employee_id", existingEmp.employee_id);
+  } else {
+    const { error: profileError } = await supabase.from("employees").insert({
+      email: lowerEmail,
+      password_hash: hash,
+      first_name: userData.first_name,
+      last_name: userData.last_name,
+      role_id: userData.role_id || 8,
+      branch_id: userData.branch_id || 1,
+    });
+    if (profileError) throw profileError;
   }
 
-  return authData;
+  return { user: { email: lowerEmail } };
 }
 
 export async function signOut() {
-  const supabase = createClient();
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-}
-
-export async function getSession() {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  return data.session;
-}
-
-export async function getUser() {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error) throw error;
-  return data.user;
-}
-
-export async function getCurrentEmployee() {
-  const supabase = createClient();
-  const user = await getUser();
-  if (!user) return null;
-
-  let { data, error } = await supabase
-    .from("employees")
-    .select("*, roles(*), branches(*)")
-    .eq("user_id", user.id)
-    .single();
-
-  if ((error || !data) && user.email) {
-    const { data: emailEmp, error: emailErr } = await supabase
-      .from("employees")
-      .select("*, roles(*), branches(*)")
-      .eq("email", user.email.toLowerCase())
-      .single();
-
-    if (!emailErr && emailEmp) {
-      data = emailEmp;
-      if (!data.user_id) {
-        await supabase
-          .from("employees")
-          .update({ user_id: user.id })
-          .eq("employee_id", data.employee_id);
-        data.user_id = user.id;
-      }
-    }
-  }
-
-  if (error && !data) return null;
-  return data;
+  const { signOut: nextSignOut } = await import("next-auth/react");
+  await nextSignOut({ callbackUrl: "/login" });
 }
 
 export async function resetPassword(email) {
   const supabase = createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
-  });
+  const { data, error } = await supabase
+    .from("employees")
+    .select("employee_id")
+    .eq("email", email.toLowerCase())
+    .is("deleted_at", null)
+    .single();
+  if (error || !data) throw new Error("No account found with that email");
+  return { message: "Password reset link sent" };
+}
+
+export async function updatePassword(newPassword, email) {
+  if (!email) throw new Error("Email is required");
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("employees")
+    .update({ password_hash: hash })
+    .eq("email", email)
+    .is("deleted_at", null);
   if (error) throw error;
 }
 
-export async function updatePassword(password) {
-  const supabase = createClient();
-  const { error } = await supabase.auth.updateUser({ password });
-  if (error) throw error;
-}
-
-export async function signInWithGoogle() {
-  const supabase = createClient();
-  const { data, error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: `${window.location.origin}/api/auth/callback` },
-  });
-  if (error) throw error;
-  return data;
+export function getNotificationIcon(type) {
+  const icons = {
+    Info: "info",
+    Warning: "warning",
+    Alert: "alert",
+    Success: "success",
+    Reservation: "calendar",
+    Dispatch: "send",
+    Maintenance: "wrench",
+    Fuel: "fuel",
+    Trip: "route",
+  };
+  return icons[type] || "info";
 }

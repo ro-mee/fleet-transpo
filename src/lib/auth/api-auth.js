@@ -1,27 +1,16 @@
-import { createClient } from "@/lib/supabase/server";
+import { auth } from "@/lib/auth";
 
 export function withRole(allowedRoles) {
   return function (handler) {
     return async function (req, { params } = {}) {
       try {
-        const supabase = await createClient();
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const session = await auth();
 
-        if (authError || !user) {
+        if (!session?.user) {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        const { data: employee, error: empError } = await supabase
-          .from("employees")
-          .select("*, roles(role_name)")
-          .eq("user_id", user.id)
-          .single();
-
-        if (empError || !employee) {
-          return Response.json({ error: "Employee not found" }, { status: 401 });
-        }
-
-        const userRole = employee.roles?.role_name;
+        const userRole = session.user.role;
         if (!userRole) {
           return Response.json({ error: "Role not assigned" }, { status: 403 });
         }
@@ -33,8 +22,15 @@ export function withRole(allowedRoles) {
           }, { status: 403 });
         }
 
-        req.employee = employee;
+        req.user = session.user;
         req.userRole = userRole;
+        req.employee = {
+          employee_id: session.user.employeeId,
+          first_name: session.user.firstName,
+          last_name: session.user.lastName,
+          email: session.user.email,
+          roles: { role_name: userRole },
+        };
 
         return handler(req, { params });
       } catch (error) {

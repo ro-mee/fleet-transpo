@@ -11,6 +11,7 @@ import { getVehicle, deleteVehicle } from "@/services/vehicle.service";
 import { ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge, CalendarDays, Wrench, Shield, FileText } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const statusVariant = {
   Available: "success",
@@ -21,6 +22,7 @@ const statusVariant = {
 };
 
 export default function VehicleDetailPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();

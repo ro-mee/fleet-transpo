@@ -14,6 +14,7 @@ import {
   TrendingUp, Star
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { useRequireRole } from "@/lib/auth/role-guard";
 
 const tripSteps = [
   "Pending", "Approved", "Dispatched", "Driver Accepted",
@@ -21,6 +22,7 @@ const tripSteps = [
 ];
 
 export default function TripDetailPage() {
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();

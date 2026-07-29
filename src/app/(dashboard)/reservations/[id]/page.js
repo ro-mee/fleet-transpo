@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { getReservation, updateReservation, cancelReservation } from "@/services/reservation.service";
 import { getDispatches } from "@/services/dispatch.service";
 import { createDispatch } from "@/services/dispatch.service";
-import { createClient } from "@/lib/supabase/client";
 import { formatDate, formatTime, formatDateTime } from "@/lib/utils";
 import {
   ArrowLeft,
@@ -61,7 +60,6 @@ export default function ReservationDetailPage() {
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();
-  const supabase = createClient();
   const reservationId = Number(params.id);
 
   const { data: reservation, isLoading, error } = useQuery({

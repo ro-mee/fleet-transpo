@@ -6,8 +6,8 @@ import { useMemo } from "react";
 import { DataTable } from "@/components/tables/data-table";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { createClient } from "@/lib/supabase/client";
-import { formatDateTime, formatDistance } from "@/lib/utils";
+import { getTrips } from "@/services/trip.service";
+import { formatDateTime } from "@/lib/utils";
 import { MapPin, Clock, Truck, Navigation } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
@@ -15,20 +15,12 @@ const columnHelper = createColumnHelper();
 
 export default function TrackingHistoryPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
-  const supabase = createClient();
 
   const { data: trips = [] } = useQuery({
-    queryKey: ["trips"],
+    queryKey: ["trips-history"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("trips")
-        .select("*, vehicles(plate_number, vehicle_name)")
-        .eq("trip_status", "Completed")
-        .is("deleted_at", null)
-        .order("start_time", { ascending: false })
-        .limit(50);
-      if (error) throw error;
-      return data;
+      const all = await getTrips({ trip_status: "Completed", limit: 50 });
+      return all || [];
     },
   });
 

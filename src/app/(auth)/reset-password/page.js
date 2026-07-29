@@ -1,7 +1,8 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { updatePassword } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +12,7 @@ import { Loader2, CarFront, Eye, EyeOff } from "lucide-react";
 
 function ResetPasswordForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const { data: session } = useSession();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -28,10 +29,15 @@ function ResetPasswordForm() {
       return;
     }
 
+    if (!session?.user?.email) {
+      setError("You must be logged in to reset your password");
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await updatePassword(password);
+      await updatePassword(password, session.user.email);
       setSuccess(true);
       setTimeout(() => router.push("/login"), 2000);
     } catch (err) {

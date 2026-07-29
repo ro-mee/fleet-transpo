@@ -13,6 +13,27 @@ export const ROLES = {
   SYSTEM_ADMIN: "system_admin",
 };
 
+export const ROLE_IDS = {
+  system_admin: 1,
+  fleet_manager: 2,
+  dispatcher: 3,
+  driver: 4,
+  reception_staff: 5,
+  restaurant_staff: 6,
+  management: 7,
+  concierge: 8,
+};
+
+export const REGISTRATION_ROLES = [
+  { id: 2, name: "Fleet Manager", value: "fleet_manager" },
+  { id: 3, name: "Dispatcher", value: "dispatcher" },
+  { id: 4, name: "Driver", value: "driver" },
+  { id: 5, name: "Reception Staff", value: "reception_staff" },
+  { id: 6, name: "Restaurant Staff", value: "restaurant_staff" },
+  { id: 7, name: "Management", value: "management" },
+  { id: 8, name: "Concierge", value: "concierge" },
+];
+
 export const VEHICLE_STATUS = {
   AVAILABLE: "Available",
   IN_USE: "In Use",
