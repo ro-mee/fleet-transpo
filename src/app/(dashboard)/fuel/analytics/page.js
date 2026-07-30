@@ -76,12 +76,12 @@ export default function FuelAnalyticsPage() {
             ) : (
               <div className="space-y-4">
                 {a.byFuelType.map((ft) => {
-                  const pct = a.totalLiters ? Math.round((ft.quantity / a.totalLiters) * 100) : 0;
+                  const pct = a.totalLiters ? Math.round(((ft.liters || 0) / a.totalLiters) * 100) : 0;
                   return (
                     <div key={ft.fuel_type}>
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-foreground">{ft.fuel_type}</span>
-                        <span className="text-foreground-muted">{ft.quantity.toFixed(1)} L ({pct}%)</span>
+                        <span className="text-foreground-muted">{(ft.liters || 0).toFixed(1)} L ({pct}%)</span>
                       </div>
                       <div className="w-full bg-muted rounded-full h-2.5">
                         <div className="bg-primary h-2.5 rounded-full" style={{ width: `${pct}%` }} />

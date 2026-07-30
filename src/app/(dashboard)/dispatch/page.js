@@ -12,11 +12,9 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import { Send, Truck, Users, Clock, MapPin, ChevronRight } from "lucide-react";
 
 const columns = [
-  { id: "pending", label: "Pending", color: "bg-warning/10 border-warning/30 text-warning" },
-  { id: "approved", label: "Approved", color: "bg-primary/10 border-primary/30 text-primary" },
-  { id: "dispatched", label: "Dispatched", color: "bg-blue-100 border-blue-300 text-blue-700" },
-  { id: "inProgress", label: "In Progress", color: "bg-success/10 border-success/30 text-success" },
-  { id: "completed", label: "Completed", color: "bg-muted border-border text-foreground-muted" },
+  { id: "scheduled", label: "Scheduled", color: "bg-primary/10 border-primary/30 text-primary" },
+  { id: "inProgress", label: "In Progress", color: "bg-warning/10 border-warning/30 text-warning" },
+  { id: "completed", label: "Completed", color: "bg-success/10 border-success/30 text-success" },
 ];
 
 export default function DispatchPage() {
@@ -49,7 +47,7 @@ export default function DispatchPage() {
   });
 
   const getNextStatus = (currentStatus) => {
-    const flow = ["Pending", "Approved", "Dispatched", "In Progress", "Completed"];
+    const flow = ["Scheduled", "In Progress", "Completed"];
     const idx = flow.indexOf(currentStatus);
     return idx >= 0 && idx < flow.length - 1 ? flow[idx + 1] : null;
   };
@@ -76,7 +74,7 @@ export default function DispatchPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-5 gap-4 overflow-x-auto min-h-[600px]">
+      <div className="grid grid-cols-3 gap-4 overflow-x-auto min-h-[600px]">
         {columns.map((col) => {
           const items = dispatchGroups?.[col.id] || [];
           return (
@@ -130,11 +128,7 @@ export default function DispatchPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              const next = getNextStatus(
-                                dispatch.status === "Driver Accepted" || dispatch.status === "En Route"
-                                  ? "In Progress"
-                                  : dispatch.status
-                              );
+                              const next = getNextStatus(dispatch.status);
                               if (next) {
                                 updateMutation.mutate({ id: dispatch.dispatch_id, status: next });
                               }

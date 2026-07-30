@@ -36,18 +36,26 @@ export const REGISTRATION_ROLES = [
 
 export const VEHICLE_STATUS = {
   AVAILABLE: "Available",
+  RESERVED: "Reserved",
   IN_USE: "In Use",
   UNDER_MAINTENANCE: "Under Maintenance",
-  OUT_OF_SERVICE: "Out of Service",
-  RESERVED: "Reserved",
+  DECOMMISSIONED: "Decommissioned",
 };
 
 export const RESERVATION_STATUS = {
   PENDING: "Pending",
   APPROVED: "Approved",
-  REJECTED: "Rejected",
-  CANCELLED: "Cancelled",
+  DISPATCHED: "Dispatched",
   COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+  REJECTED: "Rejected",
+};
+
+export const DISPATCH_STATUS = {
+  SCHEDULED: "Scheduled",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
 };
 
 export const TRIP_STATUS = {

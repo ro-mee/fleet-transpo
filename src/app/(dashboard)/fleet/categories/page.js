@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleCategories, createCategory, updateCategory, deleteCategory } from "@/services/vehicle.service";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Archive } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
@@ -20,7 +20,7 @@ export default function CategoriesPage() {
   const queryClient = useQueryClient();
   const [editingCategory, setEditingCategory] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [formData, setFormData] = useState({ category_name: "", description: "", seating_capacity: "", base_rate: "", per_km_rate: "", per_hour_rate: "" });
+  const [formData, setFormData] = useState({ category_name: "", description: "", seating_capacity: "" });
   const [formError, setFormError] = useState(null);
 
   const { data: categories = [], isLoading } = useQuery({
@@ -31,7 +31,7 @@ export default function CategoriesPage() {
   const createMutation = useMutation({
     mutationFn: createCategory,
     onSuccess: () => {
-      toast.success("Category created");
+      toast.success("Category created successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
       closeDialog();
     },
@@ -41,7 +41,7 @@ export default function CategoriesPage() {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => updateCategory(id, data),
     onSuccess: () => {
-      toast.success("Category updated");
+      toast.success("Category updated successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
       closeDialog();
     },
@@ -51,7 +51,7 @@ export default function CategoriesPage() {
   const archiveMutation = useMutation({
     mutationFn: (id) => deleteCategory(id),
     onSuccess: () => {
-      toast.success("Category archived");
+      toast.success("Category archived successfully");
       queryClient.invalidateQueries({ queryKey: ["vehicle-categories"] });
     },
     onError: (err) => toast.error(err.message),
@@ -61,7 +61,7 @@ export default function CategoriesPage() {
 
   function openNewDialog() {
     setEditingCategory(null);
-    setFormData({ category_name: "", description: "", seating_capacity: "", base_rate: "", per_km_rate: "", per_hour_rate: "" });
+    setFormData({ category_name: "", description: "", seating_capacity: "" });
     setFormError(null);
     setDialogOpen(true);
   }
@@ -72,9 +72,6 @@ export default function CategoriesPage() {
       category_name: cat.category_name || "",
       description: cat.description || "",
       seating_capacity: cat.seating_capacity ?? "",
-      base_rate: cat.base_rate ?? "",
-      per_km_rate: cat.per_km_rate ?? "",
-      per_hour_rate: cat.per_hour_rate ?? "",
     });
     setFormError(null);
     setDialogOpen(true);
@@ -97,9 +94,6 @@ export default function CategoriesPage() {
       category_name: formData.category_name.trim(),
       description: formData.description.trim() || null,
       seating_capacity: formData.seating_capacity ? Number(formData.seating_capacity) : null,
-      base_rate: formData.base_rate ? Number(formData.base_rate) : null,
-      per_km_rate: formData.per_km_rate ? Number(formData.per_km_rate) : null,
-      per_hour_rate: formData.per_hour_rate ? Number(formData.per_hour_rate) : null,
     };
     if (editingCategory) {
       updateMutation.mutate({ id: editingCategory.category_id, data: payload });
@@ -108,18 +102,14 @@ export default function CategoriesPage() {
     }
   }
 
-  function handleDelete(cat) {
-    setArchivingCategory(cat);
-  }
-
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Vehicle Categories</h1>
-          <p className="text-foreground-secondary mt-1">Manage vehicle categories and rates</p>
+          <h1 className="text-2xl font-bold text-foreground">Hotel Vehicle Categories</h1>
+          <p className="text-foreground-secondary mt-1">Manage operational categories for guest shuttle, VIP transport, and hotel logistics</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
           <DialogTrigger asChild>
@@ -128,40 +118,46 @@ export default function CategoriesPage() {
               Add Category
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-xl">
+          <DialogContent className="max-w-md">
             <DialogHeader>
-              <DialogTitle>{editingCategory ? "Edit Category" : "Add Category"}</DialogTitle>
+              <DialogTitle>{editingCategory ? "Edit Hotel Category" : "Add Hotel Category"}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-3">
+            <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-4">
               <div className="space-y-1.5">
                 <Label htmlFor="category_name">Category Name *</Label>
-                <Input id="category_name" value={formData.category_name} onChange={(e) => setFormData({ ...formData, category_name: e.target.value })} placeholder="e.g. Sedan, SUV, Van" required />
+                <Input
+                  id="category_name"
+                  value={formData.category_name}
+                  onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
+                  placeholder="e.g. VIP Guest Transport, Guest Shuttle"
+                  required
+                />
               </div>
+
               <div className="space-y-1.5">
                 <Label htmlFor="description">Description</Label>
-                <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Brief description" />
+                <Input
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="e.g. Executive airport pickups for VIP guests"
+                />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="seating_capacity">Seating Capacity</Label>
-                  <Input id="seating_capacity" type="number" min="1" value={formData.seating_capacity} onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })} placeholder="e.g. 4" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="base_rate">Base Rate (₱)</Label>
-                  <Input id="base_rate" type="number" min="0" step="0.01" value={formData.base_rate} onChange={(e) => setFormData({ ...formData, base_rate: e.target.value })} placeholder="0.00" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="per_km_rate">Per KM Rate (₱)</Label>
-                  <Input id="per_km_rate" type="number" min="0" step="0.01" value={formData.per_km_rate} onChange={(e) => setFormData({ ...formData, per_km_rate: e.target.value })} placeholder="0.00" />
-                </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="seating_capacity">Default Seating Capacity</Label>
+                <Input
+                  id="seating_capacity"
+                  type="number"
+                  min="1"
+                  value={formData.seating_capacity}
+                  onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })}
+                  placeholder="e.g. 7"
+                />
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="per_hour_rate">Per Hour Rate (₱)</Label>
-                  <Input id="per_hour_rate" type="number" min="0" step="0.01" value={formData.per_hour_rate} onChange={(e) => setFormData({ ...formData, per_hour_rate: e.target.value })} placeholder="0.00" />
-                </div>
-              </div>
-              {formError && <p className="text-sm text-destructive">{formError}</p>}
+
+              {formError && <p className="text-sm text-danger">{formError}</p>}
+
               <div className="flex items-center justify-end gap-3 pt-2">
                 <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
                 <Button type="submit" disabled={isSubmitting}>
@@ -175,64 +171,46 @@ export default function CategoriesPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {categories.map((cat) => (
-          <Card key={cat.category_id}>
-            <CardContent className="p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h3 className="font-semibold text-foreground">{cat.category_name}</h3>
-                  {cat.description && (
-                    <p className="text-xs text-foreground-muted mt-0.5">{cat.description}</p>
-                  )}
+          <Card key={cat.category_id} className="border-0 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="p-5 flex flex-col justify-between h-full">
+              <div className="space-y-2">
+                <div className="flex items-start justify-between">
+                  <h3 className="font-semibold text-foreground text-base">{cat.category_name}</h3>
+                  <Badge variant={cat.status === "Active" ? "success" : "secondary"} className="text-[10px]">
+                    {cat.status || "Active"}
+                  </Badge>
                 </div>
-                <Badge variant={cat.status === "Active" ? "success" : "secondary"} className="text-[10px]">
-                  {cat.status}
-                </Badge>
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-sm">
+                {cat.description && (
+                  <p className="text-xs text-foreground-secondary leading-relaxed">{cat.description}</p>
+                )}
                 {cat.seating_capacity && (
-                  <div>
-                    <p className="text-foreground-muted text-xs">Capacity</p>
-                    <p className="font-medium text-foreground">{cat.seating_capacity} seats</p>
-                  </div>
-                )}
-                {cat.base_rate && (
-                  <div>
-                    <p className="text-foreground-muted text-xs">Base Rate</p>
-                    <p className="font-medium text-foreground">₱{cat.base_rate}</p>
-                  </div>
-                )}
-                {cat.per_km_rate && (
-                  <div>
-                    <p className="text-foreground-muted text-xs">Per KM</p>
-                    <p className="font-medium text-foreground">₱{cat.per_km_rate}</p>
-                  </div>
-                )}
-                {cat.per_hour_rate && (
-                  <div>
-                    <p className="text-foreground-muted text-xs">Per Hour</p>
-                    <p className="font-medium text-foreground">₱{cat.per_hour_rate}</p>
+                  <div className="pt-2">
+                    <span className="text-xs text-foreground-muted">Default Capacity: </span>
+                    <span className="text-xs font-semibold text-foreground">{cat.seating_capacity} seats</span>
                   </div>
                 )}
               </div>
-              <div className="flex items-center gap-1 mt-4 pt-3 border-t border-border">
-                <Tooltip content="Edit">
+
+              <div className="flex items-center gap-1 mt-4 pt-3 border-t border-border justify-end">
+                <Tooltip content="Edit Category">
                   <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEditDialog(cat)}>
-                    <Pencil className="w-4 h-4" />
+                    <Pencil className="w-3.5 h-3.5" />
                   </Button>
                 </Tooltip>
-                <Tooltip content="Archive">
-                  <Button variant="ghost" size="icon" className="w-8 h-8 text-danger" onClick={() => handleDelete(cat)}>
-                    <Trash2 className="w-4 h-4" />
+                <Tooltip content="Archive Category">
+                  <Button variant="ghost" size="icon" className="w-8 h-8 text-warning hover:text-warning hover:bg-warning/10" onClick={() => setArchivingCategory(cat)}>
+                    <Archive className="w-3.5 h-3.5" />
                   </Button>
                 </Tooltip>
               </div>
             </CardContent>
           </Card>
         ))}
+
         {!isLoading && categories.length === 0 && (
           <Card className="border-0 shadow-sm col-span-full">
             <CardContent className="py-12 text-center text-foreground-muted">
-              <p className="text-lg font-medium">No categories yet</p>
+              <p className="text-lg font-medium">No hotel categories yet</p>
               <p className="text-sm mt-1">Add your first vehicle category to get started</p>
             </CardContent>
           </Card>
@@ -243,8 +221,8 @@ export default function CategoriesPage() {
         open={!!archivingCategory}
         onOpenChange={(open) => { if (!open) setArchivingCategory(null); }}
         title={`Archive "${archivingCategory?.category_name || ""}"?`}
-        message="This category will be deactivated and hidden from active lists."
-        confirmLabel="Archive"
+        message="This category will be archived and hidden from active vehicle selection lists."
+        confirmLabel="Archive Category"
         variant="archive"
         onConfirm={() => { if (archivingCategory) archiveMutation.mutate(archivingCategory.category_id); }}
       />

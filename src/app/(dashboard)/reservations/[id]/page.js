@@ -35,13 +35,7 @@ import { toast } from "@/components/ui/toast";
 const statusSteps = [
   "Pending",
   "Approved",
-  "Vehicle Assigned",
-  "Driver Assigned",
   "Dispatched",
-  "Driver Accepted",
-  "Trip Started",
-  "En Route",
-  "Arrived",
   "Completed",
 ];
 
@@ -50,10 +44,8 @@ const statusVariant = {
   Approved: "success",
   Rejected: "danger",
   Cancelled: "secondary",
-  Completed: "default",
   Dispatched: "default",
-  "Vehicle Assigned": "default",
-  "Driver Assigned": "default",
+  Completed: "success",
 };
 
 export default function ReservationDetailPage() {
@@ -122,7 +114,7 @@ export default function ReservationDetailPage() {
         driver_id: reservation.driver_id,
         dispatch_number: dispatchNumber,
         scheduled_departure: `${reservation.reservation_date}T${reservation.pickup_time}`,
-        status: "Dispatched",
+        status: "Scheduled",
       });
     },
     onSuccess: () => {
@@ -246,7 +238,7 @@ export default function ReservationDetailPage() {
         <CardContent className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-foreground">Trip Progress</h3>
-            <Badge variant={currentStatusIndex >= 3 ? "success" : "default"}>
+            <Badge variant={currentStatusIndex >= 2 ? "success" : "default"}>
               Step {Math.max(currentStatusIndex + 1, 0)} of {statusSteps.length}
             </Badge>
           </div>

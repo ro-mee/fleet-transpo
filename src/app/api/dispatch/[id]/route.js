@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
 
 const JOIN_SELECT = `ds.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(vr.*) as vehiclereservations, row_to_json(r.*) as routes`;
 const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id LEFT JOIN drivers d ON ds.driver_id = d.driver_id LEFT JOIN vehiclereservations vr ON ds.reservation_id = vr.reservation_id LEFT JOIN routes r ON ds.route_id = r.route_id`;
@@ -25,7 +25,7 @@ export async function PUT(req, { params }) {
     const { rows } = await query(`UPDATE dispatchschedules SET ${k.map((k,i)=>`${k} = $${i+1}`).join(", ")} WHERE dispatch_id = $${k.length+1} RETURNING *`, [...v, id]);
     if (!rows[0]) return err("Dispatch not found", 404);
     const vid = body.vehicle_id || before[0]?.vehicle_id, did = body.driver_id || before[0]?.driver_id;
-    const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.reservation_id) p.push(syncDispatchReservation(id)); await Promise.all(p);
+    const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.reservation_id) p.push(syncDispatchReservation(id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }
 }

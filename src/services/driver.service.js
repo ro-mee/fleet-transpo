@@ -16,6 +16,10 @@ export async function updateDriver(id, driver) {
   return apiFetch(`/api/drivers/${id}`, { method: "PUT", body: driver });
 }
 
+export async function deleteDriver(id) {
+  return apiFetch(`/api/drivers/${id}`, { method: "DELETE" });
+}
+
 export async function getDriverStats() {
   return apiFetch("/api/drivers/stats");
 }

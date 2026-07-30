@@ -38,6 +38,11 @@ export async function query(text, params = []) {
   if (error) throw error;
 
   if (Array.isArray(data)) return { rows: data };
-  if (data && typeof data === "object" && "rowCount" in data) return { rowCount: data.rowCount };
+  if (data && typeof data === "object") {
+    if ("rowCount" in data && Object.keys(data).length === 1) {
+      return { rowCount: data.rowCount };
+    }
+    return { rows: [data] };
+  }
   return { rows: [] };
 }

@@ -1,32 +1,242 @@
-import { query } from "@/lib/db";
+import { query, getAdminClient } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     const { searchParams } = new URL(req.url);
-    let sql = `SELECT d.*, row_to_json(e.*) as employees FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id WHERE d.deleted_at IS NULL`;
-    const params = []; let idx = 1;
-    const status = searchParams.get("status"); if (status) { sql += ` AND d.driver_status = $${idx++}`; params.push(status); }
-    const search = searchParams.get("search"); if (search) { sql += ` AND d.license_number ILIKE $${idx++}`; params.push(`%${search}%`); }
-    sql += " ORDER BY d.created_at DESC";
-    const page = parseInt(searchParams.get("page")); const ps = parseInt(searchParams.get("pageSize"));
-    if (page && ps) { sql += ` LIMIT $${idx++} OFFSET $${idx++}`; params.push(ps, (page-1)*ps); }
+
+    let sql = `
+      SELECT 
+        d.*,
+        json_build_object(
+          'employee_id', e.employee_id,
+          'first_name', e.first_name,
+          'last_name', e.last_name,
+          'email', e.email,
+          'phone', e.phone,
+          'position', e.position,
+          'branch_id', e.branch_id,
+          'avatar_url', e.avatar_url,
+          'branches', json_build_object(
+            'branch_id', b.branch_id,
+            'branch_name', b.branch_name
+          )
+        ) AS employees
+      FROM drivers d
+      LEFT JOIN employees e ON d.employee_id = e.employee_id
+      LEFT JOIN branches b ON e.branch_id = b.branch_id
+      WHERE d.deleted_at IS NULL
+    `;
+
+    const params = [];
+    let idx = 1;
+
+    const status = searchParams.get("status");
+    if (status && status !== "all") {
+      sql += ` AND d.driver_status = $${idx++}`;
+      params.push(status);
+    }
+
+    const licenseClass = searchParams.get("license_class");
+    if (licenseClass && licenseClass !== "all") {
+      sql += ` AND d.license_class = $${idx++}`;
+      params.push(licenseClass);
+    }
+
+    const branchId = searchParams.get("branch_id");
+    if (branchId && branchId !== "all") {
+      sql += ` AND e.branch_id = $${idx++}`;
+      params.push(parseInt(branchId, 10));
+    }
+
+    const search = searchParams.get("search");
+    if (search && search.trim() !== "") {
+      sql += ` AND (
+        e.first_name ILIKE $${idx} OR 
+        e.last_name ILIKE $${idx} OR 
+        e.email ILIKE $${idx} OR 
+        e.phone ILIKE $${idx} OR 
+        d.license_number ILIKE $${idx}
+      )`;
+      params.push(`%${search.trim()}%`);
+      idx++;
+    }
+
+    sql += ` ORDER BY d.created_at DESC`;
+
     const { rows: data } = await query(sql, params);
-    if (!data.length) return ok([]);
-    const ids = data.map(d => d.driver_id);
-    const { rows: stats } = await query(`SELECT * FROM driver_stats WHERE driver_id = ANY($1::int[])`, [ids]);
-    const m = {}; stats.forEach(s => { m[s.driver_id] = s; });
-    return ok(data.map(d => ({ ...d, ...m[d.driver_id] || {} })));
-  } catch (e) { return handleError(e); }
+    if (!data || !data.length) return ok([]);
+
+    return ok(data);
+  } catch (e) {
+    return handleError(e);
+  }
 }
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const body = await parseBody(req);
-    const k = Object.keys(body), v = Object.values(body);
-    const { rows } = await query(`INSERT INTO drivers (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
-    return ok(rows[0], 201);
-  } catch (e) { return handleError(e); }
+
+    const {
+      first_name,
+      last_name,
+      email,
+      phone,
+      branch_id,
+      position,
+      license_number,
+      license_expiry,
+      license_type,
+      license_class,
+      years_of_experience,
+      driver_status,
+      license_image_url,
+    } = body;
+
+    // Validate required fields
+    if (!first_name?.trim() || !last_name?.trim()) {
+      return err("first_name and last_name are required", 400);
+    }
+    if (!license_number?.trim()) {
+      return err("license_number is required", 400);
+    }
+
+    const supabase = getAdminClient();
+
+    // Auto-generate placeholder email if none provided
+    const empEmail =
+      email?.trim() ||
+      `${first_name.trim().toLowerCase()}.${last_name.trim().toLowerCase()}@fleetops.ph`;
+
+    // Step 1: Check if active employee already exists with this email
+    const { data: existingEmp } = await supabase
+      .from("employees")
+      .select("employee_id")
+      .eq("email", empEmail.toLowerCase())
+      .is("deleted_at", null)
+      .maybeSingle();
+
+    let employeeId;
+    let createdNewEmployee = false;
+
+    if (existingEmp) {
+      employeeId = existingEmp.employee_id;
+
+      // Check if a driver profile already exists for this employee
+      const { data: existingDriver } = await supabase
+        .from("drivers")
+        .select("driver_id")
+        .eq("employee_id", employeeId)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+      if (existingDriver) {
+        return err(
+          `A driver profile already exists for employee with email "${empEmail}".`,
+          409
+        );
+      }
+    } else {
+      // Create new Employee record via Supabase Client
+      const { data: newEmp, error: empError } = await supabase
+        .from("employees")
+        .insert({
+          first_name: first_name.trim(),
+          last_name: last_name.trim(),
+          email: empEmail.toLowerCase(),
+          phone: phone?.trim() || null,
+          position: position || "Driver",
+          branch_id: branch_id ? Number(branch_id) : null,
+          avatar_url: license_image_url || null,
+        })
+        .select("employee_id")
+        .single();
+
+      if (empError) {
+        if (empError.code === "23505") {
+          return err(
+            `An employee with email "${empEmail}" already exists. Please provide a unique email.`,
+            409
+          );
+        }
+        return err(empError.message || "Failed to create employee record", 500);
+      }
+
+      if (!newEmp?.employee_id) {
+        return err("Employee record was created but ID was not returned", 500);
+      }
+
+      employeeId = newEmp.employee_id;
+      createdNewEmployee = true;
+    }
+
+    // Step 2: Create Driver record linked to employeeId via Supabase Client
+    const { data: newDriver, error: driverError } = await supabase
+      .from("drivers")
+      .insert({
+        employee_id: employeeId,
+        license_number: license_number.trim(),
+        license_expiry: license_expiry || null,
+        license_type: license_type || null,
+        license_class: license_class || null,
+        years_of_experience: years_of_experience ? Number(years_of_experience) : 0,
+        driver_status: driver_status || "Available",
+      })
+      .select("driver_id")
+      .single();
+
+    if (driverError) {
+      console.error("Driver insert error:", driverError);
+      if (createdNewEmployee) {
+        await supabase
+          .from("employees")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("employee_id", employeeId);
+      }
+      return err(driverError.message || "Failed to create driver record", 500);
+    }
+
+    const driverId = newDriver?.driver_id;
+    if (!driverId) {
+      if (createdNewEmployee) {
+        await supabase
+          .from("employees")
+          .update({ deleted_at: new Date().toISOString() })
+          .eq("employee_id", employeeId);
+      }
+      return err("Failed to insert driver record", 500);
+    }
+
+    // Fetch full record via raw SQL query to guarantee clean response
+    const fetchSql = `
+      SELECT 
+        d.*,
+        json_build_object(
+          'employee_id', e.employee_id,
+          'first_name', e.first_name,
+          'last_name', e.last_name,
+          'email', e.email,
+          'phone', e.phone,
+          'position', e.position,
+          'branch_id', e.branch_id,
+          'avatar_url', e.avatar_url,
+          'branches', json_build_object(
+            'branch_id', b.branch_id,
+            'branch_name', b.branch_name
+          )
+        ) AS employees
+      FROM drivers d
+      LEFT JOIN employees e ON d.employee_id = e.employee_id
+      LEFT JOIN branches b ON e.branch_id = b.branch_id
+      WHERE d.driver_id = $1
+      LIMIT 1
+    `;
+
+    const { rows: fullRows } = await query(fetchSql, [driverId]);
+    return ok(fullRows[0] || { driver_id: driverId, employee_id: employeeId }, 201);
+  } catch (e) {
+    return handleError(e);
+  }
 }

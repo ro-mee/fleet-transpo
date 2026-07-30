@@ -44,17 +44,7 @@ const navGroups = [
   {
     label: "Operations",
     items: [
-      {
-        href: "/fleet",
-        label: "Fleet",
-        icon: Truck,
-        children: [
-          { href: "/fleet", label: "Dashboard" },
-          { href: "/fleet/vehicles", label: "Vehicles" },
-          { href: "/fleet/categories", label: "Categories" },
-          { href: "/fleet/maintenance", label: "Maintenance" },
-        ],
-      },
+      { href: "/fleet/vehicles", label: "Fleet", icon: Truck },
       { href: "/reservations", label: "Reservations", icon: CalendarCheck },
       { href: "/dispatch", label: "Dispatch", icon: Send },
       { href: "/routes", label: "Routes", icon: Route },
@@ -66,7 +56,15 @@ const navGroups = [
     label: "Monitoring",
     items: [
       { href: "/fuel", label: "Fuel", icon: Fuel },
-      { href: "/maintenance", label: "Maintenance", icon: Wrench },
+      {
+        href: "/maintenance",
+        label: "Maintenance",
+        icon: Wrench,
+        children: [
+          { href: "/maintenance", label: "Records" },
+          { href: "/maintenance/predictive", label: "Predictive" },
+        ],
+      },
       { href: "/tracking/live-map", label: "GPS Tracking", icon: MapPin },
     ],
   },
