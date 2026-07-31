@@ -1,11 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 
 let client;
+let pool;
+
+function assertServerOnly(name) {
+  if (typeof window !== "undefined") {
+    throw new Error(`${name}() is server-only. Use API routes from the client.`);
+  }
+}
 
 export function getAdminClient() {
-  if (typeof window !== "undefined") {
-    throw new Error("getAdminClient() is server-only. Use API routes from the client.");
-  }
+  assertServerOnly("getAdminClient");
   if (!client) {
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set.");
@@ -26,23 +32,22 @@ export function getAdminClient() {
   return client;
 }
 
-export async function query(text, params = []) {
-  if (typeof window !== "undefined") {
-    throw new Error("query() is server-only. Use API routes from the client.");
-  }
-  const supabase = getAdminClient();
-  const { data, error } = await supabase.rpc("exec_query", {
-    sql: text,
-    params,
-  });
-  if (error) throw error;
-
-  if (Array.isArray(data)) return { rows: data };
-  if (data && typeof data === "object") {
-    if ("rowCount" in data && Object.keys(data).length === 1) {
-      return { rowCount: data.rowCount };
+export function getPool() {
+  assertServerOnly("getPool");
+  if (!pool) {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is not set.");
     }
-    return { rows: [data] };
+    pool = new Pool({ connectionString: process.env.DATABASE_URL });
   }
-  return { rows: [] };
+  return pool;
+}
+
+export async function query(text, params = []) {
+  assertServerOnly("query");
+  const result = await getPool().query(text, params);
+  return {
+    rows: result.rows,
+    rowCount: result.rowCount ?? result.rows.length,
+  };
 }

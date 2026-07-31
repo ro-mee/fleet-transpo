@@ -16,16 +16,10 @@ export async function GET(req) {
           'email', e.email,
           'phone', e.phone,
           'position', e.position,
-          'branch_id', e.branch_id,
-          'avatar_url', e.avatar_url,
-          'branches', json_build_object(
-            'branch_id', b.branch_id,
-            'branch_name', b.branch_name
-          )
+          'avatar_url', e.avatar_url
         ) AS employees
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
-      LEFT JOIN branches b ON e.branch_id = b.branch_id
       WHERE d.deleted_at IS NULL
     `;
 
@@ -42,12 +36,6 @@ export async function GET(req) {
     if (licenseClass && licenseClass !== "all") {
       sql += ` AND d.license_class = $${idx++}`;
       params.push(licenseClass);
-    }
-
-    const branchId = searchParams.get("branch_id");
-    if (branchId && branchId !== "all") {
-      sql += ` AND e.branch_id = $${idx++}`;
-      params.push(parseInt(branchId, 10));
     }
 
     const search = searchParams.get("search");
@@ -84,7 +72,6 @@ export async function POST(req) {
       last_name,
       email,
       phone,
-      branch_id,
       position,
       license_number,
       license_expiry,
@@ -148,7 +135,6 @@ export async function POST(req) {
           email: empEmail.toLowerCase(),
           phone: phone?.trim() || null,
           position: position || "Driver",
-          branch_id: branch_id ? Number(branch_id) : null,
           avatar_url: license_image_url || null,
         })
         .select("employee_id")
@@ -220,16 +206,10 @@ export async function POST(req) {
           'email', e.email,
           'phone', e.phone,
           'position', e.position,
-          'branch_id', e.branch_id,
-          'avatar_url', e.avatar_url,
-          'branches', json_build_object(
-            'branch_id', b.branch_id,
-            'branch_name', b.branch_name
-          )
+          'avatar_url', e.avatar_url
         ) AS employees
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
-      LEFT JOIN branches b ON e.branch_id = b.branch_id
       WHERE d.driver_id = $1
       LIMIT 1
     `;

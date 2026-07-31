@@ -10,21 +10,6 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- USERS & AUTH EXTENSION
 -- ============================================
 
-CREATE TABLE branches (
-  branch_id SERIAL PRIMARY KEY,
-  branch_name VARCHAR(255) NOT NULL,
-  branch_code VARCHAR(50) UNIQUE NOT NULL,
-  address TEXT,
-  city VARCHAR(100),
-  province VARCHAR(100),
-  phone VARCHAR(50),
-  email VARCHAR(255),
-  status VARCHAR(50) DEFAULT 'Active',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  deleted_at TIMESTAMPTZ
-);
-
 CREATE TABLE roles (
   role_id SERIAL PRIMARY KEY,
   role_name VARCHAR(100) UNIQUE NOT NULL,
@@ -56,7 +41,6 @@ CREATE TABLE role_permissions (
 
 CREATE TABLE employees (
   employee_id SERIAL PRIMARY KEY,
-  branch_id INT REFERENCES branches(branch_id),
   role_id INT REFERENCES roles(role_id),
   user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   first_name VARCHAR(100) NOT NULL,
@@ -76,7 +60,6 @@ CREATE TABLE employees (
 );
 
 CREATE INDEX idx_employees_email ON employees(email);
-CREATE INDEX idx_employees_branch ON employees(branch_id);
 CREATE INDEX idx_employees_role ON employees(role_id);
 CREATE INDEX idx_employees_status ON employees(status);
 
@@ -106,7 +89,6 @@ CREATE TABLE vehiclecategories (
 CREATE TABLE vehicles (
   vehicle_id SERIAL PRIMARY KEY,
   category_id INT REFERENCES vehiclecategories(category_id),
-  branch_id INT REFERENCES branches(branch_id),
   plate_number VARCHAR(50) UNIQUE NOT NULL,
   vehicle_name VARCHAR(255) NOT NULL,
   model VARCHAR(100),
@@ -137,7 +119,6 @@ CREATE TABLE vehicles (
 CREATE INDEX idx_vehicles_plate ON vehicles(plate_number);
 CREATE INDEX idx_vehicles_category ON vehicles(category_id);
 CREATE INDEX idx_vehicles_status ON vehicles(vehicle_status);
-CREATE INDEX idx_vehicles_branch ON vehicles(branch_id);
 
 -- ============================================
 -- DRIVERS
@@ -200,7 +181,6 @@ CREATE INDEX idx_routes_name ON routes(route_name);
 
 CREATE TABLE vehiclereservations (
   reservation_id SERIAL PRIMARY KEY,
-  branch_id INT REFERENCES branches(branch_id),
   vehicle_id INT REFERENCES vehicles(vehicle_id),
   driver_id INT REFERENCES drivers(driver_id),
   guest_name VARCHAR(255),
@@ -231,7 +211,6 @@ CREATE TABLE vehiclereservations (
 CREATE INDEX idx_reservations_date ON vehiclereservations(reservation_date);
 CREATE INDEX idx_reservations_status ON vehiclereservations(status);
 CREATE INDEX idx_reservations_vehicle ON vehiclereservations(vehicle_id);
-CREATE INDEX idx_reservations_branch ON vehiclereservations(branch_id);
 
 -- ============================================
 -- DISPATCH SCHEDULES
@@ -809,9 +788,6 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
-CREATE TRIGGER update_branches_updated_at
-  BEFORE UPDATE ON branches FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER update_employees_updated_at
   BEFORE UPDATE ON employees FOR EACH ROW EXECUTE FUNCTION update_updated_at();

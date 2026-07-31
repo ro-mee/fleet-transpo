@@ -12,7 +12,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DataTable } from "@/components/tables/data-table";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDrivers, getDriverStats, deleteDriver } from "@/services/driver.service";
-import { getBranches } from "@/services/vehicle.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
 import {
@@ -38,7 +37,6 @@ export default function DriversPage() {
   // Filters state
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [branchFilter, setBranchFilter] = useState("all");
   const [licenseClassFilter, setLicenseClassFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
 
@@ -49,11 +47,10 @@ export default function DriversPage() {
     isError,
     error,
   } = useQuery({
-    queryKey: ["drivers", statusFilter, branchFilter, licenseClassFilter, search],
+    queryKey: ["drivers", statusFilter, licenseClassFilter, search],
     queryFn: () =>
       getDrivers({
         status: statusFilter !== "all" ? statusFilter : undefined,
-        branch_id: branchFilter !== "all" ? branchFilter : undefined,
         license_class: licenseClassFilter !== "all" ? licenseClassFilter : undefined,
         search: search ? search : undefined,
       }),
@@ -62,11 +59,6 @@ export default function DriversPage() {
   const { data: stats } = useQuery({
     queryKey: ["driver-stats"],
     queryFn: () => getDriverStats(),
-  });
-
-  const { data: branches = [] } = useQuery({
-    queryKey: ["branches"],
-    queryFn: getBranches,
   });
 
   // Archive / Delete mutation
@@ -113,11 +105,6 @@ export default function DriversPage() {
           <div className="text-foreground-secondary">{row.employees?.phone || "—"}</div>
         </div>
       ),
-    },
-    {
-      key: "branch",
-      label: "Branch",
-      render: (_, row) => row.employees?.branches?.branch_name || "Headquarters",
     },
     {
       key: "license",
@@ -199,10 +186,6 @@ export default function DriversPage() {
                 },
                 { label: "Email", accessor: (d) => d.employees?.email || "" },
                 { label: "Phone", accessor: (d) => d.employees?.phone || "" },
-                {
-                  label: "Branch",
-                  accessor: (d) => d.employees?.branches?.branch_name || "Headquarters",
-                },
                 { label: "License #", key: "license_number" },
                 { label: "License Expiry", key: "license_expiry" },
                 { label: "License Class", key: "license_class" },
@@ -254,7 +237,7 @@ export default function DriversPage() {
       {/* ── Filter Toolbar ── */}
       <Card className="border-0 shadow-sm">
         <CardContent className="p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {/* Search */}
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-3 text-foreground-muted" />
@@ -282,21 +265,6 @@ export default function DriversPage() {
               </SelectContent>
             </Select>
 
-            {/* Branch Filter */}
-            <Select value={branchFilter} onValueChange={setBranchFilter}>
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="All Branches" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Branches</SelectItem>
-                {branches.map((b) => (
-                  <SelectItem key={b.branch_id} value={String(b.branch_id)}>
-                    {b.branch_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
             {/* License Class Filter */}
             <Select value={licenseClassFilter} onValueChange={setLicenseClassFilter}>
               <SelectTrigger className="h-10">
@@ -310,7 +278,7 @@ export default function DriversPage() {
             </Select>
           </div>
 
-          {(search || statusFilter !== "all" || branchFilter !== "all" || licenseClassFilter !== "all") && (
+          {(search || statusFilter !== "all" || licenseClassFilter !== "all") && (
             <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
               <span className="text-foreground-secondary">
                 Showing filtered drivers ({drivers.length} results)
@@ -322,7 +290,6 @@ export default function DriversPage() {
                 onClick={() => {
                   setSearch("");
                   setStatusFilter("all");
-                  setBranchFilter("all");
                   setLicenseClassFilter("all");
                 }}
               >

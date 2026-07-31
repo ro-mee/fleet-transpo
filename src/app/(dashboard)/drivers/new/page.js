@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,7 +13,6 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { createDriver } from "@/services/driver.service";
-import { getBranches } from "@/services/vehicle.service";
 import {
   ArrowLeft, Loader2, User, IdCard, CheckCircle2, ChevronRight,
   Upload, FileImage, Eye, ZoomIn, AlertCircle, Check
@@ -27,7 +26,6 @@ const driverSchema = z.object({
   last_name: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address").or(z.literal("")).optional(),
   phone: z.string().optional(),
-  branch_id: z.coerce.number().optional().nullable(),
   position: z.string().default("Driver"),
   license_number: z.string().min(1, "License number is required"),
   license_expiry: z.string().optional(),
@@ -48,11 +46,6 @@ export default function NewDriverPage() {
   const [licenseImagePreview, setLicenseImagePreview] = useState(null);
   const [enlargeModalOpen, setEnlargeModalOpen] = useState(false);
 
-  const { data: branches = [] } = useQuery({
-    queryKey: ["branches"],
-    queryFn: getBranches,
-  });
-
   const form = useForm({
     resolver: zodResolver(driverSchema),
     defaultValues: {
@@ -60,7 +53,6 @@ export default function NewDriverPage() {
       last_name: "",
       email: "",
       phone: "",
-      branch_id: null,
       position: "Driver",
       license_number: "",
       license_expiry: "",
@@ -122,7 +114,6 @@ export default function NewDriverPage() {
 
     if (data.email?.trim()) payload.email = data.email.trim();
     if (data.phone?.trim()) payload.phone = data.phone.trim();
-    if (data.branch_id) payload.branch_id = Number(data.branch_id);
     if (data.license_expiry) payload.license_expiry = data.license_expiry;
     if (data.license_type) payload.license_type = data.license_type;
     if (data.license_class) payload.license_class = data.license_class;
@@ -215,23 +206,6 @@ export default function NewDriverPage() {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="branch_id">Assigned Branch</Label>
-                        <Select
-                          value={values.branch_id ? String(values.branch_id) : "none"}
-                          onValueChange={(val) => form.setValue("branch_id", val === "none" ? null : Number(val))}
-                        >
-                          <SelectTrigger><SelectValue placeholder="Select branch (optional)" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="none">Headquarters / Unassigned</SelectItem>
-                            {branches.map((b) => (
-                              <SelectItem key={b.branch_id} value={String(b.branch_id)}>
-                                {b.branch_name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
                       <div className="space-y-1.5">
                         <Label htmlFor="position">Position Title</Label>
                         <Input id="position" {...form.register("position")} placeholder="Driver" />

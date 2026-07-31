@@ -19,9 +19,6 @@ export async function GET(req) {
     const category_id = searchParams.get("category_id");
     if (category_id) { sql += ` AND v.category_id = $${idx++}`; params.push(+category_id); }
 
-    const branch_id = searchParams.get("branch_id");
-    if (branch_id) { sql += ` AND v.branch_id = $${idx++}`; params.push(+branch_id); }
-
     const search = searchParams.get("search");
     if (search) {
       sql += ` AND (v.plate_number ILIKE $${idx} OR v.vehicle_name ILIKE $${idx})`;
@@ -50,6 +47,13 @@ export async function POST(req) {
 
     // Separate documents array from vehicle attributes
     const { documents, ...vehicleData } = body;
+
+    // Sanitize empty strings to null to prevent PostgreSQL "invalid input syntax for type date: ''"
+    Object.keys(vehicleData).forEach((k) => {
+      if (vehicleData[k] === "" || vehicleData[k] === undefined) {
+        vehicleData[k] = null;
+      }
+    });
 
     const keys = Object.keys(vehicleData);
     const values = Object.values(vehicleData);

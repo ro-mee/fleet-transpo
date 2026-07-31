@@ -10,12 +10,12 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function AiDashboardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
-  const { data: insights = [] } = useQuery({
+  const { data: insightsData } = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),
   });
 
-  const { data: recommendations = [] } = useQuery({
+  const { data: recommendationsData } = useQuery({
     queryKey: ["ai-recommendations"],
     queryFn: () => getAiRecommendations(),
   });
@@ -25,8 +25,22 @@ export default function AiDashboardPage() {
     queryFn: () => getPredictiveMaintenance(),
   });
 
-  const critical = insights.filter((i) => i.impact === "high").length;
-  const overdueMaint = predictions.filter((p) => p.risk === "overdue" || p.risk === "critical").length;
+  const insights = Array.isArray(insightsData)
+    ? insightsData
+    : Array.isArray(insightsData?.insights)
+    ? insightsData.insights
+    : [];
+
+  const recommendations = Array.isArray(recommendationsData)
+    ? recommendationsData
+    : Array.isArray(recommendationsData?.recommendations)
+    ? recommendationsData.recommendations
+    : [];
+
+  const nlSummary = insightsData?.natural_language_summary || null;
+
+  const critical = insights.filter((i) => (i.severity || i.impact) === "high" || (i.severity || i.impact) === "critical").length;
+  const overdueMaint = predictions.filter((p) => p.risk === "overdue" || p.risk === "critical" || p.risk === "Critical").length;
 
   return (
     <div className="space-y-6">
@@ -79,22 +93,25 @@ export default function AiDashboardPage() {
             <p className="text-sm text-foreground-muted text-center py-8">No AI insights yet. Insights will appear as the system learns operational patterns.</p>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {insights.map((insight) => (
-                <div key={insight.insight_id} className="p-4 rounded-xl border border-border/50 hover:shadow-sm transition-all">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className={`w-4 h-4 ${insight.impact === "high" ? "text-danger" : insight.impact === "medium" ? "text-warning" : "text-primary"}`} />
-                    <Badge variant={insight.impact === "high" ? "danger" : insight.impact === "medium" ? "warning" : "default"} className="text-[10px]">
-                      {insight.impact === "high" ? "High" : insight.impact === "medium" ? "Medium" : "Low"} Impact
-                    </Badge>
+              {insights.map((insight, idx) => {
+                const sev = (insight.severity || insight.impact || "low").toLowerCase();
+                return (
+                  <div key={insight.insight_id || idx} className="p-4 rounded-xl border border-border/50 hover:shadow-sm transition-all bg-card">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className={`w-4 h-4 ${sev === "high" || sev === "critical" ? "text-danger" : sev === "medium" ? "text-warning" : "text-primary"}`} />
+                      <Badge variant={sev === "high" || sev === "critical" ? "danger" : sev === "medium" ? "warning" : "default"} className="text-[10px] capitalize">
+                        {sev} Priority
+                      </Badge>
+                    </div>
+                    <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
+                    <p className="text-xs text-foreground-secondary mb-2 leading-relaxed">{insight.summary || insight.description}</p>
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[10px] text-foreground-muted font-medium">{insight.category || "Fleet Utilization"}</span>
+                      <span className="text-[10px] text-foreground-muted">{insight.created_at ? formatDate(insight.created_at) : "Active"}</span>
+                    </div>
                   </div>
-                  <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
-                  <p className="text-xs text-foreground-secondary mb-2">{insight.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-foreground-muted">{insight.category || "General"}</span>
-                    <span className="text-[10px] text-foreground-muted">{insight.created_at ? formatDate(insight.created_at) : ""}</span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </CardContent>

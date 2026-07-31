@@ -28,10 +28,6 @@ export async function getVehicleCategories() {
   return apiFetch("/api/vehicle-categories");
 }
 
-export async function getBranches() {
-  return apiFetch("/api/branches");
-}
-
 export async function createCategory(category) {
   return apiFetch("/api/vehicle-categories", { method: "POST", body: category });
 }

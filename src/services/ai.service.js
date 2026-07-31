@@ -1,7 +1,38 @@
 import { apiFetch, buildQuery } from "@/lib/api/client";
 
-export async function getAiRecommendations(type) {
-  return apiFetch(`/api/ai/recommendations${buildQuery({ type })}`);
+// Provider Management
+export async function getAiProviders() {
+  return apiFetch("/api/ai/providers");
+}
+
+export async function createAiProvider(provider) {
+  return apiFetch("/api/ai/providers", { method: "POST", body: provider });
+}
+
+export async function updateAiProvider(id, provider) {
+  return apiFetch(`/api/ai/providers/${id}`, { method: "PUT", body: provider });
+}
+
+export async function deleteAiProvider(id) {
+  return apiFetch(`/api/ai/providers/${id}`, { method: "DELETE" });
+}
+
+export async function testAiProviderConnection(id) {
+  return apiFetch(`/api/ai/providers/${id}`, { method: "POST" });
+}
+
+export async function fetchAiModels(payload) {
+  return apiFetch("/api/ai/providers/fetch-models", { method: "POST", body: payload });
+}
+
+// AI Request Logs
+export async function getAiLogs(filters = {}) {
+  return apiFetch(`/api/ai/logs${buildQuery(filters)}`);
+}
+
+// AI Recommendations & Insights
+export async function getAiRecommendations(type = "reservation", params = {}) {
+  return apiFetch(`/api/ai/recommendations${buildQuery({ type, ...params })}`);
 }
 
 export async function getAiInsights() {
@@ -16,39 +47,51 @@ export async function dismissAiInsight(id) {
   return apiFetch(`/api/ai/insights/${id}/dismiss`, { method: "PUT" });
 }
 
+// Predictive Maintenance
 export async function getPredictiveMaintenance() {
   const vehicles = await apiFetch("/api/vehicles?limit=500");
   return (vehicles || []).map((v) => {
     const daysToService = v.next_service_date
       ? Math.max(0, Math.round((new Date(v.next_service_date) - new Date()) / (1000 * 60 * 60 * 24)))
       : 999;
-    let risk = "low", score = 100;
-    if (daysToService <= 0) { risk = "overdue"; score = 0; }
-    else if (daysToService <= 7) { risk = "critical"; score = 25; }
-    else if (daysToService <= 30) { risk = "high"; score = 50; }
-    else if (daysToService <= 60) { risk = "medium"; score = 70; }
+    let risk = "Low", score = 95;
+    if (daysToService <= 0) { risk = "Critical"; score = 15; }
+    else if (daysToService <= 7) { risk = "High"; score = 40; }
+    else if (daysToService <= 30) { risk = "Medium"; score = 70; }
+
     return {
-      vehicle_id: v.vehicle_id, plate_number: v.plate_number, vehicle_name: v.vehicle_name,
-      mileage: v.mileage, next_service_date: v.next_service_date, last_service_date: v.last_service_date,
-      daysToService, risk, score,
-      recommendation: risk === "overdue" ? "Service overdue — schedule immediately"
-        : risk === "critical" ? "Schedule service within 7 days"
-        : risk === "high" ? "Plan service within 30 days"
-        : risk === "medium" ? "Monitor — service due in 2 months"
-        : "On track — next service in good time",
+      vehicle_id: v.vehicle_id,
+      plate_number: v.plate_number,
+      vehicle_name: v.vehicle_name,
+      mileage: v.mileage || 0,
+      next_service_date: v.next_service_date,
+      last_service_date: v.last_service_date,
+      daysToService,
+      risk,
+      score,
+      recommendation: risk === "Critical" ? "Service OVERDUE — Ground vehicle immediately"
+        : risk === "High" ? "Schedule service within 7 days"
+        : risk === "Medium" ? "Plan service within 30 days"
+        : "Vehicle in good operational standing",
     };
   }).sort((a, b) => a.daysToService - b.daysToService);
 }
 
-export async function getAvailableVehiclesForReservation(reservationData) {
+// OCR Document Scanner
+export async function scanDocumentWithAi(payload) {
+  return apiFetch("/api/ai/scan-document", { method: "POST", body: payload });
+}
+
+// Reservations & Dispatch AI Recommendations Helpers
+export async function getAvailableVehiclesForReservation(reservationData = {}) {
   const vehicles = await apiFetch(`/api/vehicles/available`);
   const passengerCount = reservationData.passenger_count || 1;
-  const suitable = vehicles.filter((v) => v.seating_capacity >= passengerCount);
+  const suitable = (vehicles || []).filter((v) => (v.seating_capacity || 4) >= passengerCount);
   return suitable.map((v) => {
     let score = 50; const reasons = [];
     if (v.seating_capacity >= passengerCount + 2) { score += 15; reasons.push("Extra capacity available"); }
-    if (v.fuel_level > 50) { score += 10; reasons.push("Sufficient fuel level"); }
-    if (v.mileage < 50000) { score += 10; reasons.push("Low mileage vehicle"); }
+    if ((v.fuel_level || 0) > 50) { score += 10; reasons.push("Sufficient fuel level"); }
+    if ((v.mileage || 0) < 50000) { score += 10; reasons.push("Low mileage vehicle"); }
     if (v.next_service_date && new Date(v.next_service_date) > new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) { score += 10; reasons.push("No upcoming service due"); }
     return { vehicle: v, score: Math.min(score, 100), confidence: score / 100, reasons };
   }).sort((a, b) => b.score - a.score);

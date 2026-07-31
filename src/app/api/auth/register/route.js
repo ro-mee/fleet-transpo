@@ -25,8 +25,8 @@ export async function POST(req) {
       );
     } else {
       await query(
-        `INSERT INTO employees (email, password_hash, first_name, last_name, role_id, branch_id)
-         VALUES ($1, $2, $3, $4, $5, 1)`,
+        `INSERT INTO employees (email, password_hash, first_name, last_name, role_id)
+         VALUES ($1, $2, $3, $4, $5)`,
         [lowerEmail, hash, first_name, last_name, role_id || 8]
       );
     }

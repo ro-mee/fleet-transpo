@@ -24,7 +24,7 @@ export async function GET(req) {
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT ${JOIN_SELECT} ${JOINS} WHERE vr.deleted_at IS NULL`;
     const params = []; let idx = 1;
-    for (const [key, col] of [["status","status"],["branch_id","branch_id"],["date","reservation_date"],["vehicle_id","vehicle_id"],["service_type_id","service_type_id"],["external_booking_id","external_booking_id"],["source_system","integration_source"]]) {
+    for (const [key, col] of [["status","status"],["date","reservation_date"],["vehicle_id","vehicle_id"],["service_type_id","service_type_id"],["external_booking_id","external_booking_id"],["source_system","integration_source"]]) {
       const v = sp.get(key); if (v) { sql += ` AND vr.${col} = $${idx++}`; params.push(v); }
     }
     const fd = sp.get("from_date"), td = sp.get("to_date");

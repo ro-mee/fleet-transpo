@@ -14,10 +14,16 @@ export default function AiInsightsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const queryClient = useQueryClient();
 
-  const { data: insights = [] } = useQuery({
+  const { data: insightsData } = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),
   });
+
+  const insights = Array.isArray(insightsData)
+    ? insightsData
+    : Array.isArray(insightsData?.insights)
+    ? insightsData.insights
+    : [];
 
   const dismissMutation = useMutation({
     mutationFn: dismissAiInsight,

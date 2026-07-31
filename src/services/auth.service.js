@@ -35,7 +35,6 @@ export async function signUp(email, password, userData) {
       first_name: userData.first_name,
       last_name: userData.last_name,
       role_id: userData.role_id || 8,
-      branch_id: userData.branch_id || 1,
     });
     if (profileError) throw profileError;
   }

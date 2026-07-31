@@ -71,7 +71,18 @@ const navGroups = [
   {
     label: "Intelligence",
     items: [
-      { href: "/ai", label: "AI & Automation", icon: Brain },
+      {
+        href: "/ai",
+        label: "AI & Automation",
+        icon: Brain,
+        children: [
+          { href: "/ai", label: "AI Dashboard" },
+          { href: "/ai/insights", label: "Operational Insights" },
+          { href: "/ai/predictive-maintenance", label: "Predictive Maintenance" },
+          { href: "/settings/ai", label: "AI Providers & Settings" },
+          { href: "/settings/ai/logs", label: "AI Request Logs" },
+        ],
+      },
       { href: "/reports", label: "Reports", icon: BarChart3 },
       { href: "/analytics", label: "Analytics", icon: BarChart3 },
     ],

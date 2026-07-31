@@ -3,7 +3,6 @@
 -- ============================================
 
 -- Enable RLS on all tables
-ALTER TABLE branches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;
 ALTER TABLE roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE permissions ENABLE ROW LEVEL SECURITY;
@@ -74,18 +73,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- ============================================
--- BRANCHES
--- ============================================
-
-CREATE POLICY "All authenticated users can view branches"
-  ON branches FOR SELECT
-  USING (auth.role() = 'authenticated');
-
-CREATE POLICY "Admin can manage branches"
-  ON branches FOR ALL
-  USING (has_role(ARRAY['admin', 'system_admin']));
-
--- ============================================
 -- EMPLOYEES
 -- ============================================
 
@@ -141,14 +128,10 @@ CREATE POLICY "Fleet managers and admin can manage drivers"
 -- RESERVATIONS
 -- ============================================
 
-CREATE POLICY "Staff can view own branch reservations"
+CREATE POLICY "Staff can view reservations"
   ON vehiclereservations FOR SELECT
   USING (
     has_role(ARRAY['admin', 'system_admin', 'management']) OR
-    EXISTS (
-      SELECT 1 FROM employees e
-      WHERE e.user_id = auth.uid() AND e.branch_id = vehiclereservations.branch_id
-    ) OR
     vehiclereservations.created_by = (
       SELECT employee_id FROM employees WHERE user_id = auth.uid()
     )

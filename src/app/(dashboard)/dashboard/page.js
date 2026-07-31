@@ -1,5 +1,8 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
+import { getAiInsights } from "@/services/ai.service";
+import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -42,14 +45,19 @@ const recentActivities = [
   { time: "3 hrs ago", action: "New reservation created", detail: "Pickup: Lobby · 2:00 PM", type: "info" },
 ];
 
-const aiInsights = [
-  { title: "Fleet utilization can improve", description: "3 vehicles underutilized this week. Consider reassigning.", impact: "high", savings: "₱12K potential savings" },
-  { title: "Maintenance peak predicted", description: "4 vehicles due for service next week. Schedule now to avoid downtime.", impact: "medium", savings: "Prevent 8 hrs downtime" },
-  { title: "Fuel efficiency declining", description: "Vehicle ABC-456 shows 18% drop in fuel efficiency. Inspection recommended.", impact: "high", savings: "₱6.5K monthly savings" },
-];
-
 export default function DashboardPage() {
   const { employee } = useAuth();
+
+  const { data: insightsData, isLoading: isLoadingInsights } = useQuery({
+    queryKey: ["ai-insights"],
+    queryFn: () => getAiInsights(),
+  });
+
+  const insights = Array.isArray(insightsData)
+    ? insightsData
+    : Array.isArray(insightsData?.insights)
+    ? insightsData.insights
+    : [];
 
   return (
     <div className="space-y-6">
@@ -164,21 +172,38 @@ export default function DashboardPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {aiInsights.map((insight, i) => (
-              <div key={i} className="p-4 rounded-md border border-border bg-surface">
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertTriangle className={`w-3.5 h-3.5 ${
-                    insight.impact === "high" ? "text-danger" : "text-warning"
-                  }`} />
-                  <Badge variant={insight.impact === "high" ? "danger" : "warning"} className="text-[10px]">
-                    {insight.impact === "high" ? "High Impact" : "Medium Impact"}
-                  </Badge>
+            {isLoadingInsights ? (
+              [1, 2, 3].map((n) => (
+                <div key={n} className="p-4 rounded-xl border border-border bg-surface animate-pulse space-y-3">
+                  <div className="h-4 bg-muted/60 rounded w-1/3" />
+                  <div className="h-4 bg-muted/40 rounded w-3/4" />
+                  <div className="h-3 bg-muted/30 rounded w-full" />
                 </div>
-                <h4 className="text-sm font-medium text-foreground mb-1">{insight.title}</h4>
-                <p className="text-xs text-foreground-secondary mb-2">{insight.description}</p>
-                <p className="text-xs font-medium text-success">{insight.savings}</p>
-              </div>
-            ))}
+              ))
+            ) : insights.length === 0 ? (
+              <p className="text-xs text-foreground-muted py-4 col-span-full text-center">
+                No active AI operational insights. System operates within optimal metrics.
+              </p>
+            ) : (
+              insights.slice(0, 3).map((insight, i) => {
+                const sev = (insight.severity || insight.impact || "low").toLowerCase();
+                return (
+                  <Link key={i} href="/ai/insights" className="block p-4 rounded-xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all">
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertTriangle className={`w-3.5 h-3.5 ${sev === "high" || sev === "critical" ? "text-danger" : sev === "medium" ? "text-warning" : "text-primary"}`} />
+                      <Badge variant={sev === "high" || sev === "critical" ? "danger" : sev === "medium" ? "warning" : "default"} className="text-[10px] capitalize">
+                        {sev} Priority
+                      </Badge>
+                    </div>
+                    <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
+                    <p className="text-xs text-foreground-secondary mb-2 leading-relaxed">{insight.summary || insight.description}</p>
+                    <p className="text-[10px] font-medium text-primary mt-1 flex items-center gap-1">
+                      View in AI Insights →
+                    </p>
+                  </Link>
+                );
+              })
+            )}
           </div>
         </CardContent>
       </Card>

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
-import { User, Mail, Phone, Building2, Shield, Save, Loader2 } from "lucide-react";
+import { User, Mail, Phone, Shield, Save, Loader2 } from "lucide-react";
 import { useRoleAccess } from "@/hooks/use-role-access";
 
 function formatRole(role) {
@@ -123,15 +123,6 @@ export default function ProfilePage() {
                 <div>
                   <p className="text-sm font-medium">Role</p>
                   <Badge variant="default" className="mt-0.5">{formatRole(userRole)}</Badge>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="p-2 rounded-lg bg-success/10">
-                  <Building2 className="w-5 h-5 text-success" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Branch</p>
-                  <p className="text-xs text-foreground-muted">{employee?.branches?.branch_name || "—"}</p>
                 </div>
               </div>
               <div className="flex items-center gap-3">

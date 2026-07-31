@@ -14,7 +14,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("*, roles(role_name), branches(branch_id, branch_name)")
+          .select("*, roles(role_name)")
           .eq("email", email.toLowerCase())
           .is("deleted_at", null)
           .maybeSingle();
@@ -31,8 +31,6 @@ export const authOptions = {
           name: `${employee.first_name} ${employee.last_name}`,
           role: employee.roles?.role_name,
           employeeId: employee.employee_id,
-          branchId: employee.branches?.branch_id,
-          branchName: employee.branches?.branch_name,
           firstName: employee.first_name,
           lastName: employee.last_name,
           position: employee.position,
@@ -45,8 +43,6 @@ export const authOptions = {
       if (user) {
         token.role = user.role;
         token.employeeId = user.employeeId;
-        token.branchId = user.branchId;
-        token.branchName = user.branchName;
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.position = user.position;
@@ -56,8 +52,6 @@ export const authOptions = {
     async session({ session, token }) {
       session.user.role = token.role;
       session.user.employeeId = token.employeeId;
-      session.user.branchId = token.branchId;
-      session.user.branchName = token.branchName;
       session.user.firstName = token.firstName;
       session.user.lastName = token.lastName;
       session.user.position = token.position;

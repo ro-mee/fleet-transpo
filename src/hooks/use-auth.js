@@ -16,7 +16,6 @@ function mapSessionToEmployee(session) {
     status: "Active",
     role_id: null,
     roles: { role_id: null, role_name: u.role, description: "" },
-    branches: { branch_id: u.branchId, branch_name: u.branchName },
   };
 }
 

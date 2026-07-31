@@ -191,10 +191,6 @@ export default function VehicleDetailPage() {
                 <p className="text-sm font-medium text-foreground">{vehicle.purchase_price ? formatCurrency(vehicle.purchase_price) : "—"}</p>
               </div>
               <div>
-                <p className="text-xs text-foreground-muted">Branch</p>
-                <p className="text-sm font-medium text-foreground">{vehicle.branches?.branch_name || "—"}</p>
-              </div>
-              <div>
                 <p className="text-xs text-foreground-muted">Status</p>
                 <Badge variant={statusVariant[vehicle.vehicle_status] || "default"} className="text-xs">
                   {vehicle.vehicle_status}

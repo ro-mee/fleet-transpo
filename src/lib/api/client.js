@@ -1,9 +1,18 @@
 export async function apiFetch(path, options = {}) {
   const { body, method, ...rest } = options;
+  let jsonBody = undefined;
+  if (body !== undefined && body !== null) {
+    jsonBody = JSON.stringify(body, (key, value) => {
+      if (typeof value === "number" && isNaN(value)) return null;
+      if (value === undefined) return null;
+      return value;
+    });
+  }
+
   const res = await fetch(path, {
     method: method || (body ? "POST" : "GET"),
     headers: { "Content-Type": "application/json", ...rest.headers },
-    body: body ? JSON.stringify(body) : undefined,
+    body: jsonBody,
     ...rest,
   });
   if (!res.ok) {

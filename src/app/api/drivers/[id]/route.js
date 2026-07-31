@@ -16,16 +16,10 @@ export async function GET(req, { params }) {
           'email', e.email,
           'phone', e.phone,
           'position', e.position,
-          'branch_id', e.branch_id,
-          'avatar_url', e.avatar_url,
-          'branches', json_build_object(
-            'branch_id', b.branch_id,
-            'branch_name', b.branch_name
-          )
+          'avatar_url', e.avatar_url
         ) AS employees
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
-      LEFT JOIN branches b ON e.branch_id = b.branch_id
       WHERE d.driver_id = $1 AND d.deleted_at IS NULL
       LIMIT 1
     `;
@@ -93,7 +87,6 @@ export async function PUT(req, { params }) {
       last_name,
       email,
       phone,
-      branch_id,
       position,
     } = body;
 
@@ -133,7 +126,6 @@ export async function PUT(req, { params }) {
     if (last_name !== undefined) employeePayload.last_name = last_name.trim();
     if (email !== undefined) employeePayload.email = email.trim().toLowerCase();
     if (phone !== undefined) employeePayload.phone = phone.trim() || null;
-    if (branch_id !== undefined) employeePayload.branch_id = branch_id ? Number(branch_id) : null;
     if (position !== undefined) employeePayload.position = position || "Driver";
     if (license_image_url !== undefined) employeePayload.avatar_url = license_image_url || null;
     employeePayload.updated_at = new Date().toISOString();
@@ -160,16 +152,10 @@ export async function PUT(req, { params }) {
           'email', e.email,
           'phone', e.phone,
           'position', e.position,
-          'branch_id', e.branch_id,
-          'avatar_url', e.avatar_url,
-          'branches', json_build_object(
-            'branch_id', b.branch_id,
-            'branch_name', b.branch_name
-          )
+          'avatar_url', e.avatar_url
         ) AS employees
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
-      LEFT JOIN branches b ON e.branch_id = b.branch_id
       WHERE d.driver_id = $1
       LIMIT 1
     `;

@@ -9,7 +9,6 @@ const JOIN_SELECT = `vr.*,
   row_to_json(bc.*) as booking_channels,
   row_to_json(pl.*) as pickup_location,
   row_to_json(dl.*) as dropoff_location,
-  row_to_json(b.*) as branches,
   (SELECT json_agg(ds.*) FROM dispatchschedules ds WHERE ds.reservation_id = vr.reservation_id) as dispatchschedules`;
 
 const JOINS = `FROM vehiclereservations vr
@@ -18,8 +17,7 @@ const JOINS = `FROM vehiclereservations vr
   LEFT JOIN service_types st ON vr.service_type_id = st.service_type_id
   LEFT JOIN booking_channels bc ON vr.booking_channel_id = bc.channel_id
   LEFT JOIN locations pl ON vr.pickup_location_id = pl.location_id
-  LEFT JOIN locations dl ON vr.dropoff_location_id = dl.location_id
-  LEFT JOIN branches b ON vr.branch_id = b.branch_id`;
+  LEFT JOIN locations dl ON vr.dropoff_location_id = dl.location_id`;
 
 export async function GET(req, { params }) {
   try {

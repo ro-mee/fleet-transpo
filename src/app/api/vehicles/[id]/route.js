@@ -6,10 +6,9 @@ export async function GET(req, { params }) {
     await requireAuth(req);
     const id = (await params).id;
     const { rows } = await query(
-      `SELECT v.*, row_to_json(vc.*) as vehiclecategories, row_to_json(b.*) as branches
+      `SELECT v.*, row_to_json(vc.*) as vehiclecategories
        FROM vehicles v
        LEFT JOIN vehiclecategories vc ON v.category_id = vc.category_id
-       LEFT JOIN branches b ON v.branch_id = b.branch_id
        WHERE v.vehicle_id = $1 AND v.deleted_at IS NULL LIMIT 1`,
       [id]
     );
@@ -23,8 +22,17 @@ export async function PUT(req, { params }) {
     await requireAuth(req);
     const id = (await params).id;
     const body = await parseBody(req);
-    const keys = Object.keys(body);
-    const values = Object.values(body);
+    const { documents, ...vehicleData } = body;
+
+    // Sanitize empty strings to null to prevent PostgreSQL "invalid input syntax for type date: ''"
+    Object.keys(vehicleData).forEach((k) => {
+      if (vehicleData[k] === "" || vehicleData[k] === undefined) {
+        vehicleData[k] = null;
+      }
+    });
+
+    const keys = Object.keys(vehicleData);
+    const values = Object.values(vehicleData);
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
     const { rows } = await query(
       `UPDATE vehicles SET ${setClause} WHERE vehicle_id = $${keys.length + 1} RETURNING *`,

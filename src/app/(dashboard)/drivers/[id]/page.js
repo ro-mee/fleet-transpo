@@ -87,7 +87,6 @@ export default function DriverDetailPage() {
   }
 
   const emp = driver.employees || {};
-  const branch = emp.branches || {};
   const trips = driver.trips || [];
   const licenseImage = driver.face_image_url || emp.avatar_url || null;
 
@@ -124,8 +123,6 @@ export default function DriverDetailPage() {
               </div>
               <div className="flex items-center gap-4 text-xs text-foreground-secondary mt-1">
                 <span>Employee ID: #{emp.employee_id || driver.employee_id}</span>
-                <span>•</span>
-                <span>Branch: {branch.branch_name || "Headquarters"}</span>
                 <span>•</span>
                 <span>License: {driver.license_number}</span>
               </div>
@@ -180,10 +177,6 @@ export default function DriverDetailPage() {
                 <div className="flex justify-between py-1 border-b border-border">
                   <span className="text-foreground-muted">Phone</span>
                   <span className="font-medium">{emp.phone || "—"}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border">
-                  <span className="text-foreground-muted">Branch Assignment</span>
-                  <span className="font-medium">{branch.branch_name || "Headquarters"}</span>
                 </div>
                 <div className="flex justify-between py-1">
                   <span className="text-foreground-muted">Hire Date</span>

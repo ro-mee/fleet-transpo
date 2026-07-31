@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
-import { ArrowLeft, Loader2, Upload, FileText, CheckCircle2, ShieldCheck, IdCard, ZoomIn } from "lucide-react";
+import { scanDocumentWithAi } from "@/services/ai.service";
+import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
+import { ArrowLeft, Loader2, Upload, FileText, CheckCircle2, ShieldCheck, IdCard, ZoomIn, Sparkles, Scan, AlertCircle, Check } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -52,6 +54,73 @@ export default function VehicleFormPage({ params }) {
   // Zoom Modal
   const [previewModalUrl, setPreviewModalUrl] = useState(null);
 
+  // AI Scan State
+  const [scanningDocType, setScanningDocType] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanReviewModalOpen, setScanReviewModalOpen] = useState(false);
+
+  const handleAiScan = async (documentType, fileUrl) => {
+    if (!fileUrl) {
+      toast.error("Please upload a document scan first before scanning with AI.");
+      return;
+    }
+    setScanningDocType(documentType);
+    try {
+      let documentText = "";
+      try {
+        const { createWorker } = await import("tesseract.js");
+        const worker = await createWorker("eng");
+        const ret = await worker.recognize(fileUrl);
+        await worker.terminate();
+        documentText = ret.data.text || "";
+      } catch (ocrErr) {
+        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
+      }
+
+      const res = await scanDocumentWithAi({
+        document_type: documentType,
+        document_text: documentText,
+        file_url: fileUrl,
+      });
+      if (res) {
+        setScanResult(res);
+        setScanReviewModalOpen(true);
+        toast.success(`AI scanned ${documentType.replace('_', ' ')} successfully!`);
+      }
+    } catch (err) {
+      toast.error(err.message || "Failed to scan document with AI");
+    } finally {
+      setScanningDocType(null);
+    }
+  };
+
+  const applyAiExtractedData = () => {
+    if (!scanResult?.extracted_data) return;
+    const data = scanResult.extracted_data;
+
+    if (data.plate_number) form.setValue("plate_number", data.plate_number, { shouldValidate: true });
+    if (data.vehicle_type) form.setValue("vehicle_name", data.vehicle_type, { shouldValidate: true });
+    else if (data.vehicle_name) form.setValue("vehicle_name", data.vehicle_name, { shouldValidate: true });
+    if (data.manufacturer) form.setValue("manufacturer", data.manufacturer);
+    if (data.model) form.setValue("model", data.model);
+    if (data.year) form.setValue("year", data.year);
+    if (data.color) form.setValue("color", data.color);
+    if (data.fuel_type) form.setValue("fuel_type", data.fuel_type);
+    if (data.seating_capacity) form.setValue("seating_capacity", Number(data.seating_capacity), { shouldValidate: true });
+    if (data.insurance_expiry) form.setValue("insurance_expiry", data.insurance_expiry);
+    if (data.license_plate_expiry) form.setValue("license_plate_expiry", data.license_plate_expiry);
+
+    if (data.registration_number && scanResult.document_type === "OR_CR") {
+      setOrCrDoc((prev) => ({ ...prev, document_number: data.registration_number }));
+    }
+    if (data.insurance_policy_number && scanResult.document_type === "Insurance") {
+      setInsuranceDoc((prev) => ({ ...prev, document_number: data.insurance_policy_number }));
+    }
+
+    toast.success("AI extracted document details applied to form!");
+    setScanReviewModalOpen(false);
+  };
+
   const { data: vehicle } = useQuery({
     queryKey: ["vehicle", vehicleId],
     queryFn: () => getVehicle(vehicleId),
@@ -84,6 +153,9 @@ export default function VehicleFormPage({ params }) {
       next_service_mileage: undefined,
     },
   });
+
+  const watchedPlate = form.watch("plate_number");
+  const ltoSchedule = calculateLtoRenewalSchedule(watchedPlate || "");
 
   const createMutation = useMutation({
     mutationFn: createVehicle,
@@ -155,8 +227,19 @@ export default function VehicleFormPage({ params }) {
       });
     }
 
+    const sanitizedData = {};
+    Object.keys(data).forEach((k) => {
+      let val = data[k];
+      if (val === "" || val === undefined) {
+        val = null;
+      } else if (typeof val === "number" && isNaN(val)) {
+        val = null;
+      }
+      sanitizedData[k] = val;
+    });
+
     const payload = {
-      ...data,
+      ...sanitizedData,
       documents,
     };
 
@@ -206,34 +289,34 @@ export default function VehicleFormPage({ params }) {
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3">General Information</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="plate_number">Plate Number *</Label>
-                      <Input id="plate_number" {...form.register("plate_number")} placeholder="ABC-1234" className="font-mono" />
+                      <Label htmlFor="plate_number">Plate No. *</Label>
+                      <Input id="plate_number" {...form.register("plate_number")} placeholder="NBO 1234 / ABC-1234" className="font-mono uppercase" />
                       {form.formState.errors.plate_number && (
                         <p className="text-xs text-danger">{form.formState.errors.plate_number.message}</p>
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="vehicle_name">Vehicle Name *</Label>
-                      <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="Toyota HiAce Commuter" />
+                      <Label htmlFor="vehicle_name">Vehicle Type / Name *</Label>
+                      <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="VAN / SUV / SEDAN / BUS" />
                       {form.formState.errors.vehicle_name && (
                         <p className="text-xs text-danger">{form.formState.errors.vehicle_name.message}</p>
                       )}
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="manufacturer">Manufacturer</Label>
-                      <Input id="manufacturer" {...form.register("manufacturer")} placeholder="Toyota" />
+                      <Label htmlFor="manufacturer">Make / Brand</Label>
+                      <Input id="manufacturer" {...form.register("manufacturer")} placeholder="TOYOTA / HONDA / MITSUBISHI" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="model">Model</Label>
-                      <Input id="model" {...form.register("model")} placeholder="HiAce Commuter" />
+                      <Label htmlFor="model">Series / Model</Label>
+                      <Input id="model" {...form.register("model")} placeholder="HIACE COMMUTER / L300 / NV350" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="year">Year</Label>
-                      <Input id="year" type="number" {...form.register("year")} placeholder="2024" />
+                      <Label htmlFor="year">Year Model</Label>
+                      <Input id="year" type="number" {...form.register("year")} placeholder="2023" />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="color">Color</Label>
-                      <Input id="color" {...form.register("color")} placeholder="White" />
+                      <Input id="color" {...form.register("color")} placeholder="WHITE PEARL / SILVER / BLACK" />
                     </div>
                   </div>
                 </div>
@@ -259,20 +342,11 @@ export default function VehicleFormPage({ params }) {
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="fuel_type">Fuel Type</Label>
-                      <select
-                        id="fuel_type"
-                        {...form.register("fuel_type")}
-                        className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      >
-                        <option value="Gasoline">Gasoline</option>
-                        <option value="Diesel">Diesel</option>
-                        <option value="Electric">Electric</option>
-                        <option value="Hybrid">Hybrid</option>
-                      </select>
+                      <Input id="fuel_type" {...form.register("fuel_type")} placeholder="DIESEL / GAS / GASOLINE" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label htmlFor="seating_capacity">Seating Capacity</Label>
-                      <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} />
+                      <Label htmlFor="seating_capacity">Passenger Capacity</Label>
+                      <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} placeholder="15" />
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="vehicle_status">Status</Label>
@@ -291,21 +365,61 @@ export default function VehicleFormPage({ params }) {
                   </div>
                 </div>
 
-                {/* Expiry Dates & Service Schedule */}
+                {/* Philippine LTO Registration Renewal Schedule & Compliance */}
                 <div className="border-t border-border pt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3">Compliance & Expiry Dates</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="registration_expiry" className="text-xs">LTO OR/CR Expiry</Label>
-                      <Input id="registration_expiry" type="date" {...form.register("registration_expiry")} className="text-xs" />
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3 flex items-center justify-between">
+                    <span>LTO Registration Renewal Schedule</span>
+                    <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium border border-primary/20">
+                      Calculated from Plate #
+                    </span>
+                  </h3>
+
+                  {ltoSchedule?.success ? (
+                    <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-[11px] text-foreground-secondary block">Registration Renewal Window</span>
+                          <span className="text-sm font-bold text-foreground">{ltoSchedule.formatted_window}</span>
+                        </div>
+                        <span
+                          className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                            ltoSchedule.status === "Overdue"
+                              ? "bg-danger/15 text-danger border border-danger/30"
+                              : ltoSchedule.status === "Due This Week" || ltoSchedule.status === "Due in 7 Days"
+                              ? "bg-warning/15 text-warning border border-warning/30"
+                              : "bg-success/15 text-success border border-success/30"
+                          }`}
+                        >
+                          {ltoSchedule.status}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">
+                        <div>
+                          <span className="text-foreground-secondary block text-[10px]">Renewal Month</span>
+                          <span className="font-semibold text-foreground">{ltoSchedule.month} (Digit: {watchedPlate.replace(/\D/g, "").slice(-1)})</span>
+                        </div>
+                        <div>
+                          <span className="text-foreground-secondary block text-[10px]">Renewal Window</span>
+                          <span className="font-semibold text-foreground">{ltoSchedule.window_label}</span>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-foreground-muted italic">
+                        Source: Calculated automatically from Plate Number ({watchedPlate}) using PH LTO rules.
+                      </p>
                     </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-muted/20 border border-border text-xs text-foreground-secondary italic">
+                      {watchedPlate
+                        ? ltoSchedule?.error || "Unable to determine renewal schedule from the provided plate number."
+                        : "Enter a valid plate number above (e.g. ABC-1234) to compute the LTO registration renewal schedule."}
+                    </div>
+                  )}
+
+                  <div className="mt-3">
                     <div className="space-y-1.5">
-                      <Label htmlFor="insurance_expiry" className="text-xs">Insurance Expiry</Label>
+                      <Label htmlFor="insurance_expiry" className="text-xs">Insurance Policy Expiry</Label>
                       <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} className="text-xs" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="license_plate_expiry" className="text-xs">Plate Validity Expiry</Label>
-                      <Input id="license_plate_expiry" type="date" {...form.register("license_plate_expiry")} className="text-xs" />
                     </div>
                   </div>
                 </div>
@@ -351,23 +465,34 @@ export default function VehicleFormPage({ params }) {
                           </span>
                         )}
                       </div>
-                      <Input
-                        placeholder="OR/CR # (e.g. 1234-5678)"
-                        value={orCrDoc.document_number}
-                        onChange={(e) => setOrCrDoc({ ...orCrDoc, document_number: e.target.value })}
-                        className="h-8 text-xs"
-                      />
-                      <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-2 text-center transition-colors bg-surface cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          onChange={(e) => handleFileUpload(e, setOrCrDoc)}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                        <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                          <Upload className="w-3.5 h-3.5 text-primary" />
-                          <span className="truncate">{orCrDoc.file_url ? "Change OR/CR" : "Upload OR/CR"}</span>
+                      <div className="flex gap-2 items-center">
+                        <div className="relative flex-1 border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-2 text-center transition-colors bg-surface cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={(e) => handleFileUpload(e, setOrCrDoc)}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                          <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
+                            <Upload className="w-3.5 h-3.5 text-primary" />
+                            <span className="truncate">{orCrDoc.file_url ? "Change OR/CR" : "Upload OR/CR"}</span>
+                          </div>
                         </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!orCrDoc.file_url || scanningDocType === "OR_CR"}
+                          onClick={() => handleAiScan("OR_CR", orCrDoc.file_url)}
+                          className="h-9 px-2.5 text-xs border-primary/30 text-primary hover:bg-primary/5 font-medium gap-1 shrink-0"
+                        >
+                          {scanningDocType === "OR_CR" ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>Scan with AI</span>
+                        </Button>
                       </div>
                     </div>
 
@@ -384,12 +509,12 @@ export default function VehicleFormPage({ params }) {
                     )}
                   </div>
 
-                  {/* 2. Insurance Policy Scan Card (Top Right) */}
+                  {/* 2. Insurance Policy Card (Top Right - Upload Only) */}
                   <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2.5 flex flex-col justify-between">
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between">
                         <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <ShieldCheck className="w-4 h-4 text-primary" /> Insurance Policy
+                          <ShieldCheck className="w-4 h-4 text-primary" /> Insurance Policy Scan
                         </span>
                         {insuranceDoc.file_url && (
                           <span className="text-[11px] text-success font-medium flex items-center gap-0.5">
@@ -397,13 +522,7 @@ export default function VehicleFormPage({ params }) {
                           </span>
                         )}
                       </div>
-                      <Input
-                        placeholder="Policy # (e.g. POL-9988)"
-                        value={insuranceDoc.document_number}
-                        onChange={(e) => setInsuranceDoc({ ...insuranceDoc, document_number: e.target.value })}
-                        className="h-8 text-xs"
-                      />
-                      <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-2 text-center transition-colors bg-surface cursor-pointer">
+                      <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-3 text-center transition-colors bg-surface cursor-pointer">
                         <input
                           type="file"
                           accept="image/*,.pdf"
@@ -412,7 +531,7 @@ export default function VehicleFormPage({ params }) {
                         />
                         <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
                           <Upload className="w-3.5 h-3.5 text-primary" />
-                          <span className="truncate">{insuranceDoc.file_url ? "Change Policy" : "Upload Policy"}</span>
+                          <span className="truncate">{insuranceDoc.file_url ? "Change Policy Scan" : "Upload Insurance Policy Scan"}</span>
                         </div>
                       </div>
                     </div>
@@ -443,17 +562,34 @@ export default function VehicleFormPage({ params }) {
                       )}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                      <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-3 text-center transition-colors bg-surface cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          onChange={(e) => handleFileUpload(e, setPlateStickerDoc)}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                        <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                          <Upload className="w-4 h-4 text-primary" />
-                          <span>{plateStickerDoc.file_url ? "Change Sticker Photo" : "Upload License Plate Sticker Photo"}</span>
+                      <div className="space-y-2">
+                        <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-3 text-center transition-colors bg-surface cursor-pointer">
+                          <input
+                            type="file"
+                            accept="image/*,.pdf"
+                            onChange={(e) => handleFileUpload(e, setPlateStickerDoc)}
+                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          />
+                          <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
+                            <Upload className="w-4 h-4 text-primary" />
+                            <span>{plateStickerDoc.file_url ? "Change Sticker Photo" : "Upload Plate Sticker Photo"}</span>
+                          </div>
                         </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={!plateStickerDoc.file_url || scanningDocType === "Plate_Sticker"}
+                          onClick={() => handleAiScan("Plate_Sticker", plateStickerDoc.file_url)}
+                          className="w-full h-8 text-xs border-primary/30 text-primary hover:bg-primary/5 font-medium gap-1"
+                        >
+                          {scanningDocType === "Plate_Sticker" ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3.5 h-3.5" />
+                          )}
+                          <span>Scan Plate Sticker with AI</span>
+                        </Button>
                       </div>
 
                       {plateStickerDoc.file_url ? (
@@ -497,6 +633,106 @@ export default function VehicleFormPage({ params }) {
               />
             )}
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── AI Scan Review Modal ── */}
+      <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center justify-between border-b border-border pb-3">
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary animate-pulse" />
+                AI Document Scan Results — Review & Populate
+              </span>
+              <div className="flex items-center gap-2">
+                {scanResult?.is_ai_vision_used ? (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-success/15 text-success border border-success/30">
+                    Live AI Vision OCR
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-primary/15 text-primary border border-primary/30">
+                    Dynamic Image Scan
+                  </span>
+                )}
+                {scanResult?.overall_confidence && (
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-foreground-secondary border border-border">
+                    {scanResult.overall_confidence}% Confidence
+                  </span>
+                )}
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+
+          {scanResult && (
+            <div className="space-y-4 pt-2">
+              {/* Validation Banner if any */}
+              {scanResult.validation?.issues?.length > 0 && (
+                <div className="p-3 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold">Compliance Validation Warnings:</span>
+                    <ul className="list-disc list-inside mt-1 space-y-0.5">
+                      {scanResult.validation.issues.map((issue, i) => (
+                        <li key={i}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+
+              {/* Extracted Fields Table */}
+              <div className="rounded-xl border border-border overflow-hidden bg-surface">
+                <div className="bg-muted/40 px-4 py-2 border-b border-border flex items-center justify-between text-xs font-semibold text-foreground-secondary">
+                  <span>EXTRACTED FIELD</span>
+                  <span>CONFIDENCE & AI VALUE</span>
+                </div>
+                <div className="divide-y divide-border text-xs">
+                  {Object.entries(scanResult.extracted_data || {})
+                    .filter(([key]) => key !== "vehicle_type")
+                    .map(([key, val]) => {
+                      const score = scanResult.confidence_scores?.[key] || scanResult.overall_confidence || 95;
+                    const customLabels = {
+                      seating_capacity: "Passenger Capacity",
+                      registration_number: "Registration / CR No.",
+                      vehicle_name: "Vehicle Type / Name",
+                      manufacturer: "Make / Brand",
+                      model: "Series / Model",
+                      year: "Year Model",
+                    };
+                    const label = customLabels[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                    return (
+                      <div key={key} className="px-4 py-2.5 flex items-center justify-between hover:bg-muted/20">
+                        <span className="font-medium text-foreground-secondary">{label}</span>
+                        <div className="flex items-center gap-3">
+                          <span className="font-semibold text-foreground">{String(val)}</span>
+                          <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                              score >= 90
+                                ? "bg-success/10 text-success border border-success/20"
+                                : "bg-warning/10 text-warning border border-warning/20"
+                            }`}
+                          >
+                            {score}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
+                <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={applyAiExtractedData} className="gap-1.5">
+                  <Check className="w-4 h-4" /> Apply Extracted Data to Form
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
