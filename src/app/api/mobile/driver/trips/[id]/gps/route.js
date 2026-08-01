@@ -1,36 +1,20 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
-export async function GET(req, { params }) {
-  try {
-    const session = await requireAuth(req, ROLES);
-    const id = (await params).id;
-
-    // GPS breadcrumbs are a movement history of a named person. A driver may
-    // read their own trace; anyone else's is a 404.
-    await assertTripOwnership(session, id);
-
-    const { rows } = await query(
-      `SELECT * FROM gpstracking WHERE trip_id = $1 ORDER BY recorded_at ASC`,
-      [id]
-    );
-    return ok(rows);
-  } catch (e) { return handleError(e); }
-}
-
 /**
- * Records one GPS sample for a trip.
+ * POST /api/mobile/driver/trips/[id]/gps
  *
- * vehicle_id and driver_id are taken from the trip row, never from the request
- * body — a client that could name its own vehicle_id could write points into
- * another vehicle's history.
+ * Alias for the existing /api/trips/[id]/locations POST. Mobile apps call this
+ * route instead — the name is clearer ("gps" not "locations"), and this path
+ * lives under the mobile namespace where every route is driver-only by default.
+ *
+ * Identical behavior: vehicle_id and driver_id are taken from the trip row,
+ * never from the request body.
  */
 export async function POST(req, { params }) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requireDriver(req);
     const id = (await params).id;
     const body = await parseBody(req);
 
@@ -69,8 +53,6 @@ export async function POST(req, { params }) {
       ]
     );
 
-    // Keep the driver's last-known position current so the live map does not
-    // have to scan the full breadcrumb table.
     await query(
       `UPDATE drivers
           SET current_latitude = $1, current_longitude = $2, last_location_update = NOW()
@@ -79,5 +61,7 @@ export async function POST(req, { params }) {
     );
 
     return ok(rows[0], 201);
-  } catch (e) { return handleError(e); }
+  } catch (e) {
+    return handleError(e);
+  }
 }
