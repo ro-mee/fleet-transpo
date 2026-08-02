@@ -2,14 +2,23 @@ import NextAuth from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { getAdminClient } from "@/lib/db";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 
 export const authOptions = {
   providers: [
     Credentials({
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         const email = credentials?.email;
         const password = credentials?.password;
         if (!email || !password) return null;
+
+        // Throttle login attempts per IP to blunt brute-force / credential
+        // stuffing. 5 attempts per minute.
+        const ip = clientIp({ headers: new Headers(req?.headers || {}) });
+        const { allowed } = rateLimit(`login:${ip}`, { limit: 5, windowMs: 60_000 });
+        if (!allowed) {
+          throw new Error("Too many login attempts. Please try again in a minute.");
+        }
 
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase

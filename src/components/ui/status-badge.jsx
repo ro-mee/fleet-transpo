@@ -1,0 +1,164 @@
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+
+// Central severity/status grammar for the whole dashboard.
+// Heat grammar: danger = act now, warning = act this cycle, info = watch,
+// success = healthy, primary = in motion/emphasis, secondary = neutral.
+const ENTITY_MAPS = {
+  severity: {
+    critical: "danger",
+    high: "danger",
+    medium: "warning",
+    low: "info",
+  },
+  risk: {
+    overdue: "danger",
+    critical: "danger",
+    high: "warning",
+    medium: "info",
+    low: "success",
+    healthy: "success",
+  },
+  vehicle: {
+    available: "success",
+    "in use": "warning",
+    "under maintenance": "warning",
+    "out of service": "danger",
+    "registration expired": "danger",
+    reserved: "info",
+  },
+  driver: {
+    available: "success",
+    "on trip": "warning",
+    "off duty": "secondary",
+    "on leave": "info",
+    suspended: "danger",
+    inactive: "secondary",
+  },
+  trip: {
+    pending: "warning",
+    approved: "default",
+    dispatched: "info",
+    "driver accepted": "info",
+    "trip started": "info",
+    "en route": "primary",
+    arrived: "success",
+    completed: "success",
+    cancelled: "secondary",
+    scheduled: "info",
+  },
+  // Shared by two tables with different vocabularies: `vehiclereservations`
+  // (migration 012: Pending/Approved/Dispatched/Completed/Cancelled/Rejected)
+  // and `transportation_requests` (migration 016: the 9-status lifecycle).
+  // Both are kept here so one badge renders either.
+  reservation: {
+    pending: "warning",
+    "under review": "info",
+    approved: "success",
+    rejected: "danger",
+    confirmed: "success",
+    scheduled: "info",
+    assigned: "info",
+    dispatched: "info",
+    "checked out": "info",
+    "in progress": "primary",
+    returned: "success",
+    completed: "success",
+    cancelled: "secondary",
+  },
+  fuel: {
+    pending: "warning",
+    approved: "success",
+    rejected: "danger",
+    completed: "success",
+  },
+  dispatch: {
+    scheduled: "info",
+    "in progress": "warning",
+    completed: "success",
+    cancelled: "secondary",
+  },
+  route: {
+    active: "success",
+    inactive: "secondary",
+  },
+  maintenance: {
+    scheduled: "info",
+    "in progress": "warning",
+    completed: "success",
+    done: "success",
+    cancelled: "secondary",
+  },
+  // Reservation priority is Urgent/High/Medium/Low (migration 016). Maintenance
+  // still uses Critical/High/Normal/Low, so both vocabularies live here.
+  priority: {
+    urgent: "danger",
+    critical: "danger",
+    high: "warning",
+    medium: "secondary",
+    normal: "secondary",
+    low: "info",
+  },
+};
+
+function lookup(status, entity) {
+  if (!status) return null;
+  const map = ENTITY_MAPS[entity];
+  if (map) return map[String(status).toLowerCase()];
+  return null;
+}
+
+export function statusVariant(status, entity) {
+  return lookup(status, entity) || "outline";
+}
+
+// Static (compile-safe) chip classes per tone for icon rails/boxes.
+export const TONE_CHIP = {
+  primary: "bg-primary/10 text-primary",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  danger: "bg-danger/10 text-danger",
+  info: "bg-info/10 text-info",
+  secondary: "bg-hover text-foreground-secondary",
+};
+
+export const TONE_TEXT = {
+  primary: "text-primary",
+  success: "text-success",
+  warning: "text-warning",
+  danger: "text-danger",
+  info: "text-info",
+  secondary: "text-foreground-secondary",
+};
+
+export const TONE_RAIL = {
+  primary: "border-l-primary",
+  success: "border-l-success",
+  warning: "border-l-warning",
+  danger: "border-l-danger",
+  info: "border-l-info",
+};
+
+export function severityTone(severity) {
+  const variant = lookup(severity, "severity");
+  if (variant === "danger") return "danger";
+  if (variant === "warning") return "warning";
+  if (variant === "info") return "info";
+  return "info";
+}
+
+export function StatusBadge({ status, entity, severity, className, label, ...props }) {
+  const value = severity ?? status;
+  const variant = severity
+    ? lookup(severity, "severity")
+    : lookup(status, entity);
+  return (
+    <Badge
+      variant={variant || "outline"}
+      className={cn(severity && "capitalize", className)}
+      {...props}
+    >
+      {label ?? value}
+    </Badge>
+  );
+}

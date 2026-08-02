@@ -18,7 +18,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
     const entry = { ...body, status: "pending" };
     const k = Object.keys(entry), v = Object.values(entry);

@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req, { params }) {
   try {
@@ -29,9 +30,26 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
     const body = await parseBody(req);
+
+    const errors = validateBody(body, {
+      vehicle_id: { type: "id", label: "Vehicle" },
+      driver_id: { type: "id", label: "Driver" },
+      fuel_date: { type: "date", label: "Fuel date" },
+      liters: { type: "positiveNumber", label: "Liters" },
+      cost_per_liter: { type: "positiveNumber", label: "Cost per liter" },
+      total_cost: { type: "positiveNumber", label: "Total cost" },
+      odometer_reading: { type: "positiveNumber", label: "Odometer reading" },
+      station_name: { maxLength: 255, label: "Station name" },
+      status: { maxLength: 30, label: "Status" },
+      notes: { maxLength: 500, label: "Notes" },
+      rejected_reason: { maxLength: 500, label: "Rejection reason" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
 
     // Prevent updating fuel_record_id
     delete body.fuel_record_id;
@@ -57,7 +75,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin"]);
     const { id } = await params;
 
     const { rows } = await query(

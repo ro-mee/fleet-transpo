@@ -2,12 +2,14 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getActiveTrips } from "@/services/trip.service";
-import { formatTime, formatDistance, formatDuration } from "@/lib/utils";
-import { Truck, Users, MapPin, Navigation, Clock, ArrowRight } from "lucide-react";
+import { formatTime } from "@/lib/utils";
+import { Truck, Users, MapPin, Navigation, Clock, Route } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function ActiveTripsPage() {
@@ -22,42 +24,41 @@ export default function ActiveTripsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Active Trips</h1>
-          <p className="text-foreground-secondary mt-1">{activeTrips.length} trip(s) currently in progress</p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => router.push("/tracking/live-map")}>
-          <MapPin className="w-4 h-4 mr-2" />
-          Live Map
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Active Trips"
+        description={`${activeTrips.length} trip${activeTrips.length === 1 ? "" : "s"} currently in progress — updated every 15 seconds.`}
+        actions={
+          <Button variant="outline" size="sm" onClick={() => router.push("/tracking/live-map")}>
+            <MapPin className="w-4 h-4 mr-2" />
+            Live Map
+          </Button>
+        }
+      />
 
       {activeTrips.length === 0 ? (
-        <Card className="border-0 shadow-sm">
-          <CardContent className="py-12 text-center text-foreground-muted">
-            <Navigation className="w-12 h-12 mx-auto mb-4 opacity-50" />
-            <p className="text-lg font-medium">No active trips</p>
-            <p className="text-sm mt-1">All trips are completed or pending dispatch</p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          icon={Route}
+          title="No active trips"
+          description="All trips are completed or pending dispatch. Trips show here the moment a dispatch goes in progress."
+        />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {activeTrips.map((trip) => (
             <Card
               key={trip.trip_id}
-              className="cursor-pointer"
+              className="cursor-pointer transition-all hover:shadow-md"
               onClick={() => router.push(`/trips/${trip.trip_id}`)}
             >
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
+                    <span className="w-2 h-2 rounded-full bg-warning animate-pulse" />
                     <span className="text-sm font-medium text-foreground">
                       Trip #{trip.trip_id}
                     </span>
                   </div>
-                  <Badge variant="success" className="text-xs">{trip.trip_status}</Badge>
+                  <StatusBadge status={trip.trip_status} entity="trip" />
                 </div>
 
                 <div className="grid grid-cols-2 gap-y-3 gap-x-4 text-sm">
@@ -91,12 +92,6 @@ export default function ActiveTripsPage() {
                       <span className="text-foreground-secondary">{trip.distance} km</span>
                     </div>
                   )}
-                </div>
-
-                <div className="mt-3 pt-3 border-t border-border">
-                  <Button variant="ghost" size="sm" className="w-full text-xs">
-                    View Details <ArrowRight className="w-3 h-3 ml-1" />
-                  </Button>
                 </div>
               </CardContent>
             </Card>

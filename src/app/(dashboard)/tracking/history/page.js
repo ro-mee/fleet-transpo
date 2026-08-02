@@ -4,11 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { DataTable } from "@/components/tables/data-table";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getTrips } from "@/services/trip.service";
 import { formatDateTime } from "@/lib/utils";
-import { MapPin, Clock, Truck, Navigation } from "lucide-react";
+import { MapPin, Clock, Truck, Navigation, Route } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 const columnHelper = createColumnHelper();
@@ -23,6 +25,8 @@ export default function TrackingHistoryPage() {
       return all || [];
     },
   });
+
+  const totalDistance = trips.reduce((s, t) => s + (t.distance || 0), 0);
 
   const columns = useMemo(
     () => [
@@ -72,7 +76,7 @@ export default function TrackingHistoryPage() {
       }),
       columnHelper.accessor("trip_status", {
         header: "Status",
-        cell: (info) => <Badge variant="success">{info.getValue()}</Badge>,
+        cell: (info) => <StatusBadge status={info.getValue()} entity="trip" />,
       }),
     ],
     []
@@ -80,27 +84,25 @@ export default function TrackingHistoryPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Route History</h1>
-        <p className="text-foreground-secondary mt-1">Completed trip routes and tracking data</p>
-      </div>
+      <PageHeader
+        eyebrow="Tracking"
+        title="Route History"
+        description="Completed trip routes and tracking data."
+      />
 
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: "Completed Trips", count: trips.length, icon: Navigation, color: "text-success", bg: "bg-success/10" },
-          { label: "Total Distance", count: `${trips.reduce((s, t) => s + (t.distance || 0), 0).toFixed(0)} km`, icon: MapPin, color: "text-primary", bg: "bg-primary/10" },
-          { label: "Avg Trip Distance", count: trips.length ? `${(trips.reduce((s, t) => s + (t.distance || 0), 0) / trips.length).toFixed(1)} km` : "—", icon: MapPin, color: "text-warning", bg: "bg-warning/10" },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-0 shadow-sm">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${stat.bg}`}><stat.icon className={`w-5 h-5 ${stat.color}`} /></div>
-              <div><p className="text-2xl font-bold text-foreground">{stat.count}</p><p className="text-xs text-foreground-muted">{stat.label}</p></div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <StatGrid cols={3}>
+        <StatCard icon={Navigation} label="Completed Trips" value={trips.length} tone="success" />
+        <StatCard icon={MapPin} label="Total Distance" value={`${totalDistance.toFixed(0)} km`} tone="primary" />
+        <StatCard icon={Route} label="Avg Trip Distance" value={trips.length ? `${(totalDistance / trips.length).toFixed(1)} km` : "—"} tone="warning" />
+      </StatGrid>
 
-      <DataTable columns={columns} data={trips} searchPlaceholder="Search route history..." />
+      <DataTable
+        columns={columns}
+        data={trips}
+        searchPlaceholder="Search route history..."
+        emptyTitle="No completed trips found"
+        emptyDescription="Completed trips will appear here with their route and tracking data."
+      />
     </div>
   );
 }

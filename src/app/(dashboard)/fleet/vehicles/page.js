@@ -4,19 +4,23 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FleetTable } from "@/components/tables/fleet-table";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { StatsGridSkeleton } from "@/components/ui/skeleton";
+import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
+import { useVehicleStatusSync } from "@/hooks/use-vehicle-status-sync";
 
 export default function FleetVehiclesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useVehicleStatusSync();
   const router = useRouter();
   const [filters, setFilters] = useState({});
 
-  const { data: vehicles = [] } = useQuery({
+  const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => getVehicles(),
   });
@@ -27,106 +31,67 @@ export default function FleetVehiclesPage() {
     inUse: vehicles.filter((v) => v.vehicle_status === "In Use").length,
     maintenance: vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length,
     outOfService: vehicles.filter((v) => v.vehicle_status === "Out of Service").length,
+    registrationExpired: vehicles.filter((v) => v.vehicle_status === "Registration Expired").length,
   };
+
+  const statCards = [
+    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet" },
+    { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch" },
+    { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road" },
+    { label: "Under Maintenance", value: stats.maintenance, icon: Wrench, tone: "warning", trend: "being serviced" },
+    { label: "Out of Service", value: stats.outOfService, icon: AlertTriangle, tone: "danger", trend: "cannot be dispatched" },
+    { label: "Registration Expired", value: stats.registrationExpired, icon: AlertTriangle, tone: "danger", trend: "renew immediately" },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Fleet Vehicles</h1>
-          <p className="text-foreground-secondary mt-1">Manage and monitor your vehicle fleet</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="h-10"
-            onClick={() => exportToCSV(vehicles, "fleet-vehicles", [
-              { label: "Plate Number", key: "plate_number" },
-              { label: "Vehicle Name", key: "vehicle_name" },
-              { label: "Manufacturer", key: "manufacturer" },
-              { label: "Model", key: "model" },
-              { label: "Year", key: "year" },
-              { label: "Color", key: "color" },
-              { label: "Fuel Type", key: "fuel_type" },
-              { label: "Seating Capacity", key: "seating_capacity" },
-              { label: "Mileage (km)", key: "mileage" },
-              { label: "Fuel Level (%)", key: "fuel_level" },
-              { label: "Status", key: "vehicle_status" },
-              { label: "Category", accessor: (v) => v.vehiclecategories?.category_name || "" },
-              { label: "Purchase Price", key: "purchase_price" },
-              { label: "Insurance Expiry", key: "insurance_expiry" },
-              { label: "Registration Expiry", key: "registration_expiry" },
-            ])}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button onClick={() => router.push("/fleet/vehicles/new")} className="h-10">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Vehicle
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Fleet Vehicles"
+        description="Manage and monitor your vehicle fleet."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() => exportToCSV(vehicles, "fleet-vehicles", [
+                { label: "Plate Number", key: "plate_number" },
+                { label: "Vehicle Name", key: "vehicle_name" },
+                { label: "Manufacturer", key: "manufacturer" },
+                { label: "Model", key: "model" },
+                { label: "Year", key: "year" },
+                { label: "Color", key: "color" },
+                { label: "Fuel Type", key: "fuel_type" },
+                { label: "Seating Capacity", key: "seating_capacity" },
+                { label: "Mileage (km)", key: "mileage" },
+                { label: "Fuel Level (%)", key: "fuel_level" },
+                { label: "Status", key: "vehicle_status" },
+                { label: "Category", accessor: (v) => v.vehiclecategories?.category_name || "" },
+                { label: "Purchase Price", key: "purchase_price" },
+                { label: "Insurance Expiry", key: "insurance_expiry" },
+              ])}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+            <Button onClick={() => router.push("/fleet/vehicles/new")}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Vehicle
+            </Button>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <Card className="">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10">
-              <Truck className="w-5 h-5 text-primary" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.total}</p>
-              <p className="text-xs text-foreground-muted">Total Vehicles</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-success/10">
-              <CheckCircle2 className="w-5 h-5 text-success" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.available}</p>
-              <p className="text-xs text-foreground-muted">Available</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-warning/10">
-              <Truck className="w-5 h-5 text-warning" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.inUse}</p>
-              <p className="text-xs text-foreground-muted">In Use</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-danger/10">
-              <Wrench className="w-5 h-5 text-danger" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.maintenance}</p>
-              <p className="text-xs text-foreground-muted">Maintenance</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-red-100">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-foreground">{stats.outOfService}</p>
-              <p className="text-xs text-foreground-muted">Out of Service</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {isLoading ? (
+        <StatsGridSkeleton count={6} />
+      ) : (
+        <StatGrid cols={6}>
+          {statCards.map((card) => (
+            <StatCard key={card.label} {...card} />
+          ))}
+        </StatGrid>
+      )}
 
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex flex-wrap items-center gap-2">
         <Button
           variant={!filters.status ? "default" : "outline"}
           size="sm"
@@ -154,6 +119,13 @@ export default function FleetVehiclesPage() {
           onClick={() => setFilters({ status: "Under Maintenance" })}
         >
           Maintenance
+        </Button>
+        <Button
+          variant={filters.status === "Registration Expired" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFilters({ status: "Registration Expired" })}
+        >
+          Registration Expired
         </Button>
       </div>
 

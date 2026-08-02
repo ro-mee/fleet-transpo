@@ -1,22 +1,53 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { MapPin } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { MapPin, Route as RouteIcon, ChevronRight } from "lucide-react";
+import Link from "next/link";
+
+const modules = [
+  {
+    title: "Live Map",
+    description: "See every active vehicle on a real-time GPS map.",
+    href: "/tracking/live-map",
+    icon: MapPin,
+  },
+  {
+    title: "Route History",
+    description: "Review completed trips and their route tracking data.",
+    href: "/tracking/history",
+    icon: RouteIcon,
+  },
+];
 
 export default function TrackingPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">GPS Tracking</h1>
-        <p className="text-foreground-secondary mt-1">Real-time vehicle tracking</p>
+      <PageHeader
+        eyebrow="Tracking"
+        title="GPS Tracking"
+        description="Real-time vehicle location and trip tracking."
+      />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
+        {modules.map((m) => (
+          <Link key={m.href} href={m.href} className="group">
+            <Card className="border-0 shadow-sm transition-all hover:shadow-md">
+              <CardContent className="p-6 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <m.icon className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <p className="text-base font-semibold text-foreground">{m.title}</p>
+                    <p className="text-sm text-foreground-secondary mt-0.5">{m.description}</p>
+                  </div>
+                </div>
+                <ChevronRight className="w-5 h-5 text-foreground-muted transition-transform group-hover:translate-x-0.5" />
+              </CardContent>
+            </Card>
+          </Link>
+        ))}
       </div>
-      <Card className="border-0 shadow-sm">
-        <CardContent className="py-12 text-center text-foreground-muted">
-          <MapPin className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p className="text-lg font-medium">Tracking module coming soon</p>
-          <p className="text-sm mt-1">Live map, route history, and geofences</p>
-        </CardContent>
-      </Card>
     </div>
   );
 }

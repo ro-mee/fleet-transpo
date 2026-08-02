@@ -2,7 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getFuelAnalytics } from "@/services/fuel.service";
 import { formatCurrency } from "@/lib/utils";
 import { Fuel, TrendingDown, DollarSign, BarChart3, PieChart, TrendingUp } from "lucide-react";
@@ -19,49 +22,18 @@ export default function FuelAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Fuel Analytics</h1>
-        <p className="text-foreground-secondary mt-1">Fuel consumption trends and cost analysis</p>
-      </div>
+      <PageHeader
+        eyebrow="Insights"
+        title="Fuel Analytics"
+        description="Fuel consumption trends and cost analysis across the fleet."
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-xl bg-primary/10"><Fuel className="w-5 h-5 text-primary" /></div>
-            </div>
-            <p className="text-2xl font-bold">{a.totalLiters.toFixed(1)} L</p>
-            <p className="text-xs text-foreground-muted">Total Fuel Consumed</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-xl bg-success/10"><DollarSign className="w-5 h-5 text-success" /></div>
-            </div>
-            <p className="text-2xl font-bold">{formatCurrency(a.totalCost)}</p>
-            <p className="text-xs text-foreground-muted">Total Cost</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-xl bg-warning/10"><TrendingDown className="w-5 h-5 text-warning" /></div>
-            </div>
-            <p className="text-2xl font-bold">{formatCurrency(a.avgCostPerLiter)}</p>
-            <p className="text-xs text-foreground-muted">Avg Cost / Liter</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3 mb-2">
-              <div className="p-2 rounded-xl bg-info/10"><BarChart3 className="w-5 h-5 text-info" /></div>
-            </div>
-            <p className="text-2xl font-bold">{a.recordsCount}</p>
-            <p className="text-xs text-foreground-muted">Total Transactions</p>
-          </CardContent>
-        </Card>
-      </div>
+      <StatGrid cols={4}>
+        <StatCard icon={Fuel} label="Total Fuel Consumed" value={`${a.totalLiters.toFixed(1)} L`} tone="primary" />
+        <StatCard icon={DollarSign} label="Total Cost" value={formatCurrency(a.totalCost)} tone="success" />
+        <StatCard icon={TrendingDown} label="Avg Cost / Liter" value={formatCurrency(a.avgCostPerLiter)} tone="warning" />
+        <StatCard icon={BarChart3} label="Total Transactions" value={a.recordsCount} tone="info" />
+      </StatGrid>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-0 shadow-sm">
@@ -72,22 +44,25 @@ export default function FuelAnalyticsPage() {
           </CardHeader>
           <CardContent>
             {a.byFuelType.length === 0 ? (
-              <p className="text-sm text-foreground-muted text-center py-8">No data available</p>
+              <EmptyState
+                icon={Fuel}
+                title="No data available"
+                description="Approved fuel records will populate this breakdown."
+              />
             ) : (
               <div className="space-y-4">
                 {a.byFuelType.map((ft) => {
                   const pct = a.totalLiters ? Math.round(((ft.liters || 0) / a.totalLiters) * 100) : 0;
                   return (
                     <div key={ft.fuel_type}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="font-medium text-foreground">{ft.fuel_type}</span>
-                        <span className="text-foreground-muted">{(ft.liters || 0).toFixed(1)} L ({pct}%)</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2.5">
-                        <div className="bg-primary h-2.5 rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
+                      <ProgressBar
+                        tone="primary"
+                        value={pct}
+                        label={ft.fuel_type}
+                        valueLabel={`${(ft.liters || 0).toFixed(1)} L (${pct}%)`}
+                      />
                       <div className="flex justify-between text-xs text-foreground-muted mt-1">
-                        <span>{formatCurrency(ft.cost)}</span>
+                        <span className="font-data">{formatCurrency(ft.cost)}</span>
                         <span>{ft.count} transactions</span>
                       </div>
                     </div>
@@ -106,7 +81,11 @@ export default function FuelAnalyticsPage() {
           </CardHeader>
           <CardContent>
             {a.monthlyTrend.length === 0 ? (
-              <p className="text-sm text-foreground-muted text-center py-8">No data available</p>
+              <EmptyState
+                icon={BarChart3}
+                title="No data available"
+                description="Approved fuel records will populate this monthly trend."
+              />
             ) : (
               <div className="space-y-4">
                 {a.monthlyTrend.map((m) => {
@@ -114,15 +93,14 @@ export default function FuelAnalyticsPage() {
                   const pct = maxCost ? Math.round((m.cost / maxCost) * 100) : 0;
                   return (
                     <div key={m.month}>
-                      <div className="flex justify-between text-sm mb-1">
-                        <span className="font-medium text-foreground">{m.month}</span>
-                        <span className="text-foreground-muted">{formatCurrency(m.cost)}</span>
-                      </div>
-                      <div className="w-full bg-muted rounded-full h-2.5">
-                        <div className="bg-success h-2.5 rounded-full" style={{ width: `${pct}%` }} />
-                      </div>
+                      <ProgressBar
+                        tone="success"
+                        value={pct}
+                        label={m.month}
+                        valueLabel={formatCurrency(m.cost)}
+                      />
                       <div className="flex justify-between text-xs text-foreground-muted mt-1">
-                        <span>{m.liters.toFixed(1)} L</span>
+                        <span className="font-data">{m.liters.toFixed(1)} L</span>
                         <span>{m.count} transactions</span>
                       </div>
                     </div>

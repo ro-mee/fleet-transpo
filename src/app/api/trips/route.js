@@ -23,7 +23,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
     const k = Object.keys(body), v = Object.values(body);
     const { rows } = await query(`INSERT INTO trips (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);

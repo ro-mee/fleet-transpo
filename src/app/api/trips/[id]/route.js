@@ -16,7 +16,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const id = (await params).id;
     const body = await parseBody(req);
     const k = Object.keys(body), v = Object.values(body);

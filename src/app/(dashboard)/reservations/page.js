@@ -1,209 +1,317 @@
 "use client";
 
-import { useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/tables/data-table";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { getReservations, cancelReservation } from "@/services/reservation.service";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { getTransportRequests } from "@/services/transport.service";
+import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { formatDate, formatTime } from "@/lib/utils";
-import { Plus, Download, CalendarCheck, Calendar, Clock, Users, XCircle, Building } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
-import { toast } from "@/components/ui/toast";
+import {
+  Building,
+  Calendar,
+  CalendarCheck,
+  CarFront,
+  Clock,
+  Download,
+  FlaskConical,
+  Inbox,
+  MapPin,
+  TriangleAlert,
+  UserCheck,
+  Users,
+} from "lucide-react";
 
-const statusVariant = {
-  Pending: "warning",
-  Approved: "success",
-  Rejected: "danger",
-  Cancelled: "secondary",
-  Completed: "default",
-};
-
+// Phase 17 — the reservation list, repointed to transportation_requests.
+//
+// This page used to list `vehiclereservations` while /reservations/queue listed
+// `transportation_requests` — two entities under one module, so the same booking
+// appeared in both places with different ids, different statuses, and a row click
+// that led to a detail page keyed on the other table's primary key. The request IS
+// the reservation now; vehiclereservations is a legacy FK target.
+//
+// The split with the queue is deliberate and is about audience, not data. The queue
+// is the dispatcher's workspace: cards, conflict chips, AI badges, auto-refresh,
+// scoped to what still needs a decision. This is the register — every request in
+// every state, dense, sortable, exportable, for the "where is booking 4471" and
+// end-of-month questions. Same rows, different job.
+//
+// Read-only by design. Actions live on the queue and the detail page, where the
+// lifecycle endpoints validate each hop and write the timeline; a cancel button
+// wired straight into a table row is how the old page ended up writing status
+// without an event.
 const columnHelper = createColumnHelper();
+
+// Statuses that still need someone to do something, for the "Open" stat.
+const OPEN_STATUSES = [L.PENDING, L.UNDER_REVIEW, L.APPROVED, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS];
+
+const isSameLocalDay = (value, day) => {
+  if (!value) return false;
+  const d = new Date(value);
+  return (
+    d.getFullYear() === day.getFullYear() &&
+    d.getMonth() === day.getMonth() &&
+    d.getDate() === day.getDate()
+  );
+};
 
 export default function ReservationsPage() {
   const router = useRouter();
-  const queryClient = useQueryClient();
 
-  const { data: reservations = [], isLoading } = useQuery({
-    queryKey: ["reservations"],
-    queryFn: () => getReservations(),
-  });
-
-  const cancelMutation = useMutation({
-    mutationFn: cancelReservation,
-    onSuccess: () => {
-      toast.success("Reservation cancelled");
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
-    },
-    onError: (err) => toast.error(err.message),
+  const {
+    data: requests = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey: ["transport-requests", "list"],
+    queryFn: () => getTransportRequests(),
   });
 
   const columns = useMemo(
     () => [
-      columnHelper.accessor("reservation_id", {
-        header: "ID",
+      columnHelper.accessor("reservation_number", {
+        header: "Reservation",
         cell: (info) => (
-          <span className="font-data text-xs text-foreground-muted">#{info.getValue()}</span>
+          <div>
+            <p className="font-data text-xs font-medium text-foreground">
+              {info.getValue() || `#${info.row.original.request_id}`}
+            </p>
+            {info.row.original.booking_reference && (
+              <p className="text-xs text-foreground-muted">{info.row.original.booking_reference}</p>
+            )}
+          </div>
         ),
       }),
       columnHelper.accessor("guest_name", {
         header: "Guest",
         cell: (info) => (
           <div>
-            <p className="font-medium text-foreground">{info.getValue() || "Walk-in"}</p>
-            {info.row.original.guest_phone && (
-              <p className="text-xs text-foreground-muted">{info.row.original.guest_phone}</p>
-            )}
+            <p className="font-medium text-foreground">{info.getValue() || "—"}</p>
+            <p className="text-xs text-foreground-muted">{info.row.original.source_system}</p>
           </div>
         ),
       }),
       columnHelper.accessor("pickup_location", {
+        header: "Route",
+        cell: (info) => (
+          <div className="max-w-[220px]">
+            <p className="flex items-center gap-1.5 truncate text-sm text-foreground-secondary">
+              <MapPin className="h-3.5 w-3.5 shrink-0 text-danger" />
+              {info.getValue()}
+            </p>
+            {info.row.original.dropoff_location && (
+              <p className="flex items-center gap-1.5 truncate text-sm text-foreground-secondary">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-success" />
+                {info.row.original.dropoff_location}
+              </p>
+            )}
+          </div>
+        ),
+      }),
+      // pickup_datetime is a single timestamptz — date and time are split across
+      // two columns for scanning, but both read the same field. The old page had
+      // separate reservation_date and pickup_time columns; they no longer exist.
+      columnHelper.accessor("pickup_datetime", {
         header: "Pickup",
         cell: (info) => (
-          <span className="text-foreground-secondary text-sm">{info.getValue()}</span>
-        ),
-      }),
-      columnHelper.accessor("reservation_date", {
-        header: "Date",
-        cell: (info) => (
-          <div className="flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-foreground-muted" />
-            <span className="text-foreground-secondary">{formatDate(info.getValue())}</span>
+          <div>
+            <p className="flex items-center gap-1.5 text-foreground-secondary">
+              <Calendar className="h-3.5 w-3.5 text-foreground-muted" />
+              {formatDate(info.getValue())}
+            </p>
+            <p className="flex items-center gap-1.5 text-foreground-secondary">
+              <Clock className="h-3.5 w-3.5 text-foreground-muted" />
+              {formatTime(info.getValue())}
+            </p>
           </div>
         ),
       }),
-      columnHelper.accessor("pickup_time", {
-        header: "Time",
-        cell: (info) => (
-          <div className="flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-foreground-muted" />
-            <span className="text-foreground-secondary">{formatTime(`1970-01-01T${info.getValue()}`)}</span>
-          </div>
-        ),
+      columnHelper.accessor("priority", {
+        header: "Priority",
+        cell: (info) => <StatusBadge status={info.getValue()} entity="priority" />,
       }),
       columnHelper.accessor("service_types", {
         header: "Service",
         cell: (info) => {
           const st = info.getValue();
-          return st ? (
-            <div className="flex items-center gap-1.5">
-              <Building className="w-3.5 h-3.5 text-foreground-muted" />
-              <span className="text-foreground-secondary text-sm">{st.service_name}</span>
-            </div>
+          const r = info.row.original;
+          // Resolved category before Booking's raw wording, so this column agrees
+          // with the queue cards (which show the category). Falling straight
+          // through to the raw string showed "Executive SUV" here and
+          // "VIP Guest Transport" there for the same request.
+          const label =
+            st?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type;
+          return label ? (
+            <span className="flex items-center gap-1.5 text-sm text-foreground-secondary">
+              <Building className="h-3.5 w-3.5 text-foreground-muted" />
+              {label}
+            </span>
           ) : (
-            <span className="text-foreground-muted text-sm">—</span>
+            <span className="text-sm text-foreground-muted">—</span>
+          );
+        },
+      }),
+      // One column for both halves of the assignment: a request is dispatchable
+      // only when it has each, so showing them together makes the gap obvious.
+      columnHelper.display({
+        id: "assignment",
+        header: "Assigned",
+        cell: (info) => {
+          const r = info.row.original;
+          const driver = r.drivers;
+          return (
+            <div className="space-y-0.5 text-sm">
+              <p className="flex items-center gap-1.5">
+                <CarFront className="h-3.5 w-3.5 text-foreground-muted" />
+                <span className={r.vehicles ? "text-foreground-secondary" : "text-foreground-muted"}>
+                  {r.vehicles?.plate_number || "—"}
+                </span>
+              </p>
+              <p className="flex items-center gap-1.5">
+                <UserCheck className="h-3.5 w-3.5 text-foreground-muted" />
+                <span className={driver ? "text-foreground-secondary" : "text-foreground-muted"}>
+                  {driver ? [driver.first_name, driver.last_name].filter(Boolean).join(" ") : "—"}
+                </span>
+              </p>
+            </div>
           );
         },
       }),
       columnHelper.accessor("passenger_count", {
         header: "Pax",
         cell: (info) => (
-          <div className="flex items-center gap-1">
-            <Users className="w-3.5 h-3.5 text-foreground-muted" />
-            <span className="text-foreground-secondary">{info.getValue() || 1}</span>
-          </div>
+          <span className="flex items-center gap-1 text-foreground-secondary">
+            <Users className="h-3.5 w-3.5 text-foreground-muted" />
+            {info.getValue() || 1}
+          </span>
         ),
       }),
-      columnHelper.accessor("status", {
+      columnHelper.accessor("fleet_status", {
         header: "Status",
-        cell: (info) => (
-          <Badge variant={statusVariant[info.getValue()] || "default"}>
-            {info.getValue()}
-          </Badge>
-        ),
-      }),
-      columnHelper.display({
-        id: "actions",
-        header: "",
-        cell: (info) => (
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            {info.row.original.status === "Pending" && (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="w-8 h-8 text-danger"
-                onClick={() => cancelMutation.mutate(info.row.original.reservation_id)}
-              >
-                <XCircle className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-        ),
+        cell: (info) => <StatusBadge status={info.getValue()} entity="reservation" />,
       }),
     ],
-    [cancelMutation]
+    []
   );
 
-  const stats = [
-    { label: "Total", count: reservations.length, icon: CalendarCheck, color: "text-primary", bg: "bg-primary/10" },
-    { label: "Pending", count: reservations.filter((r) => r.status === "Pending").length, icon: Clock, color: "text-warning", bg: "bg-warning/10" },
-    { label: "Approved", count: reservations.filter((r) => r.status === "Approved").length, icon: CalendarCheck, color: "text-success", bg: "bg-success/10" },
-    { label: "Today", count: reservations.filter((r) => r.reservation_date === new Date().toISOString().split("T")[0]).length, icon: Calendar, color: "text-primary", bg: "bg-primary/10" },
+  const today = new Date();
+  const statCards = [
+    {
+      label: "Total Requests",
+      value: requests.length,
+      icon: CalendarCheck,
+      tone: "primary",
+      trend: "all time",
+    },
+    {
+      label: "Open",
+      value: requests.filter((r) => OPEN_STATUSES.includes(r.fleet_status)).length,
+      icon: Clock,
+      tone: "warning",
+      trend: "still in the pipeline",
+    },
+    {
+      label: "Awaiting Review",
+      value: requests.filter((r) => r.fleet_status === L.PENDING || r.fleet_status === L.UNDER_REVIEW).length,
+      icon: Inbox,
+      tone: "info",
+      trend: "needs a decision",
+    },
+    {
+      label: "Pickups Today",
+      value: requests.filter((r) => isSameLocalDay(r.pickup_datetime, today)).length,
+      icon: Calendar,
+      tone: "success",
+      trend: "scheduled today",
+    },
   ];
+
+  if (isError) {
+    return (
+      <EmptyState
+        icon={TriangleAlert}
+        title="Could not load reservations"
+        description={error?.message || "Something went wrong reading the request register."}
+        action={<Button onClick={() => refetch()}>Try again</Button>}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Reservations</h1>
-          <p className="text-foreground-secondary mt-1">Manage vehicle reservations</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="h-10"
-            onClick={() => exportToCSV(reservations, "reservations", [
-              { label: "ID", key: "reservation_id" },
-              { label: "Guest Name", key: "guest_name" },
-              { label: "Guest Phone", key: "guest_phone" },
-              { label: "Pickup Location", key: "pickup_location" },
-              { label: "Dropoff Location", key: "dropoff_location" },
-              { label: "Date", key: "reservation_date" },
-              { label: "Pickup Time", key: "pickup_time" },
-              { label: "Return Time", key: "estimated_return_time" },
-              { label: "Passengers", key: "passenger_count" },
-              { label: "Service", accessor: (r) => r.service_types?.service_name || "" },
-              { label: "Status", key: "status" },
-              { label: "Purpose", key: "purpose" },
-            ])}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button onClick={() => router.push("/reservations/new")} className="h-10">
-            <Plus className="w-4 h-4 mr-2" />
-            New Reservation
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Reservations"
+        description="Every transportation request received from Booking, in every state."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              disabled={!requests.length}
+              onClick={() =>
+                exportToCSV(requests, "reservations", [
+                  { label: "Reservation No.", key: "reservation_number" },
+                  { label: "Booking Reference", key: "booking_reference" },
+                  { label: "Source", key: "source_system" },
+                  { label: "Guest", key: "guest_name" },
+                  { label: "Pickup Location", key: "pickup_location" },
+                  { label: "Dropoff Location", key: "dropoff_location" },
+                  { label: "Pickup", key: "pickup_datetime" },
+                  { label: "Passengers", key: "passenger_count" },
+                  { label: "Priority", key: "priority" },
+                  { label: "Service", accessor: (r) => r.service_types?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type || "" },
+                  { label: "Vehicle", accessor: (r) => r.vehicles?.plate_number || "" },
+                  {
+                    label: "Driver",
+                    accessor: (r) =>
+                      r.drivers ? [r.drivers.first_name, r.drivers.last_name].filter(Boolean).join(" ") : "",
+                  },
+                  { label: "Est. Distance (km)", key: "estimated_distance" },
+                  { label: "Est. Duration (min)", key: "estimated_duration" },
+                  { label: "Fleet Status", key: "fleet_status" },
+                  { label: "Booking Status", key: "booking_status" },
+                  { label: "Reason", key: "status_reason" },
+                ])
+              }
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Export
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/reservations/queue")}>
+              <Inbox className="mr-2 h-4 w-4" />
+              Request Queue
+            </Button>
+            <Button onClick={() => router.push("/reservations/new")}>
+              <FlaskConical className="mr-2 h-4 w-4" />
+              Inject Mock Request
+            </Button>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <Card key={stat.label} className="border-0 shadow-sm">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${stat.bg}`}>
-                <stat.icon className={`w-5 h-5 ${stat.color}`} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{stat.count}</p>
-                <p className="text-xs text-foreground-muted">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
+      <StatGrid cols={4}>
+        {statCards.map((card) => (
+          <StatCard key={card.label} {...card} />
         ))}
-      </div>
+      </StatGrid>
 
       <DataTable
         columns={columns}
-        data={reservations}
-        searchPlaceholder="Search by guest name, pickup, or booking ID..."
-        onRowClick={(row) => router.push(`/reservations/${row.reservation_id}`)}
+        data={requests}
+        isLoading={isLoading}
+        searchPlaceholder="Search by reservation no., guest, booking reference, or location..."
+        emptyTitle="No transportation requests yet"
+        emptyDescription="Requests arrive from the Booking subsystem. Use Inject Mock Request to create one in development."
+        onRowClick={(row) => router.push(`/reservations/${row.request_id}`)}
       />
     </div>
   );

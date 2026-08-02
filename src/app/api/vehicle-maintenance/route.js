@@ -1,5 +1,25 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject, maintenanceDateRule } from "@/lib/validation/helpers";
+
+const maintenanceWriteSchema = {
+  vehicle_id: { required: true, type: "id", label: "Vehicle" },
+  maintenance_date: { required: true, type: "date", label: "Maintenance date", validate: maintenanceDateRule },
+  maintenance_type: { required: true, maxLength: 50, label: "Type" },
+  description: { maxLength: 1000, label: "Description" },
+  cost: { type: "positiveNumber", label: "Cost" },
+  status: { maxLength: 30, label: "Status" },
+  mileage_at_service: { type: "positiveNumber", label: "Mileage at service" },
+  next_service_date: { type: "date", label: "Next service date" },
+  next_service_mileage: { type: "positiveNumber", label: "Next service mileage" },
+  technician_name: { maxLength: 255, label: "Technician name" },
+  service_center_name: { maxLength: 255, label: "Service center" },
+  assigned_to: { type: "id", label: "Assigned technician" },
+  priority: { maxLength: 30, label: "Priority" },
+  completed_date: { type: "date", label: "Completed date" },
+  completed_by: { type: "id", label: "Completed by" },
+  notes: { maxLength: 1000, label: "Notes" },
+};
 
 export async function GET(req) {
   try {
@@ -34,8 +54,14 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
     const body = await parseBody(req);
+
+    const errors = validateBody(body, maintenanceWriteSchema);
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
     const keys = Object.keys(body);
     const values = Object.values(body);
     const cols = keys.join(", ");

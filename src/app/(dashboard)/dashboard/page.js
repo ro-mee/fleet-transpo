@@ -1,54 +1,110 @@
 "use client";
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { getAiInsights } from "@/services/ai.service";
+import dynamic from "next/dynamic";
 import Link from "next/link";
+import { getAiInsights } from "@/services/ai.service";
+import { getVehicles } from "@/services/vehicle.service";
+import { getDriverStats } from "@/services/driver.service";
+import { getTrips, getActiveTrips, getLatestLocations } from "@/services/trip.service";
+import { getReservations } from "@/services/reservation.service";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { StatsGridSkeleton, CardSkeleton } from "@/components/ui/skeleton";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+} from "recharts";
 import {
   Truck,
+  CheckCircle2,
+  Wrench,
   Users,
+  Navigation,
   CalendarCheck,
   Send,
-  Fuel,
-  DollarSign,
-  Wrench,
-  Activity,
   TrendingUp,
-  AlertTriangle,
   MapPin,
-  Clock,
+  BarChart3,
+  Activity,
 } from "lucide-react";
 
-const kpis = [
-  { label: "Total Vehicles", value: "24", icon: Truck, trend: "+2 this month" },
-  { label: "Available", value: "8", icon: Truck, trend: "33% of fleet" },
-  { label: "In Use", value: "12", icon: Activity, trend: "50% utilization" },
-  { label: "Under Maintenance", value: "4", icon: Wrench, trend: "2 due this week" },
-  { label: "Drivers on Duty", value: "10", icon: Users, trend: "5 available" },
-  { label: "Active Trips", value: "7", icon: Send, trend: "3 high priority" },
-  { label: "Pending Reservations", value: "5", icon: CalendarCheck, trend: "2 for today" },
-  { label: "Dispatches Today", value: "15", icon: Send, trend: "92% on time" },
-  { label: "Fuel Consumed", value: "185 L", icon: Fuel, trend: "₱12,450 today" },
-  { label: "Transport Cost", value: "₱45.2K", icon: DollarSign, trend: "+8% vs last week" },
-  { label: "Maintenance Due", value: "3", icon: Clock, trend: "₱18K estimated" },
-  { label: "Fleet Utilization", value: "76%", icon: TrendingUp, trend: "+5% improvement" },
-];
+const tooltipStyle = {
+  background: "var(--sf)",
+  border: "1px solid var(--br)",
+  borderRadius: "8px",
+  fontSize: "12px",
+};
 
-const recentActivities = [
-  { time: "2 min ago", action: "Trip #142 completed", detail: "Vehicle PNG-123 · 45 km", type: "success" },
-  { time: "15 min ago", action: "Reservation #89 approved", detail: "Guest: Maria Santos · Sedan", type: "info" },
-  { time: "32 min ago", action: "Maintenance completed", detail: "Vehicle ABC-456 · Oil Change", type: "info" },
-  { time: "1 hr ago", action: "Driver checked in", detail: "Juan Dela Cruz · QR Code", type: "success" },
-  { time: "2 hrs ago", action: "Fuel request approved", detail: "Vehicle XYZ-789 · 50L Diesel", type: "warning" },
-  { time: "3 hrs ago", action: "New reservation created", detail: "Pickup: Lobby · 2:00 PM", type: "info" },
-];
+const PIE_COLORS = {
+  Available: "#10b981",
+  "In Use": "#f59e0b",
+  "Under Maintenance": "#ef4444",
+  "Out of Service": "#ef4444",
+  "Registration Expired": "#ef4444",
+  Unknown: "#9ca3af",
+};
+
+const LiveLocationsMap = dynamic(
+  () => import("@/components/maps/live-locations-map"),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-hover" /> }
+);
+
+function isToday(dateString) {
+  if (!dateString) return false;
+  const d = new Date(dateString);
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
 
 export default function DashboardPage() {
   const { employee } = useAuth();
 
-  const { data: insightsData, isLoading: isLoadingInsights } = useQuery({
+  const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery({
+    queryKey: ["vehicles"],
+    queryFn: () => getVehicles(),
+  });
+  const { data: driverStats = {} } = useQuery({
+    queryKey: ["driver-stats"],
+    queryFn: () => getDriverStats(),
+  });
+  const { data: trips = [] } = useQuery({
+    queryKey: ["trips"],
+    queryFn: () => getTrips(),
+  });
+  const { data: activeTrips = [] } = useQuery({
+    queryKey: ["trips-active"],
+    queryFn: () => getActiveTrips(),
+    refetchInterval: 30000,
+  });
+  const { data: reservations = [] } = useQuery({
+    queryKey: ["reservations"],
+    queryFn: () => getReservations(),
+  });
+  const { data: locations = [], isLoading: locationsLoading } = useQuery({
+    queryKey: ["latest-locations"],
+    queryFn: () => getLatestLocations(),
+    refetchInterval: 15000,
+  });
+  const { data: insightsData, isLoading: insightsLoading } = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),
   });
@@ -59,61 +115,176 @@ export default function DashboardPage() {
     ? insightsData.insights
     : [];
 
+  const available = vehicles.filter((v) => v.vehicle_status === "Available").length;
+  const maintenance = vehicles.filter(
+    (v) => v.vehicle_status === "Under Maintenance"
+  ).length;
+  const utilization = vehicles.length ? Math.round((available / vehicles.length) * 100) : 0;
+  const tripsToday = trips.filter((t) => isToday(t.start_time) || isToday(t.created_at)).length;
+  const pendingReservations = reservations.filter(
+    (r) => (r.status || r.reservation_status || "").toLowerCase() === "pending"
+  ).length;
+
+  const kpis = [
+    { label: "Total Vehicles", value: vehicles.length, icon: Truck, tone: "primary", trend: `${available} currently available` },
+    { label: "Available", value: available, icon: CheckCircle2, tone: "success", trend: `${utilization}% of fleet` },
+    { label: "Under Maintenance", value: maintenance, icon: Wrench, tone: "warning", trend: "needs attention" },
+    { label: "Drivers on Duty", value: driverStats.total ?? 0, icon: Users, tone: "primary", trend: `${driverStats.available ?? 0} available` },
+    { label: "Active Trips", value: activeTrips.length, icon: Navigation, tone: "info", trend: "in motion now" },
+    { label: "Pending Reservations", value: pendingReservations, icon: CalendarCheck, tone: "warning", trend: "awaiting confirmation" },
+    { label: "Trips Today", value: tripsToday, icon: Send, tone: "primary", trend: "started or scheduled today" },
+    { label: "Fleet Utilization", value: `${utilization}%`, icon: TrendingUp, tone: "success", trend: "of fleet ready" },
+  ];
+
+  const reservationTrend = useMemo(() => {
+    const days = 14;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const map = new Map();
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      map.set(key, {
+        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        count: 0,
+      });
+    }
+    reservations.forEach((r) => {
+      const created = r.created_at || r.reservation_date;
+      if (!created) return;
+      const key = created.slice(0, 10);
+      if (map.has(key)) map.get(key).count += 1;
+    });
+    return Array.from(map.values());
+  }, [reservations]);
+
+  const fleetStatus = useMemo(() => {
+    const counts = {};
+    vehicles.forEach((v) => {
+      const s = v.vehicle_status || "Unknown";
+      counts[s] = (counts[s] || 0) + 1;
+    });
+    return Object.entries(counts).map(([name, value]) => ({ name, value }));
+  }, [vehicles]);
+
+  const activities = useMemo(() => {
+    return [...trips]
+      .filter((t) => t.start_time || t.created_at)
+      .sort((a, b) => new Date(b.start_time || b.created_at) - new Date(a.start_time || a.created_at))
+      .slice(0, 6)
+      .map((t) => {
+        const plate = t.vehicles?.plate_number || "—";
+        const driver = t.drivers?.employees
+          ? `${t.drivers.employees.first_name} ${t.drivers.employees.last_name}`
+          : null;
+        const status = (t.trip_status || "").toLowerCase();
+        let action;
+        let type = "info";
+        if (status === "completed") { action = `Trip #${t.trip_id} completed`; type = "success"; }
+        else if (status === "cancelled") { action = `Trip #${t.trip_id} cancelled`; type = "danger"; }
+        else if (status === "en route") { action = `Trip #${t.trip_id} en route`; type = "warning"; }
+        else if (status) { action = `Trip #${t.trip_id} ${status}`; }
+        else { action = `Trip #${t.trip_id} scheduled`; }
+        const detail = driver ? `${plate} · ${driver}` : plate;
+        const start = t.start_time || t.created_at;
+        const time = start
+          ? new Date(start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+          : "—";
+        return { action, detail, time, type };
+      });
+  }, [trips]);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Dashboard</h1>
-          <p className="text-sm text-foreground-secondary mt-0.5">
-            Welcome back{employee ? `, ${employee.first_name}` : ""}
-          </p>
-        </div>
-        <Badge variant="outline" className="h-7 gap-1.5 text-xs">
-          <span className="w-1.5 h-1.5 rounded-full bg-success" />
-          System Online
-        </Badge>
-      </div>
+      <PageHeader
+        title="Dashboard"
+        description={`Welcome back${employee ? `, ${employee.first_name}` : ""}. Here's what's happening across your fleet.`}
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-        {kpis.map((kpi) => (
-          <Card key={kpi.label}>
-            <CardContent className="p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <kpi.icon className="w-3.5 h-3.5 text-foreground-muted" />
-                <span className="text-[11px] text-foreground-secondary">{kpi.label}</span>
-              </div>
-              <p className="text-xl font-semibold text-foreground font-data">{kpi.value}</p>
-              <p className="text-[11px] text-foreground-muted mt-0.5">{kpi.trend}</p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {vehiclesLoading ? (
+        <StatsGridSkeleton count={8} />
+      ) : (
+        <StatGrid cols={4}>
+          {kpis.map((kpi) => (
+            <StatCard key={kpi.label} {...kpi} />
+          ))}
+        </StatGrid>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle>Reservation Trends</CardTitle>
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-foreground-muted" /> Reservation Trends
+            </CardTitle>
+            <span className="text-xs text-foreground-muted">last 14 days</span>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px] flex items-center justify-center bg-hover rounded-md text-foreground-muted">
-              <div className="text-center">
-                <BarChart3Icon />
-                <p className="text-sm mt-2">Chart loaded with Recharts</p>
-              </div>
+            <div className="h-[260px]">
+              {reservationTrend.some((d) => d.count > 0) ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={reservationTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.12} />
+                        <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Area type="monotone" dataKey="count" stroke="var(--primary)" strokeWidth={2} fill="url(#trendFill)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  icon={BarChart3}
+                  title="No reservations yet"
+                  description="Reservation activity will appear here once bookings start coming in."
+                  className="py-16"
+                />
+              )}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle>Fleet Status</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-foreground-muted" /> Fleet Status
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[260px] flex items-center justify-center bg-hover rounded-md text-foreground-muted">
-              <div className="text-center">
-                <DonutIcon />
-                <p className="text-sm mt-2">Chart loaded with Recharts</p>
-              </div>
+            <div className="h-[260px]">
+              {fleetStatus.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={fleetStatus}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={80}
+                      paddingAngle={2}
+                    >
+                      {fleetStatus.map((entry) => (
+                        <Cell key={entry.name} fill={PIE_COLORS[entry.name] || "#9ca3af"} />
+                      ))}
+                    </Pie>
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  icon={Activity}
+                  title="No vehicles tracked"
+                  description="Add vehicles to your fleet to see status distribution."
+                  className="py-16"
+                />
+              )}
             </div>
           </CardContent>
         </Card>
@@ -122,18 +293,27 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2">
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Live GPS Tracking</CardTitle>
-            <Badge variant="success" className="gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-success" />
-              7 active
-            </Badge>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-foreground-muted" /> Live GPS Tracking
+            </CardTitle>
+            {!locationsLoading && (
+              <span className="text-xs text-foreground-muted">
+                {locations?.length ?? 0} vehicles on the map
+              </span>
+            )}
           </CardHeader>
           <CardContent>
-            <div className="h-[280px] bg-hover rounded-md flex items-center justify-center text-foreground-muted">
-              <div className="text-center">
-                <MapPin className="w-6 h-6 mx-auto mb-2" />
-                <p className="text-sm">Interactive map loaded with React Leaflet</p>
-              </div>
+            <div className="h-[280px] rounded-lg overflow-hidden bg-hover">
+              {locations?.length ? (
+                <LiveLocationsMap locations={locations} />
+              ) : (
+                <EmptyState
+                  icon={MapPin}
+                  title="No live locations"
+                  description="Vehicle positions will appear here when active trips report GPS coordinates."
+                  className="h-full py-16"
+                />
+              )}
             </div>
           </CardContent>
         </Card>
@@ -143,21 +323,37 @@ export default function DashboardPage() {
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="divide-y divide-border">
-              {recentActivities.map((activity, i) => (
-                <div key={i} className="flex items-start gap-3 px-5 py-3 hover:bg-hover transition-colors">
-                  <div className={`mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
-                    activity.type === "success" ? "bg-success" :
-                    activity.type === "warning" ? "bg-warning" : "bg-info"
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">{activity.action}</p>
-                    <p className="text-xs text-foreground-muted">{activity.detail}</p>
+            {activities.length ? (
+              <div className="divide-y divide-border">
+                {activities.map((activity, i) => (
+                  <div key={i} className="flex items-start gap-3 px-5 py-3 hover:bg-hover transition-colors">
+                    <span
+                      className={`mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                        activity.type === "success"
+                          ? "bg-success"
+                          : activity.type === "warning"
+                          ? "bg-warning"
+                          : activity.type === "danger"
+                          ? "bg-danger"
+                          : "bg-info"
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-foreground">{activity.action}</p>
+                      <p className="text-xs text-foreground-muted truncate">{activity.detail}</p>
+                    </div>
+                    <span className="text-[11px] text-foreground-muted flex-shrink-0">{activity.time}</span>
                   </div>
-                  <span className="text-[11px] text-foreground-muted flex-shrink-0">{activity.time}</span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState
+                icon={Activity}
+                title="No activity yet"
+                description="Recent trips will show up here as they start."
+                className="py-16"
+              />
+            )}
           </CardContent>
         </Card>
       </div>
@@ -167,39 +363,37 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-foreground-muted" />
             <CardTitle>AI Operational Insights</CardTitle>
-            <Badge variant="outline" className="text-[10px]">AI</Badge>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {isLoadingInsights ? (
-              [1, 2, 3].map((n) => (
-                <div key={n} className="p-4 rounded-xl border border-border bg-surface animate-pulse space-y-3">
-                  <div className="h-4 bg-muted/60 rounded w-1/3" />
-                  <div className="h-4 bg-muted/40 rounded w-3/4" />
-                  <div className="h-3 bg-muted/30 rounded w-full" />
-                </div>
-              ))
+            {insightsLoading ? (
+              [1, 2, 3].map((n) => <CardSkeleton key={n} />)
             ) : insights.length === 0 ? (
-              <p className="text-xs text-foreground-muted py-4 col-span-full text-center">
-                No active AI operational insights. System operates within optimal metrics.
-              </p>
+              <EmptyState
+                icon={TrendingUp}
+                title="No active insights"
+                description="The fleet is operating within optimal metrics. Anomalies will surface here as they're detected."
+                className="col-span-full"
+              />
             ) : (
-              insights.slice(0, 3).map((insight, i) => {
+              insights.slice(0, 3).map((insight) => {
                 const sev = (insight.severity || insight.impact || "low").toLowerCase();
                 return (
-                  <Link key={i} href="/ai/insights" className="block p-4 rounded-xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all">
+                  <Link
+                    key={insight.insight_id || insight.title}
+                    href="/ai/insights"
+                    className="block p-4 rounded-lg border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all"
+                  >
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className={`w-3.5 h-3.5 ${sev === "high" || sev === "critical" ? "text-danger" : sev === "medium" ? "text-warning" : "text-primary"}`} />
-                      <Badge variant={sev === "high" || sev === "critical" ? "danger" : sev === "medium" ? "warning" : "default"} className="text-[10px] capitalize">
-                        {sev} Priority
-                      </Badge>
+                      <StatusBadge severity={sev} className="text-[11px]" />
+                      <span className="text-xs text-foreground-muted">{insight.category || "General"}</span>
                     </div>
                     <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
-                    <p className="text-xs text-foreground-secondary mb-2 leading-relaxed">{insight.summary || insight.description}</p>
-                    <p className="text-[10px] font-medium text-primary mt-1 flex items-center gap-1">
-                      View in AI Insights →
+                    <p className="text-xs text-foreground-secondary leading-relaxed">
+                      {insight.summary || insight.description}
                     </p>
+                    <p className="text-xs font-medium text-primary mt-2">View in AI Insights →</p>
                   </Link>
                 );
               })
@@ -208,24 +402,5 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function BarChart3Icon() {
-  return (
-    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <rect x="3" y="12" width="4" height="8" rx="1" />
-      <rect x="10" y="6" width="4" height="14" rx="1" />
-      <rect x="17" y="9" width="4" height="11" rx="1" />
-    </svg>
-  );
-}
-
-function DonutIcon() {
-  return (
-    <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <circle cx="12" cy="12" r="10" />
-      <circle cx="12" cy="12" r="4" fill="currentColor" />
-    </svg>
   );
 }

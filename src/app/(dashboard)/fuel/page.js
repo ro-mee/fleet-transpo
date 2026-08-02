@@ -11,6 +11,8 @@ import { DataTable } from "@/components/tables/data-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { getFuelRecords, updateFuelRecord, updateFuelStatus, deleteFuelRecord } from "@/services/fuel.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import {
@@ -33,6 +35,21 @@ import {
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { LIMITS } from "@/lib/validation";
+
+const rejectSchema = {
+  rejection_reason: { required: true, maxLength: 500, label: "Rejection reason" },
+};
+
+const editFuelSchema = {
+  station_name: { required: true, maxLength: 255, label: "Gas station name" },
+  liters: { required: true, type: "positiveNumber", min: LIMITS.FUEL_MIN, label: "Liters" },
+  amount: { required: true, type: "positiveNumber", min: LIMITS.FUEL_MIN, label: "Total amount" },
+  price_per_liter: { type: "positiveNumber", label: "Unit price" },
+  odometer: { type: "positiveNumber", label: "Odometer" },
+  fuel_date: { required: true, type: "date", label: "Refuel date" },
+};
 
 export default function FuelPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -51,6 +68,11 @@ export default function FuelPage() {
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
   const [targetRejectRecord, setTargetRejectRecord] = useState(null);
+  const { validate: validateReject, fieldError: rejectFieldError, registerField: registerRejectField, resetValidation: resetRejectValidation } = useFormValidation(rejectSchema);
+
+  // Edit dialog state
+  const [editForm, setEditForm] = useState({});
+  const { validate: validateEdit, fieldError: editFieldError, registerField: registerEditField } = useFormValidation(editFuelSchema);
 
   // Fetch fuel records
   const { data: records = [], isLoading } = useQuery({
@@ -122,7 +144,7 @@ export default function FuelPage() {
       label: "Vehicle",
       render: (_, row) => (
         <div>
-          <p className="font-semibold text-foreground font-mono">{row.vehicles?.plate_number || "N/A"}</p>
+          <p className="font-semibold text-foreground font-data">{row.vehicles?.plate_number || "N/A"}</p>
           <p className="text-xs text-foreground-secondary">{row.vehicles?.vehicle_name || "—"}</p>
         </div>
       ),
@@ -183,7 +205,17 @@ export default function FuelPage() {
           </Tooltip>
 
           <Tooltip content="Edit Details">
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground-secondary" onClick={() => setEditRecord(row)}>
+            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground-secondary" onClick={() => {
+              setEditRecord(row);
+              setEditForm({
+                station_name: row.station_name || "",
+                liters: row.liters != null ? String(row.liters) : "",
+                amount: row.amount != null ? String(row.amount) : "",
+                price_per_liter: row.price_per_liter != null ? String(row.price_per_liter) : "",
+                odometer: row.odometer != null ? String(row.odometer) : "",
+                fuel_date: row.fuel_date ? row.fuel_date.substring(0, 10) : "",
+              });
+            }}>
               <Pencil className="w-3.5 h-3.5" />
             </Button>
           </Tooltip>
@@ -210,114 +242,93 @@ export default function FuelPage() {
   const openRejectPrompt = (rec) => {
     setTargetRejectRecord(rec);
     setRejectionReason("");
+    resetRejectValidation();
     setRejectDialogOpen(true);
   };
 
   const handleRejectConfirm = () => {
     if (!targetRejectRecord) return;
-    updateStatusMutation.mutate({
-      id: targetRejectRecord.fuel_record_id,
-      status: "Rejected",
-      rejection_reason: rejectionReason.trim() || "Receipt mismatch or unreadable scan",
-    });
+    const isValid = validateReject(
+      { rejection_reason: rejectionReason },
+      {
+        onSuccess: () => {
+          updateStatusMutation.mutate({
+            id: targetRejectRecord.fuel_record_id,
+            status: "Rejected",
+            rejection_reason: rejectionReason.trim(),
+          });
+        },
+      }
+    );
+    if (!isValid) return;
   };
 
   const handleEditSubmit = (e) => {
     e.preventDefault();
     if (!editRecord) return;
-    const form = e.target;
     const data = {
-      station_name: form.station_name.value,
-      liters: Number(form.liters.value),
-      amount: Number(form.amount.value),
-      price_per_liter: form.price_per_liter.value ? Number(form.price_per_liter.value) : null,
-      odometer: form.odometer.value ? Number(form.odometer.value) : null,
-      fuel_date: form.fuel_date.value,
+      station_name: editForm.station_name,
+      liters: editForm.liters,
+      amount: editForm.amount,
+      price_per_liter: editForm.price_per_liter || null,
+      odometer: editForm.odometer || null,
+      fuel_date: editForm.fuel_date,
     };
-    editMutation.mutate({ id: editRecord.fuel_record_id, data });
+    const isValid = validateEdit(data, {
+      onSuccess: () => {
+        editMutation.mutate({
+          id: editRecord.fuel_record_id,
+          data: {
+            station_name: data.station_name,
+            liters: Number(data.liters),
+            amount: Number(data.amount),
+            price_per_liter: data.price_per_liter ? Number(data.price_per_liter) : null,
+            odometer: data.odometer ? Number(data.odometer) : null,
+            fuel_date: data.fuel_date,
+          },
+        });
+      },
+    });
+    if (!isValid) return;
   };
 
   return (
     <div className="space-y-6">
       {/* ── Page Header ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Fuel Receipt Audit & Review</h1>
-          <p className="text-foreground-secondary mt-1">
-            Verify scanned driver fuel receipts and approve or reject claims for hotel fleet operations
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          className="h-10"
-          onClick={() =>
-            exportToCSV(records, "fuel-receipt-claims", [
-              { label: "Refuel Date", key: "fuel_date" },
-              { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
-              { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
-              { label: "Station", key: "station_name" },
-              { label: "Fuel Type", key: "fuel_type" },
-              { label: "Liters", key: "liters" },
-              { label: "Total Amount", key: "amount" },
-              { label: "Status", key: "status" },
-            ])
-          }
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Fuel Receipt Audit & Review"
+        description="Verify scanned driver fuel receipts and approve or reject claims for hotel fleet operations."
+        actions={
+          <Button
+            variant="outline"
+            className="h-10"
+            onClick={() =>
+              exportToCSV(records, "fuel-receipt-claims", [
+                { label: "Refuel Date", key: "fuel_date" },
+                { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
+                { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
+                { label: "Station", key: "station_name" },
+                { label: "Fuel Type", key: "fuel_type" },
+                { label: "Liters", key: "liters" },
+                { label: "Total Amount", key: "amount" },
+                { label: "Status", key: "status" },
+              ])
+            }
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+        }
+      />
 
       {/* ── Metric Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-foreground">{records.length}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Total Driver Submissions</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-primary/10">
-              <Fuel className="w-5 h-5 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-warning">{pendingCount}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Pending Audit</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-warning/10">
-              <Clock className="w-5 h-5 text-warning" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-success">{formatCurrency(totalCost)}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Approved Fuel Expense</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-success/10">
-              <CheckCircle2 className="w-5 h-5 text-success" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-danger">{rejectedCount}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Flagged / Rejected</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-danger/10">
-              <XCircle className="w-5 h-5 text-danger" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <StatGrid cols={4}>
+        <StatCard icon={Fuel} label="Total Submissions" value={records.length} tone="primary" />
+        <StatCard icon={Clock} label="Pending Audit" value={pendingCount} tone="warning" />
+        <StatCard icon={CheckCircle2} label="Approved Expense" value={formatCurrency(totalCost)} tone="success" />
+        <StatCard icon={XCircle} label="Flagged / Rejected" value={rejectedCount} tone="danger" />
+      </StatGrid>
 
       {/* ── Status Filter Tabs & Table ── */}
       <Card className="border-0 shadow-sm">
@@ -462,17 +473,17 @@ export default function FuelPage() {
 
                     <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border text-center">
                       <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[10px] text-foreground-muted block">Liters (L)</span>
+                        <span className="text-[11px] text-foreground-muted block">Liters (L)</span>
                         <span className="text-sm font-bold text-foreground">{inspectRecord.liters || 0} L</span>
                       </div>
                       <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[10px] text-foreground-muted block">Price / Liter</span>
+                        <span className="text-[11px] text-foreground-muted block">Price / Liter</span>
                         <span className="text-sm font-bold text-foreground">
                           {inspectRecord.price_per_liter ? formatCurrency(inspectRecord.price_per_liter) : "—"}
                         </span>
                       </div>
                       <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[10px] text-foreground-muted block">Total Claim</span>
+                        <span className="text-[11px] text-foreground-muted block">Total Claim</span>
                         <span className="text-sm font-bold text-success">{formatCurrency(inspectRecord.amount)}</span>
                       </div>
                     </div>
@@ -536,8 +547,13 @@ export default function FuelPage() {
                 id="rejection_reason"
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
+                ref={registerRejectField("rejection_reason")}
+                invalid={rejectFieldError("rejection_reason").invalid}
                 placeholder="e.g. Receipt amount does not match total claimed"
               />
+              {rejectFieldError("rejection_reason").error && (
+                <p className="text-xs text-danger">{rejectFieldError("rejection_reason").error}</p>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -554,7 +570,12 @@ export default function FuelPage() {
       </Dialog>
 
       {/* ── EDIT FUEL LOG DIALOG ── */}
-      <Dialog open={!!editRecord} onOpenChange={() => setEditRecord(null)}>
+      <Dialog
+        open={!!editRecord}
+        onOpenChange={(open) => {
+          if (!open) setEditRecord(null);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-semibold">Edit Fuel Log Details</DialogTitle>
@@ -564,30 +585,73 @@ export default function FuelPage() {
             <form onSubmit={handleEditSubmit} className="space-y-4 pt-2">
               <div className="space-y-1.5">
                 <Label htmlFor="station_name">Gas Station Name</Label>
-                <Input id="station_name" defaultValue={editRecord.station_name || ""} placeholder="Petron, Shell, Caltex..." />
+                <Input
+                  id="station_name"
+                  defaultValue={editRecord.station_name || ""}
+                  onChange={(e) => setEditForm({ ...editForm, station_name: e.target.value })}
+                  ref={registerEditField("station_name")}
+                  invalid={editFieldError("station_name").invalid}
+                  placeholder="Petron, Shell, Caltex..."
+                />
+                {editFieldError("station_name").error && <p className="text-xs text-danger">{editFieldError("station_name").error}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="liters">Liters (L) *</Label>
-                  <Input id="liters" type="number" step="0.01" defaultValue={editRecord.liters || ""} required />
+                  <Input
+                    id="liters"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editRecord.liters || ""}
+                    onChange={(e) => setEditForm({ ...editForm, liters: e.target.value })}
+                    ref={registerEditField("liters")}
+                    invalid={editFieldError("liters").invalid}
+                  />
+                  {editFieldError("liters").error && <p className="text-xs text-danger">{editFieldError("liters").error}</p>}
                 </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="amount">Total Amount (₱) *</Label>
-                  <Input id="amount" type="number" step="0.01" defaultValue={editRecord.amount || ""} required />
+                  <Input
+                    id="amount"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editRecord.amount || ""}
+                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                    ref={registerEditField("amount")}
+                    invalid={editFieldError("amount").invalid}
+                  />
+                  {editFieldError("amount").error && <p className="text-xs text-danger">{editFieldError("amount").error}</p>}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="price_per_liter">Unit Price (₱/L)</Label>
-                  <Input id="price_per_liter" type="number" step="0.01" defaultValue={editRecord.price_per_liter || ""} />
+                  <Input
+                    id="price_per_liter"
+                    type="number"
+                    step="0.01"
+                    defaultValue={editRecord.price_per_liter || ""}
+                    onChange={(e) => setEditForm({ ...editForm, price_per_liter: e.target.value })}
+                    ref={registerEditField("price_per_liter")}
+                    invalid={editFieldError("price_per_liter").invalid}
+                  />
+                  {editFieldError("price_per_liter").error && <p className="text-xs text-danger">{editFieldError("price_per_liter").error}</p>}
                 </div>
 
                 <div className="space-y-1.5">
                   <Label htmlFor="odometer">Odometer (km)</Label>
-                  <Input id="odometer" type="number" defaultValue={editRecord.odometer || ""} />
+                  <Input
+                    id="odometer"
+                    type="number"
+                    defaultValue={editRecord.odometer || ""}
+                    onChange={(e) => setEditForm({ ...editForm, odometer: e.target.value })}
+                    ref={registerEditField("odometer")}
+                    invalid={editFieldError("odometer").invalid}
+                  />
+                  {editFieldError("odometer").error && <p className="text-xs text-danger">{editFieldError("odometer").error}</p>}
                 </div>
               </div>
 
@@ -597,8 +661,11 @@ export default function FuelPage() {
                   id="fuel_date"
                   type="date"
                   defaultValue={editRecord.fuel_date ? editRecord.fuel_date.substring(0, 10) : ""}
-                  required
+                  onChange={(e) => setEditForm({ ...editForm, fuel_date: e.target.value })}
+                  ref={registerEditField("fuel_date")}
+                  invalid={editFieldError("fuel_date").invalid}
                 />
+                {editFieldError("fuel_date").error && <p className="text-xs text-danger">{editFieldError("fuel_date").error}</p>}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">

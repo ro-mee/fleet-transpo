@@ -3,49 +3,38 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DataTable } from "@/components/tables/data-table";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { getDrivers, getDriverStats, deleteDriver } from "@/services/driver.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
 import {
-  Users, UserCheck, UserX, Truck, Clock, Ban,
-  Download, Plus, Search, Filter, Eye, Pencil, Archive, RotateCcw
+  Users, UserCheck, Truck, Clock, UserX, Ban,
+  Download, Plus, Search, Eye, Pencil, Archive, RotateCcw
 } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
-
-const statusColors = {
-  Available: "success",
-  "On Trip": "warning",
-  "Off Duty": "secondary",
-  "On Leave": "info",
-  Suspended: "danger",
-  Inactive: "secondary",
-};
 
 export default function DriversPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  // Filters state
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [licenseClassFilter, setLicenseClassFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
 
-  // Queries
   const {
     data: drivers = [],
     isLoading,
-    isError,
-    error,
   } = useQuery({
     queryKey: ["drivers", statusFilter, licenseClassFilter, search],
     queryFn: () =>
@@ -61,7 +50,6 @@ export default function DriversPage() {
     queryFn: () => getDriverStats(),
   });
 
-  // Archive / Delete mutation
   const deleteMutation = useMutation({
     mutationFn: (id) => deleteDriver(id),
     onSuccess: () => {
@@ -76,17 +64,19 @@ export default function DriversPage() {
     },
   });
 
-  const s = stats || {
-    total: 0,
-    available: 0,
-    onTrip: 0,
-    offDuty: 0,
-    onLeave: 0,
-    suspended: 0,
-  };
+  const s = stats || { total: 0, available: 0, onTrip: 0, offDuty: 0, onLeave: 0, suspended: 0 };
+
+  const statCards = [
+    { label: "Total Drivers", value: s.total, icon: Users, tone: "primary", status: "all" },
+    { label: "Available", value: s.available, icon: UserCheck, tone: "success", status: "Available" },
+    { label: "On Trip", value: s.onTrip, icon: Truck, tone: "warning", status: "On Trip" },
+    { label: "Off Duty", value: s.offDuty, icon: Clock, tone: "secondary", status: "Off Duty" },
+    { label: "On Leave", value: s.onLeave, icon: UserX, tone: "info", status: "On Leave" },
+    { label: "Suspended", value: s.suspended, icon: Ban, tone: "danger", status: "Suspended" },
+  ];
 
   const columns = [
-    { key: "driver_id", label: "Driver ID", sortable: true },
+    { key: "driver_id", label: "Driver ID", sortable: true, render: (val) => <span className="font-data text-xs text-foreground-muted">{val}</span> },
     {
       key: "name",
       label: "Driver Name",
@@ -111,7 +101,7 @@ export default function DriversPage() {
       label: "License Info",
       render: (_, row) => (
         <div className="text-xs space-y-0.5">
-          <div className="font-mono font-medium">{row.license_number || "—"}</div>
+          <div className="font-data font-medium">{row.license_number || "—"}</div>
           <div className="text-foreground-secondary">
             Class {row.license_class || "—"} • {row.years_of_experience || 0} yrs exp
           </div>
@@ -122,9 +112,7 @@ export default function DriversPage() {
       key: "driver_status",
       label: "Status",
       sortable: true,
-      render: (val) => (
-        <Badge variant={statusColors[val] || "secondary"}>{val || "Available"}</Badge>
-      ),
+      render: (val) => <StatusBadge status={val || "Available"} entity="driver" />,
     },
     {
       key: "actions",
@@ -164,81 +152,57 @@ export default function DriversPage() {
 
   return (
     <div className="space-y-6">
-      {/* ── Page Header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Drivers Directory</h1>
-          <p className="text-foreground-secondary mt-1">
-            Manage operational drivers, license compliance, shifts, and performance metrics
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            className="h-10"
-            onClick={() =>
-              exportToCSV(drivers, "drivers", [
-                { label: "Driver ID", key: "driver_id" },
-                {
-                  label: "Name",
-                  accessor: (d) =>
-                    d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "",
-                },
-                { label: "Email", accessor: (d) => d.employees?.email || "" },
-                { label: "Phone", accessor: (d) => d.employees?.phone || "" },
-                { label: "License #", key: "license_number" },
-                { label: "License Expiry", key: "license_expiry" },
-                { label: "License Class", key: "license_class" },
-                { label: "Experience (yrs)", key: "years_of_experience" },
-                { label: "Status", key: "driver_status" },
-              ])
-            }
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button className="h-10" onClick={() => router.push("/drivers/new")}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Driver
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Drivers Directory"
+        description="Manage operational drivers, license compliance, shifts, and performance metrics."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              onClick={() =>
+                exportToCSV(drivers, "drivers", [
+                  { label: "Driver ID", key: "driver_id" },
+                  { label: "Name", accessor: (d) => (d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "") },
+                  { label: "Email", accessor: (d) => d.employees?.email || "" },
+                  { label: "Phone", accessor: (d) => d.employees?.phone || "" },
+                  { label: "License #", key: "license_number" },
+                  { label: "License Expiry", key: "license_expiry" },
+                  { label: "License Class", key: "license_class" },
+                  { label: "Experience (yrs)", key: "years_of_experience" },
+                  { label: "Status", key: "driver_status" },
+                ])
+              }
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+            <Button onClick={() => router.push("/drivers/new")}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Driver
+            </Button>
+          </>
+        }
+      />
 
-      {/* ── Stats Summary Grid ── */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        {[
-          { label: "Total Drivers", value: s.total, color: "primary", Icon: Users, status: "all" },
-          { label: "Available", value: s.available, color: "success", Icon: UserCheck, status: "Available" },
-          { label: "On Trip", value: s.onTrip, color: "warning", Icon: Truck, status: "On Trip" },
-          { label: "Off Duty", value: s.offDuty, color: "secondary", Icon: Clock, status: "Off Duty" },
-          { label: "On Leave", value: s.onLeave, color: "info", Icon: UserX, status: "On Leave" },
-          { label: "Suspended", value: s.suspended, color: "danger", Icon: Ban, status: "Suspended" },
-        ].map(({ label, value, color, Icon, status }) => (
-          <Card
-            key={label}
-            className={`border-0 shadow-sm transition-all cursor-pointer hover:shadow-md ${
-              statusFilter === status ? "ring-2 ring-primary bg-primary/5" : ""
-            }`}
-            onClick={() => setStatusFilter(status)}
-          >
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl bg-${color}/10`}>
-                <Icon className={`w-5 h-5 text-${color}`} />
-              </div>
-              <div>
-                <p className="text-xl font-bold text-foreground">{value}</p>
-                <p className="text-xs text-foreground-muted">{label}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {isLoading ? (
+        <StatsGridSkeleton count={6} />
+      ) : (
+        <StatGrid cols={6}>
+          {statCards.map((card) => (
+            <StatCard
+              key={card.label}
+              {...card}
+              active={statusFilter === card.status}
+              onClick={() => setStatusFilter(card.status)}
+            />
+          ))}
+        </StatGrid>
+      )}
 
-      {/* ── Filter Toolbar ── */}
-      <Card className="border-0 shadow-sm">
+      <Card>
         <CardContent className="p-4 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {/* Search */}
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-3 text-foreground-muted" />
               <Input
@@ -249,7 +213,6 @@ export default function DriversPage() {
               />
             </div>
 
-            {/* Status Filter */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="h-10">
                 <SelectValue placeholder="All Statuses" />
@@ -265,7 +228,6 @@ export default function DriversPage() {
               </SelectContent>
             </Select>
 
-            {/* License Class Filter */}
             <Select value={licenseClassFilter} onValueChange={setLicenseClassFilter}>
               <SelectTrigger className="h-10">
                 <SelectValue placeholder="All License Classes" />
@@ -300,20 +262,20 @@ export default function DriversPage() {
         </CardContent>
       </Card>
 
-      {/* ── Drivers Table ── */}
-      <Card className="border-0 shadow-sm">
+      <Card>
         <CardContent className="p-0">
           <DataTable
             columns={columns}
             data={drivers}
             isLoading={isLoading}
             searchable={false}
+            emptyTitle="No drivers found"
+            emptyDescription="Try adjusting your filters, or add a new driver to the directory."
             onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
           />
         </CardContent>
       </Card>
 
-      {/* ── Archive Confirmation Dialog ── */}
       <ConfirmDialog
         open={!!deletingId}
         onOpenChange={(open) => {

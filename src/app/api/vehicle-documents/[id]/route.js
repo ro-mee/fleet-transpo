@@ -3,7 +3,7 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const id = (await params).id;
     const body = await parseBody(req);
     const keys = Object.keys(body);
@@ -20,7 +20,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin"]);
     const id = (await params).id;
     const { rowCount } = await query(
       `UPDATE vehicledocuments SET deleted_at = NOW(), status = 'Inactive' WHERE document_id = $1`,

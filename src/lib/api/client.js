@@ -17,7 +17,15 @@ export async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Request failed (${res.status})`);
+    // Preserve the response alongside the message. Routes that fail with
+    // structured detail — notably the assign endpoint's 409, which returns the
+    // blocking `conflicts` a dispatcher must see before overriding — would
+    // otherwise have it discarded here. `.message` is unchanged, so every
+    // existing `err.message` call site keeps working.
+    const error = new Error(err.error || `Request failed (${res.status})`);
+    error.status = res.status;
+    error.data = err;
+    throw error;
   }
   return res.json();
 }

@@ -141,6 +141,14 @@ export function scoreDispatchDrivers(drivers = []) {
 }
 
 // 4. Fleet & Dashboard Insights Generation
+function makeInsight(insight) {
+  const id = insight.title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return { insight_id: id, ...insight };
+}
+
 export function generateFleetInsights(vehicles = [], drivers = [], trips = []) {
   const insights = [];
 
@@ -150,21 +158,21 @@ export function generateFleetInsights(vehicles = [], drivers = [], trips = []) {
 
   if (totalVehicles > 0) {
     const availPct = Math.round((availableVehicles / totalVehicles) * 100);
-    insights.push({
+    insights.push(makeInsight({
       title: "Fleet Availability",
       category: "Fleet Utilization",
       severity: availPct >= 70 ? "low" : "medium",
       summary: `Fleet operates at ${availPct}% active availability (${availableVehicles} of ${totalVehicles} vehicles ready for guest dispatch).`,
-    });
+    }));
   }
 
   if (maintenanceVehicles > 0) {
-    insights.push({
+    insights.push(makeInsight({
       title: "Maintenance Grounding Alert",
       category: "Maintenance",
       severity: "high",
       summary: `${maintenanceVehicles} vehicle(s) currently grounded for maintenance. Ensure rapid turnaround for upcoming transfers.`,
-    });
+    }));
   }
 
   const expiringDrivers = drivers.filter((d) => {
@@ -174,12 +182,12 @@ export function generateFleetInsights(vehicles = [], drivers = [], trips = []) {
   });
 
   if (expiringDrivers.length > 0) {
-    insights.push({
+    insights.push(makeInsight({
       title: "Driver License Renewal Reminder",
       category: "Driver Compliance",
       severity: "medium",
       summary: `${expiringDrivers.length} driver(s) have license expiration dates approaching within 45 days. Coordinate renewal.`,
-    });
+    }));
   }
 
   // LTO Registration Renewal Alerts (Plate-Based Rules)
@@ -188,26 +196,26 @@ export function generateFleetInsights(vehicles = [], drivers = [], trips = []) {
       const sched = calculateLtoRenewalSchedule(v.plate_number);
       if (sched.success) {
         if (sched.status === "Overdue") {
-          insights.push({
+          insights.push(makeInsight({
             title: `LTO Registration OVERDUE: ${v.plate_number}`,
             category: "LTO Compliance",
             severity: "high",
             summary: `Vehicle ${v.vehicle_name || v.plate_number} LTO registration renewal (${sched.formatted_window}) is OVERDUE! Ground or renew immediately.`,
-          });
+          }));
         } else if (sched.status === "Due This Week" || sched.status === "Due in 7 Days") {
-          insights.push({
+          insights.push(makeInsight({
             title: `LTO Renewal Due This Week: ${v.plate_number}`,
             category: "LTO Compliance",
             severity: "high",
             summary: `Vehicle ${v.vehicle_name || v.plate_number} is scheduled for LTO registration renewal this week (${sched.formatted_window}).`,
-          });
+          }));
         } else if (sched.status === "Due in 14 Days" || sched.status === "Upcoming") {
-          insights.push({
+          insights.push(makeInsight({
             title: `Upcoming LTO Registration Renewal: ${v.plate_number}`,
             category: "LTO Compliance",
             severity: "medium",
             summary: `Vehicle ${v.vehicle_name || v.plate_number} LTO renewal window is approaching on ${sched.formatted_window}.`,
-          });
+          }));
         }
       }
     }

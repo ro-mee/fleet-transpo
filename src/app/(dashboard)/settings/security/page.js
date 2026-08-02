@@ -5,8 +5,32 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/ui/toast";
 import { Shield, Key, Lock, Smartphone, History, Loader2, Eye, EyeOff } from "lucide-react";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { isPassword, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial } from "@/lib/validation/helpers";
+
+const securitySchema = {
+  currentPassword: { required: true, label: "Current password" },
+  newPassword: (value, values) => {
+    if (!value) return "New password is required.";
+    if (!isPassword(value)) {
+      if (value.length < 8) return "Password must be at least 8 characters.";
+      if (!hasPasswordLowercase(value)) return "Password must contain at least one lowercase letter.";
+      if (!hasPasswordUppercase(value)) return "Password must contain at least one uppercase letter.";
+      if (!hasPasswordNumber(value)) return "Password must contain at least one number.";
+      if (!hasPasswordSpecial(value)) return "Password must contain at least one special character.";
+    }
+    if (value === values.currentPassword) return "New password must be different from the current password.";
+    return null;
+  },
+  confirmPassword: (value, values) => {
+    if (!value) return "Confirm password is required.";
+    if (value !== values.newPassword) return "Passwords do not match.";
+    return null;
+  },
+};
 
 export default function SecurityPage() {
   const [form, setForm] = useState({
@@ -16,55 +40,49 @@ export default function SecurityPage() {
   });
   const [saving, setSaving] = useState(false);
   const [showPasswords, setShowPasswords] = useState(false);
+  const { validate, fieldError, registerField, resetValidation } = useFormValidation(securitySchema);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const validate = () => {
-    if (!form.currentPassword) return "Current password is required";
-    if (!form.newPassword) return "New password is required";
-    if (form.newPassword.length < 6) return "New password must be at least 6 characters";
-    if (form.newPassword === form.currentPassword) return "New password must be different from current password";
-    if (form.newPassword !== form.confirmPassword) return "Passwords do not match";
-    return null;
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const error = validate();
-    if (error) {
-      toast.error(error);
-      return;
-    }
 
-    setSaving(true);
-    try {
-      const res = await fetch("/api/auth/change-password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          currentPassword: form.currentPassword,
-          newPassword: form.newPassword,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update password");
-      toast.success("Password updated successfully");
-      setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setSaving(false);
-    }
+    const isValid = validate(form, {
+      onSuccess: async () => {
+        setSaving(true);
+        try {
+          const res = await fetch("/api/auth/change-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              currentPassword: form.currentPassword,
+              newPassword: form.newPassword,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to update password");
+          toast.success("Password updated successfully");
+          setForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+          resetValidation();
+        } catch (err) {
+          toast.error(err.message);
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+    if (!isValid) return;
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Security</h1>
-        <p className="text-foreground-secondary mt-1">Manage account security and authentication methods</p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="Security"
+        description="Manage account security and authentication methods."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-0 shadow-sm">
@@ -83,8 +101,10 @@ export default function SecurityPage() {
                     type={showPasswords ? "text" : "password"}
                     value={form.currentPassword}
                     onChange={handleChange}
-                    required
+                    ref={registerField("currentPassword")}
+                    invalid={fieldError("currentPassword").invalid}
                   />
+                  {fieldError("currentPassword").error && <p className="text-xs text-danger mt-1">{fieldError("currentPassword").error}</p>}
                 </div>
               </div>
               <div className="space-y-2">
@@ -94,9 +114,10 @@ export default function SecurityPage() {
                   type={showPasswords ? "text" : "password"}
                   value={form.newPassword}
                   onChange={handleChange}
-                  required
-                  minLength={6}
+                  ref={registerField("newPassword")}
+                  invalid={fieldError("newPassword").invalid}
                 />
+                {fieldError("newPassword").error && <p className="text-xs text-danger mt-1">{fieldError("newPassword").error}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm text-foreground-secondary">Confirm New Password</label>
@@ -105,9 +126,10 @@ export default function SecurityPage() {
                   type={showPasswords ? "text" : "password"}
                   value={form.confirmPassword}
                   onChange={handleChange}
-                  required
-                  minLength={6}
+                  ref={registerField("confirmPassword")}
+                  invalid={fieldError("confirmPassword").invalid}
                 />
+                {fieldError("confirmPassword").error && <p className="text-xs text-danger mt-1">{fieldError("confirmPassword").error}</p>}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -167,7 +189,7 @@ export default function SecurityPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium text-foreground">{session.device}</p>
-                    {session.current && <Badge variant="success" className="text-[9px]">Current</Badge>}
+                    {session.current && <Badge variant="success" className="text-[11px]">Current</Badge>}
                   </div>
                   <p className="text-xs text-foreground-muted">{session.location} · {session.ip}</p>
                 </div>

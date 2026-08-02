@@ -1,7 +1,8 @@
-import { parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function POST(req) {
   try {
+    await requireAuth(req, ["system_admin", "admin"]);
     const body = await parseBody(req);
     const { base_url, api_key } = body;
 
@@ -17,13 +18,16 @@ export async function POST(req) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 7000);
 
-    const response = await fetch(modelsUrl, {
-      method: "GET",
-      headers,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
+    let response;
+    try {
+      response = await fetch(modelsUrl, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
 
     if (!response.ok) {
       const errText = await response.text();
@@ -39,16 +43,8 @@ export async function POST(req) {
       models = data.models.map((m) => m.name || m.id).filter(Boolean);
     }
 
-    if (models.length === 0) {
-      models = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"];
-    }
-
     return ok({ models });
   } catch (e) {
-    // Fallback default models if fetch fails
-    return ok({
-      models: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo", "claude-3-5-sonnet", "gemini-1.5-flash"],
-      notice: `Direct fetch notice: ${e.message}`,
-    });
+    return handleError(e);
   }
 }

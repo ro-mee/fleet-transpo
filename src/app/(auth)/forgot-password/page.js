@@ -9,26 +9,37 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CarFront, ArrowLeft, MailCheck } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+
+const forgotSchema = {
+  email: { required: true, type: "email", label: "Email" },
+};
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
+  const { validate, fieldError, registerField } = useFormValidation(forgotSchema);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
 
-    try {
-      await resetPassword(email);
-      setSent(true);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    const isValid = validate({ email }, {
+      onSuccess: async () => {
+        setLoading(true);
+        try {
+          await resetPassword(email);
+          setSent(true);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+    if (!isValid) return;
   };
 
   if (sent) {
@@ -93,8 +104,10 @@ export default function ForgotPasswordPage() {
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
+                  ref={registerField("email")}
+                  invalid={fieldError("email").invalid}
                 />
+                {fieldError("email").error && <p className="text-xs text-danger">{fieldError("email").error}</p>}
               </div>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}

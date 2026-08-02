@@ -15,7 +15,7 @@ export async function GET(req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
     const body = await parseBody(req);
     const doc = { ...body, vehicle_id: +id };

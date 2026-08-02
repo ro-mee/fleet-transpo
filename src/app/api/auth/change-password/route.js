@@ -1,7 +1,8 @@
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
 import { auth } from "@/lib/auth";
-import { ok, err, handleError } from "@/lib/api/utils";
+import { ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function POST(req) {
   try {
@@ -10,11 +11,20 @@ export async function POST(req) {
       return err("Unauthorized", 401);
     }
 
-    const { currentPassword, newPassword } = await req.json();
+    const body = await req.json();
+    const { currentPassword, newPassword } = body;
     const employeeId = session.user.employeeId;
 
     if (!currentPassword || !newPassword) {
       return err("Current password and new password are required", 400);
+    }
+
+    const errors = validateBody(body, {
+      currentPassword: { required: true, label: "Current password" },
+      newPassword: { required: true, type: "password", label: "New password" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
     }
 
     if (newPassword.length < 6) {

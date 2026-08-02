@@ -7,6 +7,8 @@
   --color-foreground: var(--fg);
   --color-foreground-secondary: var(--fg-secondary);
   --color-foreground-muted: var(--fg-muted);
+  --color-primary: var(--primary);
+  --color-primary-bg: var(--primary-bg);
   --color-hover: var(--hv);
   --color-sidebar: var(--sb);
   --color-sidebar-hover: var(--sb-hv);
@@ -42,6 +44,8 @@
   --fg: #161616;
   --fg-secondary: #6b7280;
   --fg-muted: #9ca3af;
+  --primary: #161616;
+  --primary-bg: #f1f1f3;
   --hv: #f2f2f2;
   --sb: #ffffff;
   --sb-hv: #f2f2f2;
@@ -60,6 +64,8 @@
   --fg: #f5f5f5;
   --fg-secondary: #a3a3a3;
   --fg-muted: #6b7280;
+  --primary: #f5f5f5;
+  --primary-bg: #262626;
   --hv: #242424;
   --sb: #1a1a1a;
   --sb-hv: #242424;

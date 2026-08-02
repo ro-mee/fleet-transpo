@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from "@/services/notification.service";
 import { formatDate } from "@/lib/utils";
 import {
@@ -25,7 +27,8 @@ const typeIcons = {
   Trip: Route,
 };
 
-const typeColors = {
+// Static (compile-safe) tone classes per notification type.
+const typeVariant = {
   Info: "info",
   Warning: "warning",
   Alert: "danger",
@@ -38,15 +41,15 @@ const typeColors = {
 };
 
 const typeBg = {
-  Info: "bg-info/10",
-  Warning: "bg-warning/10",
-  Alert: "bg-danger/10",
-  Success: "bg-success/10",
-  Reservation: "bg-primary/10",
-  Dispatch: "bg-primary/10",
-  Maintenance: "bg-warning/10",
-  Fuel: "bg-warning/10",
-  Trip: "bg-primary/10",
+  Info: "bg-info/10 text-info",
+  Warning: "bg-warning/10 text-warning",
+  Alert: "bg-danger/10 text-danger",
+  Success: "bg-success/10 text-success",
+  Reservation: "bg-primary/10 text-primary",
+  Dispatch: "bg-primary/10 text-primary",
+  Maintenance: "bg-warning/10 text-warning",
+  Fuel: "bg-warning/10 text-warning",
+  Trip: "bg-primary/10 text-primary",
 };
 
 export default function NotificationsPage() {
@@ -89,27 +92,22 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-foreground">Notifications</h1>
+      <PageHeader
+        eyebrow="System"
+        title="Notifications"
+        description="View and manage system notifications."
+        actions={
+          <>
+            {unread > 0 && (
+              <Button variant="outline" size="sm" className="h-9" onClick={() => markAllMutation.mutate()}>
+                <CheckCheck className="w-4 h-4 mr-1.5" />
+                Mark All Read
+              </Button>
+            )}
             {unread > 0 && <Badge variant="default">{unread} unread</Badge>}
-          </div>
-          <p className="text-foreground-secondary mt-1">View and manage system notifications</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {unread > 0 && (
-            <Button variant="outline" size="sm" className="h-9" onClick={() => markAllMutation.mutate()}>
-              <CheckCheck className="w-4 h-4 mr-1.5" />
-              Mark All Read
-            </Button>
-          )}
-          <Button variant="outline" size="sm" className="h-9">
-            <Bell className="w-4 h-4 mr-1.5" />
-            Send Test
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <div className="flex items-center gap-2">
         <Button variant={filter === "all" ? "default" : "outline"} size="sm" onClick={() => setFilter("all")}>
@@ -123,11 +121,11 @@ export default function NotificationsPage() {
       <Card className="border-0 shadow-sm">
         <CardContent className="p-0">
           {notifications.length === 0 ? (
-            <div className="py-12 text-center text-foreground-muted">
-              <Bell className="w-12 h-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium">No notifications</p>
-              <p className="text-sm mt-1">You&apos;re all caught up!</p>
-            </div>
+            <EmptyState
+              icon={Bell}
+              title="No notifications"
+              description="You're all caught up. Alerts and trip updates will appear here."
+            />
           ) : (
             <div className="divide-y divide-border">
               {notifications.map((notif) => {
@@ -140,7 +138,7 @@ export default function NotificationsPage() {
                     className={`flex items-start gap-4 px-5 py-4 transition-colors hover:bg-hover ${isUnread ? "bg-primary/[0.02]" : ""}`}
                   >
                     <div className={`p-2 rounded-lg ${typeBg[notif.type] || "bg-muted"} mt-0.5`}>
-                      <Icon className={`w-4 h-4 ${typeColors[notif.type] ? `text-${typeColors[notif.type]}` : "text-foreground-muted"}`} />
+                      <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
@@ -152,8 +150,8 @@ export default function NotificationsPage() {
                       {notif.message && (
                         <p className="text-xs text-foreground-secondary">{notif.message}</p>
                       )}
-                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-foreground-muted">
-                        <Badge variant={typeColors[notif.type] || "secondary"} className="text-[9px]">{notif.type}</Badge>
+                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-foreground-muted">
+                        <Badge variant={typeVariant[notif.type] || "secondary"} className="text-[11px]">{notif.type}</Badge>
                         <span>{notif.sent_at ? formatDate(notif.sent_at) : ""}</span>
                         {notif.reference_type && <span>{notif.reference_type} #{notif.reference_id}</span>}
                       </div>

@@ -9,11 +9,19 @@ import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { User, Mail, Phone, Shield, Save, Loader2 } from "lucide-react";
 import { useRoleAccess } from "@/hooks/use-role-access";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
 
 function formatRole(role) {
   if (!role) return "";
   return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+const profileSchema = {
+  first_name: { required: true, type: "name", label: "First name", maxLength: 100 },
+  last_name: { required: true, type: "name", label: "Last name", maxLength: 100 },
+  email: { required: true, type: "email", label: "Email" },
+  phone: { type: "phone", label: "Phone" },
+};
 
 export default function ProfilePage() {
   const { employee, refreshEmployee } = useAuth();
@@ -25,6 +33,7 @@ export default function ProfilePage() {
     email: employee?.email || "",
     phone: employee?.phone || "",
   });
+  const { validate, fieldError, registerField } = useFormValidation(profileSchema);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -32,22 +41,28 @@ export default function ProfilePage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaving(true);
-    try {
-      const res = await fetch("/api/auth/profile", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to update profile");
-      await refreshEmployee();
-      toast.success("Profile updated");
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setSaving(false);
-    }
+
+    const isValid = validate(form, {
+      onSuccess: async () => {
+        setSaving(true);
+        try {
+          const res = await fetch("/api/auth/profile", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(form),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Failed to update profile");
+          await refreshEmployee();
+          toast.success("Profile updated");
+        } catch (err) {
+          toast.error(err.message);
+        } finally {
+          setSaving(false);
+        }
+      },
+    });
+    if (!isValid) return;
   };
 
   return (
@@ -71,8 +86,10 @@ export default function ProfilePage() {
                     name="first_name"
                     value={form.first_name}
                     onChange={handleChange}
-                    required
+                    ref={registerField("first_name")}
+                    invalid={fieldError("first_name").invalid}
                   />
+                  {fieldError("first_name").error && <p className="text-xs text-danger">{fieldError("first_name").error}</p>}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm text-foreground-secondary">Last Name</label>
@@ -80,8 +97,10 @@ export default function ProfilePage() {
                     name="last_name"
                     value={form.last_name}
                     onChange={handleChange}
-                    required
+                    ref={registerField("last_name")}
+                    invalid={fieldError("last_name").invalid}
                   />
+                  {fieldError("last_name").error && <p className="text-xs text-danger">{fieldError("last_name").error}</p>}
                 </div>
               </div>
               <div className="space-y-2">
@@ -91,8 +110,10 @@ export default function ProfilePage() {
                   type="email"
                   value={form.email}
                   onChange={handleChange}
-                  required
+                  ref={registerField("email")}
+                  invalid={fieldError("email").invalid}
                 />
+                {fieldError("email").error && <p className="text-xs text-danger">{fieldError("email").error}</p>}
               </div>
               <div className="space-y-2">
                 <label className="text-sm text-foreground-secondary">Phone</label>
@@ -101,8 +122,11 @@ export default function ProfilePage() {
                   type="tel"
                   value={form.phone}
                   onChange={handleChange}
+                  ref={registerField("phone")}
+                  invalid={fieldError("phone").invalid}
                   placeholder="+63 912 345 6789"
                 />
+                {fieldError("phone").error && <p className="text-xs text-danger">{fieldError("phone").error}</p>}
               </div>
               <Button type="submit" disabled={saving} className="mt-2">
                 {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}

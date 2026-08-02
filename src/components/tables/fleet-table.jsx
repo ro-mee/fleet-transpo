@@ -22,6 +22,7 @@ const statusVariant = {
   "Under Maintenance": "danger",
   "Out of Service": "danger",
   Reserved: "default",
+  "Registration Expired": "danger",
 };
 
 const columnHelper = createColumnHelper();
@@ -93,6 +94,20 @@ export function FleetTable({ filters = {} }) {
             {formatNumber(info.getValue() || 0)} km
           </span>
         ),
+      }),
+      columnHelper.accessor("registration_expiry", {
+        header: "Registration",
+        cell: (info) => {
+          const expiry = info.getValue();
+          if (!expiry) return <span className="text-foreground-secondary">—</span>;
+          const overdue = new Date(expiry) < new Date(new Date().toDateString());
+          return (
+            <div>
+              <span className="text-foreground-secondary">{formatDate(expiry)}</span>
+              {overdue && <Badge variant="danger" className="ml-2 text-[10px]">Overdue</Badge>}
+            </div>
+          );
+        },
       }),
       columnHelper.accessor("vehicle_status", {
         header: "Status",

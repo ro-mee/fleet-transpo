@@ -1,4 +1,4 @@
-import { parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 
@@ -200,6 +200,9 @@ function parseVehicleFieldsFromText(text) {
 
 export async function POST(req) {
   try {
+    // Document scanning feeds vehicle onboarding — restrict to roles that
+    // can create/update vehicles.
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const body = await parseBody(req);
     const { document_type, document_text, file_url } = body;
 
@@ -300,47 +303,21 @@ Extract structured JSON fields. Return ONLY valid JSON:
       extractedData.vehicle_name = extractedData.vehicle_type.toUpperCase();
     }
 
-    // 4. FALLBACK DYNAMIC GENERATION (Only if no OCR text could be read at all)
+    // If nothing could be read, return an empty result and let the caller
+    // enter the details manually. We never fabricate document data.
     if (Object.keys(extractedData).length === 0) {
-      const getHash = (str) => {
-        let hash = 0;
-        for (let i = 0; i < (str || "").length; i++) {
-          hash = (hash << 5) - hash + str.charCodeAt(i);
-          hash |= 0;
-        }
-        return Math.abs(hash);
-      };
-      const imgHash = file_url ? getHash(file_url) : Math.floor(Math.random() * 8999) + 1000;
-      const numSuffix = (imgHash % 8999) + 1000;
-
-      if (document_type === "OR_CR") {
-        extractedData = {
-          plate_number: "ABC-1234",
-          registration_number: "REG-2026-000123",
-          vehicle_name: "Toyota HiAce",
-          manufacturer: "Toyota",
-          model: "HiAce Commuter",
-          year: 2024,
-          color: "White",
-          fuel_type: "Diesel",
-          registration_expiry: "2027-07-22",
-        };
-        confidenceScores = { plate_number: 99, registration_number: 96, vehicle_name: 97, registration_expiry: 96 };
-      } else if (document_type === "Insurance") {
-        extractedData = {
-          insurance_policy_number: "POL-99887766",
-          insurance_provider: "Charter Ping An Insurance",
-          coverage_type: "Comprehensive & CTPL",
-          insurance_expiry: "2027-07-22",
-        };
-        confidenceScores = { insurance_policy_number: 97, insurance_provider: 96, insurance_expiry: 96 };
-      } else if (document_type === "Plate_Sticker") {
-        extractedData = {
-          license_plate_expiry: "2027-07-22",
-          sticker_number: "LTO-2027-8899",
-        };
-        confidenceScores = { license_plate_expiry: 95, sticker_number: 94 };
-      }
+      return ok({
+        document_type,
+        extracted_data: {},
+        confidence_scores: {},
+        overall_confidence: 0,
+        is_ai_vision_used: isAiVisionUsed,
+        lto_renewal_schedule: null,
+        validation: {
+          is_valid: false,
+          issues: ["Could not read the document. Please enter the details manually."],
+        },
+      });
     }
 
     // Calculate LTO Renewal Schedule deterministically from plate number

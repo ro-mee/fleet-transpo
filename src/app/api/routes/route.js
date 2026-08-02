@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
@@ -16,8 +17,27 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
+
+    const errors = validateBody(body, {
+      route_name: { required: true, maxLength: 150, label: "Route name" },
+      origin: { required: true, maxLength: 255, label: "Origin" },
+      destination: { required: true, maxLength: 255, label: "Destination" },
+      origin_location_id: { type: "id", label: "Origin location" },
+      destination_location_id: { type: "id", label: "Destination location" },
+      distance_km: { type: "positiveNumber", label: "Distance (km)" },
+      estimated_duration_minutes: { type: "positiveNumber", label: "Estimated duration" },
+      base_fare: { type: "positiveNumber", label: "Base fare" },
+      per_km_rate: { type: "positiveNumber", label: "Per-km rate" },
+      status: { maxLength: 30, label: "Status" },
+      route_type: { maxLength: 30, label: "Route type" },
+      is_active: { label: "Active" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
     const k = Object.keys(body), v = Object.values(body);
     const { rows } = await query(`INSERT INTO routes (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
     return ok(rows[0], 201);

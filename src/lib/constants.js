@@ -25,6 +25,7 @@ export const ROLE_IDS = {
 };
 
 export const REGISTRATION_ROLES = [
+  { id: 1, name: "System Admin", value: "system_admin" },
   { id: 2, name: "Fleet Manager", value: "fleet_manager" },
   { id: 3, name: "Dispatcher", value: "dispatcher" },
   { id: 4, name: "Driver", value: "driver" },
@@ -40,6 +41,7 @@ export const VEHICLE_STATUS = {
   IN_USE: "In Use",
   UNDER_MAINTENANCE: "Under Maintenance",
   DECOMMISSIONED: "Decommissioned",
+  REGISTRATION_EXPIRED: "Registration Expired",
 };
 
 export const RESERVATION_STATUS = {
@@ -51,6 +53,59 @@ export const RESERVATION_STATUS = {
   REJECTED: "Rejected",
 };
 
+// Fleet lifecycle for a transportation request received from the Booking
+// subsystem. This is the queue/dispatch state machine — kept in sync with the
+// chk_transport_fleet_status CHECK in migration 016 and enforced by
+// src/lib/scheduling/reservation-state.js.
+//
+// Strict linear chain:
+//   Pending → Under Review → Approved|Rejected → Scheduled → Assigned
+//           → In Progress → Completed
+// Cancelled is reachable from any non-terminal state.
+export const RESERVATION_LIFECYCLE = {
+  PENDING: "Pending",
+  UNDER_REVIEW: "Under Review",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  SCHEDULED: "Scheduled",
+  ASSIGNED: "Assigned",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+};
+
+// Queue priority. Mirrors chk_transport_priority (migration 016). Booking sends
+// 'Normal'; normalizePriority() in src/lib/integration/contracts.js maps it to
+// 'Medium' at the anti-corruption boundary.
+export const RESERVATION_PRIORITY = {
+  URGENT: "Urgent",
+  HIGH: "High",
+  MEDIUM: "Medium",
+  LOW: "Low",
+};
+
+// Timeline event types written to reservation_events (migration 016). Every
+// status transition and operator action appends one row via
+// recordReservationEvent() in src/services/reservation-events.service.js.
+export const RESERVATION_EVENT = {
+  CREATED: "created",
+  REVIEWED: "reviewed",
+  APPROVED: "approved",
+  REJECTED: "rejected",
+  VEHICLE_RECOMMENDED: "vehicle_recommended",
+  DRIVER_RECOMMENDED: "driver_recommended",
+  VEHICLE_ASSIGNED: "vehicle_assigned",
+  DRIVER_ASSIGNED: "driver_assigned",
+  DISPATCH_CREATED: "dispatch_created",
+  TRIP_STARTED: "trip_started",
+  PASSENGER_PICKED_UP: "passenger_picked_up",
+  PASSENGER_DROPPED_OFF: "passenger_dropped_off",
+  TRIP_COMPLETED: "trip_completed",
+  DISPATCH_CLOSED: "dispatch_closed",
+  CANCELLED: "cancelled",
+  RESCHEDULED: "rescheduled",
+};
+
 export const DISPATCH_STATUS = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In Progress",
@@ -59,6 +114,7 @@ export const DISPATCH_STATUS = {
 };
 
 export const TRIP_STATUS = {
+  ASSIGNED: "Assigned",
   PENDING: "Pending",
   APPROVED: "Approved",
   VEHICLE_ASSIGNED: "Vehicle Assigned",
@@ -68,7 +124,9 @@ export const TRIP_STATUS = {
   TRIP_STARTED: "Trip Started",
   EN_ROUTE: "En Route",
   ARRIVED: "Arrived",
+  IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
 };
 
 export const DRIVER_STATUS = {

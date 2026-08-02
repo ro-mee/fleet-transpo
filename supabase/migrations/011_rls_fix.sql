@@ -1,6 +1,10 @@
 -- ============================================
 -- MIGRATION 011: RLS Policy Fixes
 --
+-- ⚠️  INERT AT RUNTIME — see 002_rls_policies.sql header and docs/rbac-model.md §5.
+-- These policies never fire (service-role / db-owner connections bypass RLS).
+-- Authorization lives in the app layer via requireAuth(req, [roles]).
+--
 -- Purpose:
 --   Add missing RLS policies for tables that
 --   have RLS enabled but zero policies defined.

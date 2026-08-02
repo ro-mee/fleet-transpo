@@ -1,5 +1,6 @@
 import { query, getAdminClient } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
@@ -83,19 +84,25 @@ export async function POST(req) {
     } = body;
 
     // Validate required fields
-    if (!first_name?.trim() || !last_name?.trim()) {
-      return err("first_name and last_name are required", 400);
-    }
-    if (!license_number?.trim()) {
-      return err("license_number is required", 400);
+    const errors = validateBody(body, {
+      first_name: { required: true, type: "name", label: "First name", maxLength: 100 },
+      last_name: { required: true, type: "name", label: "Last name", maxLength: 100 },
+      email: { type: "email", label: "Email" },
+      phone: { type: "phone", label: "Phone" },
+      license_number: { required: true, type: "license", label: "License number", maxLength: 30 },
+      license_expiry: { type: "date", label: "License expiry" },
+      years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
     }
 
     const supabase = getAdminClient();
 
     // Auto-generate placeholder email if none provided
     const empEmail =
-      email?.trim() ||
-      `${first_name.trim().toLowerCase()}.${last_name.trim().toLowerCase()}@fleetops.ph`;
+      normalizeEmail(email) ||
+      `${normalizeName(first_name).toLowerCase()}.${normalizeName(last_name).toLowerCase()}@fleetops.ph`;
 
     // Step 1: Check if active employee already exists with this email
     const { data: existingEmp } = await supabase
@@ -130,10 +137,10 @@ export async function POST(req) {
       const { data: newEmp, error: empError } = await supabase
         .from("employees")
         .insert({
-          first_name: first_name.trim(),
-          last_name: last_name.trim(),
-          email: empEmail.toLowerCase(),
-          phone: phone?.trim() || null,
+          first_name: normalizeName(first_name),
+          last_name: normalizeName(last_name),
+          email: normalizeEmail(empEmail),
+          phone: normalizePhone(phone) || null,
           position: position || "Driver",
           avatar_url: license_image_url || null,
         })
@@ -163,7 +170,7 @@ export async function POST(req) {
       .from("drivers")
       .insert({
         employee_id: employeeId,
-        license_number: license_number.trim(),
+        license_number: normalizeLicense(license_number),
         license_expiry: license_expiry || null,
         license_type: license_type || null,
         license_class: license_class || null,

@@ -2,8 +2,8 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Key, Copy, RefreshCw, Eye, EyeOff, Plus } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Key, Copy, Eye, EyeOff } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useState } from "react";
 
@@ -23,16 +23,11 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">API Keys</h1>
-          <p className="text-foreground-secondary mt-1">Manage API keys for external integrations</p>
-        </div>
-        <Button className="h-10">
-          <Plus className="w-4 h-4 mr-2" />
-          Generate Key
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="API Keys"
+        description="Manage API keys for external integrations."
+      />
 
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-3">
@@ -47,7 +42,7 @@ export default function ApiKeysPage() {
                 <div className="flex items-center gap-2">
                   <Key className="w-4 h-4 text-foreground-muted" />
                   <h4 className="text-sm font-semibold text-foreground">{apiKey.name}</h4>
-                  <Badge variant={apiKey.status === "Active" ? "success" : "secondary"} className="text-[9px]">{apiKey.status}</Badge>
+                  <Badge variant={apiKey.status === "Active" ? "success" : "secondary"} className="text-[11px]">{apiKey.status}</Badge>
                 </div>
               </div>
               <div className="flex items-center gap-2 mb-2">
@@ -64,7 +59,6 @@ export default function ApiKeysPage() {
               <div className="flex items-center gap-4 text-xs text-foreground-muted">
                 <span>Created: {apiKey.created}</span>
                 <span>Last used: {apiKey.lastUsed}</span>
-                <button className="text-danger hover:underline ml-auto">Revoke</button>
               </div>
             </div>
           ))}

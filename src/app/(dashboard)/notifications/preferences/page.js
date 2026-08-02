@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Bell, Mail, Smartphone, Globe, CheckCircle2 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
+import { Bell, Mail, Smartphone, CheckCircle2 } from "lucide-react";
 
 const channelOptions = [
   { id: "in_app", label: "In-App", icon: Bell, description: "Notifications within the FleetOps dashboard" },
@@ -64,19 +64,20 @@ export default function NotificationPreferencesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Notification Preferences</h1>
-          <p className="text-foreground-secondary mt-1">Configure how and when you receive notifications</p>
-        </div>
-        <Button onClick={handleSave} disabled={saving} className="h-10">
-          {saved ? (
-            <><CheckCircle2 className="w-4 h-4 mr-2" /> Saved</>
-          ) : (
-            <>Save Preferences</>
-          )}
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="System"
+        title="Notification Preferences"
+        description="Configure how and when you receive notifications."
+        actions={
+          <Button onClick={handleSave} disabled={saving} className="h-10">
+            {saved ? (
+              <><CheckCircle2 className="w-4 h-4 mr-2" /> Saved</>
+            ) : (
+              <>Save Preferences</>
+            )}
+          </Button>
+        }
+      />
 
       <div className="flex items-center gap-3 mb-4 p-4 rounded-xl bg-muted/30 border border-border">
         {channelOptions.map((ch) => (

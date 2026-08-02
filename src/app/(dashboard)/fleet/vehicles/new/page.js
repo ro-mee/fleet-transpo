@@ -1,11 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,30 +12,13 @@ import { Label } from "@/components/ui/label";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
+import { toDateInput } from "@/lib/dates";
 import { ArrowLeft, Loader2, Upload, FileText, CheckCircle2, ShieldCheck, IdCard, ZoomIn, Sparkles, Scan, AlertCircle, Check } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const vehicleSchema = z.object({
-  plate_number: z.string().min(1, "Plate number is required"),
-  vehicle_name: z.string().min(1, "Vehicle name is required"),
-  model: z.string().optional(),
-  manufacturer: z.string().optional(),
-  year: z.coerce.number().optional(),
-  color: z.string().optional(),
-  fuel_type: z.string().default("Gasoline"),
-  seating_capacity: z.coerce.number().min(1).default(4),
-  category_id: z.coerce.number().optional(),
-  vehicle_status: z.string().default("Available"),
-  purchase_price: z.coerce.number().optional(),
-  purchase_date: z.string().optional(),
-  insurance_expiry: z.string().optional(),
-  registration_expiry: z.string().optional(),
-  license_plate_expiry: z.string().optional(),
-  next_service_date: z.string().optional(),
-  next_service_mileage: z.coerce.number().optional(),
-});
+import { vehicleSchema } from "@/lib/validation/schemas";
 
 export default function VehicleFormPage({ params }) {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -49,7 +31,6 @@ export default function VehicleFormPage({ params }) {
   // Document File & URL states
   const [orCrDoc, setOrCrDoc] = useState({ file_url: "", document_number: "" });
   const [insuranceDoc, setInsuranceDoc] = useState({ file_url: "", document_number: "" });
-  const [plateStickerDoc, setPlateStickerDoc] = useState({ file_url: "" });
 
   // Zoom Modal
   const [previewModalUrl, setPreviewModalUrl] = useState(null);
@@ -107,8 +88,7 @@ export default function VehicleFormPage({ params }) {
     if (data.color) form.setValue("color", data.color);
     if (data.fuel_type) form.setValue("fuel_type", data.fuel_type);
     if (data.seating_capacity) form.setValue("seating_capacity", Number(data.seating_capacity), { shouldValidate: true });
-    if (data.insurance_expiry) form.setValue("insurance_expiry", data.insurance_expiry);
-    if (data.license_plate_expiry) form.setValue("license_plate_expiry", data.license_plate_expiry);
+    if (data.insurance_expiry) form.setValue("insurance_expiry", toDateInput(data.insurance_expiry));
 
     if (data.registration_number && scanResult.document_type === "OR_CR") {
       setOrCrDoc((prev) => ({ ...prev, document_number: data.registration_number }));
@@ -134,7 +114,7 @@ export default function VehicleFormPage({ params }) {
 
   const form = useForm({
     resolver: zodResolver(vehicleSchema),
-    defaultValues: vehicle || {
+    defaultValues: {
       plate_number: "",
       vehicle_name: "",
       model: "",
@@ -147,12 +127,41 @@ export default function VehicleFormPage({ params }) {
       purchase_price: undefined,
       purchase_date: "",
       insurance_expiry: "",
-      registration_expiry: "",
-      license_plate_expiry: "",
       next_service_date: "",
       next_service_mileage: undefined,
     },
   });
+
+  // Populate form and attached document states when vehicle data is loaded in edit mode
+  useEffect(() => {
+    if (vehicle) {
+      form.reset({
+        plate_number: vehicle.plate_number || "",
+        vehicle_name: vehicle.vehicle_name || "",
+        model: vehicle.model || "",
+        manufacturer: vehicle.manufacturer || "",
+        year: vehicle.year || new Date().getFullYear(),
+        color: vehicle.color || "",
+        fuel_type: vehicle.fuel_type || "Gasoline",
+        seating_capacity: vehicle.seating_capacity || 4,
+        category_id: vehicle.category_id || undefined,
+        vehicle_status: vehicle.vehicle_status || "Available",
+        purchase_price: vehicle.purchase_price || undefined,
+        purchase_date: toDateInput(vehicle.purchase_date),
+        insurance_expiry: toDateInput(vehicle.insurance_expiry),
+        next_service_date: toDateInput(vehicle.next_service_date),
+        next_service_mileage: vehicle.next_service_mileage || undefined,
+      });
+
+      if (Array.isArray(vehicle.documents)) {
+        const orCr = vehicle.documents.find((d) => d.document_type === "OR_CR");
+        if (orCr) setOrCrDoc({ document_number: orCr.document_number || "", file_url: orCr.file_url || "" });
+
+        const ins = vehicle.documents.find((d) => d.document_type === "Insurance");
+        if (ins) setInsuranceDoc({ document_number: ins.document_number || "", file_url: ins.file_url || "" });
+      }
+    }
+  }, [vehicle, form]);
 
   const watchedPlate = form.watch("plate_number");
   const ltoSchedule = calculateLtoRenewalSchedule(watchedPlate || "");
@@ -195,12 +204,12 @@ export default function VehicleFormPage({ params }) {
     const documents = [];
 
     // Collect LTO OR/CR Document
-    if (orCrDoc.file_url || orCrDoc.document_number || data.registration_expiry) {
+    if (orCrDoc.file_url || orCrDoc.document_number) {
       documents.push({
         document_type: "OR_CR",
         document_number: orCrDoc.document_number || "LTO OR/CR Scan",
         file_url: orCrDoc.file_url || null,
-        expiry_date: data.registration_expiry || null,
+        expiry_date: null,
         status: "Active",
       });
     }
@@ -212,17 +221,6 @@ export default function VehicleFormPage({ params }) {
         document_number: insuranceDoc.document_number || "Insurance Policy Scan",
         file_url: insuranceDoc.file_url || null,
         expiry_date: data.insurance_expiry || null,
-        status: "Active",
-      });
-    }
-
-    // Collect Plate Sticker Document
-    if (plateStickerDoc.file_url || data.license_plate_expiry) {
-      documents.push({
-        document_type: "Plate_Sticker",
-        document_number: "LTO Plate Sticker",
-        file_url: plateStickerDoc.file_url || null,
-        expiry_date: data.license_plate_expiry || null,
         status: "Active",
       });
     }
@@ -290,7 +288,7 @@ export default function VehicleFormPage({ params }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <Label htmlFor="plate_number">Plate No. *</Label>
-                      <Input id="plate_number" {...form.register("plate_number")} placeholder="NBO 1234 / ABC-1234" className="font-mono uppercase" />
+                      <Input id="plate_number" {...form.register("plate_number")} placeholder="NBO 1234 / ABC-1234" className="font-data uppercase" />
                       {form.formState.errors.plate_number && (
                         <p className="text-xs text-danger">{form.formState.errors.plate_number.message}</p>
                       )}
@@ -360,6 +358,7 @@ export default function VehicleFormPage({ params }) {
                         <option value="Under Maintenance">Under Maintenance</option>
                         <option value="Out of Service">Out of Service</option>
                         <option value="Reserved">Reserved</option>
+                        <option value="Registration Expired">Registration Expired</option>
                       </select>
                     </div>
                   </div>
@@ -369,7 +368,7 @@ export default function VehicleFormPage({ params }) {
                 <div className="border-t border-border pt-4">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3 flex items-center justify-between">
                     <span>LTO Registration Renewal Schedule</span>
-                    <span className="text-[10px] text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium border border-primary/20">
+                    <span className="text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium border border-primary/20">
                       Calculated from Plate #
                     </span>
                   </h3>
@@ -396,15 +395,15 @@ export default function VehicleFormPage({ params }) {
 
                       <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">
                         <div>
-                          <span className="text-foreground-secondary block text-[10px]">Renewal Month</span>
+                          <span className="text-foreground-secondary block text-[11px]">Renewal Month</span>
                           <span className="font-semibold text-foreground">{ltoSchedule.month} (Digit: {watchedPlate.replace(/\D/g, "").slice(-1)})</span>
                         </div>
                         <div>
-                          <span className="text-foreground-secondary block text-[10px]">Renewal Window</span>
+                          <span className="text-foreground-secondary block text-[11px]">Renewal Window</span>
                           <span className="font-semibold text-foreground">{ltoSchedule.window_label}</span>
                         </div>
                       </div>
-                      <p className="text-[10px] text-foreground-muted italic">
+                      <p className="text-[11px] text-foreground-muted italic">
                         Source: Calculated automatically from Plate Number ({watchedPlate}) using PH LTO rules.
                       </p>
                     </div>
@@ -446,11 +445,11 @@ export default function VehicleFormPage({ params }) {
                   <FileText className="w-4 h-4 text-primary" /> Vehicle Document Scans
                 </CardTitle>
                 <p className="text-xs text-foreground-secondary mt-0.5">
-                  Attach OR/CR, Insurance Policy, and Plate Sticker scans directly to the vehicle record.
+                  Attach OR/CR and Insurance Policy scans directly to the vehicle record.
                 </p>
               </CardHeader>
               <CardContent className="p-4">
-                {/* Grid Layout: Top 2 Columns for LTO & Insurance, Bottom Full-Width Row for License Plate Sticker */}
+                {/* Grid Layout: Top 2 Columns for LTO & Insurance */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* 1. LTO OR/CR Scan Card (Top Left) */}
                   <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2.5 flex flex-col justify-between">
@@ -547,67 +546,6 @@ export default function VehicleFormPage({ params }) {
                         </div>
                       </div>
                     )}
-                  </div>
-
-                  {/* 3. License Plate Sticker Card (Bottom Full-Width Row) */}
-                  <div className="sm:col-span-2 p-3.5 rounded-xl bg-muted/30 border border-border space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                        <FileText className="w-4 h-4 text-primary" /> License Plate Renewal Sticker Photo
-                      </span>
-                      {plateStickerDoc.file_url && (
-                        <span className="text-[11px] text-success font-medium flex items-center gap-0.5">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Attached
-                        </span>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-                      <div className="space-y-2">
-                        <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-3 text-center transition-colors bg-surface cursor-pointer">
-                          <input
-                            type="file"
-                            accept="image/*,.pdf"
-                            onChange={(e) => handleFileUpload(e, setPlateStickerDoc)}
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          />
-                          <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                            <Upload className="w-4 h-4 text-primary" />
-                            <span>{plateStickerDoc.file_url ? "Change Sticker Photo" : "Upload Plate Sticker Photo"}</span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!plateStickerDoc.file_url || scanningDocType === "Plate_Sticker"}
-                          onClick={() => handleAiScan("Plate_Sticker", plateStickerDoc.file_url)}
-                          className="w-full h-8 text-xs border-primary/30 text-primary hover:bg-primary/5 font-medium gap-1"
-                        >
-                          {scanningDocType === "Plate_Sticker" ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5" />
-                          )}
-                          <span>Scan Plate Sticker with AI</span>
-                        </Button>
-                      </div>
-
-                      {plateStickerDoc.file_url ? (
-                        <div
-                          className="rounded-lg overflow-hidden border border-border bg-black/5 aspect-[16/9] relative group cursor-pointer"
-                          onClick={() => setPreviewModalUrl(plateStickerDoc.file_url)}
-                        >
-                          <img src={plateStickerDoc.file_url} alt="Plate Sticker Preview" className="w-full h-full object-contain" />
-                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
-                            <ZoomIn className="w-3.5 h-3.5" /> Zoom Photo
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-foreground-muted italic text-center p-2 bg-muted/20 rounded-lg">
-                          Upload LTO plate sticker photo for annual renewal compliance.
-                        </div>
-                      )}
-                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -707,7 +645,7 @@ export default function VehicleFormPage({ params }) {
                         <div className="flex items-center gap-3">
                           <span className="font-semibold text-foreground">{String(val)}</span>
                           <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+                            className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
                               score >= 90
                                 ? "bg-success/10 text-success border border-success/20"
                                 : "bg-warning/10 text-warning border border-warning/20"

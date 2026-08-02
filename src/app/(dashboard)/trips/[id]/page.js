@@ -159,7 +159,7 @@ export default function TripDetailPage() {
               return (
                 <div key={step} className="flex items-center gap-1 flex-shrink-0">
                   <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full text-[10px] whitespace-nowrap transition-all font-medium ${
-                    isCurrent ? "bg-primary text-white" : isCompleted ? "bg-success/10 text-success" : "bg-muted text-foreground-muted"
+                    isCurrent ? "bg-primary text-surface font-semibold" : isCompleted ? "bg-success/10 text-success" : "bg-muted text-foreground-muted"
                   }`}>
                     {isCompleted && !isCurrent && <CheckCircle2 className="w-2.5 h-2.5" />}
                     {step}

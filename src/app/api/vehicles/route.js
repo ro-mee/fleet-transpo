@@ -1,5 +1,25 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject, normalizePlate, normalizeName } from "@/lib/validation/helpers";
+import { writeAudit } from "@/lib/audit";
+
+const vehicleWriteSchema = {
+  plate_number: { required: true, type: "plate", label: "Plate number", maxLength: 12 },
+  vehicle_name: { required: true, type: "name", label: "Vehicle type/name", maxLength: 100 },
+  model: { maxLength: 100, label: "Model" },
+  manufacturer: { maxLength: 100, label: "Make/brand" },
+  year: { type: "year", label: "Year model" },
+  color: { maxLength: 50, label: "Color" },
+  seating_capacity: { type: "seating", label: "Passenger capacity" },
+  category_id: { type: "id", label: "Vehicle category" },
+  purchase_price: { type: "positiveNumber", label: "Purchase price" },
+  purchase_date: { type: "date", label: "Purchase date" },
+  insurance_expiry: { type: "date", label: "Insurance expiry" },
+  next_service_date: { type: "date", label: "Next service date" },
+  next_service_mileage: { type: "positiveNumber", label: "Next service mileage" },
+  fuel_type: { maxLength: 30, label: "Fuel type" },
+  vehicle_status: { maxLength: 30, label: "Status" },
+};
 
 export async function GET(req) {
   try {
@@ -42,11 +62,20 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const body = await parseBody(req);
 
     // Separate documents array from vehicle attributes
     const { documents, ...vehicleData } = body;
+
+    // Validate fields before inserting
+    const errors = validateBody(vehicleData, vehicleWriteSchema);
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
+    if (vehicleData.plate_number) vehicleData.plate_number = normalizePlate(vehicleData.plate_number);
+    if (vehicleData.vehicle_name) vehicleData.vehicle_name = normalizeName(vehicleData.vehicle_name);
 
     // Sanitize empty strings to null to prevent PostgreSQL "invalid input syntax for type date: ''"
     Object.keys(vehicleData).forEach((k) => {
@@ -89,6 +118,13 @@ export async function POST(req) {
         }
       }
     }
+
+    await writeAudit(req, session, {
+      action: "create",
+      resource: "vehicles",
+      resourceId: newVehicle?.vehicle_id,
+      newValues: newVehicle,
+    });
 
     return ok(newVehicle, 201);
   } catch (e) { return handleError(e); }

@@ -4,7 +4,7 @@ import { syncVehicleStatus } from "@/services/status.service";
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const id = (await params).id;
     const body = await parseBody(req);
     const { rows: before } = await query(`SELECT vehicle_id FROM vehiclereservations WHERE reservation_id = $1 LIMIT 1`, [id]);

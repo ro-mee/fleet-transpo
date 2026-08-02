@@ -1,6 +1,15 @@
 -- ============================================
 -- ROW LEVEL SECURITY POLICIES
 -- ============================================
+--
+-- ⚠️  INERT AT RUNTIME — NOT THE SECURITY BOUNDARY.
+-- The application connects to Postgres as the database owner (raw `pg` Pool)
+-- and via the Supabase SERVICE ROLE key, both of which bypass RLS. No end-user
+-- Postgres identity is ever established, so these policies never fire.
+-- Authorization is enforced in the application layer via
+-- requireAuth(req, [roles]) in src/lib/api/utils.js. See docs/rbac-model.md §5.
+-- Kept for reference only.
+-- ============================================
 
 -- Enable RLS on all tables
 ALTER TABLE employees ENABLE ROW LEVEL SECURITY;

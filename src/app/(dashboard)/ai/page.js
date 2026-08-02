@@ -2,25 +2,41 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, TONE_CHIP, TONE_TEXT, severityTone } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
 import { formatDate } from "@/lib/utils";
-import { Brain, Lightbulb, Wrench, TrendingUp, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
+import { Brain, Lightbulb, Wrench, TrendingUp, AlertTriangle, CalendarDays, Gauge, ArrowRight } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import Link from "next/link";
+import { cn } from "@/lib/utils";
+
+function normalizeSeverity(insight) {
+  return (insight.severity || insight.impact || "low").toLowerCase();
+}
+
+function riskTone(risk) {
+  const r = (risk || "low").toLowerCase();
+  if (r === "overdue" || r === "critical") return "danger";
+  if (r === "high") return "warning";
+  if (r === "medium") return "info";
+  return "success";
+}
 
 export default function AiDashboardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
-  const { data: insightsData } = useQuery({
+  const { data: insightsData, isLoading: insightsLoading } = useQuery({
     queryKey: ["ai-insights"],
     queryFn: () => getAiInsights(),
   });
-
   const { data: recommendationsData } = useQuery({
     queryKey: ["ai-recommendations"],
     queryFn: () => getAiRecommendations(),
   });
-
-  const { data: predictions = [] } = useQuery({
+  const { data: predictions = [], isLoading: predictionsLoading } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
   });
@@ -30,84 +46,91 @@ export default function AiDashboardPage() {
     : Array.isArray(insightsData?.insights)
     ? insightsData.insights
     : [];
-
   const recommendations = Array.isArray(recommendationsData)
     ? recommendationsData
     : Array.isArray(recommendationsData?.recommendations)
     ? recommendationsData.recommendations
     : [];
 
-  const nlSummary = insightsData?.natural_language_summary || null;
+  const critical = insights.filter(
+    (i) => normalizeSeverity(i) === "high" || normalizeSeverity(i) === "critical"
+  ).length;
+  const overdueMaint = predictions.filter((p) => {
+    const r = (p.risk || "").toLowerCase();
+    return r === "overdue" || r === "critical" || r === "high";
+  }).length;
 
-  const critical = insights.filter((i) => (i.severity || i.impact) === "high" || (i.severity || i.impact) === "critical").length;
-  const overdueMaint = predictions.filter((p) => p.risk === "overdue" || p.risk === "critical" || p.risk === "Critical").length;
+  const kpis = [
+    { label: "Active Insights", value: insights.length, icon: Lightbulb, tone: "primary", trend: "across all categories" },
+    { label: "Critical Alerts", value: critical, icon: AlertTriangle, tone: "danger", trend: "need attention now" },
+    { label: "Maintenance Alerts", value: overdueMaint, icon: Wrench, tone: "warning", trend: "due or approaching" },
+    { label: "Recommendations", value: recommendations.length, icon: TrendingUp, tone: "success", trend: "actionable suggestions" },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 rounded-xl bg-primary/10">
-          <Brain className="w-6 h-6 text-primary" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">AI & Automation</h1>
-          <p className="text-foreground-secondary mt-1">Intelligent insights and automated fleet operations</p>
-        </div>
-        <Badge variant="default" className="text-xs ml-2">AI-powered</Badge>
-      </div>
+      <PageHeader
+        eyebrow="Intelligence"
+        title="AI & Automation"
+        description="Intelligent insights and automated fleet operations."
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-primary/10"><Lightbulb className="w-5 h-5 text-primary" /></div>
-            <div><p className="text-xl font-bold">{insights.length}</p><p className="text-xs text-foreground-muted">Active Insights</p></div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-danger/10"><AlertTriangle className="w-5 h-5 text-danger" /></div>
-            <div><p className="text-xl font-bold">{critical}</p><p className="text-xs text-foreground-muted">Critical Alerts</p></div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-warning/10"><Wrench className="w-5 h-5 text-warning" /></div>
-            <div><p className="text-xl font-bold">{overdueMaint}</p><p className="text-xs text-foreground-muted">Maintenance Alerts</p></div>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-success/10"><TrendingUp className="w-5 h-5 text-success" /></div>
-            <div><p className="text-xl font-bold">{recommendations.length}</p><p className="text-xs text-foreground-muted">Recommendations</p></div>
-          </CardContent>
-        </Card>
-      </div>
+      <StatGrid cols={4}>
+        {kpis.map((kpi) => (
+          <StatCard key={kpi.label} {...kpi} />
+        ))}
+      </StatGrid>
 
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
+      <Card>
+        <CardHeader className="flex-row items-center justify-between pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <Lightbulb className="w-4 h-4 text-primary" /> AI Insights
           </CardTitle>
+          {insights.length > 3 && (
+            <Link href="/ai/insights" className="text-xs font-medium text-primary hover:underline">
+              View all →
+            </Link>
+          )}
         </CardHeader>
         <CardContent>
-          {insights.length === 0 ? (
-            <p className="text-sm text-foreground-muted text-center py-8">No AI insights yet. Insights will appear as the system learns operational patterns.</p>
+          {insightsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="p-4 rounded-lg border border-border space-y-3">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : insights.length === 0 ? (
+            <EmptyState
+              icon={Lightbulb}
+              title="No insights yet"
+              description="Insights will appear as the system learns your fleet's operational patterns."
+            />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {insights.map((insight, idx) => {
-                const sev = (insight.severity || insight.impact || "low").toLowerCase();
+              {insights.map((insight) => {
+                const sev = normalizeSeverity(insight);
+                const tone = severityTone(sev);
                 return (
-                  <div key={insight.insight_id || idx} className="p-4 rounded-xl border border-border/50 hover:shadow-sm transition-all bg-card">
+                  <div key={insight.insight_id || insight.title} className="p-4 rounded-lg border border-border/60 bg-surface hover:shadow-sm transition-all">
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className={`w-4 h-4 ${sev === "high" || sev === "critical" ? "text-danger" : sev === "medium" ? "text-warning" : "text-primary"}`} />
-                      <Badge variant={sev === "high" || sev === "critical" ? "danger" : sev === "medium" ? "warning" : "default"} className="text-[10px] capitalize">
-                        {sev} Priority
-                      </Badge>
+                      <AlertTriangle className={cn("w-4 h-4", TONE_TEXT[tone])} />
+                      <StatusBadge severity={sev} className="text-[11px]" />
                     </div>
                     <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
-                    <p className="text-xs text-foreground-secondary mb-2 leading-relaxed">{insight.summary || insight.description}</p>
+                    <p className="text-xs text-foreground-secondary leading-relaxed mb-2">
+                      {insight.summary || insight.description}
+                    </p>
                     <div className="flex items-center justify-between pt-1">
-                      <span className="text-[10px] text-foreground-muted font-medium">{insight.category || "Fleet Utilization"}</span>
-                      <span className="text-[10px] text-foreground-muted">{insight.created_at ? formatDate(insight.created_at) : "Active"}</span>
+                      <span className="text-[11px] text-foreground-muted font-medium">
+                        {insight.category || "Fleet Utilization"}
+                      </span>
+                      <span className="text-[11px] text-foreground-muted">
+                        {insight.created_at ? formatDate(insight.created_at) : "Active"}
+                      </span>
                     </div>
                   </div>
                 );
@@ -117,50 +140,64 @@ export default function AiDashboardPage() {
         </CardContent>
       </Card>
 
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3">
+      <Card>
+        <CardHeader className="flex-row items-center justify-between pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
             <Wrench className="w-4 h-4 text-primary" /> Predictive Maintenance
           </CardTitle>
+          {predictions.length > 10 && (
+            <Link href="/ai/predictive-maintenance" className="text-xs font-medium text-primary hover:underline">
+              View all →
+            </Link>
+          )}
         </CardHeader>
         <CardContent>
-          {predictions.length === 0 ? (
-            <p className="text-sm text-foreground-muted text-center py-8">No vehicles in the system</p>
-          ) : (
-            <div className="space-y-3">
-              {predictions.slice(0, 10).map((p) => (
-                <div key={p.vehicle_id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-hover transition-colors">
-                  <div className={`p-1.5 rounded-lg ${
-                    p.risk === "overdue" ? "bg-danger/10" :
-                    p.risk === "critical" ? "bg-danger/10" :
-                    p.risk === "high" ? "bg-warning/10" :
-                    p.risk === "medium" ? "bg-info/10" : "bg-success/10"
-                  }`}>
-                    <Wrench className={`w-4 h-4 ${
-                      p.risk === "overdue" || p.risk === "critical" ? "text-danger" :
-                      p.risk === "high" ? "text-warning" :
-                      p.risk === "medium" ? "text-info" : "text-success"
-                    }`} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-medium text-foreground">{p.plate_number}</p>
-                      <span className="text-xs text-foreground-muted">{p.vehicle_name}</span>
-                    </div>
-                    <p className="text-xs text-foreground-muted mt-0.5">{p.recommendation}</p>
-                  </div>
-                  <div className="text-right">
-                    <Badge variant={
-                      p.risk === "overdue" || p.risk === "critical" ? "danger" :
-                      p.risk === "high" ? "warning" :
-                      p.risk === "medium" ? "info" : "success"
-                    } className="text-[10px]">
-                      {p.daysToService === 0 ? "Overdue" : `${p.daysToService}d`}
-                    </Badge>
-                    <p className="text-xs text-foreground-muted mt-1">{p.mileage?.toLocaleString()} km</p>
+          {predictionsLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((n) => (
+                <div key={n} className="flex items-center gap-4 p-3 rounded-lg border border-border/60">
+                  <Skeleton className="h-9 w-9 rounded-lg" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-full" />
                   </div>
                 </div>
               ))}
+            </div>
+          ) : predictions.length === 0 ? (
+            <EmptyState
+              icon={Wrench}
+              title="No vehicles in the system"
+              description="Add vehicles to get AI-powered maintenance predictions."
+            />
+          ) : (
+            <div className="space-y-2">
+              {predictions.slice(0, 10).map((p) => {
+                const tone = riskTone(p.risk);
+                return (
+                  <div key={p.vehicle_id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-hover transition-colors">
+                    <div className={cn("flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg", TONE_CHIP[tone])}>
+                      <Wrench className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-foreground">{p.plate_number}</p>
+                        <span className="text-xs text-foreground-muted">{p.vehicle_name}</span>
+                        <StatusBadge status={p.risk} entity="risk" className="text-[11px]">
+                          {p.daysToService === 0 ? "Overdue" : `${p.daysToService}d`}
+                        </StatusBadge>
+                      </div>
+                      <p className="text-xs text-foreground-muted mt-0.5">{p.recommendation}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-data text-sm font-semibold text-foreground">{p.score}/100</p>
+                      <p className="text-[11px] text-foreground-muted">
+                        {p.mileage?.toLocaleString()} km
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

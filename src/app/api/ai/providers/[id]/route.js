@@ -1,11 +1,30 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { isUrl } from "@/lib/validation";
+import { writeAudit } from "@/lib/audit";
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin"]);
     const { id } = await params;
     const body = await parseBody(req);
+
+    const errors = validateBody(body, {
+      provider_name: { maxLength: 50, label: "Provider name" },
+      display_name: { maxLength: 100, label: "Display name" },
+      base_url: { maxLength: 255, label: "Base URL" },
+      model_name: { maxLength: 100, label: "Model name" },
+      temperature: { type: "positiveNumber", max: 9.99, label: "Temperature" },
+      max_tokens: { type: "positiveNumber", min: 1, max: 1000000, integer: true, label: "Max tokens" },
+      timeout_ms: { type: "positiveNumber", min: 1000, max: 600000, integer: true, label: "Timeout" },
+    });
+    if (body.base_url && !isUrl(body.base_url)) {
+      errors.base_url = "Base URL must be a valid URL.";
+    }
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
 
     if (body.is_default) {
       await query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [+id]);
@@ -49,11 +68,13 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req);
+    const session = await requireAuth(req, ["system_admin", "admin"]);
     const { id } = await params;
 
     const { rowCount } = await query(`DELETE FROM aiproviders WHERE provider_id = $1`, [+id]);
     if (!rowCount) return err("Provider not found", 404);
+
+    await writeAudit(req, session, { action: "delete", resource: "aiproviders", resourceId: id });
 
     return ok({ message: "AI Provider deleted successfully" });
   } catch (e) { return handleError(e); }
@@ -61,7 +82,7 @@ export async function DELETE(req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin"]);
     const { id } = await params;
 
     const { rows } = await query(`SELECT * FROM aiproviders WHERE provider_id = $1`, [+id]);

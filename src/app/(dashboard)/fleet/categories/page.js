@@ -14,6 +14,13 @@ import { getVehicleCategories, createCategory, updateCategory, deleteCategory } 
 import { Plus, Pencil, Archive } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+
+const categorySchema = {
+  category_name: { required: true, maxLength: 100, label: "Category name" },
+  description: { maxLength: 500, label: "Description" },
+  seating_capacity: { type: "seating", label: "Default seating capacity" },
+};
 
 export default function CategoriesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -22,6 +29,7 @@ export default function CategoriesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({ category_name: "", description: "", seating_capacity: "" });
   const [formError, setFormError] = useState(null);
+  const { validate, fieldError, registerField, resetValidation } = useFormValidation(categorySchema);
 
   const { data: categories = [], isLoading } = useQuery({
     queryKey: ["vehicle-categories"],
@@ -63,6 +71,7 @@ export default function CategoriesPage() {
     setEditingCategory(null);
     setFormData({ category_name: "", description: "", seating_capacity: "" });
     setFormError(null);
+    resetValidation();
     setDialogOpen(true);
   }
 
@@ -74,6 +83,7 @@ export default function CategoriesPage() {
       seating_capacity: cat.seating_capacity ?? "",
     });
     setFormError(null);
+    resetValidation();
     setDialogOpen(true);
   }
 
@@ -86,20 +96,22 @@ export default function CategoriesPage() {
   function handleSubmit(e) {
     e.preventDefault();
     setFormError(null);
-    if (!formData.category_name.trim()) {
-      setFormError("Category name is required");
-      return;
-    }
-    const payload = {
-      category_name: formData.category_name.trim(),
-      description: formData.description.trim() || null,
-      seating_capacity: formData.seating_capacity ? Number(formData.seating_capacity) : null,
-    };
-    if (editingCategory) {
-      updateMutation.mutate({ id: editingCategory.category_id, data: payload });
-    } else {
-      createMutation.mutate(payload);
-    }
+
+    const isValid = validate(formData, {
+      onSuccess: () => {
+        const payload = {
+          category_name: formData.category_name.trim(),
+          description: formData.description.trim() || null,
+          seating_capacity: formData.seating_capacity ? Number(formData.seating_capacity) : null,
+        };
+        if (editingCategory) {
+          updateMutation.mutate({ id: editingCategory.category_id, data: payload });
+        } else {
+          createMutation.mutate(payload);
+        }
+      },
+    });
+    if (!isValid) return;
   }
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
@@ -129,9 +141,11 @@ export default function CategoriesPage() {
                   id="category_name"
                   value={formData.category_name}
                   onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
+                  ref={registerField("category_name")}
+                  invalid={fieldError("category_name").invalid}
                   placeholder="e.g. VIP Guest Transport, Guest Shuttle"
-                  required
                 />
+                {fieldError("category_name").error && <p className="text-xs text-danger">{fieldError("category_name").error}</p>}
               </div>
 
               <div className="space-y-1.5">
@@ -140,8 +154,11 @@ export default function CategoriesPage() {
                   id="description"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  ref={registerField("description")}
+                  invalid={fieldError("description").invalid}
                   placeholder="e.g. Executive airport pickups for VIP guests"
                 />
+                {fieldError("description").error && <p className="text-xs text-danger">{fieldError("description").error}</p>}
               </div>
 
               <div className="space-y-1.5">
@@ -152,8 +169,11 @@ export default function CategoriesPage() {
                   min="1"
                   value={formData.seating_capacity}
                   onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })}
+                  ref={registerField("seating_capacity")}
+                  invalid={fieldError("seating_capacity").invalid}
                   placeholder="e.g. 7"
                 />
+                {fieldError("seating_capacity").error && <p className="text-xs text-danger">{fieldError("seating_capacity").error}</p>}
               </div>
 
               {formError && <p className="text-sm text-danger">{formError}</p>}

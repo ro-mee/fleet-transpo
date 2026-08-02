@@ -5,26 +5,15 @@ import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/tables/data-table";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
-import { formatDate, formatTime, formatDuration, formatDistance } from "@/lib/utils";
-import { Route, Play, Download, Truck, Users, Clock, MapPin, Navigation } from "lucide-react";
+import { formatTime, formatDuration } from "@/lib/utils";
+import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
-
-const statusVariant = {
-  Pending: "warning",
-  Approved: "default",
-  Dispatched: "default",
-  "Driver Accepted": "info",
-  "Trip Started": "info",
-  "En Route": "primary",
-  Arrived: "success",
-  Completed: "success",
-  Cancelled: "secondary",
-};
 
 const columnHelper = createColumnHelper();
 
@@ -102,76 +91,70 @@ export default function TripsPage() {
       columnHelper.accessor("trip_status", {
         header: "Status",
         cell: (info) => (
-          <Badge variant={statusVariant[info.getValue()] || "default"} className="whitespace-nowrap">
-            {info.getValue() === "En Route" && <Navigation className="w-3 h-3 mr-1 animate-pulse" />}
-            {info.getValue()}
-          </Badge>
+          <StatusBadge status={info.getValue()} entity="trip" className="whitespace-nowrap" />
         ),
       }),
     ],
     []
   );
 
+  const totalDistance = trips.reduce((s, t) => s + (t.distance || 0), 0);
+
+  const statCards = [
+    { label: "Total Trips", value: trips.length, icon: Route, tone: "primary", trend: "all time" },
+    { label: "Active", value: activeTrips.length, icon: Play, tone: "info", trend: "in motion now" },
+    { label: "Completed", value: trips.filter((t) => t.trip_status === "Completed").length, icon: CheckCircle2, tone: "success", trend: "finished" },
+    { label: "Total Distance", value: `${totalDistance.toFixed(0)} km`, icon: MapPin, tone: "warning", trend: "across all trips" },
+  ];
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Trips</h1>
-          <p className="text-foreground-secondary mt-1">Monitor and manage all trips</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => exportToCSV(trips, "trips", [
-              { label: "ID", key: "trip_id" },
-              { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
-              { label: "Driver", accessor: (t) => t.drivers?.employees ? `${t.drivers.employees.first_name} ${t.drivers.employees.last_name}` : "" },
-              { label: "Dispatch", accessor: (t) => t.dispatchschedules?.dispatch_number || "" },
-              { label: "Route", accessor: (t) => t.routes?.route_name || "" },
-              { label: "Start Time", key: "start_time" },
-              { label: "End Time", key: "end_time" },
-              { label: "Distance (km)", key: "distance" },
-              { label: "Duration (min)", key: "actual_duration" },
-              { label: "Status", key: "trip_status" },
-              { label: "Notes", key: "notes" },
-            ])}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => router.push("/trips/active")}>
-            <Play className="w-4 h-4 mr-2" />
-            Active Trips ({activeTrips.length})
-          </Button>
-        </div>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Trips"
+        description="Monitor and manage all trips."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => exportToCSV(trips, "trips", [
+                { label: "ID", key: "trip_id" },
+                { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
+                { label: "Driver", accessor: (t) => (t.drivers?.employees ? `${t.drivers.employees.first_name} ${t.drivers.employees.last_name}` : "") },
+                { label: "Dispatch", accessor: (t) => t.dispatchschedules?.dispatch_number || "" },
+                { label: "Route", accessor: (t) => t.routes?.route_name || "" },
+                { label: "Start Time", key: "start_time" },
+                { label: "End Time", key: "end_time" },
+                { label: "Distance (km)", key: "distance" },
+                { label: "Duration (min)", key: "actual_duration" },
+                { label: "Status", key: "trip_status" },
+                { label: "Notes", key: "notes" },
+              ])}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => router.push("/trips/active")}>
+              <Play className="w-4 h-4 mr-2" />
+              Active Trips ({activeTrips.length})
+            </Button>
+          </>
+        }
+      />
 
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: "Total Trips", count: trips.length, color: "text-primary", bg: "bg-primary/10" },
-          { label: "Active", count: activeTrips.length, color: "text-success", bg: "bg-success/10" },
-          { label: "Completed", count: trips.filter((t) => t.trip_status === "Completed").length, color: "text-success", bg: "bg-success/10" },
-          { label: "Total Distance", count: `${trips.reduce((s, t) => s + (t.distance || 0), 0).toFixed(0)} km`, color: "text-warning", bg: "bg-warning/10" },
-        ].map((stat) => (
-          <Card key={stat.label} className="border-0 shadow-sm">
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className={`p-2.5 rounded-xl ${stat.bg}`}>
-                <Route className={`w-5 h-5 ${stat.color}`} />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-foreground">{stat.count}</p>
-                <p className="text-xs text-foreground-muted">{stat.label}</p>
-              </div>
-            </CardContent>
-          </Card>
+      <StatGrid cols={4}>
+        {statCards.map((card) => (
+          <StatCard key={card.label} {...card} />
         ))}
-      </div>
+      </StatGrid>
 
       <DataTable
         columns={columns}
         data={trips}
         searchPlaceholder="Search trips..."
+        emptyTitle="No trips found"
+        emptyDescription="Trips will appear here once dispatches are scheduled."
         onRowClick={(row) => router.push(`/trips/${row.trip_id}`)}
       />
     </div>

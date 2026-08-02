@@ -13,6 +13,7 @@ import { ChevronDown, ChevronUp, ChevronsUpDown, ChevronLeft, ChevronRight } fro
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 export function DataTable({
   columns: rawColumns,
@@ -22,9 +23,18 @@ export function DataTable({
   searchColumn,
   pageSize = 10,
   onRowClick,
+  isLoading = false,
+  searchValue,
+  onSearchChange,
+  emptyTitle = "No results found",
+  emptyDescription = "Try adjusting your search or filters.",
 }) {
   const [sorting, setSorting] = useState([]);
-  const [globalFilter, setGlobalFilter] = useState("");
+  const [internalFilter, setInternalFilter] = useState("");
+
+  const isControlled = searchValue !== undefined;
+  const globalFilter = isControlled ? searchValue : internalFilter;
+  const setGlobalFilter = isControlled ? onSearchChange : setInternalFilter;
 
   const columns = useMemo(() => {
     if (!rawColumns?.length) return [];
@@ -80,6 +90,11 @@ export function DataTable({
       )}
 
       <div className="rounded-xl border border-border overflow-hidden">
+        {isLoading ? (
+          <div className="p-4">
+            <TableSkeleton />
+          </div>
+        ) : (
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -132,14 +147,18 @@ export function DataTable({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={columns.length} className="px-4 py-12 text-center text-foreground-muted">
-                    No results found
+                  <td colSpan={columns.length} className="px-4 py-12">
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-foreground">{emptyTitle}</p>
+                      <p className="text-sm text-foreground-secondary mt-1">{emptyDescription}</p>
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {table.getPageCount() > 1 && (

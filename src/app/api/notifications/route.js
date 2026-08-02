@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
@@ -19,8 +20,28 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
+
+    const errors = validateBody(body, {
+      type: { required: true, maxLength: 50, label: "Notification type" },
+      title: { required: true, maxLength: 200, label: "Title" },
+      message: { required: true, maxLength: 1000, label: "Message" },
+      employee_id: { type: "id", label: "Employee" },
+      role_id: { type: "id", label: "Role" },
+      entity_type: { maxLength: 50, label: "Entity type" },
+      entity_id: { type: "id", label: "Entity" },
+      link: { maxLength: 500, label: "Link" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
+    const allowedKeys = new Set(["type", "title", "message", "employee_id", "role_id", "entity_type", "entity_id", "link", "is_read", "priority"]);
+    for (const key of Object.keys(body)) {
+      if (!allowedKeys.has(key)) delete body[key];
+    }
+
     const k = Object.keys(body), v = Object.values(body);
     const { rows } = await query(`INSERT INTO notifications (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
     return ok(rows[0], 201);

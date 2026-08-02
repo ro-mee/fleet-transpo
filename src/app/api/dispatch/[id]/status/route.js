@@ -4,7 +4,7 @@ import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTri
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"]);
     const id = (await params).id;
     const body = await parseBody(req);
     const { rows: before } = await query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`, [id]);

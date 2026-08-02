@@ -1,422 +1,350 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { createReservation, getServiceTypes, getBookingChannels } from "@/services/reservation.service";
-import { getAvailableVehiclesForReservation } from "@/services/ai.service";
-import { ArrowLeft, Loader2, Truck, CheckCircle2, ChevronRight, Brain, Sparkles, Building, ExternalLink } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { injectTransportRequest, pullTransportRequests } from "@/services/transport.service";
+import { getVehicleCategories } from "@/services/vehicle.service";
+import { ArrowLeft, Loader2, FlaskConical, DownloadCloud, Inbox } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 
-const reservationSchema = z.object({
-  guest_name: z.string().optional(),
-  guest_phone: z.string().optional(),
-  guest_email: z.string().email().optional().or(z.literal("")),
-  pickup_location: z.string().min(1, "Pickup location is required"),
-  dropoff_location: z.string().optional(),
-  reservation_date: z.string().min(1, "Date is required"),
-  pickup_time: z.string().min(1, "Pickup time is required"),
-  estimated_return_time: z.string().optional(),
-  purpose: z.string().optional(),
-  passenger_count: z.coerce.number().min(1).default(1),
-  notes: z.string().optional(),
-  vehicle_id: z.coerce.number().optional(),
-  driver_id: z.coerce.number().optional(),
-  service_type_id: z.coerce.number().optional(),
-  booking_channel_id: z.coerce.number().optional(),
-  external_booking_id: z.string().optional(),
-  integration_source: z.string().optional(),
-  room_number: z.string().optional(),
-  bill_to_room: z.boolean().optional(),
-  guest_id: z.string().optional(),
-});
+// ============================================================================
+// DEV-ONLY: Mock transportation-request injector.
+//
+// In production, transportation requests arrive FROM the Booking subsystem over
+// the integration boundary (webhook -> POST /api/integration/transport-requests,
+// or the poller -> /api/integration/pull). Fleet NEVER authors guest bookings.
+//
+// This page exists only so a developer without a live Booking system can push a
+// request shaped EXACTLY like a real Booking payload (TransportationRequestSchema)
+// through that same inbound boundary. It is hidden when the HTTP gateway is live.
+// ============================================================================
 
-export default function NewReservationPage() {
+// Client can't read a server-only env var; BOOKING gateway mode is mirrored to a
+// NEXT_PUBLIC_ var. Default (unset) is treated as mock/dev.
+const GATEWAY = process.env.NEXT_PUBLIC_BOOKING_GATEWAY || "mock";
+
+function nowPlusHoursLocal(hours) {
+  const d = new Date();
+  d.setHours(d.getHours() + hours, 0, 0, 0);
+  // datetime-local wants "YYYY-MM-DDTHH:mm" with no timezone.
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+export default function MockInjectorPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [aiRecommendations, setAiRecommendations] = useState([]);
-  const [selectedVehicle, setSelectedVehicle] = useState(null);
-  const [loadingAi, setLoadingAi] = useState(false);
-  const [showIntegrationFields, setShowIntegrationFields] = useState(false);
 
-  const { data: serviceTypes = [] } = useQuery({
-    queryKey: ["serviceTypes"],
-    queryFn: getServiceTypes,
+  // Vehicle classes, for the field Booking really sends. This used to offer
+  // service_types, which is an empty table — the dropdown opened onto nothing.
+  const { data: categories = [] } = useQuery({
+    queryKey: ["vehicle-categories"],
+    queryFn: () => getVehicleCategories(),
   });
 
-  const { data: bookingChannels = [] } = useQuery({
-    queryKey: ["bookingChannels"],
-    queryFn: getBookingChannels,
+  const [form, setForm] = useState({
+    external_booking_id: "",
+    source_system: "PMS",
+    booking_reference: "",
+    guest_name: "",
+    pickup_location: "",
+    dropoff_location: "",
+    pickup_datetime: nowPlusHoursLocal(2),
+    passenger_count: 1,
+    special_requests: "",
+    // Free text, exactly as Booking sends it. The dropdown offers Fleet's own
+    // category names for convenience, but the value crossing the boundary is a
+    // STRING — Booking does not know Fleet's category ids and must never send
+    // one. Ingest resolves it back to requested_category_id.
+    requested_vehicle_type: "",
+    priority: "Normal",
   });
 
-  const form = useForm({
-    resolver: zodResolver(reservationSchema),
-    defaultValues: {
-      guest_name: "",
-      guest_phone: "",
-      guest_email: "",
-      pickup_location: "",
-      dropoff_location: "",
-      reservation_date: new Date().toISOString().split("T")[0],
-      pickup_time: "09:00",
-      estimated_return_time: "",
-      purpose: "",
-      passenger_count: 1,
-      notes: "",
-      service_type_id: "",
-      booking_channel_id: "",
-      external_booking_id: "",
-      integration_source: "",
-      room_number: "",
-      bill_to_room: false,
-      guest_id: "",
+  const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
+
+  const injectMutation = useMutation({
+    mutationFn: injectTransportRequest,
+    onSuccess: (res) => {
+      toast.success(
+        res?.idempotent
+          ? "Already ingested — request is already in the queue"
+          : "Mock request injected into the Fleet queue"
+      );
+      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
+      router.push("/reservations/queue");
     },
+    onError: (err) => toast.error(err.message || "Failed to inject request"),
   });
 
-  const watchPassengerCount = form.watch("passenger_count");
-  const watchDate = form.watch("reservation_date");
-
-  const loadAiRecommendations = useCallback(async () => {
-    setLoadingAi(true);
-    try {
-      const data = form.getValues();
-      const recommendations = await getAvailableVehiclesForReservation(data);
-      setAiRecommendations(recommendations);
-      if (recommendations.length > 0) {
-        setSelectedVehicle(recommendations[0]);
-      }
-    } catch (err) {
-      console.error("AI recommendation error:", err);
-    } finally {
-      setLoadingAi(false);
-    }
-  }, [form]);
-
-  useEffect(() => {
-    if (watchPassengerCount && watchDate) {
-      loadAiRecommendations();
-    }
-  }, [watchPassengerCount, watchDate, loadAiRecommendations]);
-
-  const [createError, setCreateError] = useState(null);
-
-  const createMutation = useMutation({
-    mutationFn: createReservation,
-    onSuccess: (data) => {
-      toast.success("Reservation created");
-      queryClient.invalidateQueries({ queryKey: ["reservations"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
-      router.push(`/reservations/${data.reservation_id}`);
+  const pullMutation = useMutation({
+    mutationFn: pullTransportRequests,
+    onSuccess: (res) => {
+      toast.success(
+        res?.ingested
+          ? `Pulled ${res.ingested} canned request${res.ingested === 1 ? "" : "s"} from the mock gateway`
+          : "Mock gateway returned nothing new"
+      );
+      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
+      router.push("/reservations/queue");
     },
-    onError: (err) => {
-      setCreateError(err.message || "Failed to create reservation");
-    },
+    onError: (err) => toast.error(err.message || "Failed to pull from mock gateway"),
   });
 
-  const onSubmit = (data) => {
+  const submit = (e) => {
+    e.preventDefault();
+    if (!form.external_booking_id.trim()) return toast.error("External booking ID is required");
+    if (!form.pickup_location.trim()) return toast.error("Pickup location is required");
+    if (!form.pickup_datetime) return toast.error("Pickup datetime is required");
+
+    // Shape the payload EXACTLY like a real Booking webhook (contracts.js).
     const payload = {
-      ...data,
-      service_type_id: data.service_type_id || null,
-      booking_channel_id: data.booking_channel_id || null,
-      external_booking_id: data.external_booking_id || null,
-      integration_source: data.integration_source || null,
-      room_number: data.room_number || null,
-      bill_to_room: data.bill_to_room || false,
-      guest_id: data.guest_id || null,
-      vehicle_id: selectedVehicle?.vehicle?.vehicle_id || null,
-      ai_vehicle_recommendation: selectedVehicle
-        ? { vehicle_id: selectedVehicle.vehicle.vehicle_id, score: selectedVehicle.score, confidence: selectedVehicle.confidence, reasons: selectedVehicle.reasons }
-        : null,
+      external_booking_id: form.external_booking_id.trim(),
+      source_system: form.source_system || "PMS",
+      booking_reference: form.booking_reference || null,
+      guest_name: form.guest_name || null,
+      pickup_location: form.pickup_location.trim(),
+      dropoff_location: form.dropoff_location || null,
+      // Send an ISO string with the local offset, as a real payload would.
+      pickup_datetime: new Date(form.pickup_datetime).toISOString(),
+      passenger_count: Number(form.passenger_count) || 1,
+      special_requests: form.special_requests || null,
+      requested_vehicle_type: form.requested_vehicle_type || null,
+      priority: form.priority || "Normal",
+      booking_status: "Pending",
     };
-    createMutation.mutate(payload);
+    injectMutation.mutate(payload);
   };
 
+  if (GATEWAY === "http") {
+    return (
+      <div className="max-w-2xl space-y-6">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => router.push("/reservations/queue")}>
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">Mock Injector Disabled</h1>
+            <p className="text-foreground-secondary mt-1">
+              The live Booking gateway is active — requests arrive automatically.
+            </p>
+          </div>
+        </div>
+        <Card>
+          <CardContent className="py-8 text-center text-foreground-secondary">
+            <Inbox className="w-8 h-8 mx-auto mb-3 opacity-60" />
+            <p>Transportation requests flow in from the Booking system.</p>
+            <Button className="mt-4" onClick={() => router.push("/reservations/queue")}>
+              Go to Request Queue
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6 max-w-4xl">
+    <div className="max-w-2xl space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
+        <Button variant="ghost" size="icon" onClick={() => router.push("/reservations/queue")}>
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div>
-          <h1 className="text-2xl font-bold text-foreground">New Reservation</h1>
-          <p className="text-foreground-secondary mt-1">Create a vehicle reservation for a guest or external booking</p>
+          <div className="flex items-center gap-2">
+            <FlaskConical className="w-5 h-5 text-warning" />
+            <h1 className="text-2xl font-bold text-foreground">Inject Mock Request</h1>
+          </div>
+          <p className="text-foreground-secondary mt-1">
+            Developer tool — simulates a transportation request from the Booking system.
+          </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Guest Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form id="reservation-form" onSubmit={form.handleSubmit(onSubmit)}>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="guest_name">Guest Name</Label>
-                    <Input id="guest_name" {...form.register("guest_name")} placeholder="Guest name" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="guest_phone">Phone</Label>
-                    <Input id="guest_phone" {...form.register("guest_phone")} placeholder="+63 912 345 6789" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="guest_email">Email</Label>
-                    <Input id="guest_email" type="email" {...form.register("guest_email")} placeholder="guest@example.com" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="passenger_count">Passenger Count</Label>
-                    <Input id="passenger_count" type="number" min="1" {...form.register("passenger_count")} />
-                  </div>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+      <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4">
+        <FlaskConical className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+        <div className="text-sm text-foreground-secondary">
+          <p className="font-medium text-foreground">This is not a real reservation form.</p>
+          <p className="mt-0.5">
+            Fleet never authors guest bookings. This pushes a Booking-shaped payload through the
+            same inbound boundary a real webhook uses, so you can exercise the queue in dev.
+          </p>
+        </div>
+      </div>
 
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Service Details</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="service_type">Service Type</Label>
-                  <Select
-                    value={form.watch("service_type_id")?.toString() || ""}
-                    onValueChange={(val) => form.setValue("service_type_id", Number(val))}
-                  >
-                    <SelectTrigger id="service_type">
-                      <SelectValue placeholder="Select service type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {serviceTypes.map((st) => (
-                        <SelectItem key={st.service_type_id} value={st.service_type_id.toString()}>
-                          {st.service_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="booking_channel">Booking Channel</Label>
-                  <Select
-                    value={form.watch("booking_channel_id")?.toString() || ""}
-                    onValueChange={(val) => form.setValue("booking_channel_id", Number(val))}
-                  >
-                    <SelectTrigger id="booking_channel">
-                      <SelectValue placeholder="Where was this booked?" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {bookingChannels.map((bc) => (
-                        <SelectItem key={bc.channel_id} value={bc.channel_id.toString()}>
-                          {bc.channel_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="reservation_date">Date *</Label>
-                  <Input id="reservation_date" type="date" {...form.register("reservation_date")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pickup_location">Pickup Location *</Label>
-                  <Input id="pickup_location" {...form.register("pickup_location")} placeholder="Hotel lobby, restaurant, etc." />
-                  {form.formState.errors.pickup_location && (
-                    <p className="text-xs text-danger">{form.formState.errors.pickup_location.message}</p>
+      <Card>
+        <CardHeader className="pb-3 flex-row items-center justify-between">
+          <CardTitle className="text-base font-semibold">Or pull the canned mock requests</CardTitle>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => pullMutation.mutate()}
+            disabled={pullMutation.isPending}
+          >
+            <DownloadCloud className="w-4 h-4 mr-2" />
+            {pullMutation.isPending ? "Pulling…" : "Pull mock batch"}
+          </Button>
+        </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-semibold">Custom Request</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="external_booking_id">External Booking ID *</Label>
+              <Input
+                id="external_booking_id"
+                value={form.external_booking_id}
+                onChange={(e) => set("external_booking_id", e.target.value)}
+                placeholder="BK-2026-00999"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="source_system">Source System</Label>
+              <Select value={form.source_system} onValueChange={(v) => set("source_system", v)}>
+                <SelectTrigger id="source_system">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="PMS">PMS (Hotel)</SelectItem>
+                  <SelectItem value="POS">POS (Restaurant)</SelectItem>
+                  <SelectItem value="Web">Web Booking</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="booking_reference">Booking Reference</Label>
+              <Input
+                id="booking_reference"
+                value={form.booking_reference}
+                onChange={(e) => set("booking_reference", e.target.value)}
+                placeholder="Confirmation # (optional)"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="guest_name">Guest Name</Label>
+              <Input
+                id="guest_name"
+                value={form.guest_name}
+                onChange={(e) => set("guest_name", e.target.value)}
+                placeholder="From Booking (optional)"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pickup_location">Pickup Location *</Label>
+              <Input
+                id="pickup_location"
+                value={form.pickup_location}
+                onChange={(e) => set("pickup_location", e.target.value)}
+                placeholder="Hotel lobby"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="dropoff_location">Dropoff Location</Label>
+              <Input
+                id="dropoff_location"
+                value={form.dropoff_location}
+                onChange={(e) => set("dropoff_location", e.target.value)}
+                placeholder="Airport (optional)"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="pickup_datetime">Pickup Date & Time *</Label>
+              <Input
+                id="pickup_datetime"
+                type="datetime-local"
+                value={form.pickup_datetime}
+                onChange={(e) => set("pickup_datetime", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="passenger_count">Passenger Count</Label>
+              <Input
+                id="passenger_count"
+                type="number"
+                min="1"
+                value={form.passenger_count}
+                onChange={(e) => set("passenger_count", e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="priority">Priority</Label>
+              <Select value={form.priority} onValueChange={(v) => set("priority", v)}>
+                <SelectTrigger id="priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Low">Low</SelectItem>
+                  <SelectItem value="Normal">Normal</SelectItem>
+                  <SelectItem value="High">High</SelectItem>
+                  <SelectItem value="Urgent">Urgent</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="requested_vehicle_type">Vehicle Class</Label>
+              <Select
+                value={form.requested_vehicle_type}
+                onValueChange={(v) => set("requested_vehicle_type", v)}
+              >
+                <SelectTrigger id="requested_vehicle_type">
+                  <SelectValue placeholder="What booking is asking for" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.length === 0 ? (
+                    <div className="px-2 py-3 text-xs text-foreground-muted">
+                      No vehicle categories yet. Add them under Fleet → Categories.
+                    </div>
+                  ) : (
+                    categories.map((c) => (
+                      <SelectItem key={c.category_id} value={c.category_name}>
+                        {c.category_name}
+                      </SelectItem>
+                    ))
                   )}
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="dropoff_location">Dropoff Location</Label>
-                  <Input id="dropoff_location" {...form.register("dropoff_location")} placeholder="Destination (optional)" />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="purpose">Purpose</Label>
-                  <Input id="purpose" {...form.register("purpose")} placeholder="Airport transfer, delivery, etc." />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="pickup_time">Pickup Time *</Label>
-                  <Input id="pickup_time" type="time" {...form.register("pickup_time")} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="estimated_return_time">Est. Return Time</Label>
-                  <Input id="estimated_return_time" type="time" {...form.register("estimated_return_time")} />
-                </div>
-              </div>
-              <div className="mt-3 space-y-1.5">
-                <Label htmlFor="notes">Notes</Label>
-                <textarea
-                  id="notes"
-                  {...form.register("notes")}
-                  className="flex min-h-[80px] w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                  placeholder="Special requests or instructions..."
-                />
-              </div>
-            </CardContent>
-          </Card>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5 md:col-span-2">
+              <Label htmlFor="special_requests">Special Requests</Label>
+              <textarea
+                id="special_requests"
+                value={form.special_requests}
+                onChange={(e) => set("special_requests", e.target.value)}
+                className="flex min-h-[70px] w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
+                placeholder="Wheelchair access, extra luggage, etc."
+              />
+            </div>
 
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base font-semibold">Parent System Integration</CardTitle>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setShowIntegrationFields(!showIntegrationFields)}
-                >
-                  <ExternalLink className="w-4 h-4 mr-1" />
-                  {showIntegrationFields ? "Hide" : "Link to Booking"}
-                </Button>
-              </div>
-            </CardHeader>
-            {showIntegrationFields && (
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="external_booking_id">External Booking ID</Label>
-                    <Input id="external_booking_id" {...form.register("external_booking_id")} placeholder="From PMS, POS, etc." />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="integration_source">Source System</Label>
-                    <Select
-                      value={form.watch("integration_source") || ""}
-                      onValueChange={(val) => form.setValue("integration_source", val)}
-                    >
-                      <SelectTrigger id="integration_source">
-                        <SelectValue placeholder="Select source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="PMS">PMS (Hotel)</SelectItem>
-                        <SelectItem value="POS">POS (Restaurant)</SelectItem>
-                        <SelectItem value="RestoBooking">RestoBooking</SelectItem>
-                        <SelectItem value="Web">Web Booking</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="room_number">Room Number</Label>
-                    <Input id="room_number" {...form.register("room_number")} placeholder="e.g. 1205" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="guest_id">Guest ID (Parent System)</Label>
-                    <Input id="guest_id" {...form.register("guest_id")} placeholder="From parent system" />
-                  </div>
-                  <div className="flex items-center gap-2 pt-5">
-                    <input
-                      type="checkbox"
-                      id="bill_to_room"
-                      {...form.register("bill_to_room")}
-                      className="w-4 h-4 rounded border-border"
-                    />
-                    <Label htmlFor="bill_to_room" className="cursor-pointer">Bill this transport to room</Label>
-                  </div>
-                </div>
-              </CardContent>
-            )}
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card className="">
-            <CardHeader className="pb-3">
-              <div className="flex items-center gap-2">
-                <Brain className="w-5 h-5 text-primary" />
-                <CardTitle className="text-base font-semibold">AI Recommendation</CardTitle>
-                <Badge variant="default" className="text-[10px]">AI</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {loadingAi ? (
-                <div className="flex flex-col items-center justify-center py-8 text-foreground-muted">
-                  <Loader2 className="w-6 h-6 animate-spin mb-2" />
-                  <p className="text-sm">Analyzing fleet...</p>
-                </div>
-              ) : aiRecommendations.length > 0 ? (
-                <div className="space-y-3">
-                  <p className="text-xs text-foreground-muted mb-2">
-                    Top {aiRecommendations.length} vehicles recommended based on availability, capacity, and fleet status
-                  </p>
-                  {aiRecommendations.slice(0, 3).map((rec, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setSelectedVehicle(rec)}
-                      className={`w-full text-left p-3 rounded-xl border transition-all ${
-                        selectedVehicle?.vehicle?.vehicle_id === rec.vehicle.vehicle_id
-                          ? "border-primary bg-primary/5 ring-1 ring-primary"
-                          : "border-border hover:border-primary/50 hover:bg-hover"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <Truck className="w-4 h-4 text-foreground-muted" />
-                          <span className="text-sm font-medium text-foreground">{rec.vehicle.plate_number}</span>
-                        </div>
-                        <Badge variant={rec.confidence > 0.7 ? "success" : "warning"} className="text-[10px]">
-                          {Math.round(rec.confidence * 100)}%
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-foreground-muted">{rec.vehicle.vehicle_name} · {rec.vehicle.seating_capacity} seats · {rec.vehicle.fuel_level}% fuel</p>
-                      <div className="flex items-center gap-1 mt-1.5">
-                        <Sparkles className="w-3 h-3 text-warning" />
-                        <p className="text-xs text-foreground-secondary">{rec.reasons[0]}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-foreground-muted">
-                  <Truck className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">Set passenger count and date</p>
-                  <p className="text-xs mt-1">AI will recommend vehicles</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {selectedVehicle && (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">Selected Vehicle</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-success/5 border border-success/20">
-                  <CheckCircle2 className="w-5 h-5 text-success flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{selectedVehicle.vehicle.plate_number}</p>
-                    <p className="text-xs text-foreground-muted">{selectedVehicle.vehicle.vehicle_name} · {selectedVehicle.vehicle.vehiclecategories?.category_name}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      </div>
-
-      <div className="flex items-center justify-end gap-3">
-        {createError && (
-          <p className="text-sm text-destructive mr-auto">{createError}</p>
-        )}
-        <Button type="button" variant="outline" onClick={() => router.back()}>
-          Cancel
-        </Button>
-        <Button type="submit" form="reservation-form" disabled={createMutation.isPending}>
-          {createMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          Create Reservation
-          <ChevronRight className="w-4 h-4 ml-1" />
-        </Button>
-      </div>
+            <div className="md:col-span-2 flex items-center justify-end gap-3 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.push("/reservations/queue")}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={injectMutation.isPending}>
+                {injectMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                Inject Request
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

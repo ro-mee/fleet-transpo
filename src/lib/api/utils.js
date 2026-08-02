@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { validatePayload } from "@/lib/validation/helpers";
 
 export async function requireAuth(req, allowedRoles = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]) {
   const session = await auth();
@@ -33,6 +34,15 @@ export function ok(data, status = 200) {
 
 export function err(message, status = 400) {
   return Response.json({ error: message }, { status });
+}
+
+export function errValidation(errors) {
+  const first = Object.values(errors)[0];
+  return Response.json({ error: first, errors }, { status: 400 });
+}
+
+export function validateBody(body, schema = {}) {
+  return validatePayload(body, schema);
 }
 
 export function handleError(error) {

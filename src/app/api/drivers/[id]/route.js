@@ -1,5 +1,7 @@
-import { query, getAdminClient } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { query } from "@/lib/db";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
+import { writeAudit } from "@/lib/audit";
 
 export async function GET(req, { params }) {
   try {
@@ -72,7 +74,20 @@ export async function PUT(req, { params }) {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
     const body = await parseBody(req);
-    const supabase = getAdminClient();
+
+    const errors = validateBody(body, {
+      first_name: { type: "name", label: "First name", maxLength: 100 },
+      last_name: { type: "name", label: "Last name", maxLength: 100 },
+      email: { type: "email", label: "Email" },
+      phone: { type: "phone", label: "Phone" },
+      license_number: { type: "license", label: "License number", maxLength: 30 },
+      license_expiry: { type: "date", label: "License expiry" },
+      years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+      driver_status: { maxLength: 30, label: "Driver status" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
 
     const {
       license_number,
@@ -101,11 +116,14 @@ export async function PUT(req, { params }) {
 
     // Build driver update payload
     const driverPayload = {};
-    if (license_number !== undefined) driverPayload.license_number = license_number.trim();
+    if (license_number !== undefined) driverPayload.license_number = normalizeLicense(license_number);
     if (license_expiry !== undefined) driverPayload.license_expiry = license_expiry || null;
     if (license_type !== undefined) driverPayload.license_type = license_type || null;
     if (license_class !== undefined) driverPayload.license_class = license_class || null;
-    if (years_of_experience !== undefined) driverPayload.years_of_experience = Number(years_of_experience) || 0;
+    if (years_of_experience !== undefined) {
+      const exp = Number(years_of_experience);
+      driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
+    }
     if (driver_status !== undefined) driverPayload.driver_status = driver_status;
     driverPayload.updated_at = new Date().toISOString();
 
@@ -122,10 +140,10 @@ export async function PUT(req, { params }) {
 
     // Build employee update payload
     const employeePayload = {};
-    if (first_name !== undefined) employeePayload.first_name = first_name.trim();
-    if (last_name !== undefined) employeePayload.last_name = last_name.trim();
-    if (email !== undefined) employeePayload.email = email.trim().toLowerCase();
-    if (phone !== undefined) employeePayload.phone = phone.trim() || null;
+    if (first_name !== undefined) employeePayload.first_name = normalizeName(first_name);
+    if (last_name !== undefined) employeePayload.last_name = normalizeName(last_name);
+    if (email !== undefined) employeePayload.email = normalizeEmail(email);
+    if (phone !== undefined) employeePayload.phone = normalizePhone(phone) || null;
     if (position !== undefined) employeePayload.position = position || "Driver";
     if (license_image_url !== undefined) employeePayload.avatar_url = license_image_url || null;
     employeePayload.updated_at = new Date().toISOString();
@@ -169,7 +187,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requireAuth(req, ["system_admin", "admin"]);
     const { id } = await params;
 
     const { rows: existingRows } = await query(
@@ -183,6 +201,8 @@ export async function DELETE(req, { params }) {
 
     // Soft delete driver
     await query(`UPDATE drivers SET deleted_at = $1 WHERE driver_id = $2`, [now, id]);
+
+    await writeAudit(req, session, { action: "delete", resource: "drivers", resourceId: id });
 
     return ok({ message: "Driver archived successfully" });
   } catch (e) {

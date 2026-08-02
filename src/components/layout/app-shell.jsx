@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Truck,
   CalendarCheck,
+  Inbox,
   Send,
   Users,
   Route,
@@ -46,6 +47,7 @@ const navGroups = [
     items: [
       { href: "/fleet/vehicles", label: "Fleet", icon: Truck },
       { href: "/reservations", label: "Reservations", icon: CalendarCheck },
+      { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
       { href: "/dispatch", label: "Dispatch", icon: Send },
       { href: "/routes", label: "Routes", icon: Route },
       { href: "/drivers", label: "Drivers", icon: Users },

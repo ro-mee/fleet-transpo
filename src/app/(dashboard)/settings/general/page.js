@@ -2,19 +2,20 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { APP_NAME } from "@/lib/constants";
-import { Save, Globe, Clock, Palette, Bell, Share2 } from "lucide-react";
+import { Globe, Palette, Share2 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function SettingsGeneralPage() {
   useRequireRole(["admin", "system_admin"]);
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">General Settings</h1>
-        <p className="text-foreground-secondary mt-1">System-wide configuration and preferences</p>
-      </div>
+      <PageHeader
+        eyebrow="Settings"
+        title="General Settings"
+        description="System-wide configuration and preferences."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="border-0 shadow-sm">
@@ -36,10 +37,6 @@ export default function SettingsGeneralPage() {
               <label className="text-sm text-foreground-secondary mb-1 block">Date Format</label>
               <div className="h-10 px-3 rounded-xl border border-border bg-surface flex items-center text-sm text-foreground-muted">MM/DD/YYYY</div>
             </div>
-            <Button>
-              <Save className="w-4 h-4 mr-2" />
-              Save Settings
-            </Button>
           </CardContent>
         </Card>
 
@@ -96,11 +93,10 @@ export default function SettingsGeneralPage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium text-foreground">{int.name}</p>
-                  <Badge variant={int.status === "Connected" ? "success" : int.status === "Configured" ? "info" : "secondary"} className="text-[9px]">{int.status}</Badge>
+                  <Badge variant={int.status === "Connected" ? "success" : int.status === "Configured" ? "info" : "secondary"} className="text-[11px]">{int.status}</Badge>
                 </div>
                 <p className="text-xs text-foreground-muted">{int.desc}</p>
               </div>
-              <Button variant="ghost" size="sm">Configure</Button>
             </div>
           ))}
         </CardContent>

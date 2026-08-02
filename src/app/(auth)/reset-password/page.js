@@ -9,6 +9,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CarFront, Eye, EyeOff } from "lucide-react";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+
+const resetSchema = {
+  password: { required: true, type: "password", label: "New password" },
+  confirmPassword: (value, values) => {
+    if (!value) return "Confirm password is required.";
+    if (value !== values.password) return "Passwords do not match.";
+    return null;
+  },
+};
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -19,32 +29,32 @@ function ResetPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const { validate, fieldError, registerField } = useFormValidation(resetSchema);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
 
     if (!session?.user?.email) {
       setError("You must be logged in to reset your password");
       return;
     }
 
-    setLoading(true);
-
-    try {
-      await updatePassword(password, session.user.email);
-      setSuccess(true);
-      setTimeout(() => router.push("/login"), 2000);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
+    const isValid = validate({ password, confirmPassword }, {
+      onSuccess: async () => {
+        setLoading(true);
+        try {
+          await updatePassword(password, session.user.email);
+          setSuccess(true);
+          setTimeout(() => router.push("/login"), 2000);
+        } catch (err) {
+          setError(err.message);
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+    if (!isValid) return;
   };
 
   if (success) {
@@ -95,8 +105,8 @@ function ResetPasswordForm() {
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
-                    minLength={6}
+                    ref={registerField("password")}
+                    invalid={fieldError("password").invalid}
                   />
                   <button
                     type="button"
@@ -105,6 +115,7 @@ function ResetPasswordForm() {
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
+                  {fieldError("password").error && <p className="text-xs text-danger">{fieldError("password").error}</p>}
                 </div>
               </div>
               <div className="space-y-2">
@@ -114,8 +125,10 @@ function ResetPasswordForm() {
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  required
+                  ref={registerField("confirmPassword")}
+                  invalid={fieldError("confirmPassword").invalid}
                 />
+                {fieldError("confirmPassword").error && <p className="text-xs text-danger">{fieldError("confirmPassword").error}</p>}
               </div>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}

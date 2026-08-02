@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 const DEFAULT_HOTEL_CATEGORIES = [
   { category_name: "VIP Guest Transport", description: "Executive SUVs & Luxury Vehicles for VIP Guest Pickups", seating_capacity: 7 },
@@ -40,8 +41,19 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const body = await parseBody(req);
+
+    const errors = validateBody(body, {
+      category_name: { required: true, maxLength: 100, label: "Category name" },
+      description: { maxLength: 500, label: "Description" },
+      seating_capacity: { type: "seating", label: "Seating capacity" },
+      status: { maxLength: 30, label: "Status" },
+    });
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
     const keys = Object.keys(body);
     const values = Object.values(body);
     const cols = keys.join(", ");

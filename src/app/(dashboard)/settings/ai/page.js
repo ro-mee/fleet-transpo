@@ -38,7 +38,18 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
 import Link from "next/link";
+
+const aiProviderSchema = {
+  display_name: { required: true, maxLength: 100, label: "Display name" },
+  base_url: { required: true, maxLength: 255, label: "Base URL" },
+  model_name: { required: true, maxLength: 100, label: "Model name" },
+  temperature: { required: true, type: "positiveNumber", max: 9.99, label: "Temperature" },
+  max_tokens: { required: true, type: "positiveNumber", min: 1, max: 1000000, integer: true, label: "Max tokens" },
+  timeout_seconds: { required: true, type: "positiveNumber", min: 1, max: 600, integer: true, label: "Timeout (seconds)" },
+  api_key: { maxLength: 2000, label: "API key" },
+};
 
 export default function AiSettingsPage() {
   useRequireRole(["admin", "system_admin"]);
@@ -68,6 +79,7 @@ export default function AiSettingsPage() {
     timeout_seconds: "120",
     is_default: false,
   });
+  const { validate, fieldError, registerField, resetValidation } = useFormValidation(aiProviderSchema);
 
   const { data: providers = [], isLoading } = useQuery({
     queryKey: ["ai-providers"],
@@ -174,6 +186,7 @@ export default function AiSettingsPage() {
       is_default: providers.length === 0,
     });
     setShowApiKey(false);
+    resetValidation();
     setDialogOpen(true);
   }
 
@@ -193,6 +206,7 @@ export default function AiSettingsPage() {
       is_default: p.is_default ?? false,
     });
     setShowApiKey(false);
+    resetValidation();
     setDialogOpen(true);
   }
 
@@ -204,24 +218,30 @@ export default function AiSettingsPage() {
 
   function handleSubmit(e) {
     e.preventDefault();
-    const payload = {
-      provider_name: formData.provider_class,
-      display_name: formData.display_name,
-      base_url: formData.base_url,
-      api_key: formData.api_key,
-      model_name: formData.model_name,
-      temperature: Number(formData.temperature),
-      max_tokens: Number(formData.max_tokens),
-      timeout_ms: Number(formData.timeout_seconds) * 1000,
-      is_default: formData.is_default,
-      is_enabled: true,
-    };
 
-    if (editingProvider) {
-      updateMutation.mutate({ id: editingProvider.provider_id, data: payload });
-    } else {
-      createMutation.mutate(payload);
-    }
+    const isValid = validate(formData, {
+      onSuccess: () => {
+        const payload = {
+          provider_name: formData.provider_class,
+          display_name: formData.display_name,
+          base_url: formData.base_url,
+          api_key: formData.api_key,
+          model_name: formData.model_name,
+          temperature: Number(formData.temperature),
+          max_tokens: Number(formData.max_tokens),
+          timeout_ms: Number(formData.timeout_seconds) * 1000,
+          is_default: formData.is_default,
+          is_enabled: true,
+        };
+
+        if (editingProvider) {
+          updateMutation.mutate({ id: editingProvider.provider_id, data: payload });
+        } else {
+          createMutation.mutate(payload);
+        }
+      },
+    });
+    if (!isValid) return;
   }
 
   const handleFetchModels = async () => {
@@ -299,7 +319,7 @@ export default function AiSettingsPage() {
             </div>
             <div>
               <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                Deterministic Rule-Based Engine <Badge variant="success" className="text-[10px]">Always Active</Badge>
+                Deterministic Rule-Based Engine <Badge variant="success" className="text-[11px]">Always Active</Badge>
               </h3>
               <p className="text-xs text-foreground-secondary mt-0.5">
                 Calculates vehicle utilization, predictive maintenance risk scores, and driver dispatch matching offline with 0 API key costs.
@@ -330,9 +350,9 @@ export default function AiSettingsPage() {
                     </div>
                     <div className="flex items-center gap-1">
                       {p.is_default && (
-                        <Badge variant="default" className="text-[10px]">Default</Badge>
+                        <Badge variant="default" className="text-[11px]">Default</Badge>
                       )}
-                      <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[10px]">
+                      <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[11px]">
                         {p.is_enabled ? "Enabled" : "Disabled"}
                       </Badge>
                     </div>
@@ -456,7 +476,7 @@ export default function AiSettingsPage() {
                 </p>
               </div>
             </div>
-            <Badge variant={activeProvider ? "success" : "secondary"} className="text-[10px]">
+            <Badge variant={activeProvider ? "success" : "secondary"} className="text-[11px]">
               {activeProvider ? "LLM Ready" : "Rule-Based"}
             </Badge>
           </div>
@@ -521,7 +541,7 @@ export default function AiSettingsPage() {
                     </p>
                     <p className="text-foreground-secondary whitespace-pre-wrap">{driverTestResult.analysis}</p>
                     {driverTestResult.llmStatus === "Rule-Based" && driverTestResult.diagnostics && (
-                      <div className="mt-2 p-2 rounded-lg bg-muted/30 text-[10px]">
+                      <div className="mt-2 p-2 rounded-lg bg-muted/30 text-[11px]">
                         <p className="font-semibold text-foreground mb-1">Provider Diagnostics:</p>
                         {driverTestResult.diagnostics.providers?.length === 0 ? (
                           <p className="text-foreground-muted">No providers found in database</p>
@@ -530,13 +550,13 @@ export default function AiSettingsPage() {
                             <div key={p.provider_id} className="flex items-center gap-2 text-foreground-muted">
                               <span>#{p.provider_id}</span>
                               <span className="text-foreground">{p.display_name || p.provider_name}</span>
-                              <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[8px] px-1">
+                              <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[11px] px-1">
                                 {p.is_enabled ? "enabled" : "disabled"}
                               </Badge>
-                              <Badge variant={p.is_default ? "default" : "outline"} className="text-[8px] px-1">
+                              <Badge variant={p.is_default ? "default" : "outline"} className="text-[11px] px-1">
                                 {p.is_default ? "default" : "not default"}
                               </Badge>
-                              <Badge variant={p.has_api_key ? "success" : "danger"} className="text-[8px] px-1">
+                              <Badge variant={p.has_api_key ? "success" : "danger"} className="text-[11px] px-1">
                                 {p.has_api_key ? "has key" : "no key"}
                               </Badge>
                             </div>
@@ -564,9 +584,9 @@ export default function AiSettingsPage() {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium text-foreground">Recent AI Request Logs</p>
-              <Link href="/settings/ai/logs">
-                <Button variant="ghost" size="sm" className="h-6 text-[10px]">View All</Button>
-              </Link>
+                <Link href="/settings/ai/logs">
+                  <Button variant="ghost" size="sm" className="h-6 text-[11px]">View All</Button>
+                </Link>
             </div>
             {recentLogs.length === 0 ? (
               <p className="text-xs text-foreground-muted">No AI requests logged yet</p>
@@ -575,7 +595,7 @@ export default function AiSettingsPage() {
                 {recentLogs.slice(0, 10).map((log) => (
                   <div key={log.log_id} className="flex items-center justify-between p-2 rounded-lg bg-muted/20 text-xs">
                     <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant={log.status === "Success" ? "success" : "danger"} className="text-[9px] px-1">
+                      <Badge variant={log.status === "Success" ? "success" : "danger"} className="text-[11px] px-1">
                         {log.status === "Success" ? "OK" : "ERR"}
                       </Badge>
                       <span className="text-foreground truncate">{log.feature_used || "General AI"}</span>
@@ -624,10 +644,12 @@ export default function AiSettingsPage() {
                   id="display_name"
                   value={formData.display_name}
                   onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                  ref={registerField("display_name")}
+                  invalid={fieldError("display_name").invalid}
                   placeholder="My OpenAI"
-                  required
                   className="h-9 text-xs rounded-xl"
                 />
+                {fieldError("display_name").error && <p className="text-xs text-danger">{fieldError("display_name").error}</p>}
               </div>
             </div>
 
@@ -667,9 +689,12 @@ export default function AiSettingsPage() {
                      setFormData({ ...formData, base_url: e.target.value });
                      setFetchedModelList([]);
                    }}
+                  ref={registerField("base_url")}
+                  invalid={fieldError("base_url").invalid}
                   placeholder="https://api.openai.com/v1"
                   className="h-9 text-xs rounded-xl font-mono"
                 />
+                {fieldError("base_url").error && <p className="text-xs text-danger">{fieldError("base_url").error}</p>}
               </div>
 
               <div className="space-y-1">
@@ -706,6 +731,8 @@ export default function AiSettingsPage() {
                     id="model_name"
                     value={formData.model_name}
                     onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
+                    ref={registerField("model_name")}
+                    invalid={fieldError("model_name").invalid}
                     placeholder="gpt-4o-mini"
                     className="h-9 text-xs rounded-xl font-mono flex-1"
                   />
@@ -726,6 +753,7 @@ export default function AiSettingsPage() {
                   Fetch
                 </Button>
               </div>
+              {fieldError("model_name").error && <p className="text-xs text-danger">{fieldError("model_name").error}</p>}
               {fetchedModelList.length > 0 && (
                 <p className="text-[11px] text-foreground-muted">{fetchedModelList.length} model(s) available — select from dropdown</p>
               )}
@@ -765,8 +793,11 @@ export default function AiSettingsPage() {
                   max="1"
                   value={formData.temperature}
                   onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
+                  ref={registerField("temperature")}
+                  invalid={fieldError("temperature").invalid}
                   className="h-9 text-xs rounded-xl font-mono"
                 />
+                {fieldError("temperature").error && <p className="text-xs text-danger">{fieldError("temperature").error}</p>}
               </div>
 
               <div className="space-y-1">
@@ -776,8 +807,11 @@ export default function AiSettingsPage() {
                   type="number"
                   value={formData.max_tokens}
                   onChange={(e) => setFormData({ ...formData, max_tokens: e.target.value })}
+                  ref={registerField("max_tokens")}
+                  invalid={fieldError("max_tokens").invalid}
                   className="h-9 text-xs rounded-xl font-mono"
                 />
+                {fieldError("max_tokens").error && <p className="text-xs text-danger">{fieldError("max_tokens").error}</p>}
               </div>
 
               <div className="space-y-1">
@@ -787,8 +821,11 @@ export default function AiSettingsPage() {
                   type="number"
                   value={formData.timeout_seconds}
                   onChange={(e) => setFormData({ ...formData, timeout_seconds: e.target.value })}
+                  ref={registerField("timeout_seconds")}
+                  invalid={fieldError("timeout_seconds").invalid}
                   className="h-9 text-xs rounded-xl font-mono"
                 />
+                {fieldError("timeout_seconds").error && <p className="text-xs text-danger">{fieldError("timeout_seconds").error}</p>}
               </div>
             </div>
 
@@ -810,7 +847,7 @@ export default function AiSettingsPage() {
               <Button type="button" variant="ghost" onClick={closeDialog} className="h-9 text-xs">
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting} className="h-9 text-xs px-5 bg-blue-600 hover:bg-blue-700 text-white">
+              <Button type="submit" disabled={isSubmitting} className="h-9 text-xs px-5">
                 {isSubmitting ? "Saving..." : "Save"}
               </Button>
             </div>

@@ -3,7 +3,7 @@ import { logInboundEvent } from "@/services/integration.service";
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
     const data = await logInboundEvent({
       sourceSystem: body.source_system,

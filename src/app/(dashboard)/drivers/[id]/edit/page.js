@@ -5,7 +5,6 @@ import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,20 +17,9 @@ import { ArrowLeft, Loader2, Save, Upload, Eye, ZoomIn, IdCard, Check } from "lu
 import Link from "next/link";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
-const editDriverSchema = z.object({
-  first_name: z.string().min(1, "First name is required"),
-  last_name: z.string().min(1, "Last name is required"),
-  email: z.string().email("Invalid email address").or(z.literal("")).optional(),
-  phone: z.string().optional(),
-  position: z.string().default("Driver"),
-  license_number: z.string().min(1, "License number is required"),
-  license_expiry: z.string().optional(),
-  license_type: z.string().optional(),
-  license_class: z.string().optional(),
-  years_of_experience: z.coerce.number().min(0).default(0),
-  driver_status: z.string().default("Available"),
-  license_image_url: z.string().optional(),
-});
+import { driverEditSchema } from "@/lib/validation/schemas";
+
+const editDriverSchema = driverEditSchema;
 
 export default function EditDriverPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -279,7 +267,7 @@ export default function EditDriverPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label htmlFor="license_number">License Number *</Label>
-                      <Input id="license_number" {...form.register("license_number")} className="font-mono" />
+                      <Input id="license_number" {...form.register("license_number")} className="font-data" />
                       {form.formState.errors.license_number && (
                         <p className="text-xs text-danger">{form.formState.errors.license_number.message}</p>
                       )}

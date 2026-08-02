@@ -4,7 +4,6 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,24 +11,26 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
-import { Pencil, Trash2, Eye, Wrench } from "lucide-react";
+import { toDateInput } from "@/lib/dates";
+import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { maintenanceDateRule } from "@/lib/validation/helpers";
 
-const statusVariant = {
-  Scheduled: "default",
-  "In Progress": "warning",
-  Completed: "success",
-  Cancelled: "danger",
-};
-
-const priorityVariant = {
-  Normal: "secondary",
-  High: "warning",
-  Critical: "danger",
-  Low: "default",
+const maintenanceFormSchema = {
+  vehicle_id: { required: true, label: "Vehicle" },
+  maintenance_date: { required: true, type: "date", label: "Maintenance date", validate: maintenanceDateRule },
+  completed_date: { type: "date", label: "Completed date" },
+  cost: { type: "positiveNumber", label: "Cost" },
+  mileage_at_service: { type: "positiveNumber", label: "Mileage at service" },
+  description: { maxLength: 1000, label: "Description" },
+  remarks: { maxLength: 1000, label: "Remarks" },
 };
 
 const columnHelper = createColumnHelper();
@@ -55,6 +56,7 @@ export default function MaintenancePage() {
     status: "Scheduled",
     remarks: "",
   });
+  const { validate, fieldError, registerField, resetValidation } = useFormValidation(maintenanceFormSchema);
 
   const { data: records = [], isLoading } = useQuery({
     queryKey: ["maintenance"],
@@ -124,12 +126,14 @@ export default function MaintenancePage() {
       remarks: "",
     });
     setFormError(null);
+    resetValidation();
     setDialogOpen(true);
   }
 
   function openViewDialog(record) {
     setViewingRecord(record);
     setEditingRecord(null);
+    resetValidation();
     setDialogOpen(true);
   }
 
@@ -140,8 +144,8 @@ export default function MaintenancePage() {
       vehicle_id: String(record.vehicle_id || ""),
       maintenance_type: record.maintenance_type || "Routine",
       description: record.description || "",
-      maintenance_date: record.maintenance_date || new Date().toISOString().split("T")[0],
-      completed_date: record.completed_date || "",
+      maintenance_date: toDateInput(record.maintenance_date, new Date().toISOString().split("T")[0]),
+      completed_date: toDateInput(record.completed_date),
       cost: record.cost ?? "",
       mileage_at_service: record.mileage_at_service ?? "",
       service_provider: record.service_provider || "",
@@ -164,33 +168,31 @@ export default function MaintenancePage() {
   function handleSubmit(e) {
     e.preventDefault();
     setFormError(null);
-    if (!formData.vehicle_id) {
-      setFormError("Vehicle is required");
-      return;
-    }
-    if (!formData.maintenance_date) {
-      setFormError("Maintenance date is required");
-      return;
-    }
-    const payload = {
-      vehicle_id: Number(formData.vehicle_id),
-      maintenance_type: formData.maintenance_type,
-      description: formData.description || null,
-      maintenance_date: formData.maintenance_date,
-      completed_date: formData.completed_date || null,
-      cost: formData.cost ? Number(formData.cost) : 0,
-      mileage_at_service: formData.mileage_at_service ? Number(formData.mileage_at_service) : null,
-      service_provider: formData.service_provider || null,
-      service_center: formData.service_center || null,
-      priority: formData.priority,
-      status: formData.status,
-      remarks: formData.remarks || null,
-    };
-    if (editingRecord) {
-      updateMutation.mutate({ id: editingRecord.maintenance_id, data: payload });
-    } else {
-      createMutation.mutate(payload);
-    }
+
+    const isValid = validate(formData, {
+      onSuccess: () => {
+        const payload = {
+          vehicle_id: Number(formData.vehicle_id),
+          maintenance_type: formData.maintenance_type,
+          description: formData.description || null,
+          maintenance_date: formData.maintenance_date,
+          completed_date: formData.completed_date || null,
+          cost: formData.cost ? Number(formData.cost) : 0,
+          mileage_at_service: formData.mileage_at_service ? Number(formData.mileage_at_service) : null,
+          service_provider: formData.service_provider || null,
+          service_center: formData.service_center || null,
+          priority: formData.priority,
+          status: formData.status,
+          remarks: formData.remarks || null,
+        };
+        if (editingRecord) {
+          updateMutation.mutate({ id: editingRecord.maintenance_id, data: payload });
+        } else {
+          createMutation.mutate(payload);
+        }
+      },
+    });
+    if (!isValid) return;
   }
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
@@ -231,17 +233,13 @@ export default function MaintenancePage() {
       columnHelper.accessor("priority", {
         header: "Priority",
         cell: (info) => (
-          <Badge variant={priorityVariant[info.getValue()] || "secondary"} className="text-xs">
-            {info.getValue() || "Normal"}
-          </Badge>
+          <StatusBadge status={info.getValue()} entity="priority" />
         ),
       }),
       columnHelper.accessor("status", {
         header: "Status",
         cell: (info) => (
-          <Badge variant={statusVariant[info.getValue()] || "default"}>
-            {info.getValue()}
-          </Badge>
+          <StatusBadge status={info.getValue()} entity="maintenance" />
         ),
       }),
       columnHelper.accessor("service_provider", {
@@ -279,17 +277,17 @@ export default function MaintenancePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Maintenance</h1>
-          <p className="text-foreground-secondary mt-1">Vehicle maintenance records and scheduling</p>
-        </div>
-        <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
-          <Button className="h-10" onClick={openNewDialog}>
-            <Wrench className="w-4 h-4 mr-2" />
-            Add Record
-          </Button>
-          <DialogContent className="max-w-3xl">
+      <PageHeader
+        eyebrow="Operations"
+        title="Maintenance"
+        description="Vehicle maintenance records and scheduling."
+        actions={
+          <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
+            <Button className="h-10" onClick={openNewDialog}>
+              <Wrench className="w-4 h-4 mr-2" />
+              Add Record
+            </Button>
+            <DialogContent className="max-w-3xl">
             <DialogHeader>
               <DialogTitle>
                 {viewingRecord ? "Maintenance Details" : editingRecord ? "Edit Maintenance Record" : "Add Maintenance Record"}
@@ -312,11 +310,11 @@ export default function MaintenancePage() {
                   </div>
                   <div>
                     <p className="text-foreground-muted text-xs">Status</p>
-                    <Badge variant={statusVariant[viewingRecord.status] || "default"}>{viewingRecord.status}</Badge>
+                    <StatusBadge status={viewingRecord.status} entity="maintenance" />
                   </div>
                   <div>
                     <p className="text-foreground-muted text-xs">Priority</p>
-                    <Badge variant={priorityVariant[viewingRecord.priority] || "secondary"}>{viewingRecord.priority || "Normal"}</Badge>
+                    <StatusBadge status={viewingRecord.priority} entity="priority" />
                   </div>
                   <div>
                     <p className="text-foreground-muted text-xs">Cost</p>
@@ -365,7 +363,7 @@ export default function MaintenancePage() {
                   <div className="space-y-1.5">
                     <Label htmlFor="vehicle_id">Vehicle *</Label>
                     <Select value={formData.vehicle_id} onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}>
-                      <SelectTrigger><SelectValue placeholder="Select a vehicle" /></SelectTrigger>
+                      <SelectTrigger className={fieldError("vehicle_id").invalid ? "border-danger/70" : ""}><SelectValue placeholder="Select a vehicle" /></SelectTrigger>
                       <SelectContent>
                         {vehicles.filter((v) => !v.deleted_at).map((v) => (
                           <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>
@@ -374,6 +372,7 @@ export default function MaintenancePage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {fieldError("vehicle_id").error && <p className="text-xs text-danger">{fieldError("vehicle_id").error}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="maintenance_type">Type</Label>
@@ -390,7 +389,8 @@ export default function MaintenancePage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="maintenance_date">Date *</Label>
-                    <Input id="maintenance_date" type="date" value={formData.maintenance_date} onChange={(e) => setFormData({ ...formData, maintenance_date: e.target.value })} required />
+                    <Input id="maintenance_date" type="date" value={formData.maintenance_date} onChange={(e) => setFormData({ ...formData, maintenance_date: e.target.value })} ref={registerField("maintenance_date")} invalid={fieldError("maintenance_date").invalid} />
+                    {fieldError("maintenance_date").error && <p className="text-xs text-danger">{fieldError("maintenance_date").error}</p>}
                   </div>
                 </div>
 
@@ -421,18 +421,21 @@ export default function MaintenancePage() {
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="completed_date">Completed Date</Label>
-                    <Input id="completed_date" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} />
+                    <Input id="completed_date" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} ref={registerField("completed_date")} invalid={fieldError("completed_date").invalid} />
+                    {fieldError("completed_date").error && <p className="text-xs text-danger">{fieldError("completed_date").error}</p>}
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label htmlFor="cost">Cost (₱)</Label>
-                    <Input id="cost" type="number" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} placeholder="0.00" />
+                    <Input id="cost" type="number" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} ref={registerField("cost")} invalid={fieldError("cost").invalid} placeholder="0.00" />
+                    {fieldError("cost").error && <p className="text-xs text-danger">{fieldError("cost").error}</p>}
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="mileage_at_service">Mileage at Service (km)</Label>
-                    <Input id="mileage_at_service" type="number" min="0" value={formData.mileage_at_service} onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })} placeholder="e.g. 10000" />
+                    <Input id="mileage_at_service" type="number" min="0" value={formData.mileage_at_service} onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })} ref={registerField("mileage_at_service")} invalid={fieldError("mileage_at_service").invalid} placeholder="e.g. 10000" />
+                    {fieldError("mileage_at_service").error && <p className="text-xs text-danger">{fieldError("mileage_at_service").error}</p>}
                   </div>
                 </div>
 
@@ -467,22 +470,16 @@ export default function MaintenancePage() {
               </form>
             )}
           </DialogContent>
-        </Dialog>
-      </div>
+          </Dialog>
+        }
+      />
 
-      <div className="grid grid-cols-4 gap-4">
-        {[
-          { label: "Scheduled", count: records.filter((r) => r.status === "Scheduled").length, color: "text-primary", bg: "bg-primary/10" },
-          { label: "In Progress", count: records.filter((r) => r.status === "In Progress").length, color: "text-warning", bg: "bg-warning/10" },
-          { label: "Completed", count: records.filter((r) => r.status === "Completed").length, color: "text-success", bg: "bg-success/10" },
-          { label: "Total Cost", count: `₱${records.reduce((s, r) => s + (r.cost || 0), 0).toLocaleString()}`, color: "text-danger", bg: "bg-danger/10" },
-        ].map((stat) => (
-          <div key={stat.label} className="p-4 rounded-xl bg-surface border border-border">
-            <p className="text-xs text-foreground-muted">{stat.label}</p>
-            <p className={`text-2xl font-bold mt-1 ${stat.color}`}>{stat.count}</p>
-          </div>
-        ))}
-      </div>
+      <StatGrid cols={4}>
+        <StatCard icon={Clock} label="Scheduled" value={records.filter((r) => r.status === "Scheduled").length} tone="info" />
+        <StatCard icon={Wrench} label="In Progress" value={records.filter((r) => r.status === "In Progress").length} tone="warning" />
+        <StatCard icon={CheckCircle2} label="Completed" value={records.filter((r) => r.status === "Completed").length} tone="success" />
+        <StatCard icon={Wrench} label="Total Cost" value={formatCurrency(records.reduce((s, r) => s + (r.cost || 0), 0))} tone="primary" />
+      </StatGrid>
 
       <DataTable
         columns={columns}

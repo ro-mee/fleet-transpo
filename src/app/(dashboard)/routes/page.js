@@ -1,39 +1,31 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getVehicles } from "@/services/vehicle.service";
-import { useRouter } from "next/navigation";
-import { Plus, Route as RouteIcon, MapPin, ArrowRight } from "lucide-react";
-import { getRoutes, deleteRoute } from "@/services/route.service";
-import { toast } from "@/components/ui/toast";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Route as RouteIcon, MapPin } from "lucide-react";
+import { getRoutes } from "@/services/route.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 const columnHelper = createColumnHelper();
 
 export default function RoutesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
-  const router = useRouter();
-  const queryClient = useQueryClient();
 
   const { data: routes = [], isLoading } = useQuery({
     queryKey: ["routes"],
     queryFn: () => getRoutes(),
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: deleteRoute,
-    onSuccess: () => {
-      toast.success("Route deleted");
-      queryClient.invalidateQueries({ queryKey: ["routes"] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
+  const totalDistance = useMemo(
+    () => routes.reduce((sum, r) => sum + (Number(r.estimated_distance) || 0), 0),
+    [routes]
+  );
+  const activeCount = routes.filter((r) => r.status === "Active").length;
 
   const columns = useMemo(
     () => [
@@ -88,36 +80,30 @@ export default function RoutesPage() {
           </Badge>
         ),
       }),
-      columnHelper.display({
-        id: "actions",
-        header: "",
-        cell: (info) => (
-          <div className="flex items-center gap-1">
-            <Button variant="ghost" size="icon" className="w-8 h-8"><RouteIcon className="w-4 h-4" /></Button>
-          </div>
-        ),
-      }),
     ],
     []
   );
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Routes</h1>
-          <p className="text-foreground-secondary mt-1">Manage predefined routes</p>
-        </div>
-        <Button className="h-10">
-          <Plus className="w-4 h-4 mr-2" />
-          Add Route
-        </Button>
-      </div>
+      <PageHeader
+        eyebrow="Operations"
+        title="Routes"
+        description="Predefined origin–destination routes used when dispatching vehicles."
+      />
+
+      <StatGrid cols={3}>
+        <StatCard icon={RouteIcon} label="Total Routes" value={routes.length} tone="primary" />
+        <StatCard icon={MapPin} label="Active Routes" value={activeCount} tone="success" />
+        <StatCard icon={RouteIcon} label="Total Distance" value={`${totalDistance.toLocaleString()} km`} tone="info" />
+      </StatGrid>
 
       <DataTable
         columns={columns}
         data={routes}
         searchPlaceholder="Search routes..."
+        emptyTitle="No routes found"
+        emptyDescription="Routes created here can be attached to dispatches."
       />
     </div>
   );

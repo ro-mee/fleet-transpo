@@ -2,14 +2,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { ProgressBar } from "@/components/ui/progress-bar";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getFleetUtilizationReport, getFuelConsumptionReport, getFinancialSummary } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { formatCurrency, formatDistance } from "@/lib/utils";
 import {
-  BarChart3, TrendingUp, TrendingDown, Activity,
-  Truck, Fuel, DollarSign, Wrench, Users, MapPin, Clock,
+  BarChart3, Activity,
+  Truck, Fuel, DollarSign, Wrench, MapPin, Clock,
 } from "lucide-react";
 
 export default function AnalyticsPage() {
@@ -41,53 +44,44 @@ export default function AnalyticsPage() {
 
   const maxMonthlyLiters = fu.monthlyData.length ? Math.max(...fu.monthlyData.map((m) => m.liters)) : 0;
 
+  const utilTone = f.utilization > 75 ? "success" : f.utilization > 50 ? "warning" : "danger";
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
-        <p className="text-foreground-secondary mt-1">Comprehensive operational analytics and trends</p>
-      </div>
+      <PageHeader
+        eyebrow="Insights"
+        title="Analytics"
+        description="Operational trends across fleet utilization, fuel, and cost."
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="p-2 rounded-xl bg-primary/10"><Truck className="w-5 h-5 text-primary" /></div>
-              <Badge variant={f.utilization > 70 ? "success" : "warning"} className="text-[10px]">{f.utilization}%</Badge>
-            </div>
-            <p className="text-lg font-bold">{formatDistance(f.totalDistance)}</p>
-            <p className="text-xs text-foreground-muted">Total Distance</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="p-2 rounded-xl bg-warning/10"><Fuel className="w-5 h-5 text-warning" /></div>
-            </div>
-            <p className="text-lg font-bold">{formatCurrency(fu.totalCost)}</p>
-            <p className="text-xs text-foreground-muted">Fuel Cost</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="p-2 rounded-xl bg-success/10"><DollarSign className="w-5 h-5 text-success" /></div>
-            </div>
-            <p className="text-lg font-bold">{formatCurrency(fi.totalCost)}</p>
-            <p className="text-xs text-foreground-muted">Total Cost</p>
-          </CardContent>
-        </Card>
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="p-2 rounded-xl bg-danger/10"><Wrench className="w-5 h-5 text-danger" /></div>
-              <Badge variant="danger" className="text-[10px]">{maintDue}</Badge>
-            </div>
-            <p className="text-lg font-bold">{formatCurrency(fi.maintCost)}</p>
-            <p className="text-xs text-foreground-muted">Maintenance Cost</p>
-          </CardContent>
-        </Card>
-      </div>
+      <StatGrid cols={4}>
+        <StatCard
+          icon={Truck}
+          label="Total Distance"
+          value={formatDistance(f.totalDistance)}
+          tone="primary"
+          trend={`${f.utilization}% fleet utilization`}
+        />
+        <StatCard
+          icon={Fuel}
+          label="Fuel Cost"
+          value={formatCurrency(fu.totalCost)}
+          tone="warning"
+        />
+        <StatCard
+          icon={DollarSign}
+          label="Total Cost"
+          value={formatCurrency(fi.totalCost)}
+          tone="success"
+        />
+        <StatCard
+          icon={Wrench}
+          label="Maintenance Cost"
+          value={formatCurrency(fi.maintCost)}
+          tone="danger"
+          trend={`${maintDue} vehicle${maintDue === 1 ? "" : "s"} due for service`}
+        />
+      </StatGrid>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="border-0 shadow-sm lg:col-span-2">
@@ -98,18 +92,24 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent>
             {fu.monthlyData.length === 0 ? (
-              <p className="text-sm text-foreground-muted text-center py-12">No fuel data available</p>
+              <EmptyState
+                icon={Fuel}
+                title="No fuel data available"
+                description="Approved fuel records will populate this monthly trend."
+              />
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {fu.monthlyData.map((m) => (
                   <div key={m.month} className="flex items-center gap-3">
                     <span className="text-xs font-medium w-16 text-foreground-muted">{m.month}</span>
-                    <div className="flex-1 bg-muted rounded-full h-6 relative">
-                      <div className="bg-gradient-to-r from-warning/60 to-warning h-6 rounded-full flex items-center justify-end px-2" style={{ width: `${(m.liters / maxMonthlyLiters) * 100}%` }}>
-                        <span className="text-[10px] text-white font-medium">{m.liters.toFixed(0)}L</span>
-                      </div>
-                    </div>
-                    <span className="text-xs text-foreground-muted w-20 text-right">{formatCurrency(m.cost)}</span>
+                    <ProgressBar
+                      className="flex-1"
+                      tone="warning"
+                      value={(m.liters / maxMonthlyLiters) * 100}
+                    />
+                    <span className="text-xs text-foreground-secondary w-28 text-right font-data">
+                      {m.liters.toFixed(0)} L · {formatCurrency(m.cost)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -120,33 +120,35 @@ export default function AnalyticsPage() {
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <PieChartIcon /> Cost Distribution
+              <BarChart3 className="w-4 h-4 text-primary" /> Cost Distribution
             </CardTitle>
           </CardHeader>
           <CardContent>
             {fi.totalCost === 0 ? (
-              <p className="text-sm text-foreground-muted text-center py-12">No cost data available</p>
+              <EmptyState
+                icon={DollarSign}
+                title="No cost data available"
+                description="Approved expenses will populate this distribution."
+              />
             ) : (
               <div className="space-y-4">
                 {[
-                  { label: "Trip Costs", value: fi.tripCost, pct: (fi.tripCost / fi.totalCost) * 100, color: "bg-primary" },
-                  { label: "Fuel Costs", value: fi.fuelCost, pct: (fi.fuelCost / fi.totalCost) * 100, color: "bg-warning" },
-                  { label: "Maintenance", value: fi.maintCost, pct: (fi.maintCost / fi.totalCost) * 100, color: "bg-danger" },
+                  { label: "Trip Costs", value: fi.tripCost, pct: (fi.tripCost / fi.totalCost) * 100, tone: "primary" },
+                  { label: "Fuel Costs", value: fi.fuelCost, pct: (fi.fuelCost / fi.totalCost) * 100, tone: "warning" },
+                  { label: "Maintenance", value: fi.maintCost, pct: (fi.maintCost / fi.totalCost) * 100, tone: "danger" },
                 ].map((item) => (
-                  <div key={item.label}>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-foreground-secondary">{item.label}</span>
-                      <span className="font-medium">{Math.round(item.pct)}%</span>
-                    </div>
-                    <div className="w-full bg-muted rounded-full h-3">
-                      <div className={`${item.color} h-3 rounded-full`} style={{ width: `${item.pct}%` }} />
-                    </div>
-                  </div>
+                  <ProgressBar
+                    key={item.label}
+                    tone={item.tone}
+                    value={item.pct}
+                    label={`${item.label} · ${formatCurrency(item.value)}`}
+                    valueLabel={`${Math.round(item.pct)}%`}
+                  />
                 ))}
                 <div className="pt-3 border-t border-border">
                   <div className="flex justify-between text-sm">
                     <span className="text-foreground-secondary">Cost per km</span>
-                    <span className="font-bold">{formatCurrency(fi.costPerKm)}</span>
+                    <span className="font-data font-semibold text-foreground">{formatCurrency(fi.costPerKm)}</span>
                   </div>
                 </div>
               </div>
@@ -159,23 +161,17 @@ export default function AnalyticsPage() {
         <Card className="border-0 shadow-sm">
           <CardHeader className="pb-3">
             <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-primary" /> Fleet Utilization
+              <Activity className="w-4 h-4 text-primary" /> Fleet Utilization
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex items-center gap-4 mb-4">
-              <div className="flex-1">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm text-foreground-secondary">Active Fleet</span>
-                  <span className="text-sm font-bold">{f.utilization}%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-4">
-                  <div
-                    className={`h-4 rounded-full transition-all ${f.utilization > 75 ? "bg-success" : f.utilization > 50 ? "bg-warning" : "bg-danger"}`}
-                    style={{ width: `${f.utilization}%` }}
-                  />
-                </div>
-              </div>
+            <div className="mb-4">
+              <ProgressBar
+                tone={utilTone}
+                value={f.utilization}
+                label="Active Fleet"
+                valueLabel={`${f.utilization}%`}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4 text-center">
               <div className="p-3 rounded-xl bg-muted/30">
@@ -209,7 +205,7 @@ export default function AnalyticsPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-xs text-foreground-muted">{metric.label}</p>
-                  <p className="text-sm font-semibold text-foreground">{metric.value}</p>
+                  <p className="text-sm font-semibold text-foreground font-data">{metric.value}</p>
                 </div>
               </div>
             ))}
@@ -217,13 +213,5 @@ export default function AnalyticsPage() {
         </Card>
       </div>
     </div>
-  );
-}
-
-function PieChartIcon() {
-  return (
-    <svg className="w-4 h-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-      <path d="M21.21 15.89A10 10 0 118 2.83M22 12A10 10 0 0012 2v10z" />
-    </svg>
   );
 }

@@ -1,5 +1,27 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { validateBody, isValidObject } from "@/lib/validation/helpers";
+
+const fuelWriteSchema = {
+  vehicle_id: { required: true, type: "id", label: "Vehicle" },
+  driver_id: { type: "id", label: "Driver" },
+  fuel_date: { required: true, type: "date", label: "Fuel date" },
+  fuel_type: { required: true, maxLength: 50, label: "Fuel type" },
+  liters: { required: true, type: "positiveNumber", label: "Liters" },
+  cost_per_liter: { type: "positiveNumber", label: "Cost per liter" },
+  total_cost: { required: true, type: "positiveNumber", label: "Total cost" },
+  odometer_reading: { type: "positiveNumber", label: "Odometer reading" },
+  station_name: { maxLength: 255, label: "Station name" },
+  status: { maxLength: 30, label: "Status" },
+  notes: { maxLength: 500, label: "Notes" },
+  receipt_image_url: { maxLength: 2000, label: "Receipt image" },
+  reimbursement_status: { maxLength: 30, label: "Reimbursement status" },
+  paid_by: { maxLength: 100, label: "Paid by" },
+  payment_method: { maxLength: 50, label: "Payment method" },
+  submitted_at: { type: "date", label: "Submitted at" },
+  approved_by: { type: "id", label: "Approved by" },
+  rejected_reason: { maxLength: 500, label: "Rejection reason" },
+};
 
 export async function GET(req) {
   try {
@@ -68,8 +90,14 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
     const body = await parseBody(req);
+
+    const errors = validateBody(body, fuelWriteSchema);
+    if (!isValidObject(errors)) {
+      return errValidation(errors);
+    }
+
     const k = Object.keys(body);
     const v = Object.values(body);
     const { rows } = await query(

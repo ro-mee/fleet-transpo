@@ -7,9 +7,15 @@ import { signIn } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Eye, EyeOff, Loader2, CarFront } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
+import { useFormValidation } from "@/lib/validation/useFormValidation";
+
+const loginSchema = {
+  email: { required: true, type: "email", label: "Email" },
+  password: { required: true, label: "Password" },
+};
 
 export default function LoginPage() {
   const router = useRouter();
@@ -18,22 +24,32 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const { validate, fieldError, registerField } = useFormValidation(loginSchema);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
-    setLoading(true);
 
-    try {
-      await signIn(email, password);
-      router.push("/dashboard");
-      router.refresh();
-    } catch (err) {
-      setError(err.message || "Invalid email or password");
-    } finally {
-      setLoading(false);
-    }
+    const values = { email, password };
+    const isValid = validate(values, {
+      onSuccess: async () => {
+        setLoading(true);
+        try {
+          await signIn(email, password);
+          router.push("/dashboard");
+          router.refresh();
+        } catch (err) {
+          setError(err.message || "Invalid email or password");
+        } finally {
+          setLoading(false);
+        }
+      },
+    });
+    if (!isValid) return;
   };
+
+  const emailField = fieldError("email");
+  const passwordField = fieldError("password");
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -69,9 +85,11 @@ export default function LoginPage() {
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  required
+                  ref={registerField("email")}
+                  aria-invalid={emailField.invalid}
                   autoComplete="email"
                 />
+                {emailField.error && <p className="text-xs text-danger">{emailField.error}</p>}
               </div>
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -87,9 +105,11 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    required
+                    ref={registerField("password")}
+                    aria-invalid={passwordField.invalid}
                     autoComplete="current-password"
                   />
+                  {passwordField.error && <p className="text-xs text-danger">{passwordField.error}</p>}
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
@@ -105,14 +125,6 @@ export default function LoginPage() {
               </Button>
             </form>
           </CardContent>
-          <CardFooter className="justify-center border-t border-border pt-4">
-            <p className="text-sm text-foreground-secondary">
-              Don&apos;t have an account?{" "}
-              <Link href="/register" className="text-primary font-medium hover:underline">
-                Sign up
-              </Link>
-            </p>
-          </CardFooter>
         </Card>
       </div>
     </div>
