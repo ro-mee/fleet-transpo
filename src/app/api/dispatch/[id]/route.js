@@ -2,21 +2,8 @@ import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { assertDispatchOwnership } from "@/lib/api/ownership";
 
-// Phase 17 — one dispatch, fully joined.
-//
-// This used to join `vehiclereservations` for guest and trip detail. That entity
-// is now a legacy FK target: the reservation IS the transportation request, and
-// guest identity is mastered by Booking (015 §3 deprecates the guest columns on
-// vehiclereservations outright). So the request join replaces it.
-//
-// The driver join also changes shape. `row_to_json(d.*)` returned the drivers row
-// alone, which has no name on it — the page then read
-// `dispatch.drivers.employees.first_name` and always rendered "Unassigned".
-// Names are resolved here instead, matching the by-status feed the board uses.
-//
-// The latest trip is joined so the detail page can drive the progress bar and the
-// start/complete actions without a second request.
 const JOIN_SELECT = `
   ds.*,
   row_to_json(v.*)  AS vehicles,
@@ -82,19 +69,44 @@ const JOINS = `
     LIMIT 1
   ) lat ON TRUE`;
 
+const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
+
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req);
+    const session = await requireAuth(req, ROLES);
     const id = (await params).id;
-    const { rows } = await query(`SELECT ${JOIN_SELECT} ${JOINS} WHERE ds.dispatch_id = $1 AND ds.deleted_at IS NULL LIMIT 1`, [id]);
+
+    // Throws 404 when the dispatch is not the caller's own.
+    await assertDispatchOwnership(session, id);
+
+    const { rows } = await query(
+      `SELECT ${JOIN_SELECT} ${JOINS} WHERE ds.dispatch_id = $1 AND ds.deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
     if (!rows[0]) return err("Dispatch not found", 404);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }
 }
 
+const WRITABLE_COLUMNS = [
+  "reservation_id",
+  "vehicle_id",
+  "driver_id",
+  "route_id",
+  "scheduled_departure",
+  "scheduled_arrival",
+  "actual_departure",
+  "actual_arrival",
+  "estimated_distance",
+  "estimated_duration",
+  "status",
+  "priority",
+  "notes",
+];
+
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const id = (await params).id;
     const body = await parseBody(req);
 
@@ -116,8 +128,25 @@ export async function PUT(req, { params }) {
     }
 
     const { rows: before } = await query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`, [id]);
-    const k = Object.keys(body), v = Object.values(body);
-    const { rows } = await query(`UPDATE dispatchschedules SET ${k.map((k,i)=>`${k} = $${i+1}`).join(", ")} WHERE dispatch_id = $${k.length+1} RETURNING *`, [...v, id]);
+
+    const columns = [];
+    const values = [];
+    for (const key of WRITABLE_COLUMNS) {
+      if (body[key] !== undefined) {
+        columns.push(key);
+        values.push(body[key]);
+      }
+    }
+    if (columns.length === 0) return err("No updatable fields provided", 400);
+
+    const assignments = columns.map((c, i) => `${c} = $${i + 1}`);
+    assignments.push(`updated_at = NOW()`, `updated_by = $${columns.length + 1}`);
+    values.push(session.user.employeeId);
+
+    const { rows } = await query(
+      `UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`,
+      [...values, id]
+    );
     if (!rows[0]) return err("Dispatch not found", 404);
     const vid = body.vehicle_id || before[0]?.vehicle_id, did = body.driver_id || before[0]?.driver_id;
     const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.reservation_id) p.push(syncDispatchReservation(id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);

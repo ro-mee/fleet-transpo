@@ -1,6 +1,9 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { resolveDriverScope } from "@/lib/api/ownership";
+
+const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
 
 const fuelWriteSchema = {
   vehicle_id: { required: true, type: "id", label: "Vehicle" },
@@ -25,7 +28,7 @@ const fuelWriteSchema = {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    const session = await requireAuth(req, ROLES);
     const sp = new URL(req.url).searchParams;
 
     let sql = `
@@ -49,8 +52,8 @@ export async function GET(req) {
     const vehicle_id = sp.get("vehicle_id");
     if (vehicle_id) { sql += ` AND fr.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
 
-    const driver_id = sp.get("driver_id");
-    if (driver_id) { sql += ` AND fr.driver_id = $${idx++}`; params.push(+driver_id); }
+    const driver_id = resolveDriverScope(session, sp.get("driver_id"));
+    if (driver_id !== null) { sql += ` AND fr.driver_id = $${idx++}`; params.push(driver_id); }
 
     const fuel_type = sp.get("fuel_type");
     if (fuel_type) { sql += ` AND fr.fuel_type = $${idx++}`; params.push(fuel_type); }
@@ -88,9 +91,24 @@ export async function GET(req) {
   } catch (e) { return handleError(e); }
 }
 
+const WRITABLE_COLUMNS = [
+  "vehicle_id",
+  "station_id",
+  "station_name",
+  "trip_id",
+  "liters",
+  "amount",
+  "price_per_liter",
+  "odometer",
+  "fuel_type",
+  "fuel_date",
+  "receipt_url",
+  "status",
+];
+
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
     const body = await parseBody(req);
 
     const errors = validateBody(body, fuelWriteSchema);
@@ -98,11 +116,34 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    const k = Object.keys(body);
-    const v = Object.values(body);
+    const columns = [];
+    const values = [];
+    for (const key of WRITABLE_COLUMNS) {
+      if (body[key] !== undefined) {
+        columns.push(key);
+        values.push(body[key]);
+      }
+    }
+
+    if (!body.vehicle_id) return err("vehicle_id is required", 400);
+    if (body.liters === undefined) return err("liters is required", 400);
+    if (body.amount === undefined && body.total_cost === undefined) return err("amount/total_cost is required", 400);
+    if (!body.fuel_date) return err("fuel_date is required", 400);
+
+    columns.push("driver_id");
+    values.push(
+      session.user.role === "driver"
+        ? session.user.driverId
+        : body.driver_id ?? null
+    );
+
+    columns.push("created_by");
+    values.push(session.user.employeeId);
+
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(
-      `INSERT INTO fuelrecords (${k.join(", ")}) VALUES (${k.map((_, i) => `$${i + 1}`).join(", ")}) RETURNING *`,
-      v
+      `INSERT INTO fuelrecords (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`,
+      values
     );
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
