@@ -203,7 +203,7 @@ export default function DashboardPage() {
       />
 
       {vehiclesLoading ? (
-        <StatsGridSkeleton count={8} />
+        <StatsGridSkeleton count={8} gridClass="md:grid-cols-2 lg:grid-cols-4" />
       ) : (
         <StatGrid cols={4}>
           {kpis.map((kpi) => (

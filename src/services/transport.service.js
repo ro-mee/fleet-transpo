@@ -80,8 +80,14 @@ export async function getRequestTimeline(id) {
 // AI advisor. GET is a pure preview and writes nothing; pass { persist: true }
 // to cache the result onto the request so the queue can badge it without
 // re-scoring. Neither variant assigns anything — a human always confirms.
-export async function getRecommendation(id, { persist = false } = {}) {
-  return apiFetch(`/api/integration/transport-requests/${id}/recommendation`, {
+//
+// { narrate: true } additionally asks the LLM provider for a written rationale
+// over the pick the rule engine already made. It is a separate, slower call on
+// purpose — the scored result should never wait on prose. Returns the same
+// payload either way, with `narration` null when the provider doesn't answer.
+export async function getRecommendation(id, { persist = false, narrate = false } = {}) {
+  const qs = narrate && !persist ? "?narrate=1" : "";
+  return apiFetch(`/api/integration/transport-requests/${id}/recommendation${qs}`, {
     method: persist ? "POST" : "GET",
   });
 }

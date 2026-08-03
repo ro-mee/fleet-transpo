@@ -27,6 +27,7 @@ import {
   toQueryParams,
 } from "@/components/reservations/queue-filters";
 import { AssignDialog } from "@/components/reservations/assign-dialog";
+import { ReviewDialog } from "@/components/reservations/review-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequests,
@@ -56,12 +57,13 @@ import {
 // per card.
 const REFETCH_MS = 30_000;
 
-const isReviewable = (s) => s === L.PENDING || s === L.UNDER_REVIEW;
+const isReviewable = (status) => status === L.PENDING || status === L.UNDER_REVIEW;
 
 export default function ReservationQueuePage() {
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
   const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [reviewing, setReviewing] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
   const [assigning, setAssigning] = useState(null);
@@ -122,8 +124,9 @@ export default function ReservationQueuePage() {
   const reviewMutation = useMutation({
     mutationFn: (r) => startReview(r.request_id),
     onMutate: (r) => setBusyId(r.request_id),
-    onSuccess: () => {
-      toast.success("Review started");
+    onSuccess: (data, r) => {
+      toast.success("Review started — opening workspace");
+      setReviewing(r);
       invalidate();
     },
     onError: (e) => toast.error(e.message || "Failed to start review"),
@@ -344,6 +347,30 @@ export default function ReservationQueuePage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {Boolean(reviewing) && (
+        <ReviewDialog
+          key={reviewing?.request_id || "review-workspace"}
+          request={reviewing}
+          isOpen={Boolean(reviewing)}
+          onClose={() => setReviewing(null)}
+          onApprove={(req) => {
+            setReviewing(null);
+            approveMutation.mutate(req);
+          }}
+          onReject={(req) => {
+            setReviewing(null);
+            setRejectReason("");
+            setRejecting(req);
+          }}
+          onAssign={(req) => {
+            setReviewing(null);
+            setAssignError(null);
+            setAssigning(req);
+          }}
+          isPending={approveMutation.isPending || rejectMutation.isPending || assignMutation.isPending}
+        />
+      )}
 
       <AssignDialog
         request={assigning}

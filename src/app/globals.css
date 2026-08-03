@@ -121,6 +121,15 @@ body {
   to { opacity: 0; }
 }
 
+/* Accessibility: stop the pulse for users who ask for reduced motion.
+   Skeleton has the motion-reduce: variant, but some loaders use a bare
+   animate-pulse class directly; the global rule covers every consumer. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse {
+    animation: none !important;
+  }
+}
+
 .dialog-overlay {
   transition: opacity 0.15s ease-out;
 }

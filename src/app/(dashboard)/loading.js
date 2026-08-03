@@ -1,22 +1,24 @@
-export default function Loading() {
+import { Skeleton } from "@/components/ui/skeleton";
+
+// Route-group fallback, shown while ANY (dashboard) page streams in.
+//
+// Deliberately generic: this same file precedes every dashboard route, from
+// /tracking/live-map to /settings/profile, so it must not sketch a KPI-grid or
+// table that most pages never render — that would paint a layout, then reflow
+// into something else. Pages with heavier data (queue, dispatch, detail views)
+// own their own skeletons via their react-query loading state; this is just the
+// header + a neutral block so navigation never flashes blank.
+export default function DashboardLoading() {
   return (
     <div className="space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div className="space-y-2">
-          <div className="h-7 w-48 animate-pulse rounded-lg bg-muted" />
-          <div className="h-4 w-64 animate-pulse rounded-lg bg-muted" />
+          <Skeleton className="h-8 w-56 rounded-lg" />
+          <Skeleton className="h-4 w-80 rounded-lg" />
         </div>
+        <Skeleton className="h-10 w-32 rounded-lg" />
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="border-0 shadow-sm rounded-xl p-4 space-y-3">
-            <div className="h-8 w-8 animate-pulse rounded-xl bg-muted" />
-            <div className="h-6 w-16 animate-pulse rounded-lg bg-muted" />
-            <div className="h-3 w-24 animate-pulse rounded-lg bg-muted" />
-          </div>
-        ))}
-      </div>
-      <div className="h-64 animate-pulse rounded-xl bg-muted" />
+      <Skeleton className="h-[340px] w-full" />
     </div>
   );
 }

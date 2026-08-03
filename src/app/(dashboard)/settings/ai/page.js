@@ -293,7 +293,7 @@ export default function AiSettingsPage() {
             <Brain className="w-6 h-6 text-primary" /> AI Provider & Engine Management
           </h1>
           <p className="text-foreground-secondary mt-1">
-            Configure LLM engines (OpenAI, Gemini, Ollama, Custom), system prompts, and rule-based fallback behavior
+            Configure LLM engines (OpenAI, Gemini, Custom), system prompts, and rule-based fallback behavior
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -412,7 +412,7 @@ export default function AiSettingsPage() {
                 <Brain className="w-10 h-10 mx-auto mb-2 opacity-40 text-primary" />
                 <p className="text-base font-semibold text-foreground">No LLM Providers Configured</p>
                 <p className="text-xs mt-1 max-w-md mx-auto">
-                  The system is currently running in <b>Deterministic Rule-Based Mode</b>. Add an AI provider (OpenAI, Gemini, Ollama, Groq, DeepSeek) to enable natural-language intelligence summaries.
+                  The system is currently running in <b>Deterministic Rule-Based Mode</b>. Add an AI provider (OpenAI, Gemini, Groq, DeepSeek) to enable natural-language intelligence summaries.
                 </p>
               </CardContent>
             </Card>
@@ -670,7 +670,6 @@ export default function AiSettingsPage() {
                 <option value="" disabled>Select provider type...</option>
                 <option value="OpenAI">OpenAI</option>
                 <option value="Gemini">Google Gemini</option>
-                <option value="Ollama">Ollama / Local LLM</option>
                 <option value="Anthropic">Anthropic Claude</option>
                 <option value="Groq">Groq</option>
                 <option value="DeepSeek">DeepSeek</option>
