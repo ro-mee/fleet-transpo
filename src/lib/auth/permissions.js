@@ -39,6 +39,7 @@ export const NAV_ROLES = {
   "/notifications/templates": ["admin", "system_admin"],
   "/notifications/preferences": ["*"],
   "/settings/general": ["admin", "system_admin"],
+  "/settings/users/new": ["admin", "system_admin"],
   "/settings/profile": ["*"],
   "/settings/security": ["*"],
   "/settings/api": ["admin", "system_admin"],

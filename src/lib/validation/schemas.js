@@ -151,4 +151,45 @@ export const reservationSchema = z.object({
   guest_id: z.string().optional(),
 });
 
+// Admin account creation. Mirrors the rules in
+// src/app/api/auth/register/route.js (validateBody with the same labels and
+// maxLengths), so a client-side error means the server would reject it too —
+// the two layers can't disagree about what is a valid account.
+export const createUserSchema = z.object({
+  email: z
+    .string({ error: "Email is required." })
+    .min(1, "Email is required.")
+    .email("Please enter a valid email address."),
+  password: z
+    .string({ error: "Password is required." })
+    .min(1, "Password is required.")
+    .min(LIMITS.PASSWORD_MIN, `Password must be at least ${LIMITS.PASSWORD_MIN} characters.`)
+    .refine((v) => /[a-z]/.test(v), "Password must contain at least one lowercase letter.")
+    .refine((v) => /[A-Z]/.test(v), "Password must contain at least one uppercase letter.")
+    .refine((v) => /\d/.test(v), "Password must contain at least one number.")
+    .refine((v) => /[^A-Za-z0-9]/.test(v), "Password must contain at least one special character."),
+  first_name: z
+    .string({ error: "First name is required." })
+    .min(1, "First name is required.")
+    .min(LIMITS.NAME_MIN, `First name must be at least ${LIMITS.NAME_MIN} characters.`)
+    .max(100, "First name must be at most 100 characters.")
+    .refine(
+      (v) => PATTERNS.NAME.test(v.trim()),
+      "First name must contain only letters (no numbers or special characters)."
+    ),
+  last_name: z
+    .string({ error: "Last name is required." })
+    .min(1, "Last name is required.")
+    .min(LIMITS.NAME_MIN, `Last name must be at least ${LIMITS.NAME_MIN} characters.`)
+    .max(100, "Last name must be at most 100 characters.")
+    .refine(
+      (v) => PATTERNS.NAME.test(v.trim()),
+      "Last name must contain only letters (no numbers or special characters)."
+    ),
+  role_id: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
+    z.number().int().positive("Please select a role.")
+  ),
+});
+
 export { isVIN, isYear };

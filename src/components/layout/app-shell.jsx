@@ -93,7 +93,16 @@ const navGroups = [
     label: "System",
     items: [
       { href: "/notifications", label: "Notifications", icon: Bell },
-      { href: "/settings/general", label: "Settings", icon: Settings },
+      {
+        href: "/settings/general",
+        label: "Settings",
+        icon: Settings,
+        children: [
+          { href: "/settings/general", label: "General" },
+          { href: "/settings/users/new", label: "Add User" },
+          { href: "/settings/api", label: "API Access" },
+        ],
+      },
     ],
   },
 ];

@@ -1,6 +1,14 @@
 import bcrypt from "bcryptjs";
 import { createClient } from "@/lib/supabase/client";
 import { signIn as nextAuthSignIn } from "next-auth/react";
+import { apiFetch } from "@/lib/api/client";
+
+// Admin-only account creation. The endpoint (/api/auth/register) requires an
+// authenticated system_admin/admin session, validates the payload server-side,
+// and answers 409 when the email is already taken — surfaced below as err.status.
+export async function createEmployeeAccount(payload) {
+  return apiFetch("/api/auth/register", { method: "POST", body: payload });
+}
 
 export async function signIn(email, password) {
   const result = await nextAuthSignIn("credentials", {
