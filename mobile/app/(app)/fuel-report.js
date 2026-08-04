@@ -11,7 +11,9 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../lib/api";
-import { colors, space } from "../../lib/theme";
+import { useAuth } from "../../lib/auth";
+import { ACTIONS, canAction } from "../../lib/rbac";
+import { colors, fonts, space } from "../../lib/theme";
 import {
   Button,
   Card,
@@ -22,6 +24,8 @@ import {
   ScreenTitle,
   styles as ui,
 } from "../../components/ui";
+import { BrandBar } from "../../components/logo";
+import { Plate } from "../../components/plate";
 
 /**
  * Driver fuel report.
@@ -37,6 +41,9 @@ import {
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
+
+  const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -114,13 +121,11 @@ export default function FuelReport() {
       style={styles.flex}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <BrandBar />
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          {
-            paddingTop: insets.top + space.base,
-            paddingBottom: insets.bottom + space.xxl,
-          },
+          { paddingBottom: insets.bottom + space.xxl },
         ]}
         keyboardShouldPersistTaps="handled"
       >
@@ -130,6 +135,11 @@ export default function FuelReport() {
 
         {loading ? (
           <Text style={ui.bodyText}>Loading your vehicle…</Text>
+        ) : !canReportFuel ? (
+          <EmptyState
+            title="Fuel reports not available"
+            message="Your account does not have permission to submit fuel reports. Contact your dispatcher."
+          />
         ) : !trip?.vehicle_id ? (
           // Without an active trip there is no vehicle to attribute fuel to.
           <EmptyState
@@ -146,15 +156,14 @@ export default function FuelReport() {
         ) : (
           <>
             <Card>
-              <Text style={ui.cardTitle}>Vehicle</Text>
-              <Detail
-                label="Plate"
-                value={trip.plate_number ?? `Vehicle #${trip.vehicle_id}`}
-                mono
-              />
+              <Text style={ui.eyebrow}>Vehicle</Text>
+              <View style={styles.plateRow}>
+                <Plate plate={trip.plate_number ?? `#${trip.vehicle_id}`} />
+              </View>
               <Detail
                 label="Trip"
                 value={`#${trip.trip_id} · ${trip.destination ?? "—"}`}
+                mono
               />
               <Text style={ui.bodyText}>
                 Taken from your active trip.
@@ -162,7 +171,7 @@ export default function FuelReport() {
             </Card>
 
             <Card>
-              <Text style={ui.cardTitle}>Receipt details</Text>
+              <Text style={ui.eyebrow}>Receipt details</Text>
               <Field
                 label="Fuel station"
                 required
@@ -233,7 +242,8 @@ export default function FuelReport() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  plateRow: { paddingVertical: space.xs },
   calculation: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -244,9 +254,10 @@ const styles = StyleSheet.create({
     marginTop: space.xs,
   },
   calculatedValue: {
-    color: colors.foreground,
+    fontFamily: fonts.dataSemiBold,
     fontSize: 16,
-    fontWeight: "600",
+    lineHeight: 22,
+    color: colors.foreground,
     fontVariant: ["tabular-nums"],
   },
 });

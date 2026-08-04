@@ -4,16 +4,16 @@
  * Colors are referenced by role, never by raw value, so a dark theme can be
  * added later without touching screens.
  *
- * Typography note: the design system specifies Archivo, IBM Plex Sans, and IBM
- * Plex Mono. Those are not bundled yet — the sizes and weights below match the
- * spec, but the family falls back to the platform default until the font
- * packages are added.
+ * Typography carries the dispatch-floor character of the web app: Archivo for
+ * headings, IBM Plex Sans for interface copy, and IBM Plex Mono for data,
+ * codes, and labels. Font assets are loaded once in app/_layout.js.
  */
 
 export const colors = {
   background: "#F1F1ED",
   surface: "#FFFFFF",
   border: "#DFE1DB",
+  hover: "#F2F2F0",
   foreground: "#1A1D21",
   foregroundSecondary: "#5C636F",
   foregroundMuted: "#9AA0AA",
@@ -51,6 +51,69 @@ export const radius = {
   control: 8,
   card: 12,
   pill: 999,
+};
+
+/**
+ * Typeface roles from docs/design-system.md §3.2. Font family strings match the
+ * exported names from @expo-google-fonts/*, loaded in app/_layout.js.
+ */
+export const fonts = {
+  display: "Archivo_600SemiBold",
+  displayBold: "Archivo_700Bold",
+  body: "IBMPlexSans_400Regular",
+  bodyMedium: "IBMPlexSans_500Medium",
+  bodySemiBold: "IBMPlexSans_600SemiBold",
+  data: "IBMPlexMono_500Medium",
+  dataSemiBold: "IBMPlexMono_600SemiBold",
+};
+
+/** Type scale matching the design-system roles. */
+export const type = {
+  pageTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 24,
+    lineHeight: 29,
+    color: colors.foreground,
+  },
+  sectionTitle: {
+    fontFamily: fonts.display,
+    fontSize: 18,
+    lineHeight: 23,
+    color: colors.foreground,
+  },
+  cardTitle: {
+    fontFamily: fonts.display,
+    fontSize: 16,
+    lineHeight: 21,
+    color: colors.foreground,
+  },
+  body: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 21,
+    color: colors.foregroundSecondary,
+  },
+  supporting: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.foregroundSecondary,
+  },
+  data: {
+    fontFamily: fonts.data,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.foreground,
+    fontVariant: ["tabular-nums"],
+  },
+  label: {
+    fontFamily: fonts.data,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: colors.foregroundSecondary,
+  },
 };
 
 /**

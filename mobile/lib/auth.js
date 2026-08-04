@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { apiFetch, setSessionExpiredHandler } from "./api";
+import { decodeJwtRole } from "./rbac";
 import { saveTokens, saveUser, getUser, getAccessToken, getRefreshToken, clearAll } from "./storage";
 
 const AuthContext = createContext(null);
@@ -37,28 +38,10 @@ export function AuthProvider({ children }) {
       accessToken: data.accessToken,
       refreshToken: data.refreshToken,
     });
-    await saveUser(data.driver);
-    setUser(data.driver);
-    return data.driver;
-  }, []);
-
-  const signInGuest = useCallback(async () => {
-    const guestDriver = {
-      id: "guest-driver-001",
-      first_name: "Guest",
-      last_name: "User",
-      email: "guest@fleetops.com",
-      phone: "+1 555-0199",
-      license_number: "DL-GUEST-2026",
-      isGuest: true,
-    };
-    await saveTokens({
-      accessToken: "mock-guest-access-token",
-      refreshToken: "mock-guest-refresh-token",
-    });
-    await saveUser(guestDriver);
-    setUser(guestDriver);
-    return guestDriver;
+    const driver = { ...data.driver, role: decodeJwtRole(data.accessToken) || "driver" };
+    await saveUser(driver);
+    setUser(driver);
+    return driver;
   }, []);
 
   const signInDriverDemo = useCallback(async () => {
@@ -69,7 +52,7 @@ export function AuthProvider({ children }) {
       email: "john.driver@fleetops.com",
       phone: "+1 555-0188",
       license_number: "DL-DRIVER-8844",
-      isGuest: false,
+      role: "driver",
       isDemoDriver: true,
     };
     await saveTokens({
@@ -84,11 +67,7 @@ export function AuthProvider({ children }) {
   const signOut = useCallback(async () => {
     const refreshToken = await getRefreshToken();
     try {
-      if (
-        refreshToken &&
-        refreshToken !== "mock-guest-refresh-token" &&
-        refreshToken !== "mock-driver-refresh-token"
-      ) {
+      if (refreshToken && refreshToken !== "mock-driver-refresh-token") {
         await apiFetch("/api/mobile/auth/logout", {
           method: "POST",
           body: JSON.stringify({ refreshToken }),
@@ -104,7 +83,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, loading, signIn, signInGuest, signInDriverDemo, signOut, setUser }}
+      value={{ user, loading, signIn, signInDriverDemo, signOut, setUser }}
     >
       {children}
     </AuthContext.Provider>

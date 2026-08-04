@@ -11,11 +11,12 @@ import {
 import { Redirect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
-import { colors, space } from "../lib/theme";
-import { Button, Field, ErrorNotice, styles as ui } from "../components/ui";
+import { colors, fonts, space } from "../lib/theme";
+import { LogoMark } from "../components/logo";
+import { Button, Card, ErrorNotice, Field, styles as ui } from "../components/ui";
 
 export default function Login() {
-  const { user, loading, signIn, signInGuest, signInDriverDemo } = useAuth();
+  const { user, loading, signIn, signInDriverDemo } = useAuth();
   const insets = useSafeAreaInsets();
 
   const [email, setEmail] = useState("");
@@ -69,18 +70,6 @@ export default function Login() {
     }
   };
 
-  const onGuestSubmit = async () => {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await signInGuest();
-    } catch (e) {
-      setError(e.message || "Could not sign in as guest.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <KeyboardAvoidingView
       style={styles.flex}
@@ -93,19 +82,20 @@ export default function Login() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <View style={styles.header}>
-          <Text style={ui.eyebrow}>FleetOps</Text>
-          <Text style={styles.title} accessibilityRole="header">
-            Driver sign in
-          </Text>
+        <View style={styles.brand}>
+          <LogoMark variant="login" size="lg" />
+          <Text style={styles.brandName}>FleetOps</Text>
+          <Text style={styles.brandSub}>Driver sign in</Text>
+        </View>
+
+        <Card>
+          <Text style={ui.cardTitle}>Welcome back</Text>
           <Text style={ui.bodyText}>
             Use your driver account credentials, or use a quick demo sign-in below for testing.
           </Text>
-        </View>
 
-        <ErrorNotice message={error} />
+          <ErrorNotice message={error} />
 
-        <View style={styles.form}>
           <Field
             label="Email"
             required
@@ -137,29 +127,20 @@ export default function Login() {
             onPress={onSubmit}
             loading={submitting}
           />
+        </Card>
 
-          <View style={styles.demoDivider}>
-            <View style={styles.line} />
-            <Text style={styles.demoLabel}>TEMPORARY TESTING / DEMO</Text>
-            <View style={styles.line} />
-          </View>
-
-          <Button
-            label="⚡ Quick Sign In as Driver"
-            variant="secondary"
-            onPress={onDriverDemoSubmit}
-            disabled={submitting}
-          />
-          
-          <View style={{ height: space.xs }} />
-
-          <Button
-            label="👤 Quick Sign In as Guest"
-            variant="secondary"
-            onPress={onGuestSubmit}
-            disabled={submitting}
-          />
+        <View style={styles.demoDivider}>
+          <View style={styles.line} />
+          <Text style={styles.demoLabel}>Temporary testing / demo</Text>
+          <View style={styles.line} />
         </View>
+
+        <Button
+          label="Sign in as driver (demo)"
+          variant="secondary"
+          onPress={onDriverDemoSubmit}
+          disabled={submitting}
+        />
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -179,13 +160,23 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: "center",
   },
-  header: { gap: space.sm },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: "700" },
-  form: { gap: space.xs },
+  brand: { alignItems: "center", gap: space.sm, marginBottom: space.xs },
+  brandName: {
+    color: colors.foreground,
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: "700",
+    fontFamily: "Archivo_700Bold",
+    marginTop: space.xs,
+  },
+  brandSub: {
+    color: colors.foregroundSecondary,
+    fontSize: 14,
+    fontFamily: fonts.body,
+  },
   demoDivider: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: space.md,
     gap: space.sm,
   },
   line: {
@@ -195,8 +186,10 @@ const styles = StyleSheet.create({
   },
   demoLabel: {
     color: colors.foregroundSecondary,
-    fontSize: 10,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "500",
     letterSpacing: 0.8,
+    textTransform: "uppercase",
+    fontFamily: "IBMPlexMono_500Medium",
   },
 });

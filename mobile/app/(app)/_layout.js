@@ -1,6 +1,7 @@
 import { Redirect, Stack } from "expo-router";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth } from "../../lib/auth";
+import { isDriverSession } from "../../lib/rbac";
 import { colors } from "../../lib/theme";
 
 /**
@@ -19,7 +20,11 @@ export default function AppLayout() {
     );
   }
 
-  if (!user) {
+  // Only a driver session may enter the signed-in area. This is the UI half of
+  // the role check; the server independently rejects non-driver tokens on every
+  // request, and a driver whose refresh token was revoked lands back here when
+  // the api layer clears `user` through the session-expired handler.
+  if (!isDriverSession(user)) {
     return <Redirect href="/login" />;
   }
 

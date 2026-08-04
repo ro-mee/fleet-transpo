@@ -8,16 +8,22 @@ import {
 } from "react-native";
 import {
   colors,
-  statusSurfaces,
-  space,
+  fonts,
   radius,
+  space,
+  statusSurfaces,
   TOUCH_TARGET,
+  type,
 } from "../lib/theme";
 
 /**
  * Shared primitives for the driver app, built from the semantic tokens in
  * lib/theme.js. Screens compose these rather than defining their own colours or
  * button variants, per docs/design-system.md.
+ *
+ * The visual language is inherited from the web app: flat paper cards with a
+ * hairline border, Archivo headings, IBM Plex Sans copy, and IBM Plex Mono for
+ * labels, codes, and figures.
  */
 
 export function Card({ children, style }) {
@@ -107,7 +113,7 @@ export function Field({ label, error, required = false, ...inputProps }) {
   );
 }
 
-/** Label + value pair for read-only record detail. */
+/** Label + value pair for read-only record detail. Data values use mono. */
 export function Detail({ label, value, mono = false }) {
   return (
     <View style={styles.detail}>
@@ -154,6 +160,15 @@ export function ScreenTitle({ eyebrow, title }) {
   );
 }
 
+/** Initials avatar, as in the web top bar. */
+export function Avatar({ initials }) {
+  return (
+    <View style={styles.avatar} accessibilityLabel={`Signed in as ${initials}`}>
+      <Text style={styles.avatarText}>{initials}</Text>
+    </View>
+  );
+}
+
 export const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
@@ -162,6 +177,11 @@ export const styles = StyleSheet.create({
     borderRadius: radius.card,
     padding: space.lg,
     gap: space.sm,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   pill: {
     flexDirection: "row",
@@ -173,7 +193,7 @@ export const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   dot: { width: 6, height: 6, borderRadius: radius.marker },
-  pillText: { fontSize: 12, fontWeight: "600" },
+  pillText: { fontFamily: fonts.data, fontSize: 12, lineHeight: 16 },
   button: {
     flexDirection: "row",
     alignItems: "center",
@@ -191,17 +211,11 @@ export const styles = StyleSheet.create({
     borderColor: colors.foreground,
     backgroundColor: "transparent",
   },
-  buttonPressed: { opacity: 0.85 },
+  buttonPressed: { opacity: 0.88 },
   buttonDisabled: { opacity: 0.5 },
-  buttonText: { fontSize: 15, fontWeight: "600" },
+  buttonText: { fontFamily: fonts.bodySemiBold, fontSize: 15 },
   field: { gap: space.xs, marginBottom: space.md },
-  label: {
-    color: colors.foregroundSecondary,
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.7,
-    textTransform: "uppercase",
-  },
+  label: { ...type.label },
   input: {
     minHeight: TOUCH_TARGET,
     borderWidth: 1,
@@ -210,21 +224,33 @@ export const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     paddingVertical: space.md,
     fontSize: 16,
+    fontFamily: fonts.body,
     color: colors.foreground,
     backgroundColor: colors.surface,
   },
   inputError: { borderColor: colors.danger },
-  fieldError: { color: colors.danger, fontSize: 13 },
+  fieldError: { color: colors.danger, fontSize: 13, fontFamily: fonts.body },
   detail: { gap: 2, marginTop: space.xs },
-  detailValue: { color: colors.foreground, fontSize: 15 },
-  monoValue: { fontVariant: ["tabular-nums"] },
-  bodyText: {
-    color: colors.foregroundSecondary,
-    fontSize: 14,
-    lineHeight: 21,
+  detailValue: {
+    color: colors.foreground,
+    fontSize: 15,
+    lineHeight: 20,
+    fontFamily: fonts.body,
   },
+  monoValue: {
+    fontFamily: fonts.data,
+    fontSize: 14,
+    lineHeight: 20,
+    fontVariant: ["tabular-nums"],
+  },
+  bodyText: { ...type.body },
   empty: { alignItems: "flex-start", gap: space.md },
-  emptyTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
+  emptyTitle: {
+    color: colors.foreground,
+    fontSize: 16,
+    lineHeight: 21,
+    fontFamily: fonts.bodySemiBold,
+  },
   errorNotice: {
     gap: space.md,
     padding: space.base,
@@ -233,21 +259,37 @@ export const styles = StyleSheet.create({
     borderColor: colors.danger,
     backgroundColor: statusSurfaces.danger,
   },
-  errorNoticeText: { color: colors.danger, fontSize: 14, lineHeight: 20 },
+  errorNoticeText: { color: colors.danger, fontSize: 14, lineHeight: 20, fontFamily: fonts.body },
   titleBlock: { gap: space.xs },
   eyebrow: {
-    color: colors.foregroundSecondary,
+    fontFamily: fonts.data,
     fontSize: 11,
-    fontWeight: "700",
+    lineHeight: 14,
+    fontWeight: "500",
     letterSpacing: 1.2,
     textTransform: "uppercase",
+    color: colors.foregroundSecondary,
   },
-  title: { color: colors.foreground, fontSize: 24, fontWeight: "700" },
+  title: { ...type.pageTitle, letterSpacing: -0.3 },
   rowBetween: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: space.sm,
   },
-  cardTitle: { color: colors.foreground, fontSize: 16, fontWeight: "600" },
+  cardTitle: { ...type.cardTitle },
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.hover,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontFamily: fonts.data,
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.foregroundSecondary,
+  },
 });

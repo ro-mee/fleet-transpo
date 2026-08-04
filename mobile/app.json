@@ -32,7 +32,8 @@
         {
           "locationWhenInUsePermission": "FleetOps shares your location with dispatch while you are on an active trip."
         }
-      ]
+      ],
+      "expo-font"
     ]
   }
 }
