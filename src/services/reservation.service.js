@@ -8,18 +8,6 @@ export async function getReservation(id) {
   return apiFetch(`/api/reservations/${id}`);
 }
 
-export async function createReservation(reservation) {
-  return apiFetch("/api/reservations", { method: "POST", body: reservation });
-}
-
-export async function updateReservation(id, reservation) {
-  return apiFetch(`/api/reservations/${id}`, { method: "PUT", body: reservation });
-}
-
-export async function cancelReservation(id, reason = null) {
-  return apiFetch(`/api/reservations/${id}/cancel`, { method: "PUT", body: { reason } });
-}
-
 export async function getReservationConflicts(vehicleId, date, pickupTime, estimatedReturn) {
   return apiFetch(`/api/reservations/conflicts${buildQuery({ vehicle_id: vehicleId, date, pickup_time: pickupTime, estimated_return: estimatedReturn })}`);
 }
