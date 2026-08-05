@@ -1,14 +1,23 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    const session = await requireAuth(req);
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT * FROM notifications`;
     const params = []; let idx = 1;
     const conditions = [];
+    const own = session.user?.employeeId ?? session.user?.userId ?? null;
+    const canScopeAll = ["system_admin", "admin", "fleet_manager"].includes(session.user?.role);
+    const target = sp.get("employee_id");
+    if (target) {
+      if (!canScopeAll) return err("Not authorized to view another user's notifications", 403);
+      conditions.push(`employee_id = $${idx++}`); params.push(+target);
+    } else if (own) {
+      conditions.push(`(employee_id = $${idx++} OR user_id = $${idx++})`); params.push(own, own);
+    }
     const type = sp.get("type"); if (type) { conditions.push(`type = $${idx++}`); params.push(type); }
     const is_read = sp.get("is_read"); if (is_read !== null && is_read !== undefined) { conditions.push(`is_read = $${idx++}`); params.push(is_read === "true"); }
     if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
