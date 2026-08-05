@@ -4,7 +4,7 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 export async function GET(req) {
   try {
     await requireAuth(req);
-    const { rows: records } = await query(`SELECT fuel_type, liters, amount, price_per_liter, fuel_date, odometer FROM fuelrecords WHERE deleted_at IS NULL ORDER BY fuel_date DESC`);
+    const { rows: records } = await query(`SELECT fuel_type, liters, amount, price_per_liter, fuel_date, odometer FROM fuelrecords WHERE deleted_at IS NULL AND status = 'Approved' ORDER BY fuel_date DESC`);
     if (!records?.length) return ok({ totalCost: 0, totalLiters: 0, avgCostPerLiter: 0, recordsCount: 0, byFuelType: [], monthlyTrend: [] });
     const totalCost = records.reduce((s, r) => s + (r.amount || 0), 0);
     const totalLiters = records.reduce((s, r) => s + (r.liters || 0), 0);
