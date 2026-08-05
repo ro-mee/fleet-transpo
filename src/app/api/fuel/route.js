@@ -2,28 +2,24 @@ import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { resolveDriverScope } from "@/lib/api/ownership";
+import { validateOdometerReading } from "@/lib/vehicles/odometer";
+import { writeAudit } from "@/lib/audit";
 
 const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
 
 const fuelWriteSchema = {
   vehicle_id: { required: true, type: "id", label: "Vehicle" },
   driver_id: { type: "id", label: "Driver" },
+  trip_id: { type: "id", label: "Trip" },
   fuel_date: { required: true, type: "date", label: "Fuel date" },
   fuel_type: { required: true, maxLength: 50, label: "Fuel type" },
   liters: { required: true, type: "positiveNumber", label: "Liters" },
-  cost_per_liter: { type: "positiveNumber", label: "Cost per liter" },
-  total_cost: { required: true, type: "positiveNumber", label: "Total cost" },
-  odometer_reading: { type: "positiveNumber", label: "Odometer reading" },
+  amount: { required: true, type: "positiveNumber", label: "Total amount" },
+  price_per_liter: { type: "positiveNumber", label: "Price per liter" },
+  odometer: { type: "positiveNumber", label: "Odometer" },
   station_name: { maxLength: 255, label: "Station name" },
   status: { maxLength: 30, label: "Status" },
-  notes: { maxLength: 500, label: "Notes" },
-  receipt_image_url: { maxLength: 2000, label: "Receipt image" },
-  reimbursement_status: { maxLength: 30, label: "Reimbursement status" },
-  paid_by: { maxLength: 100, label: "Paid by" },
-  payment_method: { maxLength: 50, label: "Payment method" },
-  submitted_at: { type: "date", label: "Submitted at" },
-  approved_by: { type: "id", label: "Approved by" },
-  rejected_reason: { maxLength: 500, label: "Rejection reason" },
+  receipt_url: { maxLength: 2000, label: "Receipt image" },
 };
 
 export async function GET(req) {
@@ -93,7 +89,6 @@ export async function GET(req) {
 
 const WRITABLE_COLUMNS = [
   "vehicle_id",
-  "station_id",
   "station_name",
   "trip_id",
   "liters",
@@ -130,6 +125,18 @@ export async function POST(req) {
     if (body.amount === undefined && body.total_cost === undefined) return err("amount/total_cost is required", 400);
     if (!body.fuel_date) return err("fuel_date is required", 400);
 
+    if (body.odometer !== undefined) {
+      const { rows: vehicleRows } = await query(
+        `SELECT mileage FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        [body.vehicle_id]
+      );
+      const odo = validateOdometerReading({
+        reading: body.odometer,
+        currentMileage: vehicleRows[0]?.mileage,
+      });
+      if (!odo.ok) return err(odo.error, 400);
+    }
+
     columns.push("driver_id");
     values.push(
       session.user.role === "driver"
@@ -140,11 +147,17 @@ export async function POST(req) {
     columns.push("created_by");
     values.push(session.user.employeeId);
 
+    if (body.status === undefined) {
+      columns.push("status");
+      values.push("Pending");
+    }
+
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(
       `INSERT INTO fuelrecords (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`,
       values
     );
+    await writeAudit(req, session, { action: "create", resource: "fuelrecords", resourceId: rows[0]?.fuel_record_id, newValues: rows[0] });
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
 }
