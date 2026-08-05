@@ -21,9 +21,12 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  * @param {object}        [params]
  * @param {number|string} [params.endOdometer]
  * @param {number|string} [params.distance]
+ * @param {number|string} [params.startOdometer] optional start reading; when present and
+ *                                               real (> 0), distance is derived from it and
+ *                                               overrides the supplied distance
  * @returns {Promise<object>} the updated trip row
  */
-export async function completeTrip(tripId, session, { endOdometer, distance } = {}) {
+export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer } = {}) {
   const { rows: before } = await query(
     `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, v.mileage AS vehicle_mileage
        FROM trips t
@@ -48,13 +51,23 @@ export async function completeTrip(tripId, session, { endOdometer, distance } = 
   });
   if (!odo.ok) throw new AuthError(odo.error, 400);
 
-  // Distance comes from the caller. The route derives it from a start reading
-  // when one exists and otherwise falls back to the supplied distance; the
-  // service receives the already-resolved value. A NULL/NaN distance must not
-  // clear a figure someone already recorded, so COALESCE keeps the existing
-  // value below.
+  // Distance is derived from the two readings, but only when the start
+  // reading is real. `end - (start || 0)` treats a NULL start as zero, which
+  // turns a 50,000 km end reading into a 50,000 km trip — and trips.distance
+  // is what the 90-day usage window sums to get km/day, so one such row
+  // inflates the burn rate and pulls every service projection forward.
+  // Legacy trips carry NULL or 0 start readings, so this path is reachable.
+  // The route passes startOdometer (body.start_odometer) when it has one.
+  const startOdo = Number(startOdometer);
+  const hasStart = Number.isFinite(startOdo) && startOdo > 0;
+  const derived = hasStart ? Number(rawEndOdometer) - startOdo : null;
   const suppliedDistance = Number(distance);
-  const dist = Number.isFinite(suppliedDistance) ? suppliedDistance : null;
+  const dist =
+    derived !== null && derived >= 0
+      ? derived
+      : Number.isFinite(suppliedDistance)
+        ? suppliedDistance
+        : null;
   // COALESCE keeps whatever distance the trip already had: an unusable
   // reading must not clear a figure someone already recorded.
   //
