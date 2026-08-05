@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { validateOdometerReading } from "@/lib/vehicles/odometer";
 
 /**
  * POST /api/mobile/fuel
@@ -15,7 +16,6 @@ import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils"
 // Columns the client may set. vehicle_id, trip_id, driver_id and created_by are
 // all derived server-side and deliberately absent.
 const WRITABLE_COLUMNS = [
-  "station_id",
   "station_name",
   "liters",
   "amount",
@@ -93,6 +93,18 @@ export async function POST(req) {
       Number(body.vehicle_id) !== trip.vehicle_id
     ) {
       return err("Fuel can only be reported for the vehicle on your trip", 403);
+    }
+
+    if (body.odometer !== undefined) {
+      const { rows: vehicleRows } = await query(
+        `SELECT mileage FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        [trip.vehicle_id]
+      );
+      const odo = validateOdometerReading({
+        reading: body.odometer,
+        currentMileage: vehicleRows[0]?.mileage,
+      });
+      if (!odo.ok) return err(odo.error, 400);
     }
 
     const columns = [];
