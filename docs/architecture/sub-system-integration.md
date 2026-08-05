@@ -365,6 +365,8 @@ Booking subsystem
      │                    Booking updates its record (e.g. for billing)
      │
      └── Cancel ─► PUT …/[id]/cancel ─► Cancelled (from any non-terminal state)
+             (also closes the request's open dispatches and trips, releasing
+              the vehicle/driver)
 ```
 
 Every hop appends a row to `reservation_events` via `recordReservationEvent()` —
@@ -407,6 +409,20 @@ retries and poller overlap safe.
 | `/api/integration/transport-requests/[id]/recommendation` | GET / POST | AI advisor. GET previews and writes nothing; POST caches the result onto the request. **Neither assigns** |
 | `/api/integration/pull` | POST | Poll the gateway for new requests (mock in dev) |
 | `/api/integration/inbound` · `/outbound` · `/logs` | — | Integration-log surfaces |
+
+The **legacy `/api/reservations` write endpoints are locked down** (Task 14) and now
+return **410 Gone**; clients must use the Booking integration flow above. Reads
+remain available — the dashboard and analytics still read these rows.
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/reservations` | POST | **Deprecated — returns 410.** Legacy writes locked; use the Booking integration flow. |
+| `/api/reservations/[id]` | PUT | **Deprecated — returns 410.** Legacy writes locked; use the Booking integration flow. |
+| `/api/reservations/[id]/cancel` | PUT | **Deprecated — returns 410.** Legacy writes locked; use the Booking integration flow. |
+
+Cancellation now cascades (Tasks 12–13): cancelling a transportation request also
+cancels its open dispatches and their non-terminal trips (releasing vehicle/driver);
+cancelling a dispatch cascades to its trip and (request-linked) request.
 
 Read access is deliberately wider than write access: the list and detail GETs also
 admit `management`, `reception_staff`, and `concierge`, because front-of-house gets
