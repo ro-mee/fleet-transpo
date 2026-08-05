@@ -15,6 +15,7 @@ import { ROLES } from "@/lib/constants";
 
 export const NAV_ROLES = {
   "/dashboard": ["*"],
+  "/driver": ["driver"],
   "/fleet": ["admin", "system_admin", "fleet_manager"],
   "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
   "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
@@ -121,6 +122,7 @@ const MATRIX = {
     reservations: { read: false },
     dispatch: { read: true, update: true },
     trips: { read: true, update: true },
+    drivers: { read: true },
     maintenance: { create: true, read: true },
     fuel: { create: true, read: true },
     reports: { read: false },

@@ -42,10 +42,11 @@ export async function GET(req) {
     const limit = Math.min(Math.max(Number(sp.get("limit")) || 50, 1), 100);
 
     const { rows } = await query(
-      `SELECT t.trip_id, t.trip_status, t.origin, t.destination,
-              t.start_time, t.end_time, t.estimated_distance, t.estimated_duration,
+      `SELECT t.trip_id, t.trip_status,
+              r.origin, r.destination,
+              t.start_time, t.end_time, r.estimated_distance, r.estimated_duration,
               t.dispatch_id, t.notes,
-              v.vehicle_id, v.plate_number, v.make, v.model,
+              v.vehicle_id, v.plate_number, v.model,
               r.route_id, r.route_name
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id

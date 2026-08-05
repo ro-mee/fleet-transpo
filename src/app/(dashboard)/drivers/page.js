@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,12 +14,12 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
-import { getDrivers, getDriverStats, deleteDriver } from "@/services/driver.service";
+import { getDrivers, getDriverStats, deleteDriver, linkDriverAccount } from "@/services/driver.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
 import {
   Users, UserCheck, Truck, Clock, UserX, Ban,
-  Download, Plus, Search, Eye, Pencil, Archive, RotateCcw
+  Download, Plus, Search, Eye, Pencil, Archive, RotateCcw, Link2
 } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
 
@@ -39,6 +40,7 @@ export default function DriversPage() {
     queryKey: ["drivers", statusFilter, licenseClassFilter, search],
     queryFn: () =>
       getDrivers({
+        includeUnlinked: 1,
         status: statusFilter !== "all" ? statusFilter : undefined,
         license_class: licenseClassFilter !== "all" ? licenseClassFilter : undefined,
         search: search ? search : undefined,
@@ -61,6 +63,18 @@ export default function DriversPage() {
     onError: (err) => {
       toast.error(err.message || "Failed to archive driver");
       setDeletingId(null);
+    },
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (employeeId) => linkDriverAccount(employeeId),
+    onSuccess: () => {
+      toast.success("Driver profile completed");
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to complete driver profile");
     },
   });
 
@@ -115,36 +129,62 @@ export default function DriversPage() {
       render: (val) => <StatusBadge status={val || "Available"} entity="driver" />,
     },
     {
+      key: "account",
+      label: "Login",
+      render: (_, row) =>
+        row.account ? (
+          <Badge variant={row.account.has_password ? "success" : "secondary"}>
+            {row.account.has_password ? "Enabled" : "No login"}
+          </Badge>
+        ) : (
+          <Badge variant="warning">Needs profile</Badge>
+        ),
+    },
+    {
       key: "actions",
       label: "Actions",
       render: (_, row) => (
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-xs text-primary"
-            onClick={() => router.push(`/drivers/${row.driver_id}`)}
-          >
-            <Eye className="w-3.5 h-3.5 mr-1" /> View
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-foreground-secondary hover:text-foreground"
-            onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
-            title="Edit Driver"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 text-warning hover:text-warning hover:bg-warning/10"
-            onClick={() => setDeletingId(row.driver_id)}
-            title="Archive Driver"
-          >
-            <Archive className="w-3.5 h-3.5" />
-          </Button>
+          {row.requires_completion ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => linkMutation.mutate(row.employee_id)}
+              disabled={linkMutation.isPending}
+            >
+              <Link2 className="w-3.5 h-3.5 mr-1" /> Complete Profile
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-xs text-primary"
+                onClick={() => router.push(`/drivers/${row.driver_id}`)}
+              >
+                <Eye className="w-3.5 h-3.5 mr-1" /> View
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-foreground-secondary hover:text-foreground"
+                onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
+                title="Edit Driver"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-warning hover:text-warning hover:bg-warning/10"
+                onClick={() => setDeletingId(row.driver_id)}
+                title="Archive Driver"
+              >
+                <Archive className="w-3.5 h-3.5" />
+              </Button>
+            </>
+          )}
         </div>
       ),
     },

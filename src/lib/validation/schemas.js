@@ -8,6 +8,7 @@ import {
   isPlateNumberPH,
   isIsoDate,
   isDateInPast,
+  isPassword,
 } from "./index";
 
 const requiredString = (label, opts = {}) =>
@@ -95,6 +96,11 @@ export const driverSchema = z.object({
     .optional()
     .or(z.literal(""))
     .refine((v) => !v || isPhonePH(v), "Please enter a valid Philippine phone number (e.g. 09171234567)."),
+  password: z
+    .string()
+    .optional()
+    .or(z.literal(""))
+    .refine((v) => !v || isPassword(v), "Password must be 8+ characters with upper, lower, number, and a special character."),
   position: z.string().default("Driver"),
   license_number: z
     .string()

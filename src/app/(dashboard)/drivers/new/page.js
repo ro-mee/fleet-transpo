@@ -39,6 +39,7 @@ export default function NewDriverPage() {
       last_name: "",
       email: "",
       phone: "",
+      password: "",
       position: "Driver",
       license_number: "",
       license_expiry: "",
@@ -83,7 +84,7 @@ export default function NewDriverPage() {
   };
 
   async function handleNextStep() {
-    const valid = await form.trigger(["first_name", "last_name", "email", "phone"]);
+    const valid = await form.trigger(["first_name", "last_name", "email", "phone", "password"]);
     if (valid) setStep(2);
   }
 
@@ -100,6 +101,7 @@ export default function NewDriverPage() {
 
     if (data.email?.trim()) payload.email = data.email.trim();
     if (data.phone?.trim()) payload.phone = data.phone.trim();
+    if (data.password?.trim()) payload.password = data.password.trim();
     if (data.license_expiry) payload.license_expiry = data.license_expiry;
     if (data.license_type) payload.license_type = data.license_type;
     if (data.license_class) payload.license_class = data.license_class;
@@ -119,7 +121,7 @@ export default function NewDriverPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-foreground">Add New Driver</h1>
-          <p className="text-foreground-secondary mt-1">Register a new driver and double-check their Driver's License card</p>
+          <p className="text-foreground-secondary mt-1">Register a new driver and double-check their Driver&apos;s License card</p>
         </div>
       </div>
 
@@ -196,6 +198,16 @@ export default function NewDriverPage() {
                         <Label htmlFor="position">Position Title</Label>
                         <Input id="position" {...form.register("position")} placeholder="Driver" />
                       </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="password">Login Password (Optional)</Label>
+                        <Input id="password" type="password" {...form.register("password")} placeholder="Enable app login for this driver" />
+                        {form.formState.errors.password && (
+                          <p className="text-xs text-danger">{form.formState.errors.password.message}</p>
+                        )}
+                        <p className="text-[11px] text-foreground-muted">
+                          Leave blank to create the driver without a login; you can set a password later from the driver detail page.
+                        </p>
+                      </div>
                     </div>
                   </>
                 )}
@@ -206,7 +218,7 @@ export default function NewDriverPage() {
                     <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3">
                       <div className="flex items-center justify-between">
                         <Label className="text-xs font-semibold uppercase tracking-wider text-foreground">
-                          Upload Driver's License Card Image (For Double Checking)
+                          Upload Driver&apos;s License Card Image (For Double Checking)
                         </Label>
                         {licenseImagePreview && (
                           <span className="text-xs text-success font-medium flex items-center gap-1">

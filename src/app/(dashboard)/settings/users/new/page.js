@@ -16,7 +16,13 @@ import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
-import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Truck } from "lucide-react";
+
+// Drivers are created from the Drivers section, not from this account screen —
+// a driver login also needs a linked driver profile, which only the drivers
+// flow sets up. Staff and support roles (everything except Driver) can be
+// provisioned here.
+const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 
 export default function AddUserPage() {
   useRequireRole(["system_admin", "admin"]);
@@ -157,7 +163,7 @@ export default function AddUserPage() {
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {REGISTRATION_ROLES.map((role) => (
+                  {ACCOUNT_ROLES.map((role) => (
                     <SelectItem key={role.id} value={String(role.id)}>
                       {role.name}
                     </SelectItem>
@@ -170,13 +176,16 @@ export default function AddUserPage() {
             </div>
 
             <div className="p-3.5 rounded-xl bg-info/10 border border-info/30 text-xs text-foreground-secondary flex items-start gap-2.5">
-              <ShieldCheck className="w-4 h-4 text-info shrink-0 mt-0.5" />
+              <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
               <span>
-                The new account will have the access of the role you select. Roles like{" "}
-                <strong className="text-foreground font-semibold">System Admin</strong> and{" "}
-                <strong className="text-foreground font-semibold">Fleet Manager</strong> can manage
-                fleet data; <strong className="text-foreground font-semibold">Driver</strong> is a
-                limited mobile-only role.
+                The new account will have the access of the role you select. Use this
+                screen for staff and support roles.{" "}
+                <strong className="text-foreground font-semibold">Driver</strong> accounts
+                are created from the{" "}
+                <Link href="/drivers" className="text-primary font-medium underline underline-offset-2 inline-flex items-center gap-1">
+                  <Truck className="w-3 h-3" /> Drivers
+                </Link>{" "}
+                section, which also sets up their mobile login and consent.
               </span>
             </div>
           </CardContent>

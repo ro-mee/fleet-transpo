@@ -1,26 +1,57 @@
+import bcrypt from "bcryptjs";
 import { query, getAdminClient } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
+import { ROLE_IDS } from "@/lib/constants";
+
+const EMPLOYEE_FIELDS = `json_build_object(
+  'employee_id', e.employee_id,
+  'first_name', e.first_name,
+  'last_name', e.last_name,
+  'email', e.email,
+  'phone', e.phone,
+  'position', e.position,
+  'avatar_url', e.avatar_url
+) AS employees`;
 
 export async function GET(req) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     const { searchParams } = new URL(req.url);
 
+    const includeUnlinked = searchParams.get("includeUnlinked") === "1";
+
+    // Drivers with a linked drivers row. includeUnlinked additionally surfaces
+    // role-driver employees that have NO drivers row yet (e.g. accounts created
+    // via the old Settings → Add User path), flagged requires_completion so an
+    // admin can finalize them through POST /api/drivers/link.
     let sql = `
-      SELECT 
-        d.*,
+      SELECT
+        d.driver_id,
+        d.employee_id,
+        d.license_number,
+        d.license_expiry,
+        d.license_type,
+        d.license_class,
+        d.years_of_experience,
+        d.driver_status,
+        d.current_latitude,
+        d.current_longitude,
+        d.last_location_update,
+        d.face_image_url,
+        d.created_at,
+        d.updated_at,
+        ${EMPLOYEE_FIELDS},
         json_build_object(
           'employee_id', e.employee_id,
-          'first_name', e.first_name,
-          'last_name', e.last_name,
           'email', e.email,
-          'phone', e.phone,
-          'position', e.position,
-          'avatar_url', e.avatar_url
-        ) AS employees
+          'role', r.role_name,
+          'has_password', e.password_hash IS NOT NULL
+        ) AS account,
+        FALSE AS requires_completion
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
+      LEFT JOIN roles r ON r.role_id = e.role_id
       WHERE d.deleted_at IS NULL
     `;
 
@@ -52,7 +83,45 @@ export async function GET(req) {
       idx++;
     }
 
-    sql += ` ORDER BY d.created_at DESC`;
+    if (includeUnlinked) {
+      sql += `
+        UNION ALL
+        SELECT
+          NULL::INTEGER AS driver_id,
+          e.employee_id,
+          NULL AS license_number,
+          NULL AS license_expiry,
+          NULL AS license_type,
+          NULL AS license_class,
+          0 AS years_of_experience,
+          'Incomplete' AS driver_status,
+          NULL AS current_latitude,
+          NULL AS current_longitude,
+          NULL AS last_location_update,
+          NULL AS face_image_url,
+          e.created_at,
+          e.updated_at,
+          ${EMPLOYEE_FIELDS},
+          json_build_object(
+            'employee_id', e.employee_id,
+            'email', e.email,
+            'role', r.role_name,
+            'has_password', e.password_hash IS NOT NULL
+          ) AS account,
+          TRUE AS requires_completion
+        FROM employees e
+        LEFT JOIN roles r ON r.role_id = e.role_id
+        WHERE e.deleted_at IS NULL
+          AND e.role_id = $${idx++}
+          AND NOT EXISTS (
+            SELECT 1 FROM drivers d2
+            WHERE d2.employee_id = e.employee_id AND d2.deleted_at IS NULL
+          )
+      `;
+      params.push(ROLE_IDS.driver);
+    }
+
+    sql += ` ORDER BY created_at DESC`;
 
     const { rows: data } = await query(sql, params);
     if (!data || !data.length) return ok([]);
@@ -81,6 +150,7 @@ export async function POST(req) {
       years_of_experience,
       driver_status,
       license_image_url,
+      password,
     } = body;
 
     // Validate required fields
@@ -92,6 +162,7 @@ export async function POST(req) {
       license_number: { required: true, type: "license", label: "License number", maxLength: 30 },
       license_expiry: { type: "date", label: "License expiry" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+      password: { type: "password", label: "Password" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -107,13 +178,22 @@ export async function POST(req) {
     // Step 1: Check if active employee already exists with this email
     const { data: existingEmp } = await supabase
       .from("employees")
-      .select("employee_id")
+      .select("employee_id, role_id, password_hash")
       .eq("email", empEmail.toLowerCase())
       .is("deleted_at", null)
       .maybeSingle();
 
     let employeeId;
     let createdNewEmployee = false;
+    let roleId = ROLE_IDS.driver;
+    let passwordHash = null;
+
+    // A password on a reused employee would be a silent credential change — the
+    // same account-takeover path POST /api/auth/register blocks with a 409. Only
+    // set credentials on a brand-new employee row.
+    if (password && password.trim() !== "") {
+      passwordHash = await bcrypt.hash(password, 10);
+    }
 
     if (existingEmp) {
       employeeId = existingEmp.employee_id;
@@ -132,6 +212,22 @@ export async function POST(req) {
           409
         );
       }
+
+      // Never silently overwrite an existing account's credentials from this
+      // endpoint. If the employee already has a role or password, the driver
+      // profile can be created but a login must be configured explicitly.
+      if (passwordHash && (existingEmp.role_id || existingEmp.password_hash)) {
+        return err(
+          `Employee "${empEmail}" already has login credentials. Create the driver profile without a password, then set or reset the login from the driver detail page.`,
+          409
+        );
+      }
+      if (existingEmp.role_id) {
+        roleId = existingEmp.role_id;
+      }
+      if (existingEmp.password_hash) {
+        passwordHash = null;
+      }
     } else {
       // Create new Employee record via Supabase Client
       const { data: newEmp, error: empError } = await supabase
@@ -143,6 +239,8 @@ export async function POST(req) {
           phone: normalizePhone(phone) || null,
           position: position || "Driver",
           avatar_url: license_image_url || null,
+          role_id: roleId,
+          password_hash: passwordHash,
         })
         .select("employee_id")
         .single();
@@ -206,17 +304,16 @@ export async function POST(req) {
     const fetchSql = `
       SELECT 
         d.*,
+        ${EMPLOYEE_FIELDS},
         json_build_object(
           'employee_id', e.employee_id,
-          'first_name', e.first_name,
-          'last_name', e.last_name,
           'email', e.email,
-          'phone', e.phone,
-          'position', e.position,
-          'avatar_url', e.avatar_url
-        ) AS employees
+          'role', r.role_name,
+          'has_password', e.password_hash IS NOT NULL
+        ) AS account
       FROM drivers d
       LEFT JOIN employees e ON d.employee_id = e.employee_id
+      LEFT JOIN roles r ON r.role_id = e.role_id
       WHERE d.driver_id = $1
       LIMIT 1
     `;
