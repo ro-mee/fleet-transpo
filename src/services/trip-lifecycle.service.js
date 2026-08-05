@@ -39,16 +39,24 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   if (TERMINAL.has(before[0].trip_status)) {
     throw new AuthError(`Trip is already ${before[0].trip_status} and cannot be completed.`, 409);
   }
-  // Validate before writing. A reading below current mileage would walk the
-  // odometer backwards and silently defer every due-date on this vehicle.
   // Narrowed at the boundary first: Number() coerces `true` to 1 and `[]` to
   // 0, so an untyped body could otherwise pass as a plausible reading.
   const rawEndOdometer =
     typeof endOdometer === "number" || typeof endOdometer === "string" ? endOdometer : null;
-  const odo = validateOdometerReading({
-    reading: rawEndOdometer,
-    currentMileage: before[0].vehicle_mileage,
-  });
+  // Validate only when an end reading is actually present. A null/undefined/""
+  // reading is a legitimate distance-only completion — legacy trips often
+  // never recorded a start odometer — so it is skipped rather than rejected:
+  // validateOdometerReading requires a reading and would otherwise 400 the
+  // whole completion. A present reading below current mileage would walk the
+  // odometer backwards and silently defer every due-date on this vehicle.
+  const hasEndOdometer =
+    rawEndOdometer !== null && rawEndOdometer !== "" && rawEndOdometer !== undefined;
+  const odo = hasEndOdometer
+    ? validateOdometerReading({
+        reading: rawEndOdometer,
+        currentMileage: before[0].vehicle_mileage,
+      })
+    : { ok: true, error: null, flagged: false, reason: null };
   if (!odo.ok) throw new AuthError(odo.error, 400);
 
   // Distance is derived from the two readings, but only when the start
