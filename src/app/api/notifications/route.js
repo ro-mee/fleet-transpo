@@ -16,7 +16,13 @@ export async function GET(req) {
       if (!canScopeAll) return err("Not authorized to view another user's notifications", 403);
       conditions.push(`employee_id = $${idx++}`); params.push(+target);
     } else if (own) {
-      conditions.push(`(employee_id = $${idx++} OR user_id = $${idx++})`); params.push(own, own);
+      // employee_id is int and user_id is uuid, so both cannot share one param
+      // typed against one column: comparing the numeric employeeId to the uuid
+      // user_id column makes Postgres throw a cast error and the self-scoped
+      // read 500s. Scope on whichever identity is actually present.
+      const isEmp = session.user?.employeeId != null;
+      conditions.push(isEmp ? `employee_id = $${idx++}` : `user_id = $${idx++}`);
+      params.push(own);
     }
     const type = sp.get("type"); if (type) { conditions.push(`type = $${idx++}`); params.push(type); }
     const is_read = sp.get("is_read"); if (is_read !== null && is_read !== undefined) { conditions.push(`is_read = $${idx++}`); params.push(is_read === "true"); }
