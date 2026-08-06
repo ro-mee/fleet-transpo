@@ -9,8 +9,9 @@ import { assertTripOwnership } from "@/lib/api/ownership";
  * route instead — the name is clearer ("gps" not "locations"), and this path
  * lives under the mobile namespace where every route is driver-only by default.
  *
- * Identical behavior: vehicle_id and driver_id are taken from the trip row,
- * never from the request body.
+ * Identical behavior: vehicle_id is taken from the trip row, never from the
+ * request body. driver_id was dropped in migration 019 (never read; derivable
+ * from the trip).
  */
 export async function POST(req, { params }) {
   try {
@@ -36,13 +37,12 @@ export async function POST(req, { params }) {
 
     const { rows } = await query(
       `INSERT INTO gpstracking
-         (vehicle_id, trip_id, driver_id, latitude, longitude, speed, heading, altitude, accuracy, recorded_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10::TIMESTAMPTZ, NOW()))
+         (vehicle_id, trip_id, latitude, longitude, speed, heading, altitude, accuracy, recorded_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::TIMESTAMPTZ, NOW()))
        RETURNING *`,
       [
         trip.vehicle_id,
         trip.trip_id,
-        trip.driver_id,
         latitude,
         longitude,
         toNumberOrNull(body.speed) ?? 0,

@@ -11,6 +11,7 @@ import {
 import { Redirect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
+import { DEMO_ENABLED } from "../lib/config";
 import { colors, fonts, space } from "../lib/theme";
 import { LogoMark } from "../components/logo";
 import { Button, Card, ErrorNotice, Field, styles as ui } from "../components/ui";
@@ -91,7 +92,7 @@ export default function Login() {
         <Card>
           <Text style={ui.cardTitle}>Welcome back</Text>
           <Text style={ui.bodyText}>
-            Use your driver account credentials, or use a quick demo sign-in below for testing.
+            Use your driver account credentials{DEMO_ENABLED ? ", or use a quick demo sign-in below for testing." : "."}
           </Text>
 
           <ErrorNotice message={error} />
@@ -129,18 +130,22 @@ export default function Login() {
           />
         </Card>
 
-        <View style={styles.demoDivider}>
-          <View style={styles.line} />
-          <Text style={styles.demoLabel}>Temporary testing / demo</Text>
-          <View style={styles.line} />
-        </View>
+        {DEMO_ENABLED ? (
+          <>
+            <View style={styles.demoDivider}>
+              <View style={styles.line} />
+              <Text style={styles.demoLabel}>Temporary testing / demo</Text>
+              <View style={styles.line} />
+            </View>
 
-        <Button
-          label="Sign in as driver (demo)"
-          variant="secondary"
-          onPress={onDriverDemoSubmit}
-          disabled={submitting}
-        />
+            <Button
+              label="Sign in as driver (demo)"
+              variant="secondary"
+              onPress={onDriverDemoSubmit}
+              disabled={submitting}
+            />
+          </>
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );

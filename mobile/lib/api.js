@@ -4,6 +4,7 @@ import {
   saveTokens,
   clearAll,
 } from "./storage";
+import { DEMO_ENABLED } from "./config";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -78,6 +79,11 @@ async function refreshAccessToken() {
  * fetch wrapper that attaches the bearer token and transparently retries once
  * after refreshing on a 401.
  */
+/**
+ * Demo-driver data, served only when DEMO_ENABLED is true for a build. Letting
+ * a session through here is how the login "sign in as driver (demo)" button
+ * works without a backend; production builds (flag off) never reach it.
+ */
 let driverTripsState = [
   {
     trip_id: "TRIP-DRV-101",
@@ -109,6 +115,7 @@ let driverTripsState = [
   },
 ];
 
+/** Short-circuits demo-driver requests; only meaningful while DEMO_ENABLED. */
 function handleDriverMock(path, options = {}) {
   if (path === "/api/mobile/driver/trips") {
     return driverTripsState;
@@ -164,7 +171,7 @@ export async function apiFetch(path, options = {}) {
 
   let token = skipAuth ? null : await getAccessToken();
 
-  if (token === "mock-driver-access-token") {
+  if (DEMO_ENABLED && token === "mock-driver-access-token") {
     return handleDriverMock(path, options);
   }
 
