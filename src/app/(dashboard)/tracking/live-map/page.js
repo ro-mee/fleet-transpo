@@ -103,7 +103,7 @@ export default function LiveMapPage() {
                           {trip.vehicles?.plate_number || "—"}
                         </p>
                         <p className="text-xs text-foreground-muted">
-                          {trip.drivers?.employees?.first_name || "—"}
+                          {trip.drivers?.first_name || "—"}
                         </p>
                       </div>
                       <StatusBadge status={trip.trip_status} entity="trip" className="text-[11px]" />

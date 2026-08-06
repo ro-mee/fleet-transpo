@@ -2,9 +2,30 @@ import { query, getAdminClient } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 
+// Auto-ensure emergency contact and back license image columns exist in PostgreSQL
+let migrationRan = false;
+async function ensureDriverColumnsExist() {
+  if (migrationRan) return;
+  try {
+    await query(`
+      ALTER TABLE drivers 
+      ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS emergency_contact_address TEXT,
+      ADD COLUMN IF NOT EXISTS license_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT;
+    `);
+    migrationRan = true;
+  } catch (err) {
+    console.warn("Driver table column check skipped:", err.message);
+  }
+}
+
 export async function GET(req) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await ensureDriverColumnsExist();
+
     const { searchParams } = new URL(req.url);
 
     let sql = `
@@ -66,6 +87,7 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await ensureDriverColumnsExist();
     const body = await parseBody(req);
 
     const {
@@ -81,6 +103,14 @@ export async function POST(req) {
       years_of_experience,
       driver_status,
       license_image_url,
+      license_back_image_url,
+      address,
+      sex,
+      birthdate,
+      nationality,
+      emergency_contact_name,
+      emergency_contact_phone,
+      emergency_contact_address,
     } = body;
 
     // Validate required fields
@@ -92,6 +122,10 @@ export async function POST(req) {
       license_number: { required: true, type: "license", label: "License number", maxLength: 30 },
       license_expiry: { type: "date", label: "License expiry" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
+      birthdate: { type: "date", label: "Birthdate" },
+      sex: { maxLength: 20, label: "Sex" },
+      nationality: { maxLength: 100, label: "Nationality" },
+      address: { maxLength: 255, label: "Address" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -165,7 +199,7 @@ export async function POST(req) {
       createdNewEmployee = true;
     }
 
-    // Step 2: Create Driver record linked to employeeId via Supabase Client
+    // Step 2: Create Driver record linked to employeeId with Emergency Contact & Back License Image
     const { data: newDriver, error: driverError } = await supabase
       .from("drivers")
       .insert({
@@ -176,6 +210,15 @@ export async function POST(req) {
         license_class: license_class || null,
         years_of_experience: years_of_experience ? Number(years_of_experience) : 0,
         driver_status: driver_status || "Available",
+        address: address || null,
+        sex: sex || null,
+        birthdate: birthdate || null,
+        nationality: nationality || null,
+        license_image_url: license_image_url || null,
+        license_back_image_url: license_back_image_url || null,
+        emergency_contact_name: emergency_contact_name || null,
+        emergency_contact_phone: emergency_contact_phone || null,
+        emergency_contact_address: emergency_contact_address || null,
       })
       .select("driver_id")
       .single();
@@ -221,8 +264,8 @@ export async function POST(req) {
       LIMIT 1
     `;
 
-    const { rows: fullRows } = await query(fetchSql, [driverId]);
-    return ok(fullRows[0] || { driver_id: driverId, employee_id: employeeId }, 201);
+    const { rows } = await query(fetchSql, [driverId]);
+    return ok(rows[0], 201);
   } catch (e) {
     return handleError(e);
   }

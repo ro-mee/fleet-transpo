@@ -14,10 +14,11 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { toDateInput } from "@/lib/dates";
-import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2 } from "lucide-react";
+import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2, TriangleAlert } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -58,7 +59,13 @@ export default function MaintenancePage() {
   });
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(maintenanceFormSchema);
 
-  const { data: records = [], isLoading } = useQuery({
+  const {
+    data: records = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["maintenance"],
     queryFn: () => getVehicleMaintenance(),
   });
@@ -275,6 +282,24 @@ export default function MaintenancePage() {
     []
   );
 
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Operations"
+          title="Maintenance"
+          description="Vehicle maintenance records and scheduling."
+        />
+        <EmptyState
+          icon={TriangleAlert}
+          title="Could not load maintenance records"
+          description={error?.message || "Something went wrong reading the maintenance register."}
+          action={<Button onClick={() => refetch()}>Try again</Button>}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -485,6 +510,7 @@ export default function MaintenancePage() {
         columns={columns}
         data={records}
         searchPlaceholder="Search maintenance records..."
+        isLoading={isLoading}
       />
 
       <ConfirmDialog

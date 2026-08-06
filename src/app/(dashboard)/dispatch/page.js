@@ -236,12 +236,44 @@ export default function DispatchPage() {
 
   const stats = useMemo(
     () => [
-      { label: "Scheduled", value: counts.scheduled, icon: Clock, tone: "primary", trend: "awaiting departure" },
-      { label: "In Progress", value: counts.inProgress, icon: PlayCircle, tone: "warning", trend: "on the road" },
-      { label: "Completed", value: counts.completed, icon: CheckCircle2, tone: "success", trend: "closed out" },
-      { label: "Cancelled", value: counts.cancelled, icon: XCircle, tone: "secondary", trend: "stood down" },
+      {
+        label: "Scheduled",
+        value: counts.scheduled,
+        icon: Clock,
+        tone: "primary",
+        trend: "awaiting departure",
+        active: lane === "scheduled",
+        onClick: () => setLane("scheduled"),
+      },
+      {
+        label: "In Progress",
+        value: counts.inProgress,
+        icon: PlayCircle,
+        tone: "warning",
+        trend: "on the road",
+        active: lane === "inProgress",
+        onClick: () => setLane("inProgress"),
+      },
+      {
+        label: "Completed",
+        value: counts.completed,
+        icon: CheckCircle2,
+        tone: "success",
+        trend: "closed out",
+        active: lane === "completed",
+        onClick: () => setLane("completed"),
+      },
+      {
+        label: "Cancelled",
+        value: counts.cancelled,
+        icon: XCircle,
+        tone: "secondary",
+        trend: "stood down",
+        active: lane === "cancelled",
+        onClick: () => setLane("cancelled"),
+      },
     ],
-    [counts]
+    [counts, lane]
   );
 
   const searching = search.trim().length > 0;

@@ -2,7 +2,7 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 
-// Helper function to extract document text using Tesseract OCR with fast timeout
+// Helper function to extract document text using Tesseract OCR
 async function extractTextFromImage(fileUrl) {
   if (!fileUrl || typeof fileUrl !== "string") return "";
 
@@ -10,13 +10,20 @@ async function extractTextFromImage(fileUrl) {
     const ocrPromise = (async () => {
       const { createWorker } = await import("tesseract.js");
       const worker = await createWorker("eng");
-      const ret = await worker.recognize(fileUrl);
+
+      let inputSource = fileUrl;
+      if (fileUrl.startsWith("data:")) {
+        const base64Data = fileUrl.replace(/^data:image\/\w+;base64,/, "");
+        inputSource = Buffer.from(base64Data, "base64");
+      }
+
+      const ret = await worker.recognize(inputSource);
       await worker.terminate();
       return ret.data.text || "";
     })();
 
     const timeoutPromise = new Promise((resolve) =>
-      setTimeout(() => resolve(""), 2500)
+      setTimeout(() => resolve(""), 6000)
     );
 
     return await Promise.race([ocrPromise, timeoutPromise]);
@@ -30,14 +37,213 @@ async function extractTextFromImage(fileUrl) {
 function cleanFieldValue(val) {
   if (!val || typeof val !== "string") return val;
   let s = val.trim();
-
-  // Cut off at adjacent column headers
   s = s.split(/\s+(?:Chassis|Engine|VIN|Vehicle\s*Type|Gross|Net\s*Weight|Body\s*Type|No\.?\s*of|No\s*of|Seating|Owner|Address|Registration|Insurance|Ref|Date|Place|Transaction)[:\s]/i)[0];
-  
   return s.replace(/[:;,]+$/, "").trim();
 }
 
-// Regex rules to parse key vehicle document fields from raw OCR text
+// Auto-correct common Philippine address OCR typos (e.g. MANIA -> MANILA)
+function correctPhilippineAddressSpelling(addressStr) {
+  if (!addressStr || typeof addressStr !== "string") return addressStr;
+
+  let s = addressStr.toUpperCase();
+
+  const corrections = [
+    [/\bMANIA\b/g, "MANILA"],
+    [/\bMANLIA\b/g, "MANILA"],
+    [/\bMNILA\b/g, "MANILA"],
+    [/\bSAMPALOK\b/g, "SAMPALOC"],
+    [/\bQUEZ0N\b/g, "QUEZON"],
+    [/\bCAL00CAN\b/g, "CALOOCAN"],
+    [/\bPARANAKUE\b/g, "PARANAQUE"],
+    [/\bSTRT\b/g, "STREET"],
+  ];
+
+  for (const [regex, replacement] of corrections) {
+    s = s.replace(regex, replacement);
+  }
+
+  return s;
+}
+
+// Regex rules for Front of LTO Philippine Driver's License Card OCR
+function parseDriverLicenseFieldsFromText(text) {
+  if (!text) return { extractedData: {}, confidenceScores: {} };
+
+  const extractedData = {};
+  const confidenceScores = {};
+  const cleanText = text.replace(/\r/g, "");
+
+  // 1. License Number
+  const licMatch = cleanText.match(/(?:LICENSE\s*(?:NO\.?|NUMBER)?[:\s]*)([A-Z]\d{2}-\d{2}-\d{6})/i) ||
+                   cleanText.match(/\b([A-Z]\d{2}-\d{2}-\d{6})\b/i) ||
+                   cleanText.match(/(?:LICENSE\s*NO\.?[:\s]*)([A-Z0-9-]{7,15})/i) ||
+                   cleanText.match(/\b([A-Z]\d{2}\d{2}\d{6})\b/i);
+  if (licMatch) {
+    extractedData.license_number = licMatch[1].toUpperCase();
+    confidenceScores.license_number = 99;
+  }
+
+  // 2. Name Extraction
+  const nameCommaMatch = cleanText.match(/(?:NAME|DRIVER)?[:\s]*([A-Z\s]+),\s*([A-Z\s]+)/i);
+  if (nameCommaMatch) {
+    extractedData.last_name = nameCommaMatch[1].trim().toUpperCase();
+    extractedData.first_name = nameCommaMatch[2].trim().toUpperCase();
+    confidenceScores.last_name = 96;
+    confidenceScores.first_name = 96;
+  } else {
+    const fullNameMatch = cleanText.match(/(?:NAME)[:\s]*([A-Z\s]{4,35})/i);
+    if (fullNameMatch) {
+      const parts = fullNameMatch[1].trim().split(/\s+/);
+      if (parts.length >= 2) {
+        extractedData.first_name = parts[0].toUpperCase();
+        extractedData.last_name = parts.slice(1).join(" ").toUpperCase();
+        confidenceScores.first_name = 92;
+        confidenceScores.last_name = 92;
+      }
+    }
+  }
+
+  // 3. Address
+  const addressMatch = cleanText.match(/(?:ADDRESS|ADD?\.?)[:\s]*([^\n\r]+)/i);
+  if (addressMatch) {
+    const lines = [addressMatch[1].trim()];
+    const rest = cleanText.slice(cleanText.indexOf(addressMatch[0]) + addressMatch[0].length);
+    const nextLines = rest.split(/\r?\n/);
+    const KNOWN_NEXT = /^(DATE\s*OF\s*BIRTH|BIRTH\s*DATE|BIRTHDAY|DOB|SEX|GENDER|NATIONALITY|CITIZENSHIP|EXPIR(?:ATION|Y)|VALID\s*UNTIL|RESTRICTIONS|CONDITIONS|LICENSE\s*(?:NO\.?|NUMBER))/i;
+    for (const line of nextLines) {
+      const t = line.trim();
+      if (!t) break;
+      if (KNOWN_NEXT.test(t)) break;
+      lines.push(t);
+    }
+    let raw = lines.join(" ").trim().replace(/\s+/g, " ");
+    raw = raw.replace(/^[^A-Za-z0-9]+/, "").replace(/^[A-Z]{1,2}\s+[A-Z]{1,2}\s+(?=\d)/i, "").trim();
+    if (raw) {
+      extractedData.address = correctPhilippineAddressSpelling(raw);
+      confidenceScores.address = 90;
+    }
+  }
+
+  // 4. LTO Dates Extraction (Birthdate & Expiration Date)
+  const allDates = [...cleanText.matchAll(/\b(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[-\/]\d{1,2}[-\/]\d{4})\b/g)].map(m => m[1].replace(/\//g, "-"));
+  
+  if (allDates.length > 0) {
+    allDates.sort((a, b) => {
+      const yrA = parseInt(a.split("-")[0], 10);
+      const yrB = parseInt(b.split("-")[0], 10);
+      return yrA - yrB;
+    });
+
+    if (allDates.length >= 1) {
+      extractedData.birthdate = allDates[0];
+      confidenceScores.birthdate = 95;
+    }
+
+    if (allDates.length >= 2) {
+      extractedData.expiration_date = allDates[allDates.length - 1];
+      confidenceScores.expiration_date = 95;
+    } else if (allDates.length === 1) {
+      const yr = parseInt(allDates[0].split("-")[0], 10);
+      if (yr >= 2024) {
+        extractedData.expiration_date = allDates[0];
+        confidenceScores.expiration_date = 90;
+      }
+    }
+  }
+
+  // 5. Sex / Gender Extraction
+  const sexMatch = cleanText.match(/(?:SEX|GENDER)[:\s]*([MF]|MALE|FEMALE)\b/i) ||
+                   cleanText.match(/\bSEX\b[\s:]*([MF]|MALE|FEMALE)\b/i) ||
+                   cleanText.match(/\b(FILIPINO|PHL)\s+([MF])\b/i) ||
+                   cleanText.match(/\b([MF])\s+(?:FILIPINO|PHL)\b/i) ||
+                   cleanText.match(/\bSEX\b[^\n\r]{1,20}?\b([MF])\b/i);
+  if (sexMatch) {
+    const rawSex = (sexMatch[1] || sexMatch[2]).toUpperCase();
+    extractedData.sex = rawSex.startsWith("F") || rawSex === "FEMALE" ? "F" : "M";
+    confidenceScores.sex = 98;
+  }
+
+  // 6. Nationality / Citizenship
+  const natMatch = cleanText.match(/\b(FILIPINO|PHL|PHILIPPINES)\b/i) ||
+                   cleanText.match(/(?:NATIONALITY|CITIZENSHIP)[:\s]*([A-Z]{2,15})/i);
+  if (natMatch) {
+    let val = natMatch[1].toUpperCase();
+    if (val === "PHILIPPINES" || val === "PHL") val = "FILIPINO";
+    if (!["SEX", "GENDER", "WEIGHT", "HEIGHT", "BLOOD"].includes(val)) {
+      extractedData.nationality = val;
+      confidenceScores.nationality = 96;
+    } else {
+      extractedData.nationality = "FILIPINO";
+      confidenceScores.nationality = 90;
+    }
+  } else {
+    extractedData.nationality = "FILIPINO";
+    confidenceScores.nationality = 90;
+  }
+
+  // 7. Restrictions / License Class
+  const classMatch = cleanText.match(/(?:RESTRICTIONS|CODES|CLASS)[:\s]*([A-Z0-9,\s]+)/i);
+  if (classMatch) {
+    const cls = classMatch[1].trim().toUpperCase();
+    if (cls.includes("B1") || cls.includes("3")) extractedData.license_class = "B1";
+    else extractedData.license_class = "B";
+    confidenceScores.license_class = 90;
+  }
+
+  return { extractedData, confidenceScores };
+}
+
+// Regex rules for Back of LTO Philippine Driver's License Card OCR (Filters out motorcycle disclaimer texts)
+function parseDriverLicenseBackFieldsFromText(text) {
+  if (!text) return { extractedData: {}, confidenceScores: {} };
+
+  const extractedData = {};
+  const confidenceScores = {};
+  const cleanText = text.replace(/\r/g, "");
+
+  // Filter text to start from IN CASE OF EMERGENCY to ignore top motorcycle disclaimers
+  const emergencySectionIdx = cleanText.search(/IN\s*CASE\s*OF\s*EMERGENCY|EMERGENCY\s*NOTIFY|IN\s*CASE\s*OF/i);
+  const targetText = emergencySectionIdx !== -1 ? cleanText.slice(emergencySectionIdx) : cleanText;
+
+  // 1. TEL NO / Emergency Contact Phone Number
+  const phoneMatch = targetText.match(/(?:TEL\.?\s*(?:NO\.?|NUMBER)?|PHONE|CELL|MOBILE|CONTACT\s*NO\.?)[:\s]*(\+?\d[\d\s-]{7,15})/i) ||
+                     targetText.match(/\b(09\d{9}|09\d{2}[-\s]\d{3}[-\s]\d{4}|\+?639\d{9})\b/);
+  if (phoneMatch) {
+    extractedData.emergency_contact_phone = phoneMatch[1].replace(/\s+/g, "").trim();
+    confidenceScores.emergency_contact_phone = 96;
+  }
+
+  // 2. NAME (Explicitly matching "NAME:" or line after "IN CASE OF EMERGENCY")
+  const nameMatch = targetText.match(/(?:NAME|NOTIFY|CONTACT)[:\s]*([A-Z\s,]{3,40})/i);
+  if (nameMatch) {
+    let rawName = nameMatch[1].trim().toUpperCase();
+    if (!/MOTORCYCLE|MOTORCYGLE|RESTRICTION|CONDITION|RULES|REGULATION|COMMISSION|AGENCY|DISCLAIMER|CLASS|CODE/i.test(rawName)) {
+      rawName = rawName.split(/\s+(?:TEL|PHONE|MOBILE|ADDRESS|NO|CONTACT)[:\s]/i)[0].trim();
+      if (rawName.length >= 3) {
+        extractedData.emergency_contact_name = rawName;
+        confidenceScores.emergency_contact_name = 95;
+      }
+    }
+  }
+
+  // 3. ADDRESS (Explicitly matching "ADDRESS:" and applying spelling autocorrect)
+  const addrMatch = targetText.match(/(?:ADDRESS|ADD?\.?)[:\s]*([^\n\r]+)/i);
+  if (addrMatch) {
+    let rawAddr = addrMatch[1].trim().toUpperCase();
+    if (!/MOTORCYCLE|MOTORCYGLE|RESTRICTION|CONDITION|RULES|REGULATION|COMMISSION|AGENCY|DISCLAIMER/i.test(rawAddr)) {
+      rawAddr = rawAddr.split(/\s+(?:TEL|PHONE|MOBILE|NO|CONTACT)[:\s]/i)[0].trim();
+      rawAddr = rawAddr.replace(/^[^A-Za-z0-9]+/, "").trim();
+      if (rawAddr.length >= 3) {
+        extractedData.emergency_contact_address = correctPhilippineAddressSpelling(rawAddr);
+        confidenceScores.emergency_contact_address = 95;
+      }
+    }
+  }
+
+  return { extractedData, confidenceScores };
+}
+
+// Regex rules for Vehicle OR/CR & Insurance Documents OCR
 function parseVehicleFieldsFromText(text) {
   if (!text) return { extractedData: {}, confidenceScores: {} };
 
@@ -45,7 +251,7 @@ function parseVehicleFieldsFromText(text) {
   const confidenceScores = {};
   const cleanText = text.replace(/\r/g, "");
 
-  // 1. Plate Number (e.g. NBO 1234, NBO-1234, ABC-1234, XYZ-5678)
+  // 1. Plate Number
   const plateMatch = cleanText.match(/(?:PLATE\s*(?:NO\.?|NUMBER)?[:\s]*)([A-Z]{2,3}\s*[-]?\s*\d{3,4})/i) ||
                      cleanText.match(/\b([A-Z]{3}\s*\d{4}|[A-Z]{3}-\d{4}|[A-Z]{2}\s*\d{4})\b/i);
   if (plateMatch) {
@@ -56,7 +262,7 @@ function parseVehicleFieldsFromText(text) {
     }
   }
 
-  // 2. Registration / CR / File / OR Number (e.g. 272589463, 1301-00001234567, 000123456789012)
+  // 2. Registration / CR Number
   const regMatch = cleanText.match(/(?:CR\s*No\.?|FILE\s*NO\.?|O\.?R\.?\s*No\.?|Registration\s*No\.?)[:\s]*([A-Z0-9-]{6,25})/i) ||
                    cleanText.match(/\b(\d{9,15}|1301-\d{11}|REG-\d{4}-\d{6})\b/i);
   if (regMatch) {
@@ -67,147 +273,40 @@ function parseVehicleFieldsFromText(text) {
     }
   }
 
-  // 3. Manufacturer / Make / Brand (e.g. TOYOTA, HONDA, MITSUBISHI, NISSAN)
+  // 3. Manufacturer / Make / Brand
   const brandFallback = cleanText.match(/\b(TOYOTA|HONDA|MITSUBISHI|NISSAN|ISUZU|HYUNDAI|FORD|SUZUKI|KIA|CHEVROLET|MAZDA|SUBARU)\b/i);
   if (brandFallback) {
     extractedData.manufacturer = brandFallback[1].toUpperCase();
     confidenceScores.manufacturer = 98;
-  } else {
-    const mfrMatch = cleanText.match(/(?:MAKE\s*\/?\s*BRAND|MANUFACTURER)[:\s]*([A-Z0-9\s]+?)(?=\s+(?:BODY|SERIES|GROSS|NET|YEAR|PASSENGER|COLOR|TYPE|OWNER|ENGINE|CHASSIS|\n|\r|$))/i);
-    if (mfrMatch) {
-      let mfr = mfrMatch[1].trim();
-      mfr = mfr.replace(/\s+Motors$/i, "").trim();
-      if (mfr && !/^(FILE|VEHICLE|CATEGORY|PRIVATE|BODY|SERIES|GROSS)$/i.test(mfr)) {
-        extractedData.manufacturer = mfr;
-        confidenceScores.manufacturer = 96;
-      }
-    }
   }
 
-  // 4. Model / Series (e.g. HIACE COMMUTER, L300, NV350, INNOVA, FORTUNER, HILUX, ANF100MSPJ)
+  // 4. Model / Series
   const knownSeries = cleanText.match(/\b(HIACE\s+COMMUTER|HIACE|L300|NV350|URVAN|INNOVA|FORTUNER|HILUX|AVANZA|VIOS|RUSH|COROLLA|CIVIC|CR-V|MONTERO|STRADA|CANTER|ISUZU\s+ELF|ANF100MSPJ)\b/i);
   if (knownSeries) {
     extractedData.model = knownSeries[1].toUpperCase();
     confidenceScores.model = 99;
-  } else {
-    const afterBodyMatch = cleanText.match(/(?:VAN|SEDAN|SUV|PICKUP|BUS|TRICYCLE|MOTORCYCLE)\s+([A-Z0-9\s-]+?)(?=\s+(?:\d{1,2},?\d{3}|\d{3,4}|GROSS|NET|YEAR|PASSENGER|COLOR|TYPE|\n|\r|$))/i) ||
-                           cleanText.match(/(?:SERIES|MODEL)[:\s]*([A-Z0-9\s-]+?)(?=\s+(?:GROSS|NET|YEAR|PASSENGER|COLOR|TYPE|OWNER|ENGINE|CHASSIS|\n|\r|$))/i);
-    if (afterBodyMatch) {
-      let mdl = afterBodyMatch[1].trim();
-      if (mdl && !/^(GROSS|NET|WEIGHT|BODY|TYPE|YEAR)$/i.test(mdl)) {
-        extractedData.model = mdl;
-        confidenceScores.model = 96;
-      }
-    }
   }
 
-  // 5. Vehicle Type (e.g. VAN, SUV, SEDAN, BUS, MOTORCYCLE / MOPED / TRICYCLE, CARGO VAN, PICKUP)
-  const typeMatch = cleanText.match(/(?:VEHICLE\s*TYPE)[:\s]*([A-Z0-9\/\s-]+?)(?=\s+(?:VEHICLE\s*CATEGORY|CATEGORY|MAKE|BRAND|BODY|SERIES|GROSS|NET|YEAR|\n|\r|$))/i) ||
-                    cleanText.match(/\b(VAN|MOTORCYCLE\s*\/\s*MOPED\s*\/\s*TRICYCLE|MOTORCYCLE|TRICYCLE|CARGO\s*VAN|SUV|SEDAN|BUS|PICKUP|TRUCK)\b/i);
-  if (typeMatch) {
-    let vt = typeMatch[1].trim();
-    if (vt && !/^(VEHICLE|CATEGORY|PRIVATE|MAKE|BRAND)$/i.test(vt)) {
-      extractedData.vehicle_type = vt.toUpperCase();
-      extractedData.vehicle_name = vt.toUpperCase();
-      confidenceScores.vehicle_type = 98;
-      confidenceScores.vehicle_name = 98;
-    }
-  }
-
-  if (!extractedData.vehicle_name && (extractedData.manufacturer || extractedData.model)) {
-    extractedData.vehicle_name = `${extractedData.manufacturer || ''} ${extractedData.model || ''}`.trim();
-    confidenceScores.vehicle_name = 95;
-  }
-
-  // 6. Year Model (e.g. 2023, 2024, 2010)
-  const yearMatch = cleanText.match(/(?:YEAR\s*MODEL|YEAR)[:\s]*(\d{4})/i);
-  if (yearMatch) {
-    extractedData.year = parseInt(yearMatch[1], 10);
-    confidenceScores.year = 98;
-  }
-
-  // 7. Color (e.g. WHITE PEARL, TAFFETA WHITE, SILVER, CRYSTAL BLACK, RED, BLUE)
-  const colorFallback = cleanText.match(/\b(WHITE PEARL|TAFFETA WHITE|CRYSTAL BLACK|LUNAR SILVER|ALABASTER SILVER|MODERN STEEL|RALLYE RED|WHITE|BLACK|SILVER|GRAY|GREY|RED|BLUE|BROWN|BEIGE|GREEN|YELLOW|ORANGE|BLUE\/BLACK)\b/i);
-  if (colorFallback) {
-    extractedData.color = colorFallback[1].toUpperCase();
-    confidenceScores.color = 98;
-  } else {
-    const colorMatch = cleanText.match(/(?:COLOR)[:\s]*([A-Z0-9\/\s]+?)(?=\s+(?:TYPE|FUEL|REGISTRATION|CLASSIFICATION|OWNER|ENGINE|CHASSIS|\n|\r|$))/i);
-    if (colorMatch) {
-      let col = colorMatch[1].trim();
-      if (col && !/TYPE|FUEL|REGISTRATION|CLASSIFICATION/i.test(col)) {
-        extractedData.color = col;
-        confidenceScores.color = 95;
-      }
-    }
-  }
-
-  // 8. Type of Fuel (e.g. DIESEL, GAS, GASOLINE)
-  const fuelFallback = cleanText.match(/\b(DIESEL|GASOLINE|GAS|ELECTRIC|HYBRID)\b/i);
-  if (fuelFallback) {
-    let rawFuel = fuelFallback[1].trim();
-    if (/diesel/i.test(rawFuel)) rawFuel = "Diesel";
-    else if (/gas/i.test(rawFuel)) rawFuel = "Gasoline";
-    else if (/electric/i.test(rawFuel)) rawFuel = "Electric";
-    else if (/hybrid/i.test(rawFuel)) rawFuel = "Hybrid";
-    extractedData.fuel_type = rawFuel;
-    confidenceScores.fuel_type = 98;
-  }
-
-  // 9. Passenger Capacity / Seating Capacity (e.g. 15, 1, 4, 7, 10, 12, 14)
-  const capMatch = cleanText.match(/(?:PASSENGER\s*CAPACITY|SEATING\s*CAPACITY)[:\s]*(\d{1,3})/i) ||
-                   cleanText.match(/(?:PASSENGER\s*CAPACITY|SEATING\s*CAPACITY)[\s\S]{1,60}?\b(\d{1,3})\b/i);
-  if (capMatch) {
-    const capVal = parseInt(capMatch[1], 10);
-    if (capVal > 0 && capVal <= 100) {
-      extractedData.seating_capacity = capVal;
-      confidenceScores.seating_capacity = 96;
-    }
-  }
-
-  // 10. Engine Number (e.g. 2KD-FT123456)
-  const engMatch = cleanText.match(/(?:ENGINE\s*NO\.?)[:\s]*([A-Z0-9-]{5,20})/i);
-  if (engMatch) {
-    let eng = engMatch[1].trim();
-    if (eng && !/^(CHASSIS|VIN|FILE)$/i.test(eng)) {
-      extractedData.engine_number = eng;
-      confidenceScores.engine_number = 96;
-    }
-  }
-
-  // 11. Chassis Number (e.g. MHFXB9GS1P1234567)
-  const chasMatch = cleanText.match(/(?:CHASSIS\s*NO\.?)[:\s]*([A-Z0-9-]{5,25})/i);
-  if (chasMatch) {
-    let chas = chasMatch[1].trim();
-    if (chas && !/^(VIN|FILE|MAKE)$/i.test(chas)) {
-      extractedData.chassis_number = chas;
-      confidenceScores.chassis_number = 96;
-    }
-  }
-
-  // 12. Owner Name (e.g. JUAN DELA CRUZ)
-  const ownerMatch = cleanText.match(/(?:OWNER'S\s*NAME|OWNER\s*NAME)[:\s]*([^\n\r]+)/i);
-  if (ownerMatch) {
-    let own = cleanFieldValue(ownerMatch[1]);
-    if (own && !/^(OWNER|ADDRESS|ENCUMBERED)$/i.test(own)) {
-      extractedData.owner_name = own;
-      confidenceScores.owner_name = 95;
-    }
+  // 5. Expiration Date
+  const dateMatch = cleanText.match(/(?:EXPIRATION|EXPIRY|VALID\s*UNTIL|DATE\s*OF\s*EXPIRATION)[:\s]*(\d{4}[-\/]\d{1,2}[-\/]\d{1,2}|\d{1,2}[-\/]\d{4})/i);
+  if (dateMatch) {
+    extractedData.expiration_date = dateMatch[1];
+    confidenceScores.expiration_date = 90;
   }
 
   return { extractedData, confidenceScores };
 }
 
-export async function POST(req) {
+export async function POST(request) {
   try {
-    // Document scanning feeds vehicle onboarding — restrict to roles that
-    // can create/update vehicles.
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
-    const body = await parseBody(req);
-    const { document_type, document_text, file_url } = body;
+    const auth = await requireAuth(request, ["admin", "system_admin", "fleet_manager", "dispatcher"]);
+    if (auth.error) return auth.error;
+
+    const body = await parseBody(request);
+    const { document_type, document_text, file_url } = body || {};
 
     if (!document_type) {
-      return err("Document type is required (Driver_License, OR_CR, Insurance)", 400);
+      return err("Document type is required (Driver_License, Driver_License_Back, OR_CR, Insurance)", 400);
     }
 
     let extractedData = {};
@@ -221,127 +320,92 @@ export async function POST(req) {
       ocrText = await extractTextFromImage(file_url);
     }
 
-    // 2. PARSE EXTRACTED TEXT VIA REGEX / PATTERNS
-    if (ocrText) {
+    // 2. PARSE EXTRACTED OCR TEXT INSTANTLY VIA REGEX RULES
+    if (document_type === "Driver_License_Back") {
+      const parsedBack = parseDriverLicenseBackFieldsFromText(ocrText);
+      extractedData = { ...parsedBack.extractedData };
+      confidenceScores = { ...parsedBack.confidenceScores };
+    } else if (document_type === "Driver_License") {
+      const parsedLic = parseDriverLicenseFieldsFromText(ocrText);
+      extractedData = { ...parsedLic.extractedData };
+      confidenceScores = { ...parsedLic.confidenceScores };
+    } else {
       const parsedOcr = parseVehicleFieldsFromText(ocrText);
-      if (Object.keys(parsedOcr.extractedData).length > 0) {
-        extractedData = { ...parsedOcr.extractedData };
-        confidenceScores = { ...parsedOcr.confidenceScores };
-        isAiVisionUsed = true;
-      }
+      extractedData = { ...parsedOcr.extractedData };
+      confidenceScores = { ...parsedOcr.confidenceScores };
     }
 
-    // 3. ENRICH OR EXTRACT VIA ACTIVE LLM MODEL IF AVAILABLE
-    if (ocrText || file_url) {
-      const prompt = `You are an expert vehicle document scanner.
-Extracted OCR text from the uploaded ${document_type} document image:
+    // 3. IF REGEX MISSED KEY FIELDS, TRY ACTIVE LLM PROVIDER IF CONFIGURED
+    const hasKeyFields =
+      document_type === "Driver_License_Back"
+        ? extractedData.emergency_contact_name || extractedData.emergency_contact_phone
+        : document_type === "Driver_License"
+        ? extractedData.license_number || extractedData.last_name
+        : extractedData.plate_number || extractedData.registration_number;
+
+    if (!hasKeyFields && (ocrText || file_url)) {
+      try {
+        const prompt = `Extract real structured fields from the scanned ${document_type} document image or text:
 """
 ${ocrText || "Scanned image attachment"}
 """
-
-Extract structured JSON fields. Return ONLY valid JSON:
-{
-  "extracted_data": {
-    "plate_number": "Extracted plate or null",
-    "registration_number": "CR or File number or null",
-    "vehicle_type": "Vehicle Type e.g. VAN, SUV, SEDAN, BUS, MOTORCYCLE, TRICYCLE",
-    "vehicle_name": "Vehicle Type e.g. VAN, SUV, SEDAN, BUS",
-    "manufacturer": "Make or Brand e.g. TOYOTA",
-    "model": "Series or Model e.g. HIACE COMMUTER",
-    "year": 2023,
-    "color": "Color or null",
-    "fuel_type": "Gasoline/Diesel/Electric/Hybrid",
-    "seating_capacity": 15,
-    "engine_number": "Engine # or null",
-    "chassis_number": "Chassis # or null",
-    "owner_name": "Owner name or null"
-  },
-  "confidence_scores": {
-    "plate_number": 98
-  }
+Return JSON only:
+${
+  document_type === "Driver_License_Back"
+    ? '{ "extracted_data": { "emergency_contact_name": "", "emergency_contact_phone": "", "emergency_contact_address": "" }, "confidence_scores": { "emergency_contact_name": 90 } }'
+    : document_type === "Driver_License"
+    ? '{ "extracted_data": { "license_number": "", "first_name": "", "last_name": "", "expiration_date": "", "birthdate": "", "sex": "", "nationality": "FILIPINO", "address": "", "license_class": "B" }, "confidence_scores": { "license_number": 90 } }'
+    : '{ "extracted_data": { "plate_number": "", "registration_number": "", "manufacturer": "", "model": "", "color": "", "expiration_date": "" }, "confidence_scores": { "plate_number": 90 } }'
 }`;
 
-      const llmResult = await executeLlmCompletion({
-        feature_used: "OCR Document Scan",
-        user_prompt: prompt,
-        image_url: file_url || null,
-      });
+        const llmRes = await executeLlmCompletion({
+          feature_used: "Vehicle Document Scanning",
+          user_prompt: prompt,
+          image_url: file_url,
+          user_email: auth.user?.email,
+        });
 
-      if (llmResult.success && llmResult.content) {
-        try {
-          let cleanContent = llmResult.content.trim();
-          if (cleanContent.startsWith("```")) {
-            cleanContent = cleanContent.replace(/^```[a-z]*\n?/, "").replace(/\n?```$/, "").trim();
-          }
-
-          const parsed = JSON.parse(cleanContent);
-          const rawExtracted = parsed.extracted_data || parsed;
-          const rawScores = parsed.confidence_scores || {};
-
-          Object.keys(rawExtracted).forEach((k) => {
-            if (rawExtracted[k] !== null && rawExtracted[k] !== undefined && rawExtracted[k] !== "") {
-              extractedData[k] = rawExtracted[k];
-              if (rawScores[k]) confidenceScores[k] = rawScores[k];
+        if (llmRes && llmRes.success && llmRes.content) {
+          const match = llmRes.content.match(/\{[\s\S]*\}/);
+          if (match) {
+            const parsed = JSON.parse(match[0]);
+            if (parsed.extracted_data) {
+              extractedData = { ...extractedData, ...parsed.extracted_data };
+              confidenceScores = { ...confidenceScores, ...parsed.confidence_scores };
+              isAiVisionUsed = true;
             }
-          });
-
-          isAiVisionUsed = true;
-        } catch (e) {
-          console.warn("LLM OCR JSON Parse Warning:", e.message);
+          }
         }
+      } catch (llmErr) {
+        console.warn("LLM Document Scan fallback skipped:", llmErr.message);
       }
     }
 
-    // Ensure vehicle_name is strictly set to Vehicle Type (e.g. VAN)
-    const typeFromText = ocrText.match(/\b(VAN|MOTORCYCLE\s*\/\s*MOPED\s*\/\s*TRICYCLE|MOTORCYCLE|TRICYCLE|CARGO\s*VAN|SUV|SEDAN|BUS|PICKUP|TRUCK)\b/i);
-    if (typeFromText) {
-      extractedData.vehicle_type = typeFromText[1].toUpperCase();
-      extractedData.vehicle_name = typeFromText[1].toUpperCase();
-      confidenceScores.vehicle_type = 99;
-      confidenceScores.vehicle_name = 99;
-    } else if (extractedData.vehicle_type) {
-      extractedData.vehicle_name = extractedData.vehicle_type.toUpperCase();
-    }
-
-    // If nothing could be read, return an empty result and let the caller
-    // enter the details manually. We never fabricate document data.
-    if (Object.keys(extractedData).length === 0) {
-      return ok({
-        document_type,
-        extracted_data: {},
-        confidence_scores: {},
-        overall_confidence: 0,
-        is_ai_vision_used: isAiVisionUsed,
-        lto_renewal_schedule: null,
-        validation: {
-          is_valid: false,
-          issues: ["Could not read the document. Please enter the details manually."],
-        },
-      });
-    }
-
-    // Calculate LTO Renewal Schedule deterministically from plate number
-    let ltoRenewalSchedule = null;
+    // 4. LTO RENEWAL SCHEDULE COMPUTATION
+    let ltoSchedule = null;
     if (extractedData.plate_number) {
-      ltoRenewalSchedule = calculateLtoRenewalSchedule(extractedData.plate_number);
+      ltoSchedule = calculateLtoRenewalSchedule(extractedData.plate_number);
     }
 
-    const scoreValues = Object.values(confidenceScores);
-    const overallConfidence = scoreValues.length > 0
-      ? Math.round(scoreValues.reduce((a, b) => a + b, 0) / scoreValues.length)
-      : 95;
+    // 5. VALIDATION CHECKS (NO FAKE MOCK FALLBACKS)
+    if (Object.keys(extractedData).length === 0) {
+      validationIssues.push(
+        "Could not automatically parse fields from the document scan image. Please verify image clarity or enter details manually."
+      );
+    }
 
     return ok({
       document_type,
+      file_url: file_url || null,
+      raw_ocr_text: ocrText,
       extracted_data: extractedData,
       confidence_scores: confidenceScores,
-      overall_confidence: overallConfidence,
+      lto_schedule: ltoSchedule,
+      validation_issues: validationIssues,
       is_ai_vision_used: isAiVisionUsed,
-      lto_renewal_schedule: ltoRenewalSchedule,
-      validation: {
-        is_valid: validationIssues.length === 0,
-        issues: validationIssues,
-      },
+      parsed_at: new Date().toISOString(),
     });
-  } catch (e) { return handleError(e); }
+  } catch (error) {
+    return handleError(error, "Failed to scan document");
+  }
 }

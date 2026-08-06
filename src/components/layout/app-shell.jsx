@@ -80,7 +80,11 @@ const navGroups = [
         children: [
           { href: "/ai", label: "AI Dashboard" },
           { href: "/ai/insights", label: "Operational Insights" },
-          { href: "/ai/predictive-maintenance", label: "Predictive Maintenance" },
+          // No Predictive Maintenance entry here. It lives under Monitoring →
+          // Maintenance → Predictive. The /ai/predictive-maintenance path now
+          // redirects to that canonical route, so an entry here could never
+          // highlight as active — it would send you somewhere the sidebar then
+          // showed as a different section.
           { href: "/settings/ai", label: "AI Providers & Settings" },
           { href: "/settings/ai/logs", label: "AI Request Logs" },
         ],

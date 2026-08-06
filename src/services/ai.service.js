@@ -48,33 +48,11 @@ export async function dismissAiInsight(id) {
 }
 
 // Predictive Maintenance
+// Scoring lives in src/lib/ai/predictive-maintenance.js and runs server-side.
+// Returns { predictions, summary } — summary carries precomputed band counts so
+// pages read one number per stat card instead of re-filtering the array.
 export async function getPredictiveMaintenance() {
-  const vehicles = await apiFetch("/api/vehicles?limit=500");
-  return (vehicles || []).map((v) => {
-    const daysToService = v.next_service_date
-      ? Math.max(0, Math.round((new Date(v.next_service_date) - new Date()) / (1000 * 60 * 60 * 24)))
-      : 999;
-    let risk = "Low", score = 95;
-    if (daysToService <= 0) { risk = "Critical"; score = 15; }
-    else if (daysToService <= 7) { risk = "High"; score = 40; }
-    else if (daysToService <= 30) { risk = "Medium"; score = 70; }
-
-    return {
-      vehicle_id: v.vehicle_id,
-      plate_number: v.plate_number,
-      vehicle_name: v.vehicle_name,
-      mileage: v.mileage || 0,
-      next_service_date: v.next_service_date,
-      last_service_date: v.last_service_date,
-      daysToService,
-      risk,
-      score,
-      recommendation: risk === "Critical" ? "Service OVERDUE — Ground vehicle immediately"
-        : risk === "High" ? "Schedule service within 7 days"
-        : risk === "Medium" ? "Plan service within 30 days"
-        : "Vehicle in good operational standing",
-    };
-  }).sort((a, b) => a.daysToService - b.daysToService);
+  return apiFetch("/api/ai/predictive-maintenance");
 }
 
 // OCR Document Scanner

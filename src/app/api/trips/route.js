@@ -1,14 +1,12 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
-
-const JOIN_SELECT = `t.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(ds.*) as dispatchschedules, row_to_json(r.*) as routes, row_to_json(ol.*) as origin_location, row_to_json(dl.*) as destination_location`;
-const JOINS = `FROM trips t LEFT JOIN vehicles v ON t.vehicle_id = v.vehicle_id LEFT JOIN drivers d ON t.driver_id = d.driver_id LEFT JOIN dispatchschedules ds ON t.dispatch_id = ds.dispatch_id LEFT JOIN routes r ON t.route_id = r.route_id LEFT JOIN locations ol ON t.origin_location_id = ol.location_id LEFT JOIN locations dl ON t.destination_location_id = dl.location_id`;
+import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 
 export async function GET(req) {
   try {
     await requireAuth(req);
     const sp = new URL(req.url).searchParams;
-    let sql = `SELECT ${JOIN_SELECT} ${JOINS} WHERE t.deleted_at IS NULL`;
+    let sql = `SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE t.deleted_at IS NULL`;
     const params = []; let idx = 1;
     const status = sp.get("status"); if (status) { sql += ` AND t.trip_status = $${idx++}`; params.push(status); }
     const vid = sp.get("vehicle_id"); if (vid) { sql += ` AND t.vehicle_id = $${idx++}`; params.push(+vid); }

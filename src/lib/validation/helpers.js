@@ -77,6 +77,28 @@ export function maintenanceDateRule(value, values = {}) {
   return null;
 }
 
+/**
+ * A completion date can never be in the future, whatever the record's status.
+ *
+ * Distinct from maintenanceDateRule, which only bounds maintenance_date and
+ * only when status is Scheduled or Completed. completed_date needs its own
+ * unconditional rule because recomputeVehicleSchedule prefers it over
+ * maintenance_date when advancing a vehicle's next service date, and that
+ * advance is clamped forward-only — so a future completion date moves the
+ * vehicle's schedule out beyond the prediction horizon with no way back.
+ */
+export function completionDateRule(value) {
+  if (!value) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const d = new Date(`${String(value).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  if (d.getTime() > today.getTime()) {
+    return "Completed date cannot be in the future.";
+  }
+  return null;
+}
+
 export function validateField(value, spec = {}, label = "This field", allValues = null) {
   const {
     required = false,

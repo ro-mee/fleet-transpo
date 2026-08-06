@@ -23,6 +23,7 @@ import {
 import {
   QueueFilters,
   EMPTY_FILTERS,
+  ANY,
   hasActiveFilters,
   toQueryParams,
 } from "@/components/reservations/queue-filters";
@@ -177,17 +178,70 @@ export default function ReservationQueuePage() {
     },
   });
 
+  const currentStatTab = useMemo(() => {
+    if (filters.has_conflict_only) return "conflicts";
+    if (filters.fleet_status === L.APPROVED) return "approved";
+    if (filters.fleet_status === L.PENDING || filters.fleet_status === L.UNDER_REVIEW) return "reviewing";
+    if (filters.fleet_status === ANY) return "all";
+    return null;
+  }, [filters]);
+
   const stats = useMemo(() => {
     const count = (fn) => requests.filter(fn).length;
-    return [
-      { label: "In Queue", value: requests.length, icon: Inbox, tone: "primary", trend: "from Booking" },
-      { label: "Awaiting Review", value: count((r) => isReviewable(r.fleet_status)), icon: Clock, tone: "warning", trend: "needs a decision" },
-      { label: "Ready to Assign", value: count((r) => r.fleet_status === L.APPROVED), icon: CheckCircle2, tone: "success", trend: "approved" },
-      { label: "With Conflicts", value: count((r) => r.conflicts?.length), icon: TriangleAlert, tone: "danger", trend: "review before assigning" },
-    ];
-  }, [requests]);
 
-  const filtered = hasActiveFilters(filters);
+    return [
+      {
+        label: "In Queue",
+        value: requests.length,
+        icon: Inbox,
+        tone: "primary",
+        trend: "active queue",
+        active: currentStatTab === "all",
+        onClick: () => setFilters((f) => ({ ...f, fleet_status: ANY, has_conflict_only: false })),
+      },
+      {
+        label: "Awaiting Review",
+        value: count((r) => isReviewable(r.fleet_status)),
+        icon: Clock,
+        tone: "warning",
+        trend: "needs a decision",
+        active: currentStatTab === "reviewing",
+        onClick: () => setFilters((f) => ({ ...f, fleet_status: L.PENDING, has_conflict_only: false })),
+      },
+      {
+        label: "Ready to Assign",
+        value: count((r) => r.fleet_status === L.APPROVED),
+        icon: CheckCircle2,
+        tone: "success",
+        trend: "approved",
+        active: currentStatTab === "approved",
+        onClick: () => setFilters((f) => ({ ...f, fleet_status: L.APPROVED, has_conflict_only: false })),
+      },
+      {
+        label: "With Conflicts",
+        value: count((r) => r.conflicts?.length > 0),
+        icon: TriangleAlert,
+        tone: "danger",
+        trend: "review before assigning",
+        active: currentStatTab === "conflicts",
+        onClick: () =>
+          setFilters((f) => ({
+            ...f,
+            fleet_status: ANY,
+            has_conflict_only: !f.has_conflict_only,
+          })),
+      },
+    ];
+  }, [requests, currentStatTab]);
+
+  const displayRequests = useMemo(() => {
+    if (filters.has_conflict_only) {
+      return requests.filter((r) => r.conflicts?.length > 0);
+    }
+    return requests;
+  }, [requests, filters.has_conflict_only]);
+
+  const filtered = hasActiveFilters(filters) || Boolean(filters.has_conflict_only);
 
   return (
     <div className="space-y-6">
@@ -224,7 +278,7 @@ export default function ReservationQueuePage() {
       <QueueFilters
         filters={filters}
         onChange={setFilters}
-        resultCount={isLoading ? null : requests.length}
+        resultCount={isLoading ? null : displayRequests.length}
         isFetching={isFetching}
       />
 
@@ -234,9 +288,7 @@ export default function ReservationQueuePage() {
             <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
             <div>
               <p className="text-sm font-medium text-foreground">Could not load the queue</p>
-              <p className="mt-0.5 text-sm text-foreground-secondary">
-                {error?.message || "The request failed."}
-              </p>
+              <p className="mt-0.5 text-xs text-foreground-secondary">{error?.message}</p>
               <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
                 Try again
               </Button>
@@ -245,11 +297,11 @@ export default function ReservationQueuePage() {
         </div>
       ) : isLoading ? (
         <div className="space-y-3">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <ReservationCardSkeleton key={i} />
-          ))}
+          <ReservationCardSkeleton />
+          <ReservationCardSkeleton />
+          <ReservationCardSkeleton />
         </div>
-      ) : requests.length === 0 ? (
+      ) : displayRequests.length === 0 ? (
         <div className="rounded-xl border border-border bg-surface">
           <EmptyState
             icon={filtered ? Search : Inbox}
@@ -275,7 +327,7 @@ export default function ReservationQueuePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {requests.map((r) => (
+          {displayRequests.map((r) => (
             <ReservationCard
               key={r.request_id}
               request={r}

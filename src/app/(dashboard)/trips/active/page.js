@@ -69,16 +69,20 @@ export default function ActiveTripsPage() {
                   <div className="flex items-center gap-2">
                     <Users className="w-4 h-4 text-foreground-muted" />
                     <span className="text-foreground-secondary">
-                      {trip.drivers?.employees?.first_name || "—"} {trip.drivers?.employees?.last_name || ""}
+                      {trip.drivers?.first_name || "—"} {trip.drivers?.last_name || ""}
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-danger" />
-                    <span className="text-foreground-secondary truncate">{trip.origin || "—"}</span>
+                    <span className="text-foreground-secondary truncate">
+                      {trip.transportation_requests?.pickup_location || trip.routes?.origin || "—"}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <MapPin className="w-4 h-4 text-success" />
-                    <span className="text-foreground-secondary truncate">{trip.destination || "—"}</span>
+                    <span className="text-foreground-secondary truncate">
+                      {trip.transportation_requests?.dropoff_location || trip.routes?.destination || "—"}
+                    </span>
                   </div>
                   {trip.start_time && (
                     <div className="flex items-center gap-2">

@@ -2,12 +2,13 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge, TONE_CHIP, TONE_TEXT, severityTone } from "@/components/ui/status-badge";
+import { StatusBadge, TONE_CHIP, TONE_TEXT, severityTone, riskTone } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
+import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatDate } from "@/lib/utils";
 import { Brain, Lightbulb, Wrench, TrendingUp, AlertTriangle, CalendarDays, Gauge, ArrowRight } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -16,14 +17,6 @@ import { cn } from "@/lib/utils";
 
 function normalizeSeverity(insight) {
   return (insight.severity || insight.impact || "low").toLowerCase();
-}
-
-function riskTone(risk) {
-  const r = (risk || "low").toLowerCase();
-  if (r === "overdue" || r === "critical") return "danger";
-  if (r === "high") return "warning";
-  if (r === "medium") return "info";
-  return "success";
 }
 
 export default function AiDashboardPage() {
@@ -36,10 +29,12 @@ export default function AiDashboardPage() {
     queryKey: ["ai-recommendations"],
     queryFn: () => getAiRecommendations(),
   });
-  const { data: predictions = [], isLoading: predictionsLoading } = useQuery({
+  const { data: predictionData, isLoading: predictionsLoading } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
   });
+  const predictions = predictionData?.predictions ?? [];
+  const predictionSummary = predictionData?.summary ?? { overdue: 0, critical: 0, high: 0 };
 
   const insights = Array.isArray(insightsData)
     ? insightsData
@@ -55,10 +50,9 @@ export default function AiDashboardPage() {
   const critical = insights.filter(
     (i) => normalizeSeverity(i) === "high" || normalizeSeverity(i) === "critical"
   ).length;
-  const overdueMaint = predictions.filter((p) => {
-    const r = (p.risk || "").toLowerCase();
-    return r === "overdue" || r === "critical" || r === "high";
-  }).length;
+  // Server-precomputed. The filter this replaces lowercased each risk to
+  // compare, which is what kept it working while the tiles elsewhere read 0.
+  const overdueMaint = predictionSummary.overdue + predictionSummary.critical + predictionSummary.high;
 
   const kpis = [
     { label: "Active Insights", value: insights.length, icon: Lightbulb, tone: "primary", trend: "across all categories" },
@@ -173,7 +167,11 @@ export default function AiDashboardPage() {
           ) : (
             <div className="space-y-2">
               {predictions.slice(0, 10).map((p) => {
-                const tone = riskTone(p.risk);
+                // Same rule as /maintenance/predictive: a vehicle with no
+                // schedule is unmeasured, not healthy, so it gets the neutral
+                // chip and no score rather than success green and a 50.
+                const unscheduled = isUnscheduled(p);
+                const tone = unscheduled ? "secondary" : riskTone(p.risk);
                 return (
                   <div key={p.vehicle_id} className="flex items-center gap-4 p-3 rounded-lg hover:bg-hover transition-colors">
                     <div className={cn("flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg", TONE_CHIP[tone])}>
@@ -183,14 +181,20 @@ export default function AiDashboardPage() {
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-foreground">{p.plate_number}</p>
                         <span className="text-xs text-foreground-muted">{p.vehicle_name}</span>
-                        <StatusBadge status={p.risk} entity="risk" className="text-[11px]">
-                          {p.daysToService === 0 ? "Overdue" : `${p.daysToService}d`}
+                        <StatusBadge status={unscheduled ? "unscheduled" : p.risk} entity="risk" className="text-[11px]">
+                          {unscheduled
+                            ? "No schedule"
+                            : p.effectiveDays < 0
+                            ? `${Math.abs(p.effectiveDays)}d over`
+                            : `${p.effectiveDays}d`}
                         </StatusBadge>
                       </div>
                       <p className="text-xs text-foreground-muted mt-0.5">{p.recommendation}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className="font-data text-sm font-semibold text-foreground">{p.score}/100</p>
+                      <p className={cn("font-data text-sm font-semibold", unscheduled ? "text-foreground-muted" : "text-foreground")}>
+                        {unscheduled ? "—" : `${p.score}/100`}
+                      </p>
                       <p className="text-[11px] text-foreground-muted">
                         {p.mileage?.toLocaleString()} km
                       </p>

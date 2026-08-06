@@ -24,6 +24,8 @@ import { Search, X } from "lucide-react";
 // anyway. Mapping ANY -> undefined at the page boundary keeps both happy.
 export const ANY = "any";
 
+export const DEFAULT_ACTIVE_STATUSES = "Pending,Under Review,Approved,Scheduled,Assigned,In Progress";
+
 export const EMPTY_FILTERS = {
   search: "",
   fleet_status: ANY,
@@ -43,7 +45,12 @@ export function hasActiveFilters(filters) {
 export function toQueryParams(filters) {
   const out = {};
   for (const [key, value] of Object.entries(filters)) {
-    if (value === "" || value === ANY || value == null) continue;
+    if (value === "" || value == null) continue;
+    if (key === "fleet_status" && value === ANY) {
+      out[key] = DEFAULT_ACTIVE_STATUSES;
+      continue;
+    }
+    if (value === ANY) continue;
     out[key] = value;
   }
   return out;
@@ -72,10 +79,6 @@ function FilterSelect({ label, value, onChange, options, placeholder }) {
 export function QueueFilters({ filters, onChange, resultCount, isFetching }) {
   const set = (key) => (value) => onChange({ ...filters, [key]: value });
 
-  // The vehicle-class options come from the database, not a constant, because
-  // categories are user-editable (api/vehicle-categories). Fetched here rather
-  // than by the page so the filter surface owns its own vocabulary. A failure
-  // degrades to "Any class" only — the rest of the filters keep working.
   const { data: categories = [] } = useQuery({
     queryKey: ["vehicle-categories"],
     queryFn: () => getVehicleCategories(),
@@ -111,10 +114,19 @@ export function QueueFilters({ filters, onChange, resultCount, isFetching }) {
           label="Status"
           value={filters.fleet_status}
           onChange={set("fleet_status")}
-          placeholder="Any status"
+          placeholder="Active Queue"
           options={[
-            { value: ANY, label: "Any status" },
-            ...Object.values(L).map((s) => ({ value: s, label: s })),
+            { value: ANY, label: "Active Queue (Hide Finished)" },
+            { value: L.PENDING, label: "Pending" },
+            { value: L.UNDER_REVIEW, label: "Under Review" },
+            { value: L.APPROVED, label: "Approved" },
+            { value: L.SCHEDULED, label: "Scheduled" },
+            { value: L.ASSIGNED, label: "Assigned" },
+            { value: L.IN_PROGRESS, label: "In Progress" },
+            { value: L.COMPLETED, label: "Completed (Archived)" },
+            { value: L.REJECTED, label: "Rejected (Archived)" },
+            { value: L.CANCELLED, label: "Cancelled (Archived)" },
+            { value: "all_history", label: "All History (Including Archived)" },
           ]}
         />
         <FilterSelect

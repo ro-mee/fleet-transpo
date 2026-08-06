@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
-import { CONFLICT_LABEL } from "@/lib/scheduling/conflict-types";
+import { CONFLICT_LABEL, CONFLICT_SEVERITY } from "@/lib/scheduling/conflict-types";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import {
   AlertTriangle,
@@ -27,14 +27,21 @@ const CHIP_ICON = {
   license_expired: IdCard,
   registration_expired: CalendarX,
   capacity_mismatch: Users,
+  vehicle_not_assigned_to_driver: CarFront,
 };
+
+/** A finding only escalates the UI if it actually blocks. */
+const isBlocking = (c) => c?.severity !== CONFLICT_SEVERITY.WARNING;
 
 /** One chip per finding, with the server's message as the tooltip. */
 export function ConflictChips({ conflicts = [], max = 3, className }) {
   if (!conflicts.length) return null;
 
-  const shown = conflicts.slice(0, max);
-  const hidden = conflicts.length - shown.length;
+  // Blocking findings first, so a truncated list never hides the one that stops
+  // the dispatch behind an advisory chip.
+  const ordered = [...conflicts].sort((a, b) => Number(isBlocking(b)) - Number(isBlocking(a)));
+  const shown = ordered.slice(0, max);
+  const hidden = ordered.length - shown.length;
 
   return (
     <div className={className}>
@@ -53,8 +60,12 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
         );
       })}
       {hidden > 0 && (
-        <Tooltip content={conflicts.slice(max).map((c) => c.message).join(" · ")}>
-          <Badge variant="danger" className="mr-1.5 mb-1.5 cursor-default">
+        <Tooltip content={ordered.slice(max).map((c) => c.message).join(" · ")}>
+          {/* Only red if something blocking is actually hidden behind it. */}
+          <Badge
+            variant={ordered.slice(max).some(isBlocking) ? "danger" : "warning"}
+            className="mr-1.5 mb-1.5 cursor-default"
+          >
             +{hidden} more
           </Badge>
         </Tooltip>
@@ -66,6 +77,7 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
 /**
  * Readiness chip — what this request is waiting on, in priority order:
  *   Conflict Detected    — something blocking was found; the dispatcher must look.
+ *   Check Assignment     — advisory findings only; worth a glance, not a stop.
  *   AI Ready             — an advisor recommendation is cached and still applicable.
  *   Needs Review         — genuinely un-triaged: Pending or Under Review.
  *   Awaiting Assignment  — reviewed and approved, no vehicle/driver yet.
@@ -73,6 +85,12 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
  *
  * Conflict wins over AI Ready deliberately: a cached recommendation that predates
  * a newly-detected conflict must not read as "good to go".
+ *
+ * Severity matters here. This used to escalate on `conflicts.length` alone, which
+ * was harmless while every rule was blocking — but the custodial-pairing rule
+ * (migration 017) is advisory, and a driver taking a different car is a normal
+ * day. Rendering that as a red "Conflict Detected" would train dispatchers to
+ * ignore the chip that means a dispatch will actually be refused.
  *
  * `status` is what stops this from contradicting the status badge beside it. The
  * chip used to fall through to "Needs Review" whenever there was no conflict and
@@ -82,11 +100,19 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
  * that point the chip stays out of the way.
  */
 export function ReadinessChip({ conflicts = [], hasRecommendation = false, status }) {
-  if (conflicts.length) {
+  if (conflicts.some(isBlocking)) {
     return (
       <Badge variant="danger" className="gap-1">
         <AlertTriangle className="w-3 h-3" aria-hidden="true" />
         Conflict Detected
+      </Badge>
+    );
+  }
+  if (conflicts.length) {
+    return (
+      <Badge variant="warning" className="gap-1">
+        <AlertTriangle className="w-3 h-3" aria-hidden="true" />
+        Check Assignment
       </Badge>
     );
   }

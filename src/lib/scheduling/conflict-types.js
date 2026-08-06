@@ -17,6 +17,7 @@ export const CONFLICT_TYPE = {
   LICENSE_EXPIRED: "license_expired",
   REGISTRATION_EXPIRED: "registration_expired",
   CAPACITY_MISMATCH: "capacity_mismatch",
+  VEHICLE_NOT_ASSIGNED_TO_DRIVER: "vehicle_not_assigned_to_driver",
 };
 
 export const CONFLICT_SEVERITY = { BLOCKING: "blocking", WARNING: "warning" };
@@ -31,4 +32,5 @@ export const CONFLICT_LABEL = {
   [CONFLICT_TYPE.LICENSE_EXPIRED]: "License Expired",
   [CONFLICT_TYPE.REGISTRATION_EXPIRED]: "Registration Expired",
   [CONFLICT_TYPE.CAPACITY_MISMATCH]: "Capacity Mismatch",
+  [CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER]: "Not Driver's Vehicle",
 };

@@ -4,13 +4,14 @@ import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { DataTable } from "@/components/tables/data-table";
+import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getTrips } from "@/services/trip.service";
 import { formatDateTime } from "@/lib/utils";
-import { MapPin, Clock, Truck, Navigation, Route } from "lucide-react";
+import { MapPin, Clock, Truck, Navigation, Route, TriangleAlert } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 const columnHelper = createColumnHelper();
@@ -18,7 +19,13 @@ const columnHelper = createColumnHelper();
 export default function TrackingHistoryPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
 
-  const { data: trips = [] } = useQuery({
+  const {
+    data: trips = [],
+    isLoading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
     queryKey: ["trips-history"],
     queryFn: async () => {
       const all = await getTrips({ trip_status: "Completed", limit: 50 });
@@ -82,6 +89,24 @@ export default function TrackingHistoryPage() {
     []
   );
 
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="Tracking"
+          title="Route History"
+          description="Completed trip routes and tracking data."
+        />
+        <EmptyState
+          icon={TriangleAlert}
+          title="Could not load tracking history"
+          description={error?.message || "Something went wrong reading tracking history."}
+          action={<Button onClick={() => refetch()}>Try again</Button>}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -102,6 +127,7 @@ export default function TrackingHistoryPage() {
         searchPlaceholder="Search route history..."
         emptyTitle="No completed trips found"
         emptyDescription="Completed trips will appear here with their route and tracking data."
+        isLoading={isLoading}
       />
     </div>
   );

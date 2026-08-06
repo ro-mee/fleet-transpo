@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { getAiInsights } from "@/services/ai.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { getDriverStats } from "@/services/driver.service";
@@ -76,6 +77,7 @@ function isToday(dateString) {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { employee } = useAuth();
 
   const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery({
@@ -126,14 +128,14 @@ export default function DashboardPage() {
   ).length;
 
   const kpis = [
-    { label: "Total Vehicles", value: vehicles.length, icon: Truck, tone: "primary", trend: `${available} currently available` },
-    { label: "Available", value: available, icon: CheckCircle2, tone: "success", trend: `${utilization}% of fleet` },
-    { label: "Under Maintenance", value: maintenance, icon: Wrench, tone: "warning", trend: "needs attention" },
-    { label: "Drivers on Duty", value: driverStats.total ?? 0, icon: Users, tone: "primary", trend: `${driverStats.available ?? 0} available` },
-    { label: "Active Trips", value: activeTrips.length, icon: Navigation, tone: "info", trend: "in motion now" },
-    { label: "Pending Reservations", value: pendingReservations, icon: CalendarCheck, tone: "warning", trend: "awaiting confirmation" },
-    { label: "Trips Today", value: tripsToday, icon: Send, tone: "primary", trend: "started or scheduled today" },
-    { label: "Fleet Utilization", value: `${utilization}%`, icon: TrendingUp, tone: "success", trend: "of fleet ready" },
+    { label: "Total Vehicles", value: vehicles.length, icon: Truck, tone: "primary", trend: `${available} currently available`, onClick: () => router.push("/fleet/vehicles") },
+    { label: "Available", value: available, icon: CheckCircle2, tone: "success", trend: `${utilization}% of fleet`, onClick: () => router.push("/fleet/vehicles") },
+    { label: "Under Maintenance", value: maintenance, icon: Wrench, tone: "warning", trend: "needs attention", onClick: () => router.push("/fleet/vehicles") },
+    { label: "Drivers on Duty", value: driverStats.total ?? 0, icon: Users, tone: "primary", trend: `${driverStats.available ?? 0} available`, onClick: () => router.push("/drivers") },
+    { label: "Active Trips", value: activeTrips.length, icon: Navigation, tone: "info", trend: "in motion now", onClick: () => router.push("/trips/active") },
+    { label: "Pending Reservations", value: pendingReservations, icon: CalendarCheck, tone: "warning", trend: "awaiting confirmation", onClick: () => router.push("/reservations/queue") },
+    { label: "Trips Today", value: tripsToday, icon: Send, tone: "primary", trend: "started or scheduled today", onClick: () => router.push("/trips") },
+    { label: "Fleet Utilization", value: `${utilization}%`, icon: TrendingUp, tone: "success", trend: "of fleet ready", onClick: () => router.push("/analytics") },
   ];
 
   const reservationTrend = useMemo(() => {
@@ -175,8 +177,8 @@ export default function DashboardPage() {
       .slice(0, 6)
       .map((t) => {
         const plate = t.vehicles?.plate_number || "—";
-        const driver = t.drivers?.employees
-          ? `${t.drivers.employees.first_name} ${t.drivers.employees.last_name}`
+        const driver = t.drivers
+          ? `${t.drivers.first_name || ""} ${t.drivers.last_name || ""}`.trim() || null
           : null;
         const status = (t.trip_status || "").toLowerCase();
         let action;
