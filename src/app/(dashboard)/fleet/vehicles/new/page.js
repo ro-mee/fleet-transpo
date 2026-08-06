@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,10 +13,30 @@ import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "
 import { scanDocumentWithAi } from "@/services/ai.service";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { toDateInput } from "@/lib/dates";
-import { ArrowLeft, Loader2, Upload, FileText, CheckCircle2, ShieldCheck, IdCard, ZoomIn, Sparkles, Scan, AlertCircle, Check } from "lucide-react";
+import {
+  ArrowLeft,
+  Loader2,
+  Upload,
+  FileText,
+  CheckCircle2,
+  ShieldCheck,
+  IdCard,
+  ZoomIn,
+  Sparkles,
+  Scan,
+  AlertCircle,
+  Check,
+  Car,
+  Tag,
+  Calendar,
+  Wrench,
+  ShieldAlert,
+  Zap,
+  FileImage,
+} from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
 
@@ -66,7 +86,7 @@ export default function VehicleFormPage({ params }) {
       if (res) {
         setScanResult(res);
         setScanReviewModalOpen(true);
-        toast.success(`AI scanned ${documentType.replace('_', ' ')} successfully!`);
+        toast.success(`AI scanned ${documentType.replace("_", " ")} successfully!`);
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan document with AI");
@@ -129,10 +149,11 @@ export default function VehicleFormPage({ params }) {
       insurance_expiry: "",
       next_service_date: "",
       next_service_mileage: undefined,
+      service_interval_km: undefined,
+      service_interval_days: undefined,
     },
   });
 
-  // Populate form and attached document states when vehicle data is loaded in edit mode
   useEffect(() => {
     if (vehicle) {
       form.reset({
@@ -151,6 +172,8 @@ export default function VehicleFormPage({ params }) {
         insurance_expiry: toDateInput(vehicle.insurance_expiry),
         next_service_date: toDateInput(vehicle.next_service_date),
         next_service_mileage: vehicle.next_service_mileage || undefined,
+        service_interval_km: vehicle.service_interval_km || undefined,
+        service_interval_days: vehicle.service_interval_days || undefined,
       });
 
       if (Array.isArray(vehicle.documents)) {
@@ -195,52 +218,34 @@ export default function VehicleFormPage({ params }) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setter((prev) => ({ ...prev, file_url: reader.result }));
+        toast.success("Document scan attached!");
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const onSubmit = async (data) => {
-    const documents = [];
-
-    // Collect LTO OR/CR Document
+  const onSubmit = (data) => {
+    setSubmitError("");
+    const documentsPayload = [];
     if (orCrDoc.file_url || orCrDoc.document_number) {
-      documents.push({
+      documentsPayload.push({
         document_type: "OR_CR",
-        document_number: orCrDoc.document_number || "LTO OR/CR Scan",
+        document_number: orCrDoc.document_number || "OR-CR-UNSPECIFIED",
         file_url: orCrDoc.file_url || null,
-        expiry_date: null,
-        status: "Active",
+        issue_date: new Date().toISOString().split("T")[0],
       });
     }
-
-    // Collect Insurance Policy Document
     if (insuranceDoc.file_url || insuranceDoc.document_number || data.insurance_expiry) {
-      documents.push({
+      documentsPayload.push({
         document_type: "Insurance",
-        document_number: insuranceDoc.document_number || "Insurance Policy Scan",
+        document_number: insuranceDoc.document_number || "INS-POLICY-UNSPECIFIED",
         file_url: insuranceDoc.file_url || null,
-        expiry_date: data.insurance_expiry || null,
-        status: "Active",
+        expiration_date: data.insurance_expiry || null,
+        issue_date: new Date().toISOString().split("T")[0],
       });
     }
 
-    const sanitizedData = {};
-    Object.keys(data).forEach((k) => {
-      let val = data[k];
-      if (val === "" || val === undefined) {
-        val = null;
-      } else if (typeof val === "number" && isNaN(val)) {
-        val = null;
-      }
-      sanitizedData[k] = val;
-    });
-
-    const payload = {
-      ...sanitizedData,
-      documents,
-    };
-
+    const payload = { ...data, documents: documentsPayload };
     if (isEdit) {
       updateMutation.mutate({ id: vehicleId, data: payload });
     } else {
@@ -251,426 +256,476 @@ export default function VehicleFormPage({ params }) {
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6 w-full">
-      {/* ── Header ── */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.back()}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            {isEdit ? "Edit Vehicle" : "Add New Vehicle"}
-          </h1>
-          <p className="text-foreground-secondary mt-1">
-            {isEdit ? `Editing ${vehicle?.plate_number || "vehicle"}` : "Register a new vehicle and upload compliance document scans"}
-          </p>
+    <div className="space-y-6 w-full pb-6">
+      {/* ── Top Page Banner & Header Bar ── */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
+            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-foreground">
+                {isEdit ? "Edit Vehicle" : "Add New Vehicle"}
+              </h1>
+              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
+                {isEdit ? "Update Vehicle Record" : "Fleet Registration"}
+              </span>
+            </div>
+            <p className="text-xs text-foreground-secondary mt-0.5">
+              {isEdit ? `Editing ${vehicle?.plate_number || "vehicle"}` : "Register a new vehicle and upload compliance document scans"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <Button type="button" variant="outline" onClick={() => router.push("/fleet/vehicles")} className="rounded-xl">
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            onClick={form.handleSubmit(onSubmit)}
+            disabled={isSubmitting}
+            className="rounded-xl px-5 h-10 shadow-sm"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Vehicle...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4 mr-2" /> Save &amp; Register Vehicle
+              </>
+            )}
+          </Button>
         </div>
       </div>
 
+      {submitError && (
+        <div className="p-4 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5 text-danger shrink-0" />
+          <span>{submitError}</span>
+        </div>
+      )}
+
       <form onSubmit={form.handleSubmit(onSubmit)}>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          {/* ── LEFT COLUMN: Vehicle Details & Specifications (50% Width) ── */}
-          <div className="space-y-6">
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">Vehicle Details & Specifications</CardTitle>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          
+          {/* ── LEFT COLUMN: Vehicle Details & Specifications (7 Cols) ── */}
+          <div className="lg:col-span-7 space-y-6">
+            
+            {/* CARD 1: GENERAL INFORMATION */}
+            <Card className="border-0 shadow-sm rounded-2xl">
+              <CardHeader className="pb-3 border-b border-border/60">
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                  <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                    <Car className="w-4 h-4" />
+                  </div>
+                  General Information
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Plate number, make, model, and physical specifications.
+                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-6">
-                {submitError && (
-                  <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
-                    {submitError}
+              <CardContent className="pt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="plate_number" className="text-xs font-semibold text-foreground">Plate No. *</Label>
+                    <Input
+                      id="plate_number"
+                      {...form.register("plate_number")}
+                      placeholder="NBO 1234 / ABC-1234"
+                      className="rounded-xl font-data uppercase"
+                    />
+                    {form.formState.errors.plate_number && (
+                      <p className="text-xs text-danger mt-1">{form.formState.errors.plate_number.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vehicle_name" className="text-xs font-semibold text-foreground">Vehicle Type / Name *</Label>
+                    <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="VAN / SUV / SEDAN / BUS" className="rounded-xl" />
+                    {form.formState.errors.vehicle_name && (
+                      <p className="text-xs text-danger mt-1">{form.formState.errors.vehicle_name.message}</p>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="manufacturer" className="text-xs font-medium text-foreground-secondary">Make / Brand</Label>
+                    <Input id="manufacturer" {...form.register("manufacturer")} placeholder="TOYOTA / HONDA / MITSUBISHI" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="model" className="text-xs font-medium text-foreground-secondary">Series / Model</Label>
+                    <Input id="model" {...form.register("model")} placeholder="HIACE COMMUTER / L300" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="year" className="text-xs font-medium text-foreground-secondary">Year Model</Label>
+                    <Input id="year" type="number" {...form.register("year")} placeholder="2023" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="color" className="text-xs font-medium text-foreground-secondary">Color</Label>
+                    <Input id="color" {...form.register("color")} placeholder="WHITE PEARL / SILVER" className="rounded-xl" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CARD 2: CLASSIFICATION & CAPACITY */}
+            <Card className="border-0 shadow-sm rounded-2xl">
+              <CardHeader className="pb-3 border-b border-border/60">
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                    <Tag className="w-4 h-4" />
+                  </div>
+                  Classification &amp; Capacity
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Category assignment, passenger seating capacity, and operational status.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="category_id" className="text-xs font-medium text-foreground-secondary">Vehicle Category</Label>
+                    <select
+                      id="category_id"
+                      {...form.register("category_id")}
+                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                    >
+                      <option value="">Select category</option>
+                      {categories.map((cat) => (
+                        <option key={cat.category_id} value={cat.category_id}>
+                          {cat.category_name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fuel_type" className="text-xs font-medium text-foreground-secondary">Fuel Type</Label>
+                    <Input id="fuel_type" {...form.register("fuel_type")} placeholder="DIESEL / GASOLINE" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="seating_capacity" className="text-xs font-medium text-foreground-secondary">Passenger Capacity</Label>
+                    <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} placeholder="15" className="rounded-xl" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vehicle_status" className="text-xs font-medium text-foreground-secondary">Status</Label>
+                    <select
+                      id="vehicle_status"
+                      {...form.register("vehicle_status")}
+                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                    >
+                      <option value="Available">Available</option>
+                      <option value="In Use">In Use</option>
+                      <option value="Under Maintenance">Under Maintenance</option>
+                      <option value="Out of Service">Out of Service</option>
+                      <option value="Reserved">Reserved</option>
+                      <option value="Registration Expired">Registration Expired</option>
+                    </select>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* CARD 3: LTO REGISTRATION & PREVENTIVE MAINTENANCE */}
+            <Card className="border-0 shadow-sm rounded-2xl">
+              <CardHeader className="pb-3 border-b border-border/60">
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  LTO Renewal &amp; Maintenance Schedule
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Automated PH LTO registration window and preventive maintenance intervals.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-4">
+                {/* LTO Schedule Banner */}
+                {ltoSchedule?.success ? (
+                  <div className="p-4 rounded-xl bg-muted/40 border border-border space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className="text-[11px] text-foreground-secondary block">LTO Registration Renewal Window</span>
+                        <span className="text-sm font-bold text-foreground">{ltoSchedule.formatted_window}</span>
+                      </div>
+                      <span
+                        className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
+                          ltoSchedule.status === "Overdue"
+                            ? "bg-danger/15 text-danger border border-danger/30"
+                            : ltoSchedule.status === "Due This Week" || ltoSchedule.status === "Due in 7 Days"
+                            ? "bg-warning/15 text-warning border border-warning/30"
+                            : "bg-success/15 text-success border border-success/30"
+                        }`}
+                      >
+                        {ltoSchedule.status}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">
+                      <div>
+                        <span className="text-foreground-secondary block text-[11px]">Renewal Month</span>
+                        <span className="font-semibold text-foreground">{ltoSchedule.month} (Digit: {watchedPlate.replace(/\D/g, "").slice(-1)})</span>
+                      </div>
+                      <div>
+                        <span className="text-foreground-secondary block text-[11px]">Renewal Window</span>
+                        <span className="font-semibold text-foreground">{ltoSchedule.window_label}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-muted/20 border border-border text-xs text-foreground-secondary italic">
+                    {watchedPlate
+                      ? ltoSchedule?.error || "Unable to determine renewal schedule."
+                      : "Enter a valid plate number above (e.g. ABC-1234) to compute the LTO registration renewal schedule."}
                   </div>
                 )}
 
-                {/* General Information */}
-                <div>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3">General Information</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="plate_number">Plate No. *</Label>
-                      <Input id="plate_number" {...form.register("plate_number")} placeholder="NBO 1234 / ABC-1234" className="font-data uppercase" />
-                      {form.formState.errors.plate_number && (
-                        <p className="text-xs text-danger">{form.formState.errors.plate_number.message}</p>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="vehicle_name">Vehicle Type / Name *</Label>
-                      <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="VAN / SUV / SEDAN / BUS" />
-                      {form.formState.errors.vehicle_name && (
-                        <p className="text-xs text-danger">{form.formState.errors.vehicle_name.message}</p>
-                      )}
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="manufacturer">Make / Brand</Label>
-                      <Input id="manufacturer" {...form.register("manufacturer")} placeholder="TOYOTA / HONDA / MITSUBISHI" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="model">Series / Model</Label>
-                      <Input id="model" {...form.register("model")} placeholder="HIACE COMMUTER / L300 / NV350" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="year">Year Model</Label>
-                      <Input id="year" type="number" {...form.register("year")} placeholder="2023" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="color">Color</Label>
-                      <Input id="color" {...form.register("color")} placeholder="WHITE PEARL / SILVER / BLACK" />
-                    </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-border pt-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="insurance_expiry" className="text-xs font-medium text-foreground-secondary">Insurance Policy Expiry</Label>
+                    <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} className="rounded-xl text-xs" />
                   </div>
-                </div>
-
-                {/* Classification */}
-                <div className="border-t border-border pt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3">Classification</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="category_id">Vehicle Category</Label>
-                      <select
-                        id="category_id"
-                        {...form.register("category_id")}
-                        className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      >
-                        <option value="">Select category</option>
-                        {categories.map((cat) => (
-                          <option key={cat.category_id} value={cat.category_id}>
-                            {cat.category_name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="fuel_type">Fuel Type</Label>
-                      <Input id="fuel_type" {...form.register("fuel_type")} placeholder="DIESEL / GAS / GASOLINE" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="seating_capacity">Passenger Capacity</Label>
-                      <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} placeholder="15" />
-                    </div>
-                    <div className="space-y-1.5">
-                      <Label htmlFor="vehicle_status">Status</Label>
-                      <select
-                        id="vehicle_status"
-                        {...form.register("vehicle_status")}
-                        className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                      >
-                        <option value="Available">Available</option>
-                        <option value="In Use">In Use</option>
-                        <option value="Under Maintenance">Under Maintenance</option>
-                        <option value="Out of Service">Out of Service</option>
-                        <option value="Reserved">Reserved</option>
-                        <option value="Registration Expired">Registration Expired</option>
-                      </select>
-                    </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="service_interval_km" className="text-xs font-medium text-foreground-secondary">Service Interval (km)</Label>
+                    <Input id="service_interval_km" type="number" {...form.register("service_interval_km")} placeholder="5000" className="rounded-xl text-xs" />
                   </div>
-                </div>
-
-                {/* Philippine LTO Registration Renewal Schedule & Compliance */}
-                <div className="border-t border-border pt-4">
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground-secondary mb-3 flex items-center justify-between">
-                    <span>LTO Registration Renewal Schedule</span>
-                    <span className="text-[11px] text-primary bg-primary/10 px-2 py-0.5 rounded-full font-medium border border-primary/20">
-                      Calculated from Plate #
-                    </span>
-                  </h3>
-
-                  {ltoSchedule?.success ? (
-                    <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-3">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-[11px] text-foreground-secondary block">Registration Renewal Window</span>
-                          <span className="text-sm font-bold text-foreground">{ltoSchedule.formatted_window}</span>
-                        </div>
-                        <span
-                          className={`text-xs px-2.5 py-1 rounded-full font-semibold ${
-                            ltoSchedule.status === "Overdue"
-                              ? "bg-danger/15 text-danger border border-danger/30"
-                              : ltoSchedule.status === "Due This Week" || ltoSchedule.status === "Due in 7 Days"
-                              ? "bg-warning/15 text-warning border border-warning/30"
-                              : "bg-success/15 text-success border border-success/30"
-                          }`}
-                        >
-                          {ltoSchedule.status}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-border">
-                        <div>
-                          <span className="text-foreground-secondary block text-[11px]">Renewal Month</span>
-                          <span className="font-semibold text-foreground">{ltoSchedule.month} (Digit: {watchedPlate.replace(/\D/g, "").slice(-1)})</span>
-                        </div>
-                        <div>
-                          <span className="text-foreground-secondary block text-[11px]">Renewal Window</span>
-                          <span className="font-semibold text-foreground">{ltoSchedule.window_label}</span>
-                        </div>
-                      </div>
-                      <p className="text-[11px] text-foreground-muted italic">
-                        Source: Calculated automatically from Plate Number ({watchedPlate}) using PH LTO rules.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-3 rounded-xl bg-muted/20 border border-border text-xs text-foreground-secondary italic">
-                      {watchedPlate
-                        ? ltoSchedule?.error || "Unable to determine renewal schedule from the provided plate number."
-                        : "Enter a valid plate number above (e.g. ABC-1234) to compute the LTO registration renewal schedule."}
-                    </div>
-                  )}
-
-                  <div className="mt-3">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="insurance_expiry" className="text-xs">Insurance Policy Expiry</Label>
-                      <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} className="text-xs" />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Form Action Buttons */}
-                <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-                  <Button type="button" variant="outline" onClick={() => router.back()}>
-                    Cancel
-                  </Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                    {isEdit ? "Update Vehicle" : "Create Vehicle"}
-                  </Button>
                 </div>
               </CardContent>
             </Card>
           </div>
 
-          {/* ── RIGHT COLUMN: Separate Document Upload & Preview Panel (50% Width) ── */}
-          <div className="space-y-6">
-            <Card className="border-0 shadow-sm sticky top-6">
-              <CardHeader className="pb-3 border-b border-border">
-                <CardTitle className="text-base font-semibold flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-primary" /> Vehicle Document Scans
-                </CardTitle>
-                <p className="text-xs text-foreground-secondary mt-0.5">
-                  Attach OR/CR and Insurance Policy scans directly to the vehicle record.
-                </p>
+          {/* ── RIGHT COLUMN: Compliance Document Scans (5 Cols) ── */}
+          <div className="lg:col-span-5 space-y-6">
+            
+            {/* CARD 4: LTO OR/CR DOCUMENT SCAN */}
+            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
+              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                    <FileImage className="w-4 h-4 text-primary" /> Official Receipt / CR (OR/CR)
+                  </CardTitle>
+                  {orCrDoc.file_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-primary"
+                      onClick={() => setPreviewModalUrl(orCrDoc.file_url)}
+                    >
+                      <ZoomIn className="w-3.5 h-3.5 mr-1" /> Zoom
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
-              <CardContent className="p-4">
-                {/* Grid Layout: Top 2 Columns for LTO & Insurance */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* 1. LTO OR/CR Scan Card (Top Left) */}
-                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2.5 flex flex-col justify-between">
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <IdCard className="w-4 h-4 text-primary" /> LTO OR/CR Scan
-                        </span>
-                        {orCrDoc.file_url && (
-                          <span className="text-[11px] text-success font-medium flex items-center gap-0.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Attached
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex gap-2 items-center">
-                        <div className="relative flex-1 border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-2 text-center transition-colors bg-surface cursor-pointer">
-                          <input
-                            type="file"
-                            accept="image/*,.pdf"
-                            onChange={(e) => handleFileUpload(e, setOrCrDoc)}
-                            className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                          />
-                          <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                            <Upload className="w-3.5 h-3.5 text-primary" />
-                            <span className="truncate">{orCrDoc.file_url ? "Change OR/CR" : "Upload OR/CR"}</span>
-                          </div>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!orCrDoc.file_url || scanningDocType === "OR_CR"}
-                          onClick={() => handleAiScan("OR_CR", orCrDoc.file_url)}
-                          className="h-9 px-2.5 text-xs border-primary/30 text-primary hover:bg-primary/5 font-medium gap-1 shrink-0"
-                        >
-                          {scanningDocType === "OR_CR" ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Sparkles className="w-3.5 h-3.5" />
-                          )}
-                          <span>Scan with AI</span>
-                        </Button>
-                      </div>
-                    </div>
-
+              <CardContent className="p-4 space-y-4">
+                <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-primary" /> OR/CR Scan Attachment
+                    </Label>
                     {orCrDoc.file_url && (
-                      <div
-                        className="mt-2 rounded-lg overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer"
-                        onClick={() => setPreviewModalUrl(orCrDoc.file_url)}
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleAiScan("OR_CR", orCrDoc.file_url)}
+                        disabled={scanningDocType === "OR_CR"}
+                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
-                        <img src={orCrDoc.file_url} alt="OR/CR Preview" className="w-full h-full object-contain" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
-                          <ZoomIn className="w-3.5 h-3.5" /> Zoom
-                        </div>
-                      </div>
+                        {scanningDocType === "OR_CR" ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-white" /> Scanning...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-3.5 h-3.5 mr-1 text-white" /> Scan &amp; Auto-Fill OR/CR
+                          </>
+                        )}
+                      </Button>
                     )}
                   </div>
 
-                  {/* 2. Insurance Policy Card (Top Right - Upload Only) */}
-                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border space-y-2.5 flex flex-col justify-between">
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                          <ShieldCheck className="w-4 h-4 text-primary" /> Insurance Policy Scan
-                        </span>
-                        {insuranceDoc.file_url && (
-                          <span className="text-[11px] text-success font-medium flex items-center gap-0.5">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Attached
-                          </span>
-                        )}
-                      </div>
-                      <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-3 text-center transition-colors bg-surface cursor-pointer">
-                        <input
-                          type="file"
-                          accept="image/*,.pdf"
-                          onChange={(e) => handleFileUpload(e, setInsuranceDoc)}
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                        />
-                        <div className="flex items-center justify-center gap-1.5 text-xs text-foreground-secondary">
-                          <Upload className="w-3.5 h-3.5 text-primary" />
-                          <span className="truncate">{insuranceDoc.file_url ? "Change Policy Scan" : "Upload Insurance Policy Scan"}</span>
-                        </div>
+                  <div className="space-y-2">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => handleFileUpload(e, setOrCrDoc)}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      />
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
+                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
+                        <span className="font-semibold text-foreground">Upload OR/CR Scan</span>
+                        <span className="text-[11px] text-foreground-muted">PNG, JPG, PDF up to 10MB</span>
                       </div>
                     </div>
 
-                    {insuranceDoc.file_url && (
-                      <div
-                        className="mt-2 rounded-lg overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer"
-                        onClick={() => setPreviewModalUrl(insuranceDoc.file_url)}
-                      >
-                        <img src={insuranceDoc.file_url} alt="Insurance Preview" className="w-full h-full object-contain" />
-                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
-                          <ZoomIn className="w-3.5 h-3.5" /> Zoom
-                        </div>
-                      </div>
-                    )}
+                    <Input
+                      placeholder="CR / Registration Number..."
+                      value={orCrDoc.document_number}
+                      onChange={(e) => setOrCrDoc((prev) => ({ ...prev, document_number: e.target.value }))}
+                      className="h-9 text-xs rounded-xl"
+                    />
                   </div>
                 </div>
+
+                {orCrDoc.file_url ? (
+                  <div
+                    className="rounded-xl overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer flex items-center justify-center"
+                    onClick={() => setPreviewModalUrl(orCrDoc.file_url)}
+                  >
+                    <img src={orCrDoc.file_url} alt="OR/CR Document" className="w-full h-full object-contain" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
+                      <ZoomIn className="w-3.5 h-3.5" /> Click to Enlarge
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                    No OR/CR Document Scan Attached
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* CARD 5: INSURANCE POLICY DOCUMENT SCAN */}
+            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
+              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                    <FileImage className="w-4 h-4 text-primary" /> Insurance Policy Certificate
+                  </CardTitle>
+                  {insuranceDoc.file_url && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-xs text-primary"
+                      onClick={() => setPreviewModalUrl(insuranceDoc.file_url)}
+                    >
+                      <ZoomIn className="w-3.5 h-3.5 mr-1" /> Zoom
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="p-4 space-y-4">
+                <div className="p-3.5 rounded-xl bg-surface border border-border space-y-3">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <Label className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-primary" /> Insurance Policy Scan
+                    </Label>
+                    {insuranceDoc.file_url && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={() => handleAiScan("Insurance", insuranceDoc.file_url)}
+                        disabled={scanningDocType === "Insurance"}
+                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                      >
+                        {scanningDocType === "Insurance" ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin text-white" /> Scanning...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-3.5 h-3.5 mr-1 text-white" /> Scan &amp; Auto-Fill Insurance
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={(e) => handleFileUpload(e, setInsuranceDoc)}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      />
+                      <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
+                        <Upload className="w-5 h-5 text-primary group-hover:scale-110 transition-transform" />
+                        <span className="font-semibold text-foreground">Upload Insurance Scan</span>
+                        <span className="text-[11px] text-foreground-muted">PNG, JPG, PDF up to 10MB</span>
+                      </div>
+                    </div>
+
+                    <Input
+                      placeholder="Insurance Policy Number..."
+                      value={insuranceDoc.document_number}
+                      onChange={(e) => setInsuranceDoc((prev) => ({ ...prev, document_number: e.target.value }))}
+                      className="h-9 text-xs rounded-xl"
+                    />
+                  </div>
+                </div>
+
+                {insuranceDoc.file_url ? (
+                  <div
+                    className="rounded-xl overflow-hidden border border-border bg-black/5 aspect-[16/10] relative group cursor-pointer flex items-center justify-center"
+                    onClick={() => setPreviewModalUrl(insuranceDoc.file_url)}
+                  >
+                    <img src={insuranceDoc.file_url} alt="Insurance Document" className="w-full h-full object-contain" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-[11px] font-medium gap-1">
+                      <ZoomIn className="w-3.5 h-3.5" /> Click to Enlarge
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                    No Insurance Certificate Scan Attached
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         </div>
       </form>
 
-      {/* ── Document Zoom Modal ── */}
+      {/* ── ENLARGED ZOOM MODAL ── */}
       <Dialog open={!!previewModalUrl} onOpenChange={() => setPreviewModalUrl(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" /> Vehicle Document Full Preview
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <IdCard className="w-5 h-5 text-primary" /> Document Scan Verification Zoom
             </DialogTitle>
           </DialogHeader>
           <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
             {previewModalUrl && (
-              <img
-                src={previewModalUrl}
-                alt="Document Full Preview"
-                className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md"
-              />
+              <img src={previewModalUrl} alt="Document Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* ── AI Scan Review Modal ── */}
+      {/* ── SCAN REVIEW MODAL ── */}
       <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-lg rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center justify-between border-b border-border pb-3">
-              <span className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-primary animate-pulse" />
-                AI Document Scan Results — Review & Populate
-              </span>
-              <div className="flex items-center gap-2">
-                {scanResult?.is_ai_vision_used ? (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-success/15 text-success border border-success/30">
-                    Live AI Vision OCR
-                  </span>
-                ) : (
-                  <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-primary/15 text-primary border border-primary/30">
-                    Dynamic Image Scan
-                  </span>
-                )}
-                {scanResult?.overall_confidence && (
-                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-muted text-foreground-secondary border border-border">
-                    {scanResult.overall_confidence}% Confidence
-                  </span>
-                )}
-              </div>
+            <DialogTitle className="text-base font-bold flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-primary" /> AI Extracted Document Data
             </DialogTitle>
+            <DialogDescription className="text-xs">
+              Review extracted fields from your scanned document before applying.
+            </DialogDescription>
           </DialogHeader>
-
-          {scanResult && (
-            <div className="space-y-4 pt-2">
-              {/* Validation Banner if any */}
-              {scanResult.validation?.issues?.length > 0 && (
-                <div className="p-3 rounded-xl bg-danger/10 border border-danger/20 text-xs text-danger flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <div>
-                    <span className="font-semibold">Compliance Validation Warnings:</span>
-                    <ul className="list-disc list-inside mt-1 space-y-0.5">
-                      {scanResult.validation.issues.map((issue, i) => (
-                        <li key={i}>{issue}</li>
-                      ))}
-                    </ul>
+          <div className="space-y-3 py-2 text-xs">
+            {scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0 ? (
+              <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border">
+                {Object.entries(scanResult.extracted_data).map(([key, val]) => (
+                  <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5">
+                    <span className="text-foreground-muted capitalize">{key.replace(/_/g, " ")}:</span>
+                    <span className="font-semibold text-foreground">{String(val || "—")}</span>
                   </div>
-                </div>
-              )}
-
-              {/* Extracted Fields Table */}
-              <div className="rounded-xl border border-border overflow-hidden bg-surface">
-                <div className="bg-muted/40 px-4 py-2 border-b border-border flex items-center justify-between text-xs font-semibold text-foreground-secondary">
-                  <span>EXTRACTED FIELD</span>
-                  <span>CONFIDENCE & AI VALUE</span>
-                </div>
-                <div className="divide-y divide-border text-xs">
-                  {Object.entries(scanResult.extracted_data || {})
-                    .filter(([key]) => key !== "vehicle_type")
-                    .map(([key, val]) => {
-                      const score = scanResult.confidence_scores?.[key] || scanResult.overall_confidence || 95;
-                    const customLabels = {
-                      seating_capacity: "Passenger Capacity",
-                      registration_number: "Registration / CR No.",
-                      vehicle_name: "Vehicle Type / Name",
-                      manufacturer: "Make / Brand",
-                      model: "Series / Model",
-                      year: "Year Model",
-                    };
-                    const label = customLabels[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-                    return (
-                      <div key={key} className="px-4 py-2.5 flex items-center justify-between hover:bg-muted/20">
-                        <span className="font-medium text-foreground-secondary">{label}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="font-semibold text-foreground">{String(val)}</span>
-                          <span
-                            className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
-                              score >= 90
-                                ? "bg-success/10 text-success border border-success/20"
-                                : "bg-warning/10 text-warning border border-warning/20"
-                            }`}
-                          >
-                            {score}%
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                ))}
               </div>
-
-              {/* Actions */}
-              <div className="flex items-center justify-end gap-3 pt-3 border-t border-border">
-                <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={applyAiExtractedData} className="gap-1.5">
-                  <Check className="w-4 h-4" /> Apply Extracted Data to Form
-                </Button>
-              </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-foreground-muted py-4 text-center">No readable fields extracted.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl">
+              Cancel
+            </Button>
+            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl px-4">
+              Apply Extracted Data
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -63,6 +63,7 @@ export function hasRole(employee, roleOrRoles) {
 const MATRIX = {
   admin: {
     vehicles: { create: true, read: true, update: true, delete: true },
+    driver_assignments: { create: true, read: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -82,6 +83,10 @@ const MATRIX = {
   },
   fleet_manager: {
     vehicles: { create: true, read: true, update: true, delete: false },
+    // Custodial pairing is a fleet-management decision, so fleet_manager writes
+    // it. delete:true is not a row deletion — releasing a pairing closes its
+    // interval (see /api/driver-assignments/[id]).
+    driver_assignments: { create: true, read: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -101,6 +106,10 @@ const MATRIX = {
   },
   dispatcher: {
     vehicles: { read: true },
+    // Read-only: a dispatcher must SEE the pairing to understand the warning
+    // chip when a dispatch departs from it, but reassigning custody is not their
+    // call. The API mirrors this — POST/DELETE exclude dispatcher.
+    driver_assignments: { read: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -176,6 +185,7 @@ const MATRIX = {
   },
   management: {
     vehicles: { read: true },
+    driver_assignments: { read: true },
     reservations: {
       read: true,
       approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,

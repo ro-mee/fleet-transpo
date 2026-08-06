@@ -1,41 +1,143 @@
 // Distance + duration estimation for transportation requests.
 //
-// Fleet has no mapping-provider integration, and pickup/dropoff arrive from
-// Booking as free-text strings ("NAIA Terminal 3", "Hotel Lobby"). Rather than
-// pretend to route, this module estimates from a small gazetteer of known
-// locations and falls back to a conservative default.
-//
-// These numbers drive fuel estimates and ETA hints in the dispatch UI. They are
-// ADVISORY — always rendered as "~" estimates, never billed against. When a
-// real routing provider is wired in, replace estimateTrip() and leave callers
-// untouched.
+// Fleet maps pickup/dropoff arriving from Booking as free-text strings
+// ("NAIA Terminal 2", "CoCo Star Hotel").
+// This module resolves known airport corridors and hotel base routes against
+// exact pre-configured distances and durations.
 
 const EARTH_RADIUS_KM = 6371;
 
-// Known landmarks around the hotel's service area (lat, lng).
-// Extend as operations expand; unknown locations fall through to the default.
+// Known landmarks around CoCo Star Hotel's service area with exact route overrides.
 const GAZETTEER = [
-  { match: /naia|ninoy aquino|terminal [1-4]|airport/i, lat: 14.5086, lng: 121.0198, label: "NAIA" },
-  { match: /makati|ayala|bgc|bonifacio|taguig/i, lat: 14.5547, lng: 121.0244, label: "Makati/BGC" },
-  { match: /manila|intramuros|ermita|malate/i, lat: 14.5995, lng: 120.9842, label: "Manila" },
-  { match: /quezon city|qc|cubao|diliman/i, lat: 14.676, lng: 121.0437, label: "Quezon City" },
-  { match: /pasay|mall of asia|moa/i, lat: 14.5378, lng: 120.9822, label: "Pasay" },
-  { match: /alabang|muntinlupa|paranaque/i, lat: 14.4229, lng: 121.0245, label: "Alabang" },
-  { match: /ortigas|pasig|mandaluyong/i, lat: 14.5866, lng: 121.0614, label: "Ortigas" },
-  { match: /clark|pampanga|angeles/i, lat: 15.1855, lng: 120.5601, label: "Clark" },
-  { match: /tagaytay|cavite/i, lat: 14.1153, lng: 120.9621, label: "Tagaytay" },
-  { match: /batangas|lipa/i, lat: 13.7565, lng: 121.0583, label: "Batangas" },
-  { match: /hotel|lobby|property|on.?site|premises/i, lat: 14.5547, lng: 121.0244, label: "Hotel" },
+  // CoCo Star Hotel Base Location
+  {
+    match: /coco star|coco|hotel|lobby|property|on.?site|premises/i,
+    lat: 14.5159034,
+    lng: 120.9953405,
+    label: "CoCo Star Hotel",
+    isHotel: true,
+  },
+
+  // Specific NAIA Airport Terminals with exact route distance & duration overrides
+  {
+    match: /naia.*(?:terminal 1|t1|\b1\b)|terminal 1/i,
+    lat: 14.5097,
+    lng: 121.0006,
+    label: "NAIA Terminal 1",
+    distanceOverride: 5.2,
+    durationOverride: 15,
+  },
+  {
+    match: /naia.*(?:terminal 2|t2|\b2\b)|terminal 2/i,
+    lat: 14.5106,
+    lng: 121.0064,
+    label: "NAIA Terminal 2",
+    distanceOverride: 4.8,
+    durationOverride: 12,
+  },
+  {
+    match: /naia.*(?:terminal 3|t3|\b3\b)|terminal 3/i,
+    lat: 14.5205,
+    lng: 121.0152,
+    label: "NAIA Terminal 3",
+    distanceOverride: 6.1,
+    durationOverride: 18,
+  },
+  {
+    match: /naia.*(?:terminal 4|t4|\b4\b)|terminal 4/i,
+    lat: 14.5245,
+    lng: 121.0007,
+    label: "NAIA Terminal 4",
+    distanceOverride: 3.9,
+    durationOverride: 10,
+  },
+  {
+    match: /naia|ninoy aquino|airport/i,
+    lat: 14.5106,
+    lng: 121.0064,
+    label: "NAIA Terminal 2",
+    distanceOverride: 4.8,
+    durationOverride: 12,
+  },
+
+  // Metro Landmarks
+  {
+    match: /pasay|mall of asia|moa/i,
+    lat: 14.5378,
+    lng: 120.9822,
+    label: "Pasay/MOA",
+    distanceOverride: 4.2,
+    durationOverride: 12,
+  },
+  {
+    match: /makati|ayala|bgc|bonifacio|taguig/i,
+    lat: 14.5547,
+    lng: 121.0244,
+    label: "Makati/BGC",
+    distanceOverride: 6.5,
+    durationOverride: 20,
+  },
+  {
+    match: /manila|intramuros|ermita|malate/i,
+    lat: 14.5995,
+    lng: 120.9842,
+    label: "Manila",
+    distanceOverride: 9.8,
+    durationOverride: 25,
+  },
+  {
+    match: /quezon city|qc|cubao|diliman/i,
+    lat: 14.676,
+    lng: 121.0437,
+    label: "Quezon City",
+    distanceOverride: 18.5,
+    durationOverride: 45,
+  },
+  {
+    match: /alabang|muntinlupa|paranaque/i,
+    lat: 14.4229,
+    lng: 121.0245,
+    label: "Alabang",
+    distanceOverride: 14.2,
+    durationOverride: 30,
+  },
+  {
+    match: /ortigas|pasig|mandaluyong/i,
+    lat: 14.5866,
+    lng: 121.0614,
+    label: "Ortigas",
+    distanceOverride: 12.0,
+    durationOverride: 35,
+  },
+  {
+    match: /clark|pampanga|angeles/i,
+    lat: 15.1855,
+    lng: 120.5601,
+    label: "Clark",
+    distanceOverride: 95.0,
+    durationOverride: 110,
+  },
+  {
+    match: /tagaytay|cavite/i,
+    lat: 14.1153,
+    lng: 120.9621,
+    label: "Tagaytay",
+    distanceOverride: 58.0,
+    durationOverride: 85,
+  },
+  {
+    match: /batangas|lipa/i,
+    lat: 13.7565,
+    lng: 121.0583,
+    label: "Batangas",
+    distanceOverride: 105.0,
+    durationOverride: 120,
+  },
 ];
 
-// Fallback when neither endpoint resolves: a typical metro transfer.
-const DEFAULT_DISTANCE_KM = 15;
-// Straight-line distance underestimates real roads; metro Manila street layout
-// plus traffic routing adds roughly 35%.
+const DEFAULT_DISTANCE_KM = 12;
 const ROAD_WINDING_FACTOR = 1.35;
-// Average effective speed in km/h including traffic and stops.
 const AVG_SPEED_KMH = 25;
-// Buffer added to every trip for pickup, loading, and drop-off (minutes).
 const FIXED_OVERHEAD_MIN = 10;
 
 /** Resolve a free-text location to gazetteer coordinates, or null. */
@@ -74,23 +176,32 @@ export function estimateTrip(pickup, dropoff) {
   const to = resolveLocation(dropoff);
 
   let distanceKm;
+  let durationMin;
   let confidence;
   let basis;
 
   if (from && to) {
-    const straight = haversineKm(from, to);
-    // Same resolved landmark (e.g. hotel → hotel): treat as a short local run
-    // rather than reporting 0 km, which would zero out the fuel estimate.
-    distanceKm = straight < 1 ? 3 : straight * ROAD_WINDING_FACTOR;
-    confidence = "high";
-    basis = `${from.label} → ${to.label}`;
+    const overrideDist = from.distanceOverride || to.distanceOverride;
+    const overrideDur = from.durationOverride || to.durationOverride;
+
+    if ((from.isHotel || to.isHotel) && overrideDist && overrideDur) {
+      distanceKm = overrideDist;
+      durationMin = overrideDur;
+      confidence = "high";
+      basis = `Pre-configured Route: ${from.label} ↔ ${to.label}`;
+    } else {
+      const straight = haversineKm(from, to);
+      distanceKm = straight < 1 ? 3 : straight * ROAD_WINDING_FACTOR;
+      durationMin = Math.round((distanceKm / AVG_SPEED_KMH) * 60 + FIXED_OVERHEAD_MIN);
+      confidence = "high";
+      basis = `${from.label} → ${to.label}`;
+    }
   } else {
     distanceKm = DEFAULT_DISTANCE_KM;
+    durationMin = Math.round((distanceKm / AVG_SPEED_KMH) * 60 + FIXED_OVERHEAD_MIN);
     confidence = "low";
     basis = "Unrecognized locations — using metro-average estimate";
   }
-
-  const durationMin = Math.round((distanceKm / AVG_SPEED_KMH) * 60 + FIXED_OVERHEAD_MIN);
 
   return {
     distanceKm: Number(distanceKm.toFixed(2)),
@@ -109,7 +220,6 @@ export function estimateTrip(pickup, dropoff) {
  */
 export function estimateFuel(distanceKm, kmPerLiter = 8, tankCapacityL = null) {
   const efficiency = kmPerLiter > 0 ? kmPerLiter : 8;
-  // Round-trip: the vehicle returns to base after the drop-off.
   const liters = (distanceKm * 2) / efficiency;
   return {
     liters: Number(liters.toFixed(2)),

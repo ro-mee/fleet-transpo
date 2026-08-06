@@ -1,9 +1,10 @@
 export function exportToCSV(data, filename, columns) {
   if (!data?.length) return;
 
-  const headers = columns.map((c) => c.label);
+  const cols = columns || (data[0] ? Object.keys(data[0]).map((k) => ({ label: k, key: k })) : []);
+  const headers = cols.map((c) => c.label);
   const rows = data.map((row) =>
-    columns.map((c) => {
+    cols.map((c) => {
       let val = c.accessor ? c.accessor(row) : row[c.key];
       if (val == null) val = "";
       if (typeof val === "string" && (val.includes(",") || val.includes('"') || val.includes("\n"))) {

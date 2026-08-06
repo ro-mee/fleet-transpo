@@ -6,57 +6,7 @@ import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
  * Acts as the default engine & instant fallback if LLM Mode is unavailable.
  */
 
-// 1. Predictive Maintenance Calculation
-export function calculatePredictiveMaintenance(vehicles = []) {
-  const now = Date.now();
-  const dayMs = 24 * 60 * 60 * 1000;
-
-  return vehicles.map((v) => {
-    const daysToService = v.next_service_date
-      ? Math.round((new Date(v.next_service_date).getTime() - now) / dayMs)
-      : 999;
-
-    let risk = "Low";
-    let score = 95;
-    const recommendations = [];
-
-    if (daysToService <= 0) {
-      risk = "Critical";
-      score = 15;
-      recommendations.push("Service OVERDUE — Ground vehicle for inspection immediately.");
-    } else if (daysToService <= 7) {
-      risk = "High";
-      score = 40;
-      recommendations.push("Service due within 7 days — Schedule preventive maintenance.");
-    } else if (daysToService <= 30) {
-      risk = "Medium";
-      score = 70;
-      recommendations.push("Service due within 30 days — Plan maintenance booking.");
-    } else {
-      risk = "Low";
-      score = 95;
-      recommendations.push("Vehicle in good operational standing.");
-    }
-
-    if (v.fuel_level < 25) {
-      recommendations.push("Low fuel level alert — Refuel before next dispatch.");
-    }
-
-    return {
-      vehicle_id: v.vehicle_id,
-      plate_number: v.plate_number,
-      vehicle_name: v.vehicle_name,
-      mileage: v.mileage || 0,
-      next_service_date: v.next_service_date,
-      daysToService,
-      risk,
-      score,
-      recommendations,
-    };
-  }).sort((a, b) => a.daysToService - b.daysToService);
-}
-
-// 2. Reservation Vehicle Scoring
+// 1. Reservation Vehicle Scoring
 export function scoreReservationVehicles(vehicles = [], passengerCount = 1) {
   return vehicles
     .filter((v) => (v.seating_capacity || 4) >= passengerCount)
@@ -98,7 +48,7 @@ export function scoreReservationVehicles(vehicles = [], passengerCount = 1) {
     .sort((a, b) => b.score - a.score);
 }
 
-// 3. Dispatch Driver Scoring
+// 2. Dispatch Driver Scoring
 export function scoreDispatchDrivers(drivers = []) {
   const dayMs = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -140,7 +90,7 @@ export function scoreDispatchDrivers(drivers = []) {
   }).sort((a, b) => b.score - a.score);
 }
 
-// 4. Fleet & Dashboard Insights Generation
+// 3. Fleet & Dashboard Insights Generation
 function makeInsight(insight) {
   const id = insight.title
     .toLowerCase()

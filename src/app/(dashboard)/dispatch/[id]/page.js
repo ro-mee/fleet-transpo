@@ -18,7 +18,7 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton, DetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { TripOdometerDialog } from "@/components/dispatch/trip-odometer-dialog";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
@@ -88,22 +88,7 @@ function Field({ icon: Icon, label, value, tone = "text-foreground-muted", href 
   );
 }
 
-function DetailSkeleton() {
-  return (
-    <div className="max-w-6xl space-y-6">
-      <Skeleton className="h-9 w-64" />
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 rounded-xl" />
-        ))}
-      </div>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Skeleton className="h-72 rounded-xl lg:col-span-2" />
-        <Skeleton className="h-72 rounded-xl" />
-      </div>
-    </div>
-  );
-}
+
 
 export default function DispatchDetailPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);

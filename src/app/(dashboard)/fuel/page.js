@@ -324,10 +324,10 @@ export default function FuelPage() {
 
       {/* ── Metric Cards ── */}
       <StatGrid cols={4}>
-        <StatCard icon={Fuel} label="Total Submissions" value={records.length} tone="primary" />
-        <StatCard icon={Clock} label="Pending Audit" value={pendingCount} tone="warning" />
-        <StatCard icon={CheckCircle2} label="Approved Expense" value={formatCurrency(totalCost)} tone="success" />
-        <StatCard icon={XCircle} label="Flagged / Rejected" value={rejectedCount} tone="danger" />
+        <StatCard icon={Fuel} label="Total Submissions" value={records.length} tone="primary" active={activeTab === "all"} onClick={() => setActiveTab("all")} />
+        <StatCard icon={Clock} label="Pending Audit" value={pendingCount} tone="warning" active={activeTab === "Pending"} onClick={() => setActiveTab("Pending")} />
+        <StatCard icon={CheckCircle2} label="Approved Expense" value={formatCurrency(totalCost)} tone="success" active={activeTab === "Approved"} onClick={() => setActiveTab("Approved")} />
+        <StatCard icon={XCircle} label="Flagged / Rejected" value={rejectedCount} tone="danger" active={activeTab === "Rejected"} onClick={() => setActiveTab("Rejected")} />
       </StatGrid>
 
       {/* ── Status Filter Tabs & Table ── */}

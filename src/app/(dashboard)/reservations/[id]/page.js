@@ -7,10 +7,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Skeleton, DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
   Dialog,
@@ -51,6 +51,10 @@ import {
   Inbox,
   MapPin,
   Send,
+  ShieldAlert,
+  Car,
+  User,
+  Navigation,
   Sparkles,
   TriangleAlert,
   UserCheck,
@@ -58,28 +62,14 @@ import {
   XCircle,
 } from "lucide-react";
 
-// Phase 17 — the reservation detail page, repointed to transportation_requests.
-//
-// This page used to read `vehiclereservations` and drive a four-step
-// Pending→Approved→Dispatched→Completed bar, writing status directly with
-// updateReservation(). That entity is now a legacy FK target: the reservation IS
-// the transportation request. So every action here goes through the lifecycle
-// endpoints, which validate the hop, append a timeline event, and notify Booking
-// — none of which a direct status write did.
-//
-// Guest data is Booking's, shown read-only. Fleet decides; it never authors a
-// booking.
 const STEPS = [L.PENDING, L.UNDER_REVIEW, L.APPROVED, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS, L.COMPLETED];
 
-/** Statuses that ended the request rather than advancing it. */
 const ABORTED = { [L.REJECTED]: "Rejected", [L.CANCELLED]: "Cancelled" };
 
 const isReviewable = (s) => s === L.PENDING || s === L.UNDER_REVIEW;
 const isAssignable = (s) => s === L.APPROVED || s === L.SCHEDULED || s === L.ASSIGNED;
 const isCancellable = (s) => ![L.REJECTED, L.CANCELLED, L.COMPLETED].includes(s);
 
-// pg returns DECIMAL columns as strings, and formatDistance() calls .toFixed() on
-// what it is given — so every numeric read goes through here before formatting.
 const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
 function driverName(d) {
@@ -92,34 +82,25 @@ function personName(p) {
   return [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || null;
 }
 
-/** One labelled read-only field. */
 function Field({ icon: Icon, label, children, className }) {
   return (
-    <div className={cn("min-w-0", className)}>
-      <p className="text-xs text-foreground-muted">{label}</p>
-      <div className="mt-0.5 flex items-start gap-1.5">
-        {Icon && <Icon className="mt-0.5 w-3.5 h-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />}
-        <span className="text-sm text-foreground-secondary break-words">{children ?? "—"}</span>
-      </div>
+    <div className={cn("min-w-0 p-4 rounded-xl bg-muted/20 border border-border/40 space-y-1.5", className)}>
+      <p className="text-xs font-medium text-foreground-secondary flex items-center gap-1.5">
+        {Icon && <Icon className="w-3.5 h-3.5 text-foreground-muted shrink-0" />}
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-foreground break-words">{children ?? "—"}</p>
     </div>
   );
 }
 
-/**
- * Lifecycle progress.
- *
- * A rejected or cancelled request is NOT rendered as a partially-complete chain:
- * it stopped, and drawing three green steps and four grey ones would imply it is
- * still moving. The abort is shown as its own terminal state instead.
- */
 function LifecycleBar({ status }) {
   if (ABORTED[status]) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-border bg-hover/40 px-4 py-3">
-        <Ban className="w-4 h-4 shrink-0 text-foreground-muted" aria-hidden="true" />
-        <p className="text-sm text-foreground-secondary">
-          This request was <span className="font-medium text-foreground">{ABORTED[status].toLowerCase()}</span> and is
-          no longer progressing.
+      <div className="flex items-center gap-2 rounded-2xl border border-danger/30 bg-danger/5 px-4 py-3 text-xs">
+        <Ban className="w-4 h-4 shrink-0 text-danger" />
+        <p className="text-foreground">
+          This request was <span className="font-bold text-danger">{ABORTED[status].toLowerCase()}</span> and is no longer progressing.
         </p>
       </div>
     );
@@ -128,67 +109,69 @@ function LifecycleBar({ status }) {
   const current = STEPS.indexOf(status);
 
   return (
-    <ol className="flex flex-wrap items-center gap-1">
-      {STEPS.map((step, i) => {
-        const done = current > -1 && i < current;
-        const active = i === current;
-        return (
-          <li key={step} className="flex items-center gap-1">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-xs transition-colors",
-                active
-                  ? "bg-primary text-surface font-semibold"
-                  : done
-                    ? "bg-success/10 text-success font-medium"
-                    : "bg-hover text-foreground-muted"
+    <div className="p-4 rounded-2xl bg-surface border border-border/60 shadow-xs">
+      <ol className="flex flex-wrap items-center gap-2">
+        {STEPS.map((step, i) => {
+          const done = current > -1 && i < current;
+          const active = i === current;
+          return (
+            <li key={step} className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-colors",
+                  active
+                    ? "bg-blue-600 text-white shadow-xs"
+                    : done
+                    ? "bg-success/15 text-success border border-success/30 font-medium"
+                    : "bg-muted/50 text-foreground-muted border border-border/40"
+                )}
+              >
+                {done && <CheckCircle2 className="w-3.5 h-3.5" />}
+                {step}
+              </span>
+              {i < STEPS.length - 1 && (
+                <ArrowRight
+                  className={cn("w-3.5 h-3.5", done ? "text-success" : "text-foreground-muted/40")}
+                />
               )}
-              aria-current={active ? "step" : undefined}
-            >
-              {done && <CheckCircle2 className="w-3 h-3" aria-hidden="true" />}
-              {step}
-            </span>
-            {i < STEPS.length - 1 && (
-              <ArrowRight
-                className={cn("w-3 h-3", done ? "text-success" : "text-foreground-muted/50")}
-                aria-hidden="true"
-              />
-            )}
-          </li>
-        );
-      })}
-    </ol>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
-/** The dispatches raised from this request, newest first. */
+
 function DispatchList({ dispatches }) {
   if (!dispatches?.length) return null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Dispatch</CardTitle>
-        <CardDescription>
+    <Card className="border-0 shadow-sm rounded-2xl">
+      <CardHeader className="pb-3 border-b border-border/60">
+        <CardTitle className="text-sm font-bold flex items-center gap-2">
+          <Send className="w-4 h-4 text-primary" /> Dispatches Raised
+        </CardTitle>
+        <CardDescription className="text-xs">
           {dispatches.length === 1
             ? "The dispatch raised from this request."
             : `${dispatches.length} dispatches have been raised from this request.`}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-2 pt-4">
         {dispatches.map((d) => (
           <Link
             key={d.dispatch_id}
             href={`/dispatch/${d.dispatch_id}`}
-            className="flex items-center justify-between gap-3 rounded-lg border border-border p-3 transition-colors hover:bg-hover"
+            className="flex items-center justify-between gap-3 rounded-xl border border-border p-3.5 transition-all hover:bg-hover hover:border-primary/40 bg-surface"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <Send className="w-3.5 h-3.5 shrink-0 text-primary" aria-hidden="true" />
-                <span className="font-data text-sm font-medium text-foreground">
+                <Send className="w-3.5 h-3.5 shrink-0 text-primary" />
+                <span className="font-data text-xs font-bold text-foreground">
                   {d.dispatch_number || `DSP-${d.dispatch_id}`}
                 </span>
               </div>
-              <p className="mt-0.5 truncate text-xs text-foreground-muted">
+              <p className="mt-0.5 truncate text-xs text-foreground-secondary">
                 {d.plate_number || "No vehicle"}
                 {" · "}
                 {[d.driver_first_name, d.driver_last_name].filter(Boolean).join(" ") || "No driver"}
@@ -290,8 +273,6 @@ export default function ReservationDetailPage() {
   const [rescheduling, setRescheduling] = useState(false);
   const [newPickup, setNewPickup] = useState("");
 
-  // Resolved once and passed down, so each action button and its endpoint agree
-  // on the same permission name. scripts/verify-rbac.mjs pins the two layers.
   const permissions = useMemo(
     () => ({
       update: can("reservations", "update"),
@@ -362,8 +343,6 @@ export default function ReservationDetailPage() {
     onError: (e) => toast.error(e.message || "Failed to reschedule"),
   });
 
-  // A 409 carries the blocking conflicts; hand them to the dialog so the
-  // override decision is made against the server's own reasons.
   const assignMutation = useMutation({
     mutationFn: ({ vehicleId, driverId, force }) =>
       assignResources(requestId, { vehicleId, driverId, force }),
@@ -383,45 +362,23 @@ export default function ReservationDetailPage() {
       else toast.error(e.message || "Failed to assign resources");
     },
   });
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-9 w-64" />
-        <Skeleton className="h-12 w-full rounded-xl" />
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
-            <Skeleton className="h-64 w-full rounded-xl" />
-            <Skeleton className="h-48 w-full rounded-xl" />
-          </div>
-          <Skeleton className="h-80 w-full rounded-xl" />
-        </div>
-      </div>
-    );
-  }
+
+  if (isLoading) return <DetailSkeleton />;
 
   if (isError || !request) {
     return (
-      <div className="rounded-xl border border-border bg-surface">
-        <EmptyState
-          icon={isError ? TriangleAlert : Inbox}
-          title={isError ? "Could not load this request" : "Request not found"}
-          description={
-            error?.message ||
-            "It may have been deleted, or you may not have permission to view it."
-          }
-          action={
-            <div className="flex gap-2">
-              {isError && (
-                <Button variant="outline" size="sm" onClick={() => refetch()}>
-                  Try again
-                </Button>
-              )}
-              <Button size="sm" onClick={() => router.push("/reservations")}>
-                Back to Reservations
-              </Button>
-            </div>
-          }
-        />
+      <div className="space-y-4 max-w-4xl mx-auto py-12">
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back
+        </Button>
+        <Card className="border-0 shadow-sm text-center p-12 rounded-2xl">
+          <CardContent className="space-y-3">
+            <Inbox className="w-12 h-12 text-foreground-muted mx-auto opacity-50" />
+            <p className="text-lg font-bold text-foreground">Reservation Record Not Found</p>
+            <p className="text-xs text-foreground-secondary">{error?.message || "It may have been deleted or archived."}</p>
+            <Button className="mt-4 rounded-xl" onClick={() => router.push("/reservations")}>Back to Reservations List</Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -435,41 +392,115 @@ export default function ReservationDetailPage() {
   const approver = personName(r.approver);
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Go back">
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <div className="min-w-0 flex-1">
-          <PageHeader
-            eyebrow="Operations"
-            title={r.reservation_number || `Request #${r.request_id}`}
-            description={
-              r.created_at
+    <div className="space-y-6 w-full pb-6">
+      {/* ── Top Page Banner & Header Bar ── */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.push("/reservations")}>
+            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
+          </Button>
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold text-foreground">
+                {r.reservation_number || `Request #${r.request_id}`}
+              </h1>
+              <StatusBadge status={r.priority} entity="priority" />
+              <StatusBadge status={status} entity="reservation" />
+            </div>
+            <p className="text-xs text-foreground-secondary mt-0.5">
+              {r.created_at
                 ? `Received from ${r.source_system || "Booking"} on ${formatDateTime(r.created_at)}`
-                : `Received from ${r.source_system || "Booking"}`
-            }
-            actions={
-              <div className="flex flex-wrap items-center gap-1.5">
-                <StatusBadge status={r.priority} entity="priority" />
-                <StatusBadge status={status} entity="reservation" />
-              </div>
-            }
-          />
+                : `Received from ${r.source_system || "Booking"}`}
+            </p>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {status === L.PENDING && permissions.update && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={reviewMutation.isPending}
+              onClick={() => reviewMutation.mutate()}
+              className="rounded-xl text-xs"
+            >
+              <Clock className="w-3.5 h-3.5 mr-1" /> Start Review
+            </Button>
+          )}
+          {isReviewable(status) && permissions.approve && (
+            <>
+              <Button
+                size="sm"
+                disabled={approveMutation.isPending}
+                onClick={() => approveMutation.mutate()}
+                className="rounded-xl text-xs bg-success text-success-foreground hover:bg-success/90"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Approve Request
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl text-xs text-danger border-danger/30 hover:bg-danger/10"
+                onClick={() => { setReason(""); setRejecting(true); }}
+              >
+                <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
+              </Button>
+            </>
+          )}
+          {isAssignable(status) && permissions.assign && (
+            <Button
+              size="sm"
+              onClick={() => { setAssignError(null); setAssigning(true); }}
+              className="rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs"
+            >
+              <Send className="w-3.5 h-3.5 mr-1 text-white" />
+              {r.vehicle_id && r.driver_id ? "Reassign Resources" : "Assign Resources"}
+            </Button>
+          )}
+          {isCancellable(status) && permissions.reschedule && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs"
+              onClick={() => {
+                const d = r.pickup_datetime ? new Date(r.pickup_datetime) : new Date();
+                const pad = (n) => String(n).padStart(2, "0");
+                setNewPickup(
+                  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+                );
+                setReason("");
+                setRescheduling(true);
+              }}
+            >
+              <CalendarClock className="w-3.5 h-3.5 mr-1" /> Reschedule
+            </Button>
+          )}
+          {isCancellable(status) && permissions.cancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs text-danger border-danger/30 hover:bg-danger/10"
+              onClick={() => { setReason(""); setCancelling(true); }}
+            >
+              <Ban className="w-3.5 h-3.5 mr-1" /> Cancel
+            </Button>
+          )}
         </div>
       </div>
 
+      {/* ── Lifecycle Progress Bar ── */}
       <LifecycleBar status={status} />
 
       {conflicts.length > 0 && (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+        <div className="rounded-2xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
-            <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
+            <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" />
             <div className="min-w-0">
-              <p className="text-sm font-medium text-foreground">
+              <p className="text-xs font-bold text-foreground">
                 {conflicts.length} conflict{conflicts.length === 1 ? "" : "s"} detected
               </p>
-              <p className="mt-0.5 text-sm text-foreground-secondary">
+              <p className="mt-0.5 text-xs text-foreground-secondary">
                 Advisory — assignment enforces these. Overriding is recorded on the timeline.
               </p>
               <div className="mt-2 flex flex-wrap">
@@ -480,203 +511,148 @@ export default function ReservationDetailPage() {
         </div>
       )}
 
-      {/* Actions. Each is gated on the permission its endpoint enforces, and on
-          the state machine's own view of what is legal from here. */}
-      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-border bg-surface p-3">
-        {status === L.PENDING && permissions.update && (
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={reviewMutation.isPending}
-            onClick={() => reviewMutation.mutate()}
-          >
-            <Clock className="w-3.5 h-3.5 mr-1" />
-            Start Review
-          </Button>
-        )}
-        {isReviewable(status) && permissions.approve && (
-          <>
-            <Button
-              variant="success"
-              size="sm"
-              disabled={approveMutation.isPending}
-              onClick={() => approveMutation.mutate()}
-            >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-              Approve
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-danger"
-              onClick={() => { setReason(""); setRejecting(true); }}
-            >
-              <XCircle className="w-3.5 h-3.5 mr-1" />
-              Reject
-            </Button>
-          </>
-        )}
-        {isAssignable(status) && permissions.assign && (
-          <Button size="sm" onClick={() => { setAssignError(null); setAssigning(true); }}>
-            <Send className="w-3.5 h-3.5 mr-1" />
-            {r.vehicle_id && r.driver_id ? "Reassign" : "Assign"}
-          </Button>
-        )}
-        {isCancellable(status) && permissions.reschedule && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              // datetime-local wants local wall time, not an ISO instant.
-              const d = r.pickup_datetime ? new Date(r.pickup_datetime) : new Date();
-              const pad = (n) => String(n).padStart(2, "0");
-              setNewPickup(
-                `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
-              );
-              setReason("");
-              setRescheduling(true);
-            }}
-          >
-            <CalendarClock className="w-3.5 h-3.5 mr-1" />
-            Reschedule
-          </Button>
-        )}
-        {isCancellable(status) && permissions.cancel && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto text-foreground-muted"
-            onClick={() => { setReason(""); setCancelling(true); }}
-          >
-            <Ban className="w-3.5 h-3.5 mr-1" />
-            Cancel Request
-          </Button>
-        )}
-      </div>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          {/* Route + schedule */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Trip</CardTitle>
-              <CardDescription>Requested route and schedule.</CardDescription>
+      {/* ── Main Details Layout (7 Cols Left / 5 Cols Right) ── */}
+      <div className="grid gap-6 lg:grid-cols-12 items-start">
+        
+        {/* ── LEFT COLUMN: Trip Route, Guest Info & Assignment Details (7 Cols) ── */}
+        <div className="lg:col-span-7 space-y-6">
+          
+          {/* TRIP ROUTE & SCHEDULE */}
+          <Card className="border-0 shadow-sm rounded-2xl">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                <div className="p-2 rounded-xl bg-primary/10 text-primary">
+                  <Navigation className="w-4 h-4" />
+                </div>
+                Trip Route &amp; Schedule
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Requested pickup location, destination, and travel estimates.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="pt-4 space-y-4">
               <div className="space-y-2">
-                <div className="flex items-start gap-3 rounded-lg bg-hover/50 p-3">
-                  <MapPin className="mt-0.5 w-4 h-4 shrink-0 text-danger" aria-hidden="true" />
+                <div className="flex items-start gap-3 rounded-xl bg-muted/20 border border-border/50 p-4">
+                  <MapPin className="mt-0.5 w-4 h-4 shrink-0 text-danger" />
                   <div className="min-w-0">
-                    <p className="text-xs text-foreground-muted">Pickup</p>
-                    <p className="text-sm font-medium text-foreground break-words">
-                      {r.pickup_location || "—"}
-                    </p>
+                    <p className="text-xs font-medium text-foreground-secondary uppercase tracking-wider">Pickup Location</p>
+                    <p className="text-base font-bold text-foreground break-words mt-0.5">{r.pickup_location || "—"}</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-3 rounded-lg bg-hover/50 p-3">
-                  <MapPin className="mt-0.5 w-4 h-4 shrink-0 text-success" aria-hidden="true" />
+                <div className="flex items-start gap-3 rounded-xl bg-muted/20 border border-border/50 p-4">
+                  <MapPin className="mt-0.5 w-4 h-4 shrink-0 text-success" />
                   <div className="min-w-0">
-                    <p className="text-xs text-foreground-muted">Dropoff</p>
-                    <p className="text-sm font-medium text-foreground break-words">
-                      {r.dropoff_location || "—"}
-                    </p>
+                    <p className="text-xs font-medium text-foreground-secondary uppercase tracking-wider">Dropoff Destination</p>
+                    <p className="text-base font-bold text-foreground break-words mt-0.5">{r.dropoff_location || "—"}</p>
                   </div>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-                <Field icon={Clock} label="Pickup time">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field icon={Clock} label="Pickup Time">
                   {r.pickup_datetime ? formatDateTime(r.pickup_datetime) : null}
                 </Field>
-                <Field icon={Users} label="Passengers">{r.passenger_count || 1}</Field>
-                <Field label="Service">{r.service_types?.service_name}</Field>
-                <Field label="Vehicle type">
-                  {r.vehiclecategories?.category_name || r.requested_vehicle_type}
+                <Field icon={Users} label="Passengers">{r.passenger_count || 1} Person(s)</Field>
+                <Field icon={Car} label="Vehicle Category">
+                  {r.vehiclecategories?.category_name || r.requested_vehicle_type || "Any Category"}
                 </Field>
-                {/* pg returns DECIMAL as a string and formatDistance() calls
-                    .toFixed() on its argument, so both are coerced first. */}
-                <Field label="Est. distance">
-                  {num(r.estimated_distance) != null ? formatDistance(num(r.estimated_distance)) : null}
+                <Field label="Est. Distance">
+                  {num(r.estimated_distance) != null ? formatDistance(num(r.estimated_distance)) : "—"}
                 </Field>
-                <Field label="Est. duration">
-                  {num(r.estimated_duration) != null ? formatDuration(num(r.estimated_duration)) : null}
+                <Field label="Est. Duration">
+                  {num(r.estimated_duration) != null ? formatDuration(num(r.estimated_duration)) : "—"}
                 </Field>
+                <Field label="Service Type">{r.service_types?.service_name || "Transfer"}</Field>
               </div>
 
               {r.special_requests && (
-                <Field icon={FileText} label="Special requests">{r.special_requests}</Field>
+                <Field icon={FileText} label="Special Requests & Notes">{r.special_requests}</Field>
               )}
               {r.status_reason && (
-                <Field icon={FileText} label="Reason">{r.status_reason}</Field>
+                <Field icon={FileText} label="Status Reason / Notes">{r.status_reason}</Field>
               )}
             </CardContent>
           </Card>
 
-          {/* Guest + provenance. Booking owns all of this; Fleet caches it. */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Guest &amp; Booking</CardTitle>
-              <CardDescription>
-                Owned by the Booking system and shown read-only.
+          {/* GUEST & BOOKING PROVENANCE */}
+          <Card className="border-0 shadow-sm rounded-2xl">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
+                  <User className="w-4 h-4" />
+                </div>
+                Guest &amp; External Booking Info
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Inbound booking details from connected PMS / POS systems.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-              <Field icon={Users} label="Guest">{r.guest_name}</Field>
-              <Field icon={ExternalLink} label="Booking reference">
-                {r.booking_reference ? (
-                  <span className="font-data text-xs">{r.booking_reference}</span>
-                ) : null}
-              </Field>
-              <Field icon={Building2} label="Source">{r.source_system}</Field>
-              <Field label="Booking status">{r.booking_status}</Field>
-              <Field label="External ID">
-                {r.external_booking_id ? (
-                  <span className="font-data text-xs">{r.external_booking_id}</span>
-                ) : null}
-              </Field>
-              <Field label="Received">
-                {r.created_at ? formatDateTime(r.created_at) : null}
-              </Field>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field icon={Users} label="Guest Name">{r.guest_name}</Field>
+                <Field icon={ExternalLink} label="Booking Reference">
+                  {r.booking_reference ? <span className="font-data text-xs">{r.booking_reference}</span> : null}
+                </Field>
+                <Field icon={Building2} label="Source System">{r.source_system}</Field>
+                <Field label="Booking Status">{r.booking_status}</Field>
+                <Field label="External ID">
+                  {r.external_booking_id ? <span className="font-data text-xs">{r.external_booking_id}</span> : null}
+                </Field>
+                <Field label="Received At">
+                  {r.created_at ? formatDateTime(r.created_at) : null}
+                </Field>
+              </div>
             </CardContent>
           </Card>
 
-          {/* Committed resources + approval audit */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Assignment</CardTitle>
-              <CardDescription>What Fleet has committed to this request.</CardDescription>
+          {/* COMMITTED RESOURCE ASSIGNMENT */}
+          <Card className="border-0 shadow-sm rounded-2xl">
+            <CardHeader className="pb-3 border-b border-border/60">
+              <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+                <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
+                  <CarFront className="w-4 h-4" />
+                </div>
+                Resource Assignment &amp; Audit
+              </CardTitle>
+              <CardDescription className="text-xs">
+                Vehicle and driver assigned to fulfill this request.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
-              <Field icon={CarFront} label="Vehicle">
-                {vehicle
-                  ? `${vehicle.plate_number}${vehicle.model ? ` · ${vehicle.model}` : ""}`
-                  : null}
-              </Field>
-              <Field icon={UserCheck} label="Driver">{driverName(driver)}</Field>
-              <Field label="Driver contact">{driver?.phone}</Field>
-              <Field label="Reviewed by">
-                {reviewer
-                  ? `${reviewer}${r.reviewed_at ? ` · ${formatDateTime(r.reviewed_at)}` : ""}`
-                  : null}
-              </Field>
-              <Field label="Approved by">
-                {approver
-                  ? `${approver}${r.approved_at ? ` · ${formatDateTime(r.approved_at)}` : ""}`
-                  : null}
-              </Field>
-              <Field label="Legacy reservation">
-                {r.reservation_id ? (
-                  <span className="font-data text-xs">#{r.reservation_id}</span>
-                ) : null}
-              </Field>
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field icon={CarFront} label="Assigned Vehicle">
+                  {vehicle
+                    ? `${vehicle.plate_number}${vehicle.model ? ` · ${vehicle.model}` : ""}`
+                    : null}
+                </Field>
+                <Field icon={UserCheck} label="Assigned Driver">{driverName(driver)}</Field>
+                <Field label="Driver Phone">{driver?.phone}</Field>
+                <Field label="Reviewed By">
+                  {reviewer
+                    ? `${reviewer}${r.reviewed_at ? ` · ${formatDateTime(r.reviewed_at)}` : ""}`
+                    : null}
+                </Field>
+                <Field label="Approved By">
+                  {approver
+                    ? `${approver}${r.approved_at ? ` · ${formatDateTime(r.approved_at)}` : ""}`
+                    : null}
+                </Field>
+                <Field label="Reservation ID">
+                  {r.reservation_id ? <span className="font-data text-xs">#{r.reservation_id}</span> : null}
+                </Field>
+              </div>
             </CardContent>
           </Card>
 
           <DispatchList dispatches={r.dispatches} />
         </div>
 
-        {/* Advisor + history. The advisor only appears while assignment is still
-            open — a recommendation for a completed trip is noise. */}
-        <div className="space-y-6">
+        {/* ── RIGHT COLUMN: AI Advisor & Timeline (5 Cols) ── */}
+        <div className="lg:col-span-5 space-y-6">
+          {/* Saved recommendation: the recorded pick from fleet review, shown
+              before the live advisory panel. Advisor only appears while
+              assignment is still open — a recommendation for a completed trip
+              is noise. */}
           <SavedRecommendation
             vehicle={cachedSide(r.ai_vehicle_recommendation)}
             driver={cachedSide(r.ai_driver_recommendation)}
@@ -688,141 +664,140 @@ export default function ReservationDetailPage() {
               onAssigned={invalidate}
             />
           )}
+
           <ReservationTimeline requestId={requestId} />
         </div>
       </div>
 
-      <AssignDialog
-        request={assigning ? r : null}
-        conflictError={assignError}
-        isPending={assignMutation.isPending}
-        onClose={() => { setAssigning(false); setAssignError(null); }}
-        onSubmit={(payload) => assignMutation.mutate(payload)}
-      />
+      {/* ── Dialogs ── */}
+      {assigning && (
+        <AssignDialog
+          open={assigning}
+          onOpenChange={(v) => { setAssigning(v); if (!v) setAssignError(null); }}
+          request={r}
+          conflictError={assignError}
+          onAssign={({ vehicleId, driverId, force }) =>
+            assignMutation.mutateAsync({ vehicleId, driverId, force })
+          }
+          isPending={assignMutation.isPending}
+        />
+      )}
 
-      <ReasonDialog
-        open={rejecting}
-        title="Reject Request?"
-        description="Booking will be notified so the guest can be re-routed. This cannot be undone."
-        confirmLabel="Reject Request"
-        variant="destructive"
-        reason={reason}
-        onReason={setReason}
-        isPending={rejectMutation.isPending}
-        onClose={() => { setRejecting(false); setReason(""); }}
-        onConfirm={() => rejectMutation.mutate()}
-      />
-
-      <ReasonDialog
-        open={cancelling}
-        title="Cancel Request?"
-        description="This releases any assigned vehicle and driver, and notifies Booking."
-        confirmLabel="Cancel Request"
-        variant="destructive"
-        reason={reason}
-        onReason={setReason}
-        isPending={cancelMutation.isPending}
-        onClose={() => { setCancelling(false); setReason(""); }}
-        onConfirm={() => cancelMutation.mutate()}
-      />
-
-      <Dialog
-        open={rescheduling}
-        onOpenChange={(open) => { if (!open) { setRescheduling(false); setReason(""); } }}
-      >
-        <DialogContent>
+      <Dialog open={rejecting} onOpenChange={setRejecting}>
+        <DialogContent className="rounded-2xl">
           <DialogHeader>
-            <DialogTitle>Reschedule Pickup</DialogTitle>
-            <DialogDescription>
-              Moving the pickup time does not change the request&apos;s status — it is a property
-              change, not a lifecycle step. Any existing conflicts are re-evaluated on the next
-              assignment.
+            <DialogTitle className="text-base font-bold">Reject Transport Request</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will mark the request rejected and notify the originating Booking system.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-3 px-6 pt-4">
-            <div>
-              <label className="text-sm font-medium text-foreground" htmlFor="new-pickup">
-                New pickup time
-              </label>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reject-reason" className="text-xs font-semibold">Reason (optional)</Label>
+            <Input
+              id="reject-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. No vehicles available at requested time"
+              className="rounded-xl text-xs"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRejecting(false)} className="rounded-xl">
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={rejectMutation.isPending}
+              onClick={() => rejectMutation.mutate()}
+              className="rounded-xl"
+            >
+              Reject Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cancelling} onOpenChange={setCancelling}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Cancel Transport Request</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will cancel the request in Fleet and notify the Booking system.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="cancel-reason" className="text-xs font-semibold">Reason (optional)</Label>
+            <Input
+              id="cancel-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Guest cancelled booking"
+              className="rounded-xl text-xs"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCancelling(false)} className="rounded-xl">
+              Back
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={cancelMutation.isPending}
+              onClick={() => cancelMutation.mutate()}
+              className="rounded-xl"
+            >
+              Cancel Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rescheduling} onOpenChange={setRescheduling}>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Reschedule Pickup Time</DialogTitle>
+            <DialogDescription className="text-xs">
+              Change the requested pickup datetime. The timeline will log this change.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="new-pickup" className="text-xs font-semibold">New Pickup Date &amp; Time *</Label>
               <Input
                 id="new-pickup"
                 type="datetime-local"
-                className="mt-1.5"
                 value={newPickup}
                 onChange={(e) => setNewPickup(e.target.value)}
+                className="rounded-xl text-xs"
               />
             </div>
-            <div>
-              <label className="text-sm font-medium text-foreground" htmlFor="reschedule-reason">
-                Reason (optional)
-              </label>
+            <div className="space-y-1.5">
+              <Label htmlFor="reschedule-reason" className="text-xs font-semibold">Reason (optional)</Label>
               <Input
                 id="reschedule-reason"
-                className="mt-1.5"
-                placeholder="e.g. Guest flight delayed"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Flight delay"
+                className="rounded-xl text-xs"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setRescheduling(false); setReason(""); }}>
+            <Button variant="outline" size="sm" onClick={() => setRescheduling(false)} className="rounded-xl">
               Cancel
             </Button>
             <Button
-              disabled={!newPickup || rescheduleMutation.isPending}
+              size="sm"
+              disabled={rescheduleMutation.isPending || !newPickup}
               onClick={() => rescheduleMutation.mutate()}
+              className="rounded-xl px-4"
             >
-              {rescheduleMutation.isPending ? "Saving…" : "Reschedule"}
+              Save New Pickup Time
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-/** Confirm dialog with an optional free-text reason, shared by reject and cancel. */
-function ReasonDialog({
-  open,
-  title,
-  description,
-  confirmLabel,
-  variant = "default",
-  reason,
-  onReason,
-  isPending,
-  onClose,
-  onConfirm,
-}) {
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <div className="px-6 pt-4">
-          <label className="text-sm font-medium text-foreground" htmlFor="reason-input">
-            Reason (optional)
-          </label>
-          <Input
-            id="reason-input"
-            className="mt-1.5"
-            placeholder="e.g. No vehicle available for that window"
-            value={reason}
-            onChange={(e) => onReason(e.target.value)}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Keep Request
-          </Button>
-          <Button variant={variant} disabled={isPending} onClick={onConfirm}>
-            {confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

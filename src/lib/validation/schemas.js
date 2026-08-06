@@ -75,6 +75,22 @@ export const vehicleSchema = z.object({
     (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
     z.number().min(0, "Mileage must be a positive number.").optional()
   ),
+  service_interval_km: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
+    z
+      .number()
+      .int("Service interval (km) must be a whole number.")
+      .min(1, "Service interval (km) must be at least 1. Leave it blank to skip mileage-based prediction.")
+      .optional()
+  ),
+  service_interval_days: z.preprocess(
+    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
+    z
+      .number()
+      .int("Service interval (days) must be a whole number.")
+      .min(1, "Service interval (days) must be at least 1. Leave it blank to skip time-based prediction.")
+      .optional()
+  ),
 });
 
 export const driverSchema = z.object({
@@ -117,85 +133,32 @@ export const driverSchema = z.object({
   ),
   driver_status: z.string().default("Available"),
   license_image_url: z.string().optional(),
-});
-
-export const driverEditSchema = driverSchema.extend({
-  license_expiry: dateString("License expiry"),
-});
-
-export const reservationSchema = z.object({
-  guest_name: optionalString(),
-  guest_phone: z
+  license_back_image_url: z.string().optional(),
+  address: z.string().max(255, "Address must be at most 255 characters.").optional().or(z.literal("")),
+  sex: z.string().max(20, "Sex must be at most 20 characters.").optional().or(z.literal("")),
+  birthdate: dateString("Birthdate"),
+  nationality: z.string().max(100, "Nationality must be at most 100 characters.").optional().or(z.literal("")),
+  emergency_contact_name: optionalString({ max: 150 }),
+  emergency_contact_address: optionalString({ max: 255 }),
+  emergency_contact_phone: z
     .string()
     .optional()
     .or(z.literal(""))
     .refine((v) => !v || isPhonePH(v), "Please enter a valid Philippine phone number (e.g. 09171234567)."),
-  guest_email: z.string().email("Please enter a valid email address.").or(z.literal("")).optional(),
-  pickup_location: requiredString("Pickup location"),
-  dropoff_location: optionalString(),
-  reservation_date: z
-    .string()
-    .min(1, "Date is required.")
-    .refine((v) => isIsoDate(v), "Date must be a valid date.")
-    .refine((v) => !isDateInPast(v), "Reservation date must not be in the past."),
-  pickup_time: z.string().min(1, "Pickup time is required."),
-  estimated_return_time: optionalString(),
-  purpose: optionalString(),
-  passenger_count: z.preprocess(
-    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
-    z.number().int().min(LIMITS.SEAT_MIN).max(LIMITS.SEAT_MAX).default(1)
-  ),
-  notes: optionalString(),
-  vehicle_id: coerceId("Vehicle"),
-  driver_id: coerceId("Driver"),
-  service_type_id: coerceId("Service type"),
-  booking_channel_id: coerceId("Booking channel"),
-  external_booking_id: optionalString(),
-  integration_source: optionalString(),
-  room_number: optionalString(),
-  bill_to_room: z.boolean().optional(),
-  guest_id: z.string().optional(),
 });
 
-// Admin account creation. Mirrors the rules in
-// src/app/api/auth/register/route.js (validateBody with the same labels and
-// maxLengths), so a client-side error means the server would reject it too —
-// the two layers can't disagree about what is a valid account.
+export const driverEditSchema = driverSchema;
+
 export const createUserSchema = z.object({
-  email: z
-    .string({ error: "Email is required." })
-    .min(1, "Email is required.")
-    .email("Please enter a valid email address."),
-  password: z
-    .string({ error: "Password is required." })
-    .min(1, "Password is required.")
-    .min(LIMITS.PASSWORD_MIN, `Password must be at least ${LIMITS.PASSWORD_MIN} characters.`)
-    .refine((v) => /[a-z]/.test(v), "Password must contain at least one lowercase letter.")
-    .refine((v) => /[A-Z]/.test(v), "Password must contain at least one uppercase letter.")
-    .refine((v) => /\d/.test(v), "Password must contain at least one number.")
-    .refine((v) => /[^A-Za-z0-9]/.test(v), "Password must contain at least one special character."),
-  first_name: z
-    .string({ error: "First name is required." })
-    .min(1, "First name is required.")
-    .min(LIMITS.NAME_MIN, `First name must be at least ${LIMITS.NAME_MIN} characters.`)
-    .max(100, "First name must be at most 100 characters.")
-    .refine(
-      (v) => PATTERNS.NAME.test(v.trim()),
-      "First name must contain only letters (no numbers or special characters)."
-    ),
-  last_name: z
-    .string({ error: "Last name is required." })
-    .min(1, "Last name is required.")
-    .min(LIMITS.NAME_MIN, `Last name must be at least ${LIMITS.NAME_MIN} characters.`)
-    .max(100, "Last name must be at most 100 characters.")
-    .refine(
-      (v) => PATTERNS.NAME.test(v.trim()),
-      "Last name must contain only letters (no numbers or special characters)."
-    ),
-  role_id: z.preprocess(
-    (v) => (v === "" || v === undefined || v === null ? undefined : Number(v)),
-    z.number().int().positive("Please select a role.")
+  email: z.string().trim().min(1, "Email address is required.").email("Please enter a valid email address."),
+  password: z.string().min(6, "Password must be at least 6 characters."),
+  first_name: requiredString("First name", { max: 100 }).refine(
+    (v) => PATTERNS.NAME.test(v.trim()),
+    "First name must contain only letters."
   ),
+  last_name: requiredString("Last name", { max: 100 }).refine(
+    (v) => PATTERNS.NAME.test(v.trim()),
+    "Last name must contain only letters."
+  ),
+  role_id: z.string().min(1, "System role is required."),
 });
-
-export { isVIN, isYear };

@@ -78,99 +78,145 @@ function RiskList({ risks = [] }) {
  * manual assign dialog's job. When there is no alternate the button is absent,
  * so the UI never offers a choice it cannot honour.
  */
-function CandidateBlock({ icon: Icon, label, side, pick, onSwap, expanded }) {
-  const { recommended, alternate, considered = 0 } = side || {};
-  const showingAlternate = pick === PICK.ALTERNATE;
-  const active = showingAlternate ? alternate : recommended;
+/**
+ * Combined Vehicle & Driver Pair Block.
+ * Replaces the split separate vehicle/driver blocks with a single unified pair card.
+ */
+function VehicleDriverPairBlock({
+  vehicleSide,
+  driverSide,
+  vehiclePick,
+  driverPick,
+  onSwapVehicle,
+  onSwapDriver,
+  expanded,
+}) {
+  const vehicle = vehiclePick === PICK.ALTERNATE ? vehicleSide?.alternate : vehicleSide?.recommended;
+  const driver = driverPick === PICK.ALTERNATE ? driverSide?.alternate : driverSide?.recommended;
 
-  if (!active) {
+  if (!vehicle) {
     return (
-      <div className="rounded-lg border border-border p-3">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-foreground-muted" aria-hidden="true" />
-          <p className="text-sm font-medium text-foreground">{label}</p>
+      <div className="rounded-xl border border-border bg-hover/30 p-4 space-y-2">
+        <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
+          <CarFront className="w-4 h-4 text-foreground-muted" />
+          <span>Vehicle &amp; Driver Dispatch Pair</span>
         </div>
-        <p className="mt-1 text-sm text-foreground-secondary">
-          {considered > 0
-            ? `None of the ${considered} available candidates fits this request.`
-            : "No candidates are currently available."}
+        <p className="text-xs text-foreground-secondary leading-relaxed">
+          {vehicleSide?.considered > 0
+            ? `None of the ${vehicleSide.considered} available vehicles fit this request's seating capacity or requirements.`
+            : "No candidates are currently available for this pickup window."}
         </p>
       </div>
     );
   }
 
-  const pct = confidencePercent(active);
-  const title = active.plate_number
-    ? `${active.plate_number}${active.vehicle_name ? ` · ${active.vehicle_name}` : ""}`
-    : active.driver_name;
+  const vPct = confidencePercent(vehicle);
+  const dPct = driver ? confidencePercent(driver) : 0;
+  const pairPct = driver ? Math.round((vPct + dPct) / 2) : vPct;
 
-  const meta = [
-    active.seating_capacity != null ? `${active.seating_capacity} seats` : null,
-    active.fuel_level != null ? `Fuel ${active.fuel_level}%` : null,
-    active.years_of_experience != null ? `${active.years_of_experience} yr experience` : null,
-    active.rating ? `Rating ${active.rating}/5` : null,
-    active.estimated_fuel_liters != null
-      ? `~${active.estimated_fuel_liters} L round trip${
-          active.estimated_fuel_percent_of_tank != null
-            ? ` (${active.estimated_fuel_percent_of_tank}% of tank)`
-            : ""
-        }`
-      : null,
+  const vehicleTitle = vehicle.plate_number
+    ? `${vehicle.plate_number}${vehicle.vehicle_name ? ` · ${vehicle.vehicle_name}` : ""}`
+    : "Vehicle Unassigned";
+
+  const driverTitle = driver ? driver.driver_name : "No Designated Driver Available";
+
+  const vehicleMeta = [
+    vehicle.seating_capacity != null ? `${vehicle.seating_capacity} seats` : null,
+    vehicle.fuel_level != null ? `Fuel ${vehicle.fuel_level}%` : null,
+    vehicle.estimated_fuel_liters != null ? `~${vehicle.estimated_fuel_liters} L round trip` : null,
   ].filter(Boolean);
 
+  const driverMeta = driver
+    ? [
+        driver.years_of_experience != null ? `${driver.years_of_experience} yr experience` : null,
+        driver.rating ? `Rating ${driver.rating}/5` : null,
+      ].filter(Boolean)
+    : [];
+
   return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Icon className="w-4 h-4 shrink-0 text-foreground-muted" aria-hidden="true" />
-            <p className="text-xs text-foreground-muted">{label}</p>
-            {showingAlternate && (
-              <Badge variant="secondary" className="text-[10px]">
-                Alternate
-              </Badge>
-            )}
+    <div className="rounded-xl border border-border bg-surface p-4 space-y-3.5 shadow-xs">
+      <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-lg bg-primary/10 text-primary">
+            <Sparkles className="w-4 h-4" />
           </div>
-          <p className="mt-0.5 truncate text-sm font-medium text-foreground">{title}</p>
+          <div>
+            <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
+              Recommended Fleet Pair
+            </p>
+            <p className="text-[11px] text-foreground-muted">Vehicle paired with designated shift driver</p>
+          </div>
         </div>
-        {alternate && (
-          <Button variant="ghost" size="sm" className="shrink-0" onClick={onSwap}>
-            <Shuffle className="w-3.5 h-3.5 mr-1" />
-            Choose Another
+        <Badge variant={confidenceTone(pairPct)} className="text-xs font-bold px-2 py-0.5">
+          {pairPct}% Pair Confidence
+        </Badge>
+      </div>
+
+      {/* Vehicle Info */}
+      <div className="flex items-start justify-between gap-2 text-xs">
+        <div className="space-y-0.5 min-w-0">
+          <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
+            <CarFront className="w-3.5 h-3.5 text-primary shrink-0" /> Assigned Vehicle
+            {vehiclePick === PICK.ALTERNATE && (
+              <Badge variant="secondary" className="text-[9px] py-0 px-1">Alternate</Badge>
+            )}
+          </span>
+          <p className="font-bold text-foreground text-sm truncate">{vehicleTitle}</p>
+          {vehicleMeta.length > 0 && (
+            <p className="text-foreground-muted text-[11px]">{vehicleMeta.join(" · ")}</p>
+          )}
+        </div>
+        {vehicleSide?.alternate && (
+          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwapVehicle}>
+            <Shuffle className="w-3 h-3 mr-1" /> Swap Vehicle
           </Button>
         )}
       </div>
 
-      <ProgressBar
-        className="mt-2"
-        value={pct}
-        tone={confidenceTone(pct)}
-        label="Confidence"
-        valueLabel={`${pct}%`}
-      />
+      {/* Driver Info */}
+      <div className="flex items-start justify-between gap-2 text-xs pt-2.5 border-t border-border/40">
+        <div className="space-y-0.5 min-w-0">
+          <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
+            <UserCheck className="w-3.5 h-3.5 text-info shrink-0" /> Designated Driver
+            {driverPick === PICK.ALTERNATE && (
+              <Badge variant="secondary" className="text-[9px] py-0 px-1">Alternate</Badge>
+            )}
+          </span>
+          <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
+          {driverMeta.length > 0 && (
+            <p className="text-foreground-muted text-[11px]">{driverMeta.join(" · ")}</p>
+          )}
+        </div>
+        {driverSide?.alternate && driver && (
+          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwapDriver}>
+            <Shuffle className="w-3 h-3 mr-1" /> Swap Driver
+          </Button>
+        )}
+      </div>
 
-      {meta.length > 0 && (
-        <p className="mt-2 text-xs text-foreground-muted">{meta.join(" · ")}</p>
-      )}
-
-      {expanded && active.reasons?.length > 0 && (
-        <ul className="mt-2 space-y-1">
-          {active.reasons.map((reason, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs">
-              <Check className="mt-0.5 w-3 h-3 shrink-0 text-success" aria-hidden="true" />
-              <span className="text-foreground-secondary">{reason}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      <RiskList risks={active.detected_risks} />
-
+      {/* Rationale / Match Reasons */}
       {expanded && (
-        <p className="mt-2 text-xs text-foreground-muted">
-          Score {active.score}/100 · {considered} candidate{considered === 1 ? "" : "s"} considered
-        </p>
+        <div className="pt-2 border-t border-border/40 space-y-1.5">
+          <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">Pairing Rationale</p>
+          <ul className="space-y-1 text-xs">
+            {(vehicle?.reasons || []).slice(0, 2).map((r, i) => (
+              <li key={`v-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
+                <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
+                <span>Vehicle: {r}</span>
+              </li>
+            ))}
+            {driver && (driver?.reasons || []).slice(0, 2).map((r, i) => (
+              <li key={`d-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
+                <Check className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+                <span>Driver: {r}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
+
+      {/* Risks */}
+      <RiskList risks={[...(vehicle?.detected_risks || []), ...(driver?.detected_risks || [])]} />
     </div>
   );
 }
@@ -344,26 +390,18 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
           <>
             <TripSummary trip={rec?.trip} />
 
-            <CandidateBlock
-              icon={CarFront}
-              label="Vehicle"
-              side={rec?.vehicle}
-              pick={vehiclePick}
-              expanded={expanded}
-              onSwap={() =>
+            <VehicleDriverPairBlock
+              vehicleSide={rec?.vehicle}
+              driverSide={rec?.driver}
+              vehiclePick={vehiclePick}
+              driverPick={driverPick}
+              onSwapVehicle={() =>
                 setVehiclePick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))
               }
-            />
-
-            <CandidateBlock
-              icon={UserCheck}
-              label="Driver"
-              side={rec?.driver}
-              pick={driverPick}
-              expanded={expanded}
-              onSwap={() =>
+              onSwapDriver={() =>
                 setDriverPick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))
               }
+              expanded={expanded}
             />
 
             {expanded && rec?.narration && (

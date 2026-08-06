@@ -2,6 +2,8 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { writeAudit } from "@/lib/audit";
+import { query } from "@/lib/db";
+import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 
 // CANCEL a transportation request.
 //
@@ -19,6 +21,20 @@ export async function PUT(req, { params }) {
     if (!before) return err("Transportation request not found", 404);
 
     const reason = (body?.reason || "").toString().slice(0, 1000) || null;
+
+    const { rows: dispatches } = await query(
+      `SELECT dispatch_id FROM dispatchschedules
+        WHERE deleted_at IS NULL AND status IN ('Scheduled', 'In Progress')
+          AND (request_id = $1 OR (request_id IS NULL AND reservation_id = $2))`,
+      [id, before.reservation_id]
+    );
+    for (const d of dispatches) {
+      await query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [d.dispatch_id]);
+      const { rows: disp } = await query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1`, [d.dispatch_id]);
+      await query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [d.dispatch_id]);
+      if (disp[0]?.vehicle_id) await syncVehicleStatus(disp[0].vehicle_id);
+      if (disp[0]?.driver_id) await syncDriverStatus(disp[0].driver_id);
+    }
 
     const result = await advanceReservation({
       requestId: id,

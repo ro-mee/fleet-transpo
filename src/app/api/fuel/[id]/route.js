@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { validateOdometerReading } from "@/lib/vehicles/odometer";
 
 export async function GET(req, { params }) {
   try {
@@ -28,37 +29,91 @@ export async function GET(req, { params }) {
   } catch (e) { return handleError(e); }
 }
 
+const WRITABLE = new Set([
+  "vehicle_id", "driver_id", "trip_id", "liters", "amount", "price_per_liter",
+  "odometer", "fuel_type", "fuel_date", "station_name", "receipt_url",
+  "status", "rejection_reason", "notes",
+]);
+
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
     const body = await parseBody(req);
 
     const errors = validateBody(body, {
       vehicle_id: { type: "id", label: "Vehicle" },
       driver_id: { type: "id", label: "Driver" },
-      fuel_date: { type: "date", label: "Fuel date" },
+      trip_id: { type: "id", label: "Trip" },
       liters: { type: "positiveNumber", label: "Liters" },
-      cost_per_liter: { type: "positiveNumber", label: "Cost per liter" },
-      total_cost: { type: "positiveNumber", label: "Total cost" },
-      odometer_reading: { type: "positiveNumber", label: "Odometer reading" },
+      amount: { type: "positiveNumber", label: "Total amount" },
+      price_per_liter: { type: "positiveNumber", label: "Price per liter" },
+      odometer: { type: "positiveNumber", label: "Odometer" },
+      fuel_type: { maxLength: 50, label: "Fuel type" },
+      fuel_date: { type: "date", label: "Fuel date" },
       station_name: { maxLength: 255, label: "Station name" },
+      receipt_url: { maxLength: 2000, label: "Receipt image" },
       status: { maxLength: 30, label: "Status" },
+      rejection_reason: { maxLength: 500, label: "Rejection reason" },
       notes: { maxLength: 500, label: "Notes" },
-      rejected_reason: { maxLength: 500, label: "Rejection reason" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
 
-    // Prevent updating fuel_record_id
-    delete body.fuel_record_id;
-    body.updated_at = new Date().toISOString();
+    const { rows: before } = await query(
+      `SELECT status, approved_at, vehicle_id FROM fuelrecords WHERE fuel_record_id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    if (!before.length) return err("Fuel record not found", 404);
 
-    const keys = Object.keys(body);
-    const values = Object.values(body);
-
+    const keys = Object.keys(body).filter((k) => WRITABLE.has(k));
     if (keys.length === 0) return err("No fields to update", 400);
+
+    if (body.odometer !== undefined) {
+      const { rows: vehicleRows } = await query(
+        `SELECT mileage FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        [body.vehicle_id ?? before[0].vehicle_id]
+      );
+      const odo = validateOdometerReading({
+        reading: body.odometer,
+        currentMileage: vehicleRows[0]?.mileage,
+      });
+      if (!odo.ok) return err(odo.error, 400);
+    }
+
+    const prev = before[0].status;
+    if (body.status && body.status !== prev) {
+      if (prev === "Completed") return err("Completed fuel records cannot change status.", 409);
+      if (body.status === "Rejected" && !(body.rejection_reason || "").trim()) {
+        return err("A rejection reason is required when rejecting.", 400);
+      }
+    }
+
+    if (body.status === "Approved") {
+      body.approved_by = session.user.employeeId;
+      body.approved_at = new Date().toISOString();
+      body.rejection_reason = null;
+    }
+    body.updated_by = session.user.employeeId;
+
+    const values = keys.map((k) => body[k]);
+
+    if (body.status === "Approved") {
+      keys.push("approved_by");
+      values.push(body.approved_by);
+      keys.push("approved_at");
+      values.push(body.approved_at);
+      if (!keys.includes("rejection_reason")) {
+        keys.push("rejection_reason");
+        values.push(null);
+      }
+    }
+
+    keys.push("updated_by");
+    values.push(body.updated_by);
+    keys.push("updated_at");
+    values.push(new Date().toISOString());
 
     const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
     values.push(id);

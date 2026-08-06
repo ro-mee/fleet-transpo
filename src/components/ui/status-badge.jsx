@@ -147,6 +147,19 @@ export function severityTone(severity) {
   return "info";
 }
 
+/**
+ * Tone for a maintenance risk band, resolved through the same map the badge
+ * uses so a chip and its badge can never disagree.
+ *
+ * Callers that render predictions should decide "is this vehicle even
+ * scheduled" before asking for a tone — an unpredicted vehicle bands as `low`
+ * and would come back success green. See isUnscheduled in
+ * src/lib/ai/predictive-maintenance.js.
+ */
+export function riskTone(risk) {
+  return lookup(risk, "risk") || "success";
+}
+
 export function StatusBadge({ status, entity, severity, className, label, ...props }) {
   const value = severity ?? status;
   const variant = severity

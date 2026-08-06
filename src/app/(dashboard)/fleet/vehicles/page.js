@@ -35,12 +35,12 @@ export default function FleetVehiclesPage() {
   };
 
   const statCards = [
-    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet" },
-    { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch" },
-    { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road" },
-    { label: "Under Maintenance", value: stats.maintenance, icon: Wrench, tone: "warning", trend: "being serviced" },
-    { label: "Out of Service", value: stats.outOfService, icon: AlertTriangle, tone: "danger", trend: "cannot be dispatched" },
-    { label: "Registration Expired", value: stats.registrationExpired, icon: AlertTriangle, tone: "danger", trend: "renew immediately" },
+    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status, onClick: () => setFilters({}) },
+    { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch", active: filters.status === "Available", onClick: () => setFilters({ status: "Available" }) },
+    { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road", active: filters.status === "In Use", onClick: () => setFilters({ status: "In Use" }) },
+    { label: "Under Maintenance", value: stats.maintenance, icon: Wrench, tone: "warning", trend: "being serviced", active: filters.status === "Under Maintenance", onClick: () => setFilters({ status: "Under Maintenance" }) },
+    { label: "Out of Service", value: stats.outOfService, icon: AlertTriangle, tone: "danger", trend: "cannot be dispatched", active: filters.status === "Out of Service", onClick: () => setFilters({ status: "Out of Service" }) },
+    { label: "Registration Expired", value: stats.registrationExpired, icon: AlertTriangle, tone: "danger", trend: "renew immediately", active: filters.status === "Registration Expired", onClick: () => setFilters({ status: "Registration Expired" }) },
   ];
 
   return (

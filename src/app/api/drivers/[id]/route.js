@@ -2,10 +2,31 @@ import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
+import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
+
+// Auto-ensure emergency contact and back license image columns exist in PostgreSQL
+let migrationRan = false;
+async function ensureDriverColumnsExist() {
+  if (migrationRan) return;
+  try {
+    await query(`
+      ALTER TABLE drivers 
+      ADD COLUMN IF NOT EXISTS emergency_contact_name VARCHAR(255),
+      ADD COLUMN IF NOT EXISTS emergency_contact_phone VARCHAR(50),
+      ADD COLUMN IF NOT EXISTS emergency_contact_address TEXT,
+      ADD COLUMN IF NOT EXISTS license_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT;
+    `);
+    migrationRan = true;
+  } catch (err) {
+    console.warn("Driver table column check skipped:", err.message);
+  }
+}
 
 export async function GET(req, { params }) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await ensureDriverColumnsExist();
     const { id } = await params;
 
     const sql = `
@@ -47,10 +68,8 @@ export async function GET(req, { params }) {
     let trips = [];
     try {
       const { rows: tripRows } = await query(
-        `SELECT t.*, row_to_json(v.*) as vehicles 
-         FROM trips t 
-         LEFT JOIN vehicles v ON t.vehicle_id = v.vehicle_id 
-         WHERE t.driver_id = $1 AND t.deleted_at IS NULL 
+        `SELECT ${TRIPS_SELECT} ${TRIPS_JOINS}
+         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
          ORDER BY t.created_at DESC LIMIT 20`,
         [id]
       );
@@ -102,6 +121,7 @@ export async function GET(req, { params }) {
 export async function PUT(req, { params }) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await ensureDriverColumnsExist();
     const { id } = await params;
     const body = await parseBody(req);
 
@@ -114,6 +134,10 @@ export async function PUT(req, { params }) {
       license_expiry: { type: "date", label: "License expiry" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       driver_status: { maxLength: 30, label: "Driver status" },
+      birthdate: { type: "date", label: "Birthdate" },
+      sex: { maxLength: 20, label: "Sex" },
+      nationality: { maxLength: 100, label: "Nationality" },
+      address: { maxLength: 255, label: "Address" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -127,6 +151,14 @@ export async function PUT(req, { params }) {
       years_of_experience,
       driver_status,
       license_image_url,
+      license_back_image_url,
+      address,
+      sex,
+      birthdate,
+      nationality,
+      emergency_contact_name,
+      emergency_contact_phone,
+      emergency_contact_address,
       // Employee updates
       first_name,
       last_name,
@@ -155,6 +187,15 @@ export async function PUT(req, { params }) {
       driverPayload.years_of_experience = Number.isFinite(exp) ? exp : 0;
     }
     if (driver_status !== undefined) driverPayload.driver_status = driver_status;
+    if (address !== undefined) driverPayload.address = address || null;
+    if (sex !== undefined) driverPayload.sex = sex || null;
+    if (birthdate !== undefined) driverPayload.birthdate = birthdate || null;
+    if (nationality !== undefined) driverPayload.nationality = nationality || null;
+    if (license_image_url !== undefined) driverPayload.license_image_url = license_image_url || null;
+    if (license_back_image_url !== undefined) driverPayload.license_back_image_url = license_back_image_url || null;
+    if (emergency_contact_name !== undefined) driverPayload.emergency_contact_name = emergency_contact_name || null;
+    if (emergency_contact_phone !== undefined) driverPayload.emergency_contact_phone = emergency_contact_phone || null;
+    if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
     driverPayload.updated_at = new Date().toISOString();
 
     // Update driver record via raw SQL query helper
@@ -217,22 +258,13 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
 
-    const { rows: existingRows } = await query(
-      `SELECT driver_id FROM drivers WHERE driver_id = $1 AND deleted_at IS NULL LIMIT 1`,
+    await query(
+      `UPDATE drivers SET deleted_at = CURRENT_TIMESTAMP WHERE driver_id = $1`,
       [id]
     );
-
-    if (!existingRows || !existingRows[0]) return err("Driver not found", 404);
-
-    const now = new Date().toISOString();
-
-    // Soft delete driver
-    await query(`UPDATE drivers SET deleted_at = $1 WHERE driver_id = $2`, [now, id]);
-
-    await writeAudit(req, session, { action: "delete", resource: "drivers", resourceId: id });
 
     return ok({ message: "Driver archived successfully" });
   } catch (e) {

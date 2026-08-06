@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,29 +16,34 @@ import {
 } from "@/components/ui/select";
 import { injectTransportRequest, pullTransportRequests } from "@/services/transport.service";
 import { getVehicleCategories } from "@/services/vehicle.service";
-import { ArrowLeft, Loader2, FlaskConical, DownloadCloud, Inbox } from "lucide-react";
+import { getLocations } from "@/services/location.service";
+import { getRoutes } from "@/services/route.service";
+import {
+  ArrowLeft,
+  Loader2,
+  FlaskConical,
+  DownloadCloud,
+  Inbox,
+  Plane,
+  Building2,
+  MapPin,
+  ArrowRight,
+  CheckCircle2,
+  User,
+  Calendar,
+  Sparkles,
+  Users,
+  Clock,
+  ShieldCheck,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 
-// ============================================================================
-// DEV-ONLY: Mock transportation-request injector.
-//
-// In production, transportation requests arrive FROM the Booking subsystem over
-// the integration boundary (webhook -> POST /api/integration/transport-requests,
-// or the poller -> /api/integration/pull). Fleet NEVER authors guest bookings.
-//
-// This page exists only so a developer without a live Booking system can push a
-// request shaped EXACTLY like a real Booking payload (TransportationRequestSchema)
-// through that same inbound boundary. It is hidden when the HTTP gateway is live.
-// ============================================================================
-
-// Client can't read a server-only env var; BOOKING gateway mode is mirrored to a
-// NEXT_PUBLIC_ var. Default (unset) is treated as mock/dev.
 const GATEWAY = process.env.NEXT_PUBLIC_BOOKING_GATEWAY || "mock";
 
 function nowPlusHoursLocal(hours) {
   const d = new Date();
   d.setHours(d.getHours() + hours, 0, 0, 0);
-  // datetime-local wants "YYYY-MM-DDTHH:mm" with no timezone.
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
@@ -47,11 +52,19 @@ export default function MockInjectorPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  // Vehicle classes, for the field Booking really sends. This used to offer
-  // service_types, which is an empty table — the dropdown opened onto nothing.
   const { data: categories = [] } = useQuery({
     queryKey: ["vehicle-categories"],
     queryFn: () => getVehicleCategories(),
+  });
+
+  const { data: locations = [] } = useQuery({
+    queryKey: ["locations"],
+    queryFn: () => getLocations(),
+  });
+
+  const { data: routes = [] } = useQuery({
+    queryKey: ["routes"],
+    queryFn: () => getRoutes(),
   });
 
   const [form, setForm] = useState({
@@ -59,288 +72,370 @@ export default function MockInjectorPage() {
     source_system: "PMS",
     booking_reference: "",
     guest_name: "",
-    pickup_location: "",
-    dropoff_location: "",
+    pickup_location: "NAIA Terminal 2",
+    dropoff_location: "CoCo Star Hotel",
     pickup_datetime: nowPlusHoursLocal(2),
     passenger_count: 1,
     special_requests: "",
-    // Free text, exactly as Booking sends it. The dropdown offers Fleet's own
-    // category names for convenience, but the value crossing the boundary is a
-    // STRING — Booking does not know Fleet's category ids and must never send
-    // one. Ingest resolves it back to requested_category_id.
     requested_vehicle_type: "",
     priority: "Normal",
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
+  const applyRoutePreset = (pickup, dropoff) => {
+    setForm((f) => ({
+      ...f,
+      pickup_location: pickup,
+      dropoff_location: dropoff,
+    }));
+    toast.success(`Connected Route Set: ${pickup} ➔ ${dropoff}`);
+  };
+
   const injectMutation = useMutation({
     mutationFn: injectTransportRequest,
     onSuccess: (res) => {
       toast.success(
-        res?.idempotent
-          ? "Already ingested — request is already in the queue"
-          : "Mock request injected into the Fleet queue"
+        res.created
+          ? `Created transport request #${res.id}`
+          : `Duplicate or updated request #${res.id}`
       );
-      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
-      router.push("/reservations/queue");
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      router.push("/reservations");
     },
-    onError: (err) => toast.error(err.message || "Failed to inject request"),
+    onError: (err) => toast.error(err.message),
   });
 
   const pullMutation = useMutation({
-    mutationFn: pullTransportRequests,
+    mutationFn: () => pullTransportRequests(5),
     onSuccess: (res) => {
-      toast.success(
-        res?.ingested
-          ? `Pulled ${res.ingested} canned request${res.ingested === 1 ? "" : "s"} from the mock gateway`
-          : "Mock gateway returned nothing new"
-      );
-      queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
-      router.push("/reservations/queue");
+      toast.success(`Pulled ${res.total_received ?? 0} request(s) (${res.inserted_count ?? 0} created)`);
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
     },
-    onError: (err) => toast.error(err.message || "Failed to pull from mock gateway"),
+    onError: (err) => toast.error(err.message),
   });
+
+  const handleRandomFill = () => {
+    const r = Math.floor(Math.random() * 9000) + 1000;
+    const names = [
+      "Maria Clara",
+      "Juan Dela Cruz",
+      "Solaire VIP Guest",
+      "Shangri-La Guest",
+      "Okada Patron",
+      "Alexander Wright",
+      "Sophia Chen",
+    ];
+    const name = names[Math.floor(Math.random() * names.length)];
+    const dateStr = nowPlusHoursLocal(Math.floor(Math.random() * 48) + 1);
+
+    setForm({
+      external_booking_id: `BK-2026-${r}`,
+      source_system: ["PMS", "POS", "Web"][Math.floor(Math.random() * 3)],
+      booking_reference: `REF-${r}`,
+      guest_name: name,
+      pickup_location: form.pickup_location,
+      dropoff_location: form.dropoff_location,
+      pickup_datetime: dateStr,
+      passenger_count: Math.floor(Math.random() * 4) + 1,
+      special_requests: "Cold towels & bottled water requested.",
+      requested_vehicle_type: categories[0]?.category_name || "",
+      priority: Math.random() > 0.7 ? "High" : "Normal",
+    });
+    toast.success("Filled mock transport request data!");
+  };
 
   const submit = (e) => {
     e.preventDefault();
-    if (!form.external_booking_id.trim()) return toast.error("External booking ID is required");
-    if (!form.pickup_location.trim()) return toast.error("Pickup location is required");
-    if (!form.pickup_datetime) return toast.error("Pickup datetime is required");
-
-    // Shape the payload EXACTLY like a real Booking webhook (contracts.js).
-    const payload = {
-      external_booking_id: form.external_booking_id.trim(),
-      source_system: form.source_system || "PMS",
-      booking_reference: form.booking_reference || null,
-      guest_name: form.guest_name || null,
-      pickup_location: form.pickup_location.trim(),
-      dropoff_location: form.dropoff_location || null,
-      // Send an ISO string with the local offset, as a real payload would.
-      pickup_datetime: new Date(form.pickup_datetime).toISOString(),
-      passenger_count: Number(form.passenger_count) || 1,
-      special_requests: form.special_requests || null,
-      requested_vehicle_type: form.requested_vehicle_type || null,
-      priority: form.priority || "Normal",
-      booking_status: "Pending",
-    };
-    injectMutation.mutate(payload);
+    if (!form.external_booking_id.trim()) {
+      toast.error("External Booking ID is required");
+      return;
+    }
+    injectMutation.mutate(form);
   };
 
-  if (GATEWAY === "http") {
-    return (
-      <div className="max-w-2xl space-y-6">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.push("/reservations/queue")}>
-            <ArrowLeft className="w-5 h-5" />
+  const naiaPresets = [
+    { label: "NAIA T1 ➔ Hotel", pickup: "NAIA Terminal 1", dropoff: "CoCo Star Hotel" },
+    { label: "NAIA T2 ➔ Hotel", pickup: "NAIA Terminal 2", dropoff: "CoCo Star Hotel" },
+    { label: "NAIA T3 ➔ Hotel", pickup: "NAIA Terminal 3", dropoff: "CoCo Star Hotel" },
+    { label: "NAIA T4 ➔ Hotel", pickup: "NAIA Terminal 4", dropoff: "CoCo Star Hotel" },
+    { label: "Hotel ➔ NAIA T3", pickup: "CoCo Star Hotel", dropoff: "NAIA Terminal 3" },
+    { label: "Hotel ➔ NAIA T1", pickup: "CoCo Star Hotel", dropoff: "NAIA Terminal 1" },
+  ];
+
+  return (
+    <div className="space-y-6 w-full pb-6">
+      {/* ── Top Page Banner & Header Bar ── */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
+            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Mock Injector Disabled</h1>
-            <p className="text-foreground-secondary mt-1">
-              The live Booking gateway is active — requests arrive automatically.
+            <div className="flex items-center gap-2">
+              <h1 className="text-xl font-bold text-foreground">New Transport Reservation</h1>
+              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
+                Integration Gateway ({GATEWAY})
+              </span>
+            </div>
+            <p className="text-xs text-foreground-secondary mt-0.5">
+              Inject external transport requests from PMS/POS or generate mock airport transfers.
             </p>
           </div>
         </div>
-        <Card>
-          <CardContent className="py-8 text-center text-foreground-secondary">
-            <Inbox className="w-8 h-8 mx-auto mb-3 opacity-60" />
-            <p>Transportation requests flow in from the Booking system.</p>
-            <Button className="mt-4" onClick={() => router.push("/reservations/queue")}>
-              Go to Request Queue
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
-  return (
-    <div className="max-w-2xl space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => router.push("/reservations/queue")}>
-          <ArrowLeft className="w-5 h-5" />
-        </Button>
-        <div>
-          <div className="flex items-center gap-2">
-            <FlaskConical className="w-5 h-5 text-warning" />
-            <h1 className="text-2xl font-bold text-foreground">Inject Mock Request</h1>
-          </div>
-          <p className="text-foreground-secondary mt-1">
-            Developer tool — simulates a transportation request from the Booking system.
-          </p>
-        </div>
-      </div>
-
-      <div className="flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-4">
-        <FlaskConical className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-        <div className="text-sm text-foreground-secondary">
-          <p className="font-medium text-foreground">This is not a real reservation form.</p>
-          <p className="mt-0.5">
-            Fleet never authors guest bookings. This pushes a Booking-shaped payload through the
-            same inbound boundary a real webhook uses, so you can exercise the queue in dev.
-          </p>
-        </div>
-      </div>
-
-      <Card>
-        <CardHeader className="pb-3 flex-row items-center justify-between">
-          <CardTitle className="text-base font-semibold">Or pull the canned mock requests</CardTitle>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => pullMutation.mutate()}
-            disabled={pullMutation.isPending}
-          >
-            <DownloadCloud className="w-4 h-4 mr-2" />
-            {pullMutation.isPending ? "Pulling…" : "Pull mock batch"}
+        <div className="flex items-center gap-3 shrink-0">
+          <Button type="button" variant="outline" onClick={() => router.push("/reservations")} className="rounded-xl">
+            Cancel
           </Button>
+          <Button
+            type="button"
+            onClick={submit}
+            disabled={injectMutation.isPending}
+            className="rounded-xl px-5 h-10 shadow-sm"
+          >
+            {injectMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Injecting...
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="w-4 h-4 mr-2" /> Inject Transport Request
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* ── GATEWAY CONTROLS & BATCH PULL ── */}
+      <Card className="border-0 shadow-sm rounded-2xl">
+        <CardHeader className="pb-3 border-b border-border/60 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+              <FlaskConical className="w-4 h-4 text-primary" /> Gateway Integration Batch Simulator
+            </CardTitle>
+            <CardDescription className="text-xs mt-0.5">
+              Simulate inbound bookings from external hotel PMS/POS systems.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handleRandomFill} className="rounded-xl text-xs">
+              <Sparkles className="w-3.5 h-3.5 mr-1 text-amber-500" /> Fill Mock Data
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => pullMutation.mutate()}
+              disabled={pullMutation.isPending}
+              className="rounded-xl text-xs"
+            >
+              <DownloadCloud className="w-3.5 h-3.5 mr-1" />
+              {pullMutation.isPending ? "Pulling..." : "Pull Mock Batch"}
+            </Button>
+          </div>
         </CardHeader>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold">Custom Request</CardTitle>
+      {/* ── CONNECTED AIRPORT & HOTEL ROUTE PRESETS ── */}
+      <Card className="border-0 shadow-sm rounded-2xl">
+        <CardHeader className="pb-3 border-b border-border/60">
+          <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+            <Plane className="w-4 h-4 text-primary" /> Connected Airport &amp; Hotel Route Presets
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Select a preset route to pre-configure pickup and dropoff points.
+          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <CardContent className="pt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {naiaPresets.map((preset) => {
+              const active =
+                form.pickup_location === preset.pickup && form.dropoff_location === preset.dropoff;
+              const terminalMatch = (preset.pickup + preset.dropoff).match(/NAIA Terminal (\d)/);
+              const terminalTag = terminalMatch ? `NAIA T${terminalMatch[1]}` : "NAIA";
+
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => applyRoutePreset(preset.pickup, preset.dropoff)}
+                  className={cn(
+                    "flex items-center justify-between gap-3 p-3.5 rounded-xl border text-left transition-all group cursor-pointer",
+                    active
+                      ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/30 font-medium shadow-xs"
+                      : "border-border bg-surface hover:bg-hover hover:border-primary/40 text-foreground"
+                  )}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span
+                      className={cn(
+                        "flex items-center justify-center h-8 px-2 rounded-lg text-xs font-bold shrink-0 border transition-colors",
+                        active
+                          ? "bg-primary/25 text-primary border-primary/50"
+                          : "bg-hover border-border text-foreground group-hover:border-primary/50 group-hover:text-primary"
+                      )}
+                    >
+                      {terminalTag}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                        <span className="truncate">{preset.pickup.replace("NAIA ", "").replace(" Hotel", "")}</span>
+                        <ArrowRight className="w-3.5 h-3.5 shrink-0 text-primary" />
+                        <span className="truncate">{preset.dropoff.replace("NAIA ", "").replace(" Hotel", "")}</span>
+                      </div>
+                    </div>
+                  </div>
+                  {active && <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0 ml-1" />}
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── CUSTOM REQUEST FORM ── */}
+      <Card className="border-0 shadow-sm rounded-2xl">
+        <CardHeader className="pb-3 border-b border-border/60">
+          <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+            <User className="w-4 h-4 text-primary" /> Transport Reservation Details
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Enter guest details, pickup schedule, passenger count, and vehicle category.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="pt-4">
+          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <Label htmlFor="external_booking_id">External Booking ID *</Label>
+              <Label htmlFor="external_booking_id" className="text-xs font-semibold text-foreground">External Booking ID *</Label>
               <Input
                 id="external_booking_id"
                 value={form.external_booking_id}
                 onChange={(e) => set("external_booking_id", e.target.value)}
                 placeholder="BK-2026-00999"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="source_system">Source System</Label>
-              <Select value={form.source_system} onValueChange={(v) => set("source_system", v)}>
-                <SelectTrigger id="source_system">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="PMS">PMS (Hotel)</SelectItem>
-                  <SelectItem value="POS">POS (Restaurant)</SelectItem>
-                  <SelectItem value="Web">Web Booking</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="source_system" className="text-xs font-medium text-foreground-secondary">Source System</Label>
+              <select
+                id="source_system"
+                value={form.source_system}
+                onChange={(e) => set("source_system", e.target.value)}
+                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+              >
+                <option value="PMS">PMS (Hotel Front Office)</option>
+                <option value="POS">POS (Restaurant / Concierge)</option>
+                <option value="Web">Web Booking Portal</option>
+              </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="booking_reference">Booking Reference</Label>
+              <Label htmlFor="booking_reference" className="text-xs font-medium text-foreground-secondary">Booking Reference</Label>
               <Input
                 id="booking_reference"
                 value={form.booking_reference}
                 onChange={(e) => set("booking_reference", e.target.value)}
-                placeholder="Confirmation # (optional)"
+                placeholder="REF-999"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="guest_name">Guest Name</Label>
+              <Label htmlFor="guest_name" className="text-xs font-medium text-foreground-secondary">Guest Name</Label>
               <Input
                 id="guest_name"
                 value={form.guest_name}
                 onChange={(e) => set("guest_name", e.target.value)}
-                placeholder="From Booking (optional)"
+                placeholder="e.g. Maria Clara"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="pickup_location">Pickup Location *</Label>
+              <Label htmlFor="pickup_location" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-foreground-muted" /> Pickup Location
+              </Label>
               <Input
                 id="pickup_location"
                 value={form.pickup_location}
                 onChange={(e) => set("pickup_location", e.target.value)}
-                placeholder="Hotel lobby"
+                placeholder="NAIA Terminal 2"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="dropoff_location">Dropoff Location</Label>
+              <Label htmlFor="dropoff_location" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-foreground-muted" /> Dropoff Location
+              </Label>
               <Input
                 id="dropoff_location"
                 value={form.dropoff_location}
                 onChange={(e) => set("dropoff_location", e.target.value)}
-                placeholder="Airport (optional)"
+                placeholder="CoCo Star Hotel"
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="pickup_datetime">Pickup Date & Time *</Label>
+              <Label htmlFor="pickup_datetime" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
+                <Clock className="w-3 h-3 text-foreground-muted" /> Pickup Date &amp; Time
+              </Label>
               <Input
                 id="pickup_datetime"
                 type="datetime-local"
                 value={form.pickup_datetime}
                 onChange={(e) => set("pickup_datetime", e.target.value)}
+                className="rounded-xl text-xs"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="passenger_count">Passenger Count</Label>
+              <Label htmlFor="passenger_count" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
+                <Users className="w-3 h-3 text-foreground-muted" /> Passenger Count
+              </Label>
               <Input
                 id="passenger_count"
                 type="number"
-                min="1"
+                min={1}
+                max={50}
                 value={form.passenger_count}
-                onChange={(e) => set("passenger_count", e.target.value)}
+                onChange={(e) => set("passenger_count", parseInt(e.target.value, 10) || 1)}
+                className="rounded-xl"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="priority">Priority</Label>
-              <Select value={form.priority} onValueChange={(v) => set("priority", v)}>
-                <SelectTrigger id="priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Low">Low</SelectItem>
-                  <SelectItem value="Normal">Normal</SelectItem>
-                  <SelectItem value="High">High</SelectItem>
-                  <SelectItem value="Urgent">Urgent</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="requested_vehicle_type" className="text-xs font-medium text-foreground-secondary">Requested Vehicle Category</Label>
+              <select
+                id="requested_vehicle_type"
+                value={form.requested_vehicle_type}
+                onChange={(e) => set("requested_vehicle_type", e.target.value)}
+                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+              >
+                <option value="">Any Category</option>
+                {categories.map((c) => (
+                  <option key={c.category_id} value={c.category_name}>
+                    {c.category_name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="requested_vehicle_type">Vehicle Class</Label>
-              <Select
-                value={form.requested_vehicle_type}
-                onValueChange={(v) => set("requested_vehicle_type", v)}
+              <Label htmlFor="priority" className="text-xs font-medium text-foreground-secondary">Priority Level</Label>
+              <select
+                id="priority"
+                value={form.priority}
+                onChange={(e) => set("priority", e.target.value)}
+                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
               >
-                <SelectTrigger id="requested_vehicle_type">
-                  <SelectValue placeholder="What booking is asking for" />
-                </SelectTrigger>
-                <SelectContent>
-                  {categories.length === 0 ? (
-                    <div className="px-2 py-3 text-xs text-foreground-muted">
-                      No vehicle categories yet. Add them under Fleet → Categories.
-                    </div>
-                  ) : (
-                    categories.map((c) => (
-                      <SelectItem key={c.category_id} value={c.category_name}>
-                        {c.category_name}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+                <option value="Normal">Normal</option>
+                <option value="High">High (VIP)</option>
+                <option value="Urgent">Urgent</option>
+              </select>
             </div>
             <div className="space-y-1.5 md:col-span-2">
-              <Label htmlFor="special_requests">Special Requests</Label>
-              <textarea
+              <Label htmlFor="special_requests" className="text-xs font-medium text-foreground-secondary">Special Requests &amp; Notes</Label>
+              <Input
                 id="special_requests"
                 value={form.special_requests}
                 onChange={(e) => set("special_requests", e.target.value)}
-                className="flex min-h-[70px] w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm"
-                placeholder="Wheelchair access, extra luggage, etc."
+                placeholder="Cold towels, child seat, luggage assistance..."
+                className="rounded-xl"
               />
-            </div>
-
-            <div className="md:col-span-2 flex items-center justify-end gap-3 pt-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.push("/reservations/queue")}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={injectMutation.isPending}>
-                {injectMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-                Inject Request
-              </Button>
             </div>
           </form>
         </CardContent>

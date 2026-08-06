@@ -78,7 +78,7 @@ export async function GET(req) {
     let idx = 1;
 
     const status = sp.get("fleet_status");
-    if (status) {
+    if (status && status !== "all_history") {
       // Comma-separated list supported so the UI can request several buckets.
       const statuses = status.split(",").map((s) => s.trim()).filter(Boolean);
       if (statuses.length === 1) {

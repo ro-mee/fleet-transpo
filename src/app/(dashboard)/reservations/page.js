@@ -203,7 +203,16 @@ export default function ReservationsPage() {
     []
   );
 
-  const today = new Date();
+  const [activeFilter, setActiveFilter] = useState("all");
+  const today = useMemo(() => new Date(), []);
+
+  const displayRequests = useMemo(() => {
+    if (activeFilter === "open") return requests.filter((r) => OPEN_STATUSES.includes(r.fleet_status));
+    if (activeFilter === "review") return requests.filter((r) => r.fleet_status === L.PENDING || r.fleet_status === L.UNDER_REVIEW);
+    if (activeFilter === "today") return requests.filter((r) => isSameLocalDay(r.pickup_datetime, today));
+    return requests;
+  }, [requests, activeFilter, today]);
+
   const statCards = [
     {
       label: "Total Requests",
@@ -211,6 +220,8 @@ export default function ReservationsPage() {
       icon: CalendarCheck,
       tone: "primary",
       trend: "all time",
+      active: activeFilter === "all",
+      onClick: () => setActiveFilter("all"),
     },
     {
       label: "Open",
@@ -218,6 +229,8 @@ export default function ReservationsPage() {
       icon: Clock,
       tone: "warning",
       trend: "still in the pipeline",
+      active: activeFilter === "open",
+      onClick: () => setActiveFilter("open"),
     },
     {
       label: "Awaiting Review",
@@ -225,6 +238,8 @@ export default function ReservationsPage() {
       icon: Inbox,
       tone: "info",
       trend: "needs a decision",
+      active: activeFilter === "review",
+      onClick: () => setActiveFilter("review"),
     },
     {
       label: "Pickups Today",
@@ -232,6 +247,8 @@ export default function ReservationsPage() {
       icon: Calendar,
       tone: "success",
       trend: "scheduled today",
+      active: activeFilter === "today",
+      onClick: () => setActiveFilter("today"),
     },
   ];
 
@@ -306,7 +323,7 @@ export default function ReservationsPage() {
 
       <DataTable
         columns={columns}
-        data={requests}
+        data={displayRequests}
         isLoading={isLoading}
         searchPlaceholder="Search by reservation no., guest, booking reference, or location..."
         emptyTitle="No transportation requests yet"

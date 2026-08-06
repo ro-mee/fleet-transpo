@@ -17,6 +17,24 @@ const ACTIVE_RESERVATION_STATUSES = ["Pending", "Approved", "Dispatched"];
 const ACTIVE_DISPATCH_STATUSES = ["Scheduled", "In Progress"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// Active custodial pairings (migration 017), enriched with the plate and driver
+// name the warning message needs. `assigned_until IS NULL` is exactly the
+// predicate on uq_dva_active_driver / uq_dva_active_vehicle, so this reads the
+// same rows those indexes constrain — at most one per driver and per vehicle.
+//
+// Shared by both entry points below (`$1` = vehicle ids, `$2` = driver ids) so
+// the single and batch paths cannot load different rows for the same rule.
+const ACTIVE_ASSIGNMENTS_SQL = `
+  SELECT a.assignment_id, a.driver_id, a.vehicle_id, a.assigned_from, a.assigned_until,
+         v.plate_number, e.first_name, e.last_name
+    FROM driver_vehicle_assignments a
+    LEFT JOIN vehicles v ON v.vehicle_id = a.vehicle_id
+    LEFT JOIN drivers d ON d.driver_id = a.driver_id
+    LEFT JOIN employees e ON e.employee_id = d.employee_id
+   WHERE a.assigned_until IS NULL
+     AND (a.vehicle_id = ANY($1) OR a.driver_id = ANY($2))
+`;
+
 /**
  * Find reservations that overlap the requested window for the same vehicle or
  * driver on the same date. Time-window overlap uses the half-open rule
@@ -166,9 +184,10 @@ function maintenanceCoversDay(row, day) {
  * @param {object|null} ctx.driver       the drivers row (joined with employees)
  * @param {object[]} ctx.dispatches      active dispatches touching that vehicle/driver
  * @param {object[]} ctx.maintenance     non-completed maintenance rows for that vehicle
+ * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [] } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [] } = {}) {
   const findings = [];
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
@@ -247,6 +266,56 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
     }
   }
 
+  // Custodial pairing (migration 017). This is the only WARNING-severity rule:
+  // when a driver's paired car is in maintenance they MUST take another one, so
+  // departing from the pairing can never block a dispatch — it only tells the
+  // dispatcher that accountability for fuel/damage is about to move.
+  //
+  // Both sides are reported independently: taking someone else's car and lending
+  // yours out are different facts, and a swap between two paired drivers should
+  // surface both. At most one finding per side, since uq_dva_active_* guarantees
+  // at most one active row per driver and per vehicle.
+  if (vehicle || driver) {
+    const active = assignments.filter((a) => a.assigned_until == null);
+
+    if (driver) {
+      const driverName = `${driver.first_name || ""} ${driver.last_name || ""}`.trim() || `#${driver.driver_id}`;
+      const own = active.find((a) => a.driver_id === driver.driver_id);
+      if (own && (!vehicle || own.vehicle_id !== vehicle.vehicle_id)) {
+        findings.push({
+          type: CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER,
+          severity: SEVERITY.WARNING,
+          message: `Driver ${driverName} is normally assigned to ${own.plate_number || `vehicle #${own.vehicle_id}`}.`,
+          detail: {
+            driver_id: driver.driver_id,
+            assigned_vehicle_id: own.vehicle_id,
+            assigned_plate_number: own.plate_number ?? null,
+            proposed_vehicle_id: vehicle?.vehicle_id ?? null,
+          },
+        });
+      }
+    }
+
+    if (vehicle) {
+      const custodian = active.find((a) => a.vehicle_id === vehicle.vehicle_id);
+      if (custodian && (!driver || custodian.driver_id !== driver.driver_id)) {
+        const custodianName =
+          `${custodian.first_name || ""} ${custodian.last_name || ""}`.trim() || `driver #${custodian.driver_id}`;
+        findings.push({
+          type: CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER,
+          severity: SEVERITY.WARNING,
+          message: `Vehicle ${vehicle.plate_number || `#${vehicle.vehicle_id}`} is normally driven by ${custodianName}.`,
+          detail: {
+            vehicle_id: vehicle.vehicle_id,
+            assigned_driver_id: custodian.driver_id,
+            assigned_driver_name: custodianName,
+            proposed_driver_id: driver?.driver_id ?? null,
+          },
+        });
+      }
+    }
+  }
+
   return findings;
 }
 
@@ -271,7 +340,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   const pickup = request.pickup_datetime || null;
 
   // Run every probe concurrently; each resolves to rows or a null/[] fallback.
-  const [overlap, vehicleRow, driverRow, maintenance] = await Promise.all([
+  const [overlap, vehicleRow, driverRow, maintenance, assignments] = await Promise.all([
     // 1+2. Vehicle / driver already committed to an overlapping dispatch.
     pickup && (vehicleId || driverId)
       ? findDispatchConflicts({
@@ -323,6 +392,17 @@ export async function detectRequestConflicts(request, opts = {}) {
           .then((r) => r.rows)
           .catch(() => [])
       : Promise.resolve([]),
+
+    // 8. Custodial pairing (017) for either side. Unlike the checks above this
+    // one runs without a pickup time — the pairing is standing, not windowed.
+    vehicleId || driverId
+      ? query(ACTIVE_ASSIGNMENTS_SQL, [
+          vehicleId ? [vehicleId] : [],
+          driverId ? [driverId] : [],
+        ])
+          .then((r) => r.rows)
+          .catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   // findDispatchConflicts has already applied the overlap window in SQL, so the
@@ -333,6 +413,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     driver: driverRow,
     dispatches: overlap,
     maintenance: maintenance.map((m) => ({ ...m, vehicle_id: vehicleId })),
+    assignments,
   });
 }
 
@@ -372,7 +453,7 @@ export async function detectConflictsForRequests(requests = []) {
   const windowStart = times.length ? new Date(Math.min(...times) - DAY_MS).toISOString() : null;
   const windowEnd = times.length ? new Date(Math.max(...times) + DAY_MS).toISOString() : null;
 
-  const [vehicles, drivers, dispatches, maintenance] = await Promise.all([
+  const [vehicles, drivers, dispatches, maintenance, assignments] = await Promise.all([
     vehicleIds.length
       ? query(
           `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, vehicle_status
@@ -413,6 +494,10 @@ export async function detectConflictsForRequests(requests = []) {
           [vehicleIds]
         ).then((r) => r.rows).catch(() => [])
       : Promise.resolve([]),
+
+    // Custodial pairings (017) for every vehicle/driver on the page, fetched
+    // once. Same SQL as the single path so the two cannot load different rows.
+    query(ACTIVE_ASSIGNMENTS_SQL, [vehicleIds, driverIds]).then((r) => r.rows).catch(() => []),
   ]);
 
   const vehicleById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
@@ -432,7 +517,9 @@ export async function detectConflictsForRequests(requests = []) {
 
     out.set(
       r.request_id,
-      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance })
+      // `assignments` is passed whole: the evaluator looks pairings up by exact
+      // driver_id/vehicle_id, so unlike `dispatches` there is nothing to narrow.
+      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments })
     );
   }
 

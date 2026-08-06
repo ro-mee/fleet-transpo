@@ -3,8 +3,10 @@ import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { writeAudit } from "@/lib/audit";
 import { assertTripOwnership } from "@/lib/api/ownership";
+import { completeTrip, cancelTrip, syncBusyTrip } from "@/services/trip-lifecycle.service";
+import { TRIP_STATUS } from "@/lib/constants";
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
+const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"];
 
 const DRIVER_ALLOWED_STATUSES = [
   "Driver Accepted",
@@ -40,6 +42,20 @@ export async function PUT(req, { params }) {
 
     const check = canTransitionTrip(before[0].trip_status, next);
     if (!check.ok) return err(check.reason, 409);
+
+    if (next === TRIP_STATUS.COMPLETED) {
+      return ok(await completeTrip(id, session, {
+        endOdometer: body.end_odometer,
+        distance: body.distance,
+        startOdometer: body.start_odometer,
+      }));
+    }
+    if (next === TRIP_STATUS.CANCELLED) {
+      return ok(await cancelTrip(id, session, { reason: body.reason }));
+    }
+    if (["Trip Started", "En Route", "Arrived", "In Progress"].includes(next)) {
+      await syncBusyTrip(id, session);
+    }
 
     const { rows } = await query(
       `UPDATE trips SET trip_status = $1, updated_at = NOW() WHERE trip_id = $2 RETURNING *`,

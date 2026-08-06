@@ -47,3 +47,32 @@ export function isExpired(value) {
   if (day === null) return false;
   return day < toCalendarDay(new Date());
 }
+
+/**
+ * Renders a bare "YYYY-MM-DD" calendar day for display, without a timezone
+ * round-trip.
+ *
+ * formatDate in @/lib/utils does `new Date(value)`, and for a ten-character
+ * string that is parsed as UTC midnight per the ECMAScript date-time string
+ * format. Intl then renders it in the *local* zone. At UTC+8 that lands at
+ * 08:00 the same day and reads correctly, which is why the existing pairing
+ * works today — but at any negative offset it lands the previous evening and
+ * the day printed is one behind the day stored. A calendar day carries no
+ * instant, so it must never be routed through one.
+ *
+ * The components are split out and handed to a local Date, which pins the value
+ * to the day it names in whatever zone the browser is in.
+ *
+ * @returns {string} the formatted day, or "—" when the value is not a day
+ */
+export function formatCalendarDate(value, options = {}) {
+  const day = toCalendarDay(value);
+  if (day === null) return "—";
+  const [y, m, d] = day.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(y, m - 1, d));
+}
