@@ -41,3 +41,4 @@ yarn-error.log*
 next-env.d.ts
 .opencode/skills/
 .claude/skills/
+.expo/

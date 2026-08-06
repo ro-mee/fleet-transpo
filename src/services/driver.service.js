@@ -23,3 +23,29 @@ export async function deleteDriver(id) {
 export async function getDriverStats() {
   return apiFetch("/api/drivers/stats");
 }
+
+// Finalizes a driver-role employee that has no drivers row yet.
+export async function linkDriverAccount(employeeId) {
+  return apiFetch("/api/drivers/link", { method: "POST", body: { employee_id: employeeId } });
+}
+
+// Enables / resets a driver's login (sets role + optional password).
+export async function syncDriverAccount(id, data) {
+  return apiFetch(`/api/drivers/${id}/account`, { method: "PUT", body: data });
+}
+
+// Driver self-service profile.
+export async function getMyDriverProfile() {
+  return apiFetch("/api/driver/me");
+}
+
+export async function updateMyDriverProfile(data) {
+  return apiFetch("/api/driver/me", { method: "PATCH", body: data });
+}
+
+export async function acceptDriverConsent({ policyVersion, via }) {
+  return apiFetch("/api/driver/me/consent", {
+    method: "POST",
+    body: { policy_version: policyVersion, accepted: true, via },
+  });
+}

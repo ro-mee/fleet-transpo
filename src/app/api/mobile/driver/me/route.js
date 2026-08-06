@@ -31,10 +31,11 @@ export async function GET(req) {
 
     // A driver's assigned vehicle is whatever their live trip is using.
     const { rows: activeRows } = await query(
-      `SELECT t.trip_id, t.trip_status, t.origin, t.destination, t.start_time,
-              v.vehicle_id, v.plate_number, v.make, v.model
+      `SELECT t.trip_id, t.trip_status, r.origin, r.destination, t.start_time,
+              v.vehicle_id, v.plate_number, v.model
          FROM trips t
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
+         LEFT JOIN routes r   ON r.route_id = t.route_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
           AND t.trip_status IN ('Driver Accepted', 'Trip Started', 'En Route', 'Arrived', 'In Progress')
         ORDER BY t.start_time DESC NULLS LAST

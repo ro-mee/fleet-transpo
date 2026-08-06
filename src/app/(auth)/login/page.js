@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { signIn } from "@/services/auth.service";
+import { getSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,7 +37,10 @@ export default function LoginPage() {
         setLoading(true);
         try {
           await signIn(email, password);
-          router.push("/dashboard");
+          // Drivers land on their personal home; every other role gets the
+          // operations dashboard.
+          const session = await getSession();
+          router.push(session?.user?.role === "driver" ? "/driver" : "/dashboard");
           router.refresh();
         } catch (err) {
           setError(err.message || "Invalid email or password");

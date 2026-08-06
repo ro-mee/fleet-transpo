@@ -78,37 +78,6 @@ async function refreshAccessToken() {
  * fetch wrapper that attaches the bearer token and transparently retries once
  * after refreshing on a 401.
  */
-let guestTripsState = [
-  {
-    trip_id: "TRIP-GUEST-001",
-    trip_number: "TRIP-2026-001",
-    origin_address: "Manila Logistics Hub, Gate 2",
-    destination_address: "Clark Freight Depot, Building B",
-    trip_status: "En Route",
-    cargo_description: "Electronic Components & Hardware (12 Pallets)",
-    scheduled_start_time: "2026-08-01T08:00:00Z",
-    notes: "Express delivery. Contact dispatch upon arrival at destination.",
-    vehicle_code: "TRUCK-404",
-    license_plate: "NXX-8899",
-    plate_number: "NXX-8899",
-    vehicle_id: "VEH-GUEST-01",
-  },
-  {
-    trip_id: "TRIP-GUEST-002",
-    trip_number: "TRIP-2026-002",
-    origin_address: "Subic Bay Container Terminal",
-    destination_address: "Quezon City Warehouse 5",
-    trip_status: "Assigned",
-    cargo_description: "Industrial Machinery Parts",
-    scheduled_start_time: "2026-08-02T10:30:00Z",
-    notes: "Heavy load. Ensure all tie-down straps are secured.",
-    vehicle_code: "TRUCK-404",
-    license_plate: "NXX-8899",
-    plate_number: "NXX-8899",
-    vehicle_id: "VEH-GUEST-01",
-  },
-];
-
 let driverTripsState = [
   {
     trip_id: "TRIP-DRV-101",
@@ -139,52 +108,6 @@ let driverTripsState = [
     vehicle_id: "VEH-101",
   },
 ];
-
-function handleGuestMock(path, options = {}) {
-  if (path === "/api/mobile/driver/trips") {
-    return guestTripsState;
-  }
-  if (path === "/api/mobile/driver/me") {
-    const active = guestTripsState.find((t) =>
-      ["Driver Accepted", "Trip Started", "En Route", "Arrived", "In Progress"].includes(t.trip_status)
-    );
-    return {
-      id: "guest-driver-001",
-      first_name: "Guest",
-      last_name: "User",
-      email: "guest@fleetops.com",
-      phone: "+1 555-0199",
-      activeTrip: active || guestTripsState[0],
-      vehicle: {
-        vehicle_id: "VEH-GUEST-01",
-        vehicle_code: "TRUCK-404",
-        license_plate: "NXX-8899",
-      },
-    };
-  }
-  if (path.includes("/accept")) {
-    const tripId = path.split("/trips/")[1]?.split("/")[0];
-    const target = guestTripsState.find((t) => t.trip_id === tripId);
-    if (target) {
-      const body = options.body ? JSON.parse(options.body) : {};
-      target.trip_status = body.accept ? "Driver Accepted" : "Declined";
-    }
-    return { success: true };
-  }
-  if (path.includes("/status") || path.includes("/trips/")) {
-    const tripId = path.split("/trips/")[1]?.split("/")[0];
-    const target = guestTripsState.find((t) => t.trip_id === tripId);
-    if (target && options.body) {
-      const body = JSON.parse(options.body);
-      if (body.status) target.trip_status = body.status;
-    }
-    return { success: true };
-  }
-  if (path === "/api/mobile/fuel" || path === "/api/mobile/driver/location") {
-    return { success: true };
-  }
-  return { success: true };
-}
 
 function handleDriverMock(path, options = {}) {
   if (path === "/api/mobile/driver/trips") {
@@ -240,10 +163,6 @@ export async function apiFetch(path, options = {}) {
   const { skipAuth = false, ...init } = options;
 
   let token = skipAuth ? null : await getAccessToken();
-
-  if (token === "mock-guest-access-token") {
-    return handleGuestMock(path, options);
-  }
 
   if (token === "mock-driver-access-token") {
     return handleDriverMock(path, options);

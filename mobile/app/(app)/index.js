@@ -11,18 +11,27 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
+import { ACTIONS, canAction } from "../../lib/rbac";
 import { useTripTracking } from "../../lib/tracking";
-import { colors, space, tripStatusTone } from "../../lib/theme";
 import {
+  colors,
+  fonts,
+  space,
+  tripStatusTone,
+  type,
+} from "../../lib/theme";
+import {
+  Avatar,
   Button,
   Card,
-  Detail,
   EmptyState,
   ErrorNotice,
   ScreenTitle,
   StatusPill,
   styles as ui,
 } from "../../components/ui";
+import { BrandBar } from "../../components/logo";
+import { Plate } from "../../components/plate";
 
 const ACTIVE_STATUSES = [
   "Driver Accepted",
@@ -35,6 +44,10 @@ const ACTIVE_STATUSES = [
 /**
  * Driver home. Answers three things at a glance: am I on a trip, what is
  * assigned next, and what do I do about it.
+ *
+ * The layout inherits the web dispatch floor: a brand bar, an eyebrowed page
+ * title, then the one active trip as a paper slip with the vehicle rendered as
+ * a physical plate.
  */
 export default function Home() {
   const insets = useSafeAreaInsets();
@@ -52,8 +65,18 @@ export default function Home() {
     (t) => !ACTIVE_STATUSES.includes(t.trip_status)
   );
 
-  // Location posting runs only while a trip is actually active.
-  const tracking = useTripTracking(activeTrip?.trip_id ?? null);
+  // Feature gates mirror the driver column of docs/rbac-model.md. The server
+  // enforces each action per request; this only decides whether the UI offers
+  // it, so the matrix never outruns RLS.
+  const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
+  const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
+  const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
+
+  // Location posting runs only while a trip is actually active — and only for
+  // a session that holds the report_location action.
+  const tracking = useTripTracking(
+    canReportLocation ? activeTrip?.trip_id ?? null : null
+  );
 
   const load = useCallback(async () => {
     try {
@@ -163,120 +186,111 @@ export default function Home() {
     [updateStatus]
   );
 
+  const driverName = user?.firstName ?? user?.first_name ?? "";
+  const eyebrow = `Driver · ${driverName}`;
+
   return (
-    <ScrollView
-      contentContainerStyle={[
-        styles.content,
-        { paddingTop: insets.top + space.base, paddingBottom: insets.bottom + space.xxl },
-      ]}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-      }
-    >
-      {user?.isGuest ? (
-        <View style={styles.guestBanner}>
-          <Text style={styles.guestBannerTitle}>💡 Guest Preview Mode</Text>
-          <Text style={styles.guestBannerText}>
-            You are exploring the FleetOps driver app in demo mode. You can accept trips, update trip status, and file fuel reports in real-time.
-          </Text>
-        </View>
-      ) : null}
+    <View style={styles.flex}>
+      <BrandBar right={<Avatar initials={initialsOf(user)} />} />
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: insets.bottom + space.xxl },
+        ]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
+      >
+        <ScreenTitle eyebrow={eyebrow} title="Today's work" />
 
-      <View style={ui.rowBetween}>
-        <ScreenTitle
-          eyebrow={`Driver · ${user?.firstName ?? user?.first_name ?? "Guest"}${user?.isGuest ? " (Demo)" : ""}`}
-          title="Today's work"
-        />
-      </View>
+        <ErrorNotice message={error} onRetry={onRefresh} />
 
-      <ErrorNotice message={error} onRetry={onRefresh} />
-
-      {loading ? (
-        <Text style={ui.bodyText}>Loading your trips…</Text>
-      ) : (
-        <>
-          {activeTrip ? (
-            <ActiveTripCard
-              trip={activeTrip}
-              tracking={tracking}
-              busy={actingOn === activeTrip.trip_id}
-              onAdvance={(next) => advance(activeTrip, next)}
-            />
-          ) : null}
-
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              {pendingTrips.length > 0 ? "Assigned to you" : "Assignments"}
-            </Text>
-
-            {pendingTrips.length === 0 ? (
-              <EmptyState
-                title="No trips waiting"
-                message="New assignments from your dispatcher will appear here. Pull down to refresh."
+        {loading ? (
+          <Text style={ui.bodyText}>Loading your trips…</Text>
+        ) : (
+          <>
+            {activeTrip ? (
+              <ActiveTripCard
+                trip={activeTrip}
+                tracking={tracking}
+                busy={actingOn === activeTrip.trip_id}
+                canManage={canManageTrip}
+                onAdvance={(next) => advance(activeTrip, next)}
               />
-            ) : (
-              pendingTrips.map((trip) => (
-                <PendingTripCard
-                  key={trip.trip_id}
-                  trip={trip}
-                  busy={actingOn === trip.trip_id}
-                  onAccept={() => respond(trip, true)}
-                  onDecline={() => confirmDecline(trip)}
-                />
-              ))
-            )}
-          </View>
+            ) : null}
 
-          {/* Fuel is reported against the active trip's vehicle, so the action
-              is only offered when there is one. */}
-          {activeTrip ? (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Fuel</Text>
-              <Card>
-                <Text style={ui.bodyText}>
-                  Report a fuel purchase for{" "}
-                  {activeTrip.plate_number ?? "your current vehicle"}.
-                </Text>
-                <Button
-                  label="Add fuel report"
-                  variant="secondary"
-                  onPress={() => router.push("/fuel-report")}
-                />
-              </Card>
-            </View>
-          ) : null}
+              <Text style={styles.sectionTitle}>
+                {pendingTrips.length > 0 ? "Assigned to you" : "Assignments"}
+              </Text>
 
-          <Button label="Sign out" variant="secondary" onPress={signOut} />
-        </>
-      )}
-    </ScrollView>
+              {pendingTrips.length === 0 ? (
+                <EmptyState
+                  title="No trips waiting"
+                  message="New assignments from your dispatcher will appear here. Pull down to refresh."
+                />
+              ) : (
+                pendingTrips.map((trip) => (
+                  <PendingTripCard
+                    key={trip.trip_id}
+                    trip={trip}
+                    busy={actingOn === trip.trip_id}
+                    canManage={canManageTrip}
+                    onAccept={() => respond(trip, true)}
+                    onDecline={() => confirmDecline(trip)}
+                  />
+                ))
+              )}
+            </View>
+
+            {/* Fuel is reported against the active trip's vehicle, so the action
+                is only offered when there is one — and only to a session that
+                holds the report_fuel action. */}
+            {activeTrip && canReportFuel ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Fuel</Text>
+                <Card>
+                  <Text style={ui.bodyText}>
+                    Report a fuel purchase for{" "}
+                    {activeTrip.plate_number ?? "your current vehicle"}.
+                  </Text>
+                  <Button
+                    label="Add fuel report"
+                    variant="secondary"
+                    onPress={() => router.push("/fuel-report")}
+                  />
+                </Card>
+              </View>
+            ) : null}
+
+            <Button label="Sign out" variant="secondary" onPress={signOut} />
+          </>
+        )}
+      </ScrollView>
+    </View>
   );
 }
 
-function ActiveTripCard({ trip, tracking, busy, onAdvance }) {
+function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
   const nextStatus = getNextStatus(trip.trip_status);
 
   return (
     <Card>
       <View style={ui.rowBetween}>
-        <Text style={ui.cardTitle}>Active trip</Text>
+        <Text style={ui.eyebrow}>Active trip</Text>
         <StatusPill label={trip.trip_status} tone={tripStatusTone(trip.trip_status)} />
       </View>
-      <Detail label="Pickup" value={trip.origin} />
-      <Detail label="Destination" value={trip.destination} />
-      {trip.plate_number ? (
-        <Detail label="Vehicle" value={trip.plate_number} mono />
-      ) : null}
-      {trip.start_time ? (
-        <Detail
-          label="Scheduled"
-          value={new Date(trip.start_time).toLocaleString()}
-        />
-      ) : null}
+
+      <RouteLine origin={trip.origin} destination={trip.destination} />
+
+      <View style={styles.plateRow}>
+        <Plate plate={trip.plate_number} size="lg" />
+        <ScheduledBlock time={trip.start_time} />
+      </View>
 
       <TrackingRow tracking={tracking} />
 
-      {nextStatus ? (
+      {canManage && nextStatus ? (
         <Button
           label={nextStatus.label}
           onPress={() => onAdvance(nextStatus)}
@@ -288,40 +302,73 @@ function ActiveTripCard({ trip, tracking, busy, onAdvance }) {
   );
 }
 
-function PendingTripCard({ trip, busy, onAccept, onDecline }) {
+function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
   return (
     <Card>
       <View style={ui.rowBetween}>
-        <Text style={ui.cardTitle}>#{trip.trip_id}</Text>
+        <Text style={styles.tripId}>#{trip.trip_id}</Text>
         <StatusPill label={trip.trip_status} tone={tripStatusTone(trip.trip_status)} />
       </View>
-      <Detail label="Pickup" value={trip.origin} />
-      <Detail label="Destination" value={trip.destination} />
-      {trip.plate_number ? (
-        <Detail label="Vehicle" value={trip.plate_number} mono />
-      ) : null}
-      {trip.start_time ? (
-        <Detail
-          label="Scheduled"
-          value={new Date(trip.start_time).toLocaleString()}
-        />
-      ) : null}
-      <View style={styles.buttonRow}>
-        <Button
-          label="Accept"
-          onPress={onAccept}
-          loading={busy}
-          style={styles.flex}
-        />
-        <Button
-          label="Decline"
-          variant="secondary"
-          onPress={onDecline}
-          disabled={busy}
-          style={styles.flex}
-        />
+
+      <RouteLine origin={trip.origin} destination={trip.destination} />
+
+      <View style={styles.plateRow}>
+        <Plate plate={trip.plate_number} />
+        <ScheduledBlock time={trip.start_time} />
       </View>
+
+      {canManage ? (
+        <View style={styles.buttonRow}>
+          <Button
+            label="Accept"
+            onPress={onAccept}
+            loading={busy}
+            style={styles.flex}
+          />
+          <Button
+            label="Decline"
+            variant="secondary"
+            onPress={onDecline}
+            disabled={busy}
+            style={styles.flex}
+          />
+        </View>
+      ) : null}
     </Card>
+  );
+}
+
+/**
+ * A trip has an inherent direction, so the stops are joined by a dashed rail —
+ * a signal marking on paper, like a dispatch board.
+ */
+function RouteLine({ origin, destination }) {
+  return (
+    <View style={styles.route}>
+      <View style={styles.routeRail}>
+        <View style={[styles.routeDot, styles.routeDotStart]} />
+        <View style={styles.routeStem} />
+        <View style={[styles.routeDot, styles.routeDotEnd]} />
+      </View>
+      <View style={styles.routeText}>
+        <Text style={styles.routeStop} numberOfLines={2}>
+          {origin}
+        </Text>
+        <Text style={styles.routeStop} numberOfLines={2}>
+          {destination}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function ScheduledBlock({ time }) {
+  if (!time) return null;
+  return (
+    <View style={styles.timeBlock}>
+      <Text style={ui.eyebrow}>Scheduled</Text>
+      <Text style={styles.timeValue}>{formatTime(time)}</Text>
+    </View>
   );
 }
 
@@ -367,10 +414,80 @@ function getNextStatus(current) {
   return flow[current] ?? null;
 }
 
+function initialsOf(user) {
+  const first = user?.firstName ?? user?.first_name ?? "";
+  const last = user?.lastName ?? user?.last_name ?? "";
+  const initials = `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
+  return initials || "?";
+}
+
+function formatTime(iso) {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: space.xl, gap: space.lg },
+  flex: { flex: 1, backgroundColor: colors.background },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
   section: { gap: space.md },
-  sectionTitle: { color: colors.foreground, fontSize: 18, fontWeight: "600" },
+  sectionTitle: { ...type.sectionTitle },
+  tripId: {
+    fontFamily: fonts.dataSemiBold,
+    fontSize: 14,
+    lineHeight: 18,
+    letterSpacing: 0.5,
+    color: colors.foreground,
+  },
+  plateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    paddingVertical: space.xs,
+  },
+  timeBlock: { alignItems: "flex-start", gap: 2, marginLeft: "auto" },
+  timeValue: {
+    fontFamily: fonts.data,
+    fontSize: 13,
+    lineHeight: 18,
+    color: colors.foreground,
+    fontVariant: ["tabular-nums"],
+  },
+  route: {
+    flexDirection: "row",
+    gap: space.md,
+    paddingVertical: space.xs,
+  },
+  routeRail: {
+    width: 12,
+    alignItems: "center",
+    paddingVertical: 2,
+  },
+  routeDot: { width: 9, height: 9, borderRadius: 5 },
+  routeDotStart: { backgroundColor: colors.primary },
+  routeDotEnd: {
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  routeStem: {
+    flex: 1,
+    marginVertical: 3,
+    borderLeftWidth: 1.5,
+    borderLeftColor: colors.border,
+    borderStyle: "dashed",
+  },
+  routeText: { flex: 1, gap: 18, paddingVertical: 2 },
+  routeStop: {
+    fontFamily: fonts.body,
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: "500",
+    color: colors.foreground,
+  },
   trackingRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -380,26 +497,13 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     marginTop: space.xs,
   },
-  trackingText: { color: colors.foregroundSecondary, fontSize: 13, flex: 1 },
+  trackingText: {
+    color: colors.foregroundSecondary,
+    fontSize: 13,
+    fontFamily: fonts.body,
+    flex: 1,
+  },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   buttonRow: { flexDirection: "row", gap: space.sm, marginTop: space.sm },
   flex: { flex: 1 },
-  guestBanner: {
-    backgroundColor: "#EFF6FF",
-    borderColor: "#93C5FD",
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: space.md,
-    gap: space.xs,
-  },
-  guestBannerTitle: {
-    color: "#1E40AF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  guestBannerText: {
-    color: "#1E3A8A",
-    fontSize: 13,
-    lineHeight: 18,
-  },
 });

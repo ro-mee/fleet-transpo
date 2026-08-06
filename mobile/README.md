@@ -35,7 +35,9 @@ Routing is file-based via `expo-router`; `package.json` `main` points at
 | `lib/storage.js` | Token storage via `expo-secure-store` |
 | `lib/tracking.js` | 30-second GPS posts during an active trip |
 | `lib/theme.js` | Semantic tokens from `docs/design-system.md` |
-| `components/ui.js` | Shared primitives |
+| `components/ui.js` | Shared primitives (card, pill, button, field) |
+| `components/logo.js` | Brand mark and signed-in top bar |
+| `components/plate.js` | Physical license-plate treatment for vehicle identity |
 
 ## Auth
 

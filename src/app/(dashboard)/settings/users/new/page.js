@@ -15,7 +15,13 @@ import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
-import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Mail, Lock, User } from "lucide-react";
+import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Mail, Lock, User, Truck } from "lucide-react";
+
+// Drivers are created from the Drivers section, not from this account screen —
+// a driver login also needs a linked driver profile, which only the drivers
+// flow sets up. Staff and support roles (everything except Driver) can be
+// provisioned here.
+const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 
 export default function AddUserPage() {
   useRequireRole(["system_admin", "admin"]);
@@ -181,7 +187,7 @@ export default function AddUserPage() {
                   className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
                 >
                   <option value="">Select system role</option>
-                  {REGISTRATION_ROLES.map((role) => (
+                  {ACCOUNT_ROLES.map((role) => (
                     <option key={role.id} value={role.id}>
                       {role.name} ({role.label})
                     </option>
@@ -190,6 +196,19 @@ export default function AddUserPage() {
                 {form.formState.errors.role_id && (
                   <p className="text-xs text-danger mt-1">{form.formState.errors.role_id.message}</p>
                 )}
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-info/10 border border-info/30 text-xs text-foreground-secondary flex items-start gap-2.5 md:col-span-2">
+                <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                <span>
+                  Use this screen for staff and support roles.{" "}
+                  <strong className="text-foreground font-semibold">Driver</strong> accounts
+                  are created from the{" "}
+                  <Link href="/drivers" className="text-primary font-medium underline underline-offset-2 inline-flex items-center gap-1">
+                    <Truck className="w-3 h-3" /> Drivers
+                  </Link>{" "}
+                  section, which also sets up their mobile login and consent.
+                </span>
               </div>
             </div>
           </form>

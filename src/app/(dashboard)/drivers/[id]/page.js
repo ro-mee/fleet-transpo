@@ -9,19 +9,21 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { getDriver, deleteDriver } from "@/services/driver.service";
+import { getDriver, deleteDriver, syncDriverAccount } from "@/services/driver.service";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { getInitials, formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   User, IdCard, CalendarDays, Star, Phone, Mail,
   MapPin, Award, TrendingUp, ArrowLeft, Pencil, Archive,
   Clock, ShieldCheck, FileText, AlertCircle, CheckCircle2,
   Heart, Upload, Truck, Eye, ZoomIn, FileImage, ShieldAlert,
-  Globe, Calendar, Briefcase, Activity
+  Globe, Calendar, Briefcase, Activity, KeyRound
 } from "lucide-react";
 
 const statusColors = {
@@ -40,6 +42,10 @@ export default function DriverDetailPage() {
   const { can } = useRoleAccess();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+
+  // Account actions (set/reset password, enable login)
+  const [accountDialogOpen, setAccountDialogOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
 
   // License Image Zoom Modal
   const [previewModalUrl, setPreviewModalUrl] = useState(null);
@@ -60,6 +66,19 @@ export default function DriverDetailPage() {
     },
     onError: (err) => {
       toast.error(err.message || "Failed to archive driver");
+    },
+  });
+
+  const accountMutation = useMutation({
+    mutationFn: () => syncDriverAccount(id, newPassword ? { password: newPassword } : {}),
+    onSuccess: (data) => {
+      toast.success(data?.account?.has_password ? "Driver login enabled" : "Driver login synced");
+      setAccountDialogOpen(false);
+      setNewPassword("");
+      queryClient.invalidateQueries({ queryKey: ["driver", id] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to update driver login");
     },
   });
 
@@ -128,11 +147,29 @@ export default function DriverDetailPage() {
                   <span>Class {driver.license_class || "B"}</span>
                 </div>
               </div>
+              {driver.account && (
+                <div className="flex items-center gap-2 mt-1.5">
+                  <Badge variant={driver.account.has_password ? "success" : "secondary"}>
+                    {driver.account.has_password ? "Login enabled" : "No login"}
+                  </Badge>
+                  <span className="text-[11px] text-foreground-secondary">
+                    {driver.account.email ? driver.account.email : "No email set"}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
           {/* Action Buttons */}
           <div className="flex items-center gap-2.5 shrink-0">
+            <Button
+              variant={driver.account?.has_password ? "outline" : "default"}
+              onClick={() => setAccountDialogOpen(true)}
+              className="rounded-xl text-xs h-9"
+            >
+              <KeyRound className="w-3.5 h-3.5 mr-1.5" />
+              {driver.account?.has_password ? "Set Password" : "Enable Login"}
+            </Button>
             <Button variant="outline" onClick={() => router.push(`/drivers/${id}/edit`)} className="rounded-xl text-xs h-9">
               <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit Profile
             </Button>
@@ -604,6 +641,44 @@ export default function DriverDetailPage() {
             {previewModalUrl && (
               <img src={previewModalUrl} alt="License Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Account (Enable Login / Set Password) Dialog ── */}
+      <Dialog open={accountDialogOpen} onOpenChange={(open) => { setAccountDialogOpen(open); if (!open) setNewPassword(""); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-primary" />
+              {driver.account?.has_password ? "Set Driver Password" : "Enable Driver Login"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-xs text-foreground-secondary">
+              Enabling a login assigns the <strong>driver</strong> role and lets this
+              driver sign in on the web and mobile app. A password is required to protect
+              their personal data.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="new-password">New Password</Label>
+              <Input
+                id="new-password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Leave blank to keep the current password"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button variant="outline" onClick={() => setAccountDialogOpen(false)}>Cancel</Button>
+              <Button
+                onClick={() => accountMutation.mutate()}
+                disabled={accountMutation.isPending}
+              >
+                {driver.account?.has_password ? "Save Password" : "Enable Login"}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

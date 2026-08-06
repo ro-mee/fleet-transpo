@@ -78,10 +78,40 @@ export async function GET(req, { params }) {
       console.warn("Driver trips lookup skipped:", tripErr);
     }
 
+    // Fetch account status for this driver's linked employee
+    let account = { employee_id: driver.employee_id, role: "driver", has_password: false };
+    try {
+      const { rows: empRows } = await query(
+        `SELECT e.employee_id, e.first_name, e.last_name, e.email, e.phone, e.position, e.avatar_url,
+                r.role_name AS role, e.password_hash IS NOT NULL AS has_password
+           FROM employees e
+           LEFT JOIN roles r ON r.role_id = e.role_id
+          WHERE e.employee_id = $1 LIMIT 1`,
+        [driver.employee_id]
+      );
+      if (empRows && empRows[0]) {
+        const row = empRows[0];
+        account = {
+          employee_id: row.employee_id,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          email: row.email,
+          phone: row.phone,
+          position: row.position,
+          avatar_url: row.avatar_url,
+          role: row.role ?? "driver",
+          has_password: Boolean(row.has_password),
+        };
+      }
+    } catch (accErr) {
+      console.warn("Driver account lookup skipped:", accErr);
+    }
+
     return ok({
       ...driver,
       ...stats,
       trips,
+      account,
     });
   } catch (e) {
     return handleError(e);
