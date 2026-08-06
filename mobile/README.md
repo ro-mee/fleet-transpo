@@ -46,6 +46,11 @@ token, both signed with `NEXTAUTH_SECRET`. `lib/api.js` refreshes transparently
 on a 401 and funnels concurrent refreshes into one request, because refresh is
 single-use and rotating.
 
+For a quick demo without a backend, set `EXPO_PUBLIC_ENABLE_DEMO=true` in the
+mobile `.env` and rebuild. This shows a "Sign in as driver (demo)" button and
+serves the request layer from local fixtures. It is off by default; production
+builds only ever reach the real API.
+
 ## Not implemented
 
 - Guest experience

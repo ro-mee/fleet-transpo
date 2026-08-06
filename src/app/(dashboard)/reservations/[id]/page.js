@@ -51,6 +51,7 @@ import {
   Inbox,
   MapPin,
   Send,
+  Sparkles,
   TriangleAlert,
   UserCheck,
   Users,
@@ -200,6 +201,75 @@ function DispatchList({ dispatches }) {
             </div>
           </Link>
         ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** One candidate row inside the saved-recommendation card. */
+function SavedPick({ icon: Icon, label, pick, considered }) {
+  if (!pick) {
+    return (
+      <Field icon={Icon} label={label}>
+        {considered > 0
+          ? `None of ${considered} candidate${considered === 1 ? "" : "s"} fit at review`
+          : "No candidate fit at review"}
+      </Field>
+    );
+  }
+  const name = pick.vehicle_name || pick.driver_name || pick.plate_number || `#${pick.vehicle_id ?? pick.driver_id}`;
+  const detail = pick.seating_capacity != null
+    ? `${pick.plate_number ?? name} · ${pick.seating_capacity} seats`
+    : `${name}${pick.years_of_experience != null ? ` · ${pick.years_of_experience} yr exp` : ""}`;
+  return (
+    <Field icon={Icon} label={label}>
+      <span className="font-data">{name}</span>
+      {pick.score != null && <span className="text-foreground-muted"> · {pick.score}/100</span>}
+      {detail !== name && <span className="block text-xs text-foreground-muted">{detail}</span>}
+    </Field>
+  );
+}
+
+/** Normalize a col value that could be null, a string, or an object. */
+function cachedSide(v) {
+  if (!v) return null;
+  if (typeof v === "string") { try { return JSON.parse(v); } catch { return null; } }
+  return v;
+}
+
+/**
+ * Read-only snapshot of the deterministic scorer's pick captured when Fleet
+ * started review (transportation_requests.ai_vehicle_recommendation /
+ * ai_driver_recommendation). Distinct from the live advisory panel: this is the
+ * decision that was recorded, not a fresh re-score.
+ */
+function SavedRecommendation({ vehicle, driver }) {
+  const hasEither = vehicle?.recommended || vehicle?.alternate || driver?.recommended || driver?.alternate;
+  if (!hasEither) return null;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-info" aria-hidden="true" />
+          Saved recommendation
+        </CardTitle>
+        <CardDescription>
+          The pick recorded when fleet review started. Advisory — confirm before assigning.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid grid-cols-1 gap-y-3">
+        <SavedPick
+          icon={CarFront}
+          label="Scored vehicle"
+          pick={vehicle?.recommended}
+          considered={num(vehicle?.considered ?? 0)}
+        />
+        <SavedPick
+          icon={UserCheck}
+          label="Scored driver"
+          pick={driver?.recommended}
+          considered={num(driver?.considered ?? 0)}
+        />
       </CardContent>
     </Card>
   );
@@ -607,6 +677,10 @@ export default function ReservationDetailPage() {
         {/* Advisor + history. The advisor only appears while assignment is still
             open — a recommendation for a completed trip is noise. */}
         <div className="space-y-6">
+          <SavedRecommendation
+            vehicle={cachedSide(r.ai_vehicle_recommendation)}
+            driver={cachedSide(r.ai_driver_recommendation)}
+          />
           {isAssignable(status) && (
             <AiRecommendationPanel
               requestId={requestId}
