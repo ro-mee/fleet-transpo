@@ -38,6 +38,8 @@ import { getReservations } from "@/services/reservation.service";
 import { getNotifications } from "@/services/notification.service";
 import { getAuditLogs } from "@/services/audit.service";
 import { getSystemActivity } from "@/services/system.service";
+import { getUvvrpPolicy } from "@/services/settings.service";
+import { isRestricted } from "@/lib/uvvrp/policy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -139,6 +141,10 @@ export function RoleDashboard({ role, employee }) {
     queryFn: () => getNotifications(),
     enabled: q.includes("notifications"),
   });
+  const { data: uvvrpPolicy } = useQuery({
+    queryKey: ["uvvrp-policy"],
+    queryFn: getUvvrpPolicy,
+  });
   const { data: auditData } = useQuery({
     queryKey: ["audit-logs"],
     queryFn: () => getAuditLogs({ limit: 200 }),
@@ -156,8 +162,17 @@ export function RoleDashboard({ role, employee }) {
     return [];
   }, [insightsData]);
 
+  const restrictedPlates = useMemo(() => {
+    const set = new Set();
+    if (!uvvrpPolicy?.enabled) return set;
+    vehicles.forEach((v) => {
+      if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) set.add(v.plate_number);
+    });
+    return set;
+  }, [uvvrpPolicy, vehicles]);
+
   const stats = useMemo(() => {
-    const available = vehicles.filter((v) => v.vehicle_status === "Available").length;
+    const available = vehicles.filter((v) => v.vehicle_status === "Available" && !restrictedPlates.has(v.plate_number)).length;
     const maintenance = vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length;
     const utilization = vehicles.length ? Math.round((available / vehicles.length) * 100) : 0;
     const tripsToday = trips.filter((t) => isToday(t.start_time) || isToday(t.created_at)).length;
@@ -183,7 +198,7 @@ export function RoleDashboard({ role, employee }) {
       notifications24h: activityData?.counters?.notifications_24h ?? 0,
       auditTotal: auditData?.total ?? 0,
     };
-  }, [vehicles, driverStats, trips, activeTrips, reservations, notifications, activityData, auditData]);
+  }, [vehicles, driverStats, trips, activeTrips, reservations, notifications, activityData, auditData, restrictedPlates]);
 
   const reservationTrend = useMemo(() => {
     const days = 14;
@@ -317,6 +332,7 @@ export function RoleDashboard({ role, employee }) {
                   activities,
                   queueItems,
                   availableVehicles,
+                  restrictedPlates,
                   notifications,
                   insights,
                   insightsLoading,
@@ -503,25 +519,39 @@ function DashboardSection({ section, data }) {
       );
     case "availability":
       return (
-        <SectionCard title="Fleet Availability" icon={CheckCircle2} flush>
+        <SectionCard
+          title="Fleet Availability"
+          icon={CheckCircle2}
+          flush
+          extra={data.restrictedPlates?.size ? (
+            <span className="text-[11px] font-medium text-danger">{data.restrictedPlates.size} coding-restricted today</span>
+          ) : undefined}
+        >
           {data.availableVehicles.length ? (
             <div className="divide-y divide-border">
-              {data.availableVehicles.map((v) => (
-                <div key={v.vehicle_id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
-                      <Truck className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{v.plate_number}</p>
-                      <p className="text-xs text-foreground-muted truncate">
-                        {v.vehiclecategories?.category_name || v.vehicle_type || v.model || ""}
-                      </p>
+              {data.availableVehicles.map((v) => {
+                const restricted = data.restrictedPlates?.has(v.plate_number);
+                return (
+                  <div key={v.vehicle_id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
+                        <Truck className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-foreground truncate">{v.plate_number}</p>
+                        <p className="text-xs text-foreground-muted truncate">
+                          {v.vehiclecategories?.category_name || v.vehicle_type || v.model || ""}
+                        </p>
+                      </div>
                     </div>
+                    {restricted ? (
+                      <StatusBadge severity="danger" className="flex-shrink-0">Coding Restricted</StatusBadge>
+                    ) : (
+                      <StatusBadge status={v.vehicle_status} entity="vehicle" className="flex-shrink-0" />
+                    )}
                   </div>
-                  <StatusBadge status={v.vehicle_status} entity="vehicle" className="flex-shrink-0" />
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <EmptyState

@@ -70,12 +70,21 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
   );
 
   const { data: vehicles = [], isLoading: loadingVehicles } = useQuery({
-    queryKey: ["available-vehicles"],
-    queryFn: () => getAvailableVehicles(),
+    queryKey: ["available-vehicles", request?.pickup_datetime],
+    queryFn: () =>
+      getAvailableVehicles(
+        request?.pickup_datetime
+          ? { pickup_at: request.pickup_datetime, ...(request.scheduled_arrival ? { return_at: request.scheduled_arrival } : {}) }
+          : {}
+      ),
   });
   const { data: drivers = [], isLoading: loadingDrivers } = useQuery({
-    queryKey: ["drivers", { status: "Available" }],
-    queryFn: () => getDrivers({ status: "Available" }),
+    queryKey: ["drivers", { status: "Available", pickup_at: request?.pickup_datetime }],
+    queryFn: () =>
+      getDrivers({
+        status: "Available",
+        ...(request?.pickup_datetime ? { pickup_at: request.pickup_datetime } : {}),
+      }),
   });
   // Active custodial pairings (migration 017). Without these the dispatcher has
   // to open each vehicle's page to find out who is responsible for it.

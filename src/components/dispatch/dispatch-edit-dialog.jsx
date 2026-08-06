@@ -46,13 +46,22 @@ function ReassignBody({ dispatch, mode, onClose, onSubmit, isPending }) {
   });
 
   const { data: vehicles = [], isLoading: loadingVehicles } = useQuery({
-    queryKey: ["available-vehicles"],
-    queryFn: () => getAvailableVehicles(),
+    queryKey: ["available-vehicles", dispatch?.scheduled_departure],
+    queryFn: () =>
+      getAvailableVehicles(
+        dispatch?.scheduled_departure
+          ? { pickup_at: dispatch.scheduled_departure, ...(dispatch.scheduled_arrival ? { return_at: dispatch.scheduled_arrival } : {}) }
+          : {}
+      ),
     enabled: isVehicle,
   });
   const { data: drivers = [], isLoading: loadingDrivers } = useQuery({
-    queryKey: ["drivers", { status: "Available" }],
-    queryFn: () => getDrivers({ status: "Available" }),
+    queryKey: ["drivers", { status: "Available", pickup_at: dispatch?.scheduled_departure }],
+    queryFn: () =>
+      getDrivers({
+        status: "Available",
+        ...(dispatch?.scheduled_departure ? { pickup_at: dispatch.scheduled_departure } : {}),
+      }),
     enabled: !isVehicle,
   });
 

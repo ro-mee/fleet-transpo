@@ -62,3 +62,7 @@ export async function reportIncident(incident) {
   return apiFetch("/api/driver/incidents", { method: "POST", body: incident });
 }
 
+export async function getAllIncidents(filters = {}) {
+  return apiFetch(`/api/incidents${buildQuery(filters)}`);
+}
+

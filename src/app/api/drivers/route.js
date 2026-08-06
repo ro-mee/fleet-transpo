@@ -3,6 +3,7 @@ import { query, getAdminClient } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { ROLE_IDS } from "@/lib/constants";
+import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
 
 const EMPLOYEE_FIELDS = `json_build_object(
   'employee_id', e.employee_id,
@@ -164,6 +165,17 @@ export async function GET(req) {
 
     const { rows: data } = await query(sql, params);
     if (!data || !data.length) return ok([]);
+
+    // Travel-date, pair-coupled availability: when a pickup_at is given, hide a
+    // driver whose license expires on/before that date OR whose active paired
+    // vehicle cannot travel that date (coding, registration/insurance). The
+    // time-window conflict filter above still applies; this is the travel-day
+    // projection + pairing rule. Ignored when no pickup_at is provided, so the
+    // drivers list page is unaffected.
+    if (pickupAt) {
+      const ctx = await loadDriverTravelContext(pickupAt);
+      return ok(data.filter((d) => driverCanTravel(d, ctx)));
+    }
 
     return ok(data);
   } catch (e) {

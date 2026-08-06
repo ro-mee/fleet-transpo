@@ -75,11 +75,13 @@ export function NotificationDropdown() {
     },
   });
 
-  const unreadCount = Array.isArray(notifications)
-    ? notifications.filter((n) => !n.is_read).length
-    : 0;
+  const uniqueNotifications = (notifications || []).filter((notif, index, self) =>
+    index === self.findIndex((n) => n.message === notif.message && n.title === notif.title)
+  );
 
-  const recent = (notifications || []).slice(0, 5);
+  const unreadCount = uniqueNotifications.filter((n) => !n.is_read).length;
+
+  const recent = uniqueNotifications.slice(0, 5);
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>

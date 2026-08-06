@@ -29,6 +29,7 @@ import {
   Gauge,
   Database,
   Navigation,
+  AlertTriangle,
 } from "lucide-react";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
@@ -56,6 +57,7 @@ export const WORKS = {
           { href: "/settings/api", label: "API & Integrations", icon: KeyRound },
           { href: "/settings/ai", label: "AI Providers", icon: Brain },
           { href: "/settings/ai/logs", label: "AI & Automation Logs", icon: Database },
+          { href: "/settings/number-coding", label: "Number Coding (UVVRP)", icon: CalendarCheck },
           { href: "/settings/general", label: "System Settings", icon: Settings },
         ],
       },
@@ -84,6 +86,7 @@ export const WORKS = {
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
           { href: "/dispatch", label: "Dispatch", icon: Send },
           { href: "/trips", label: "Trips", icon: ClipboardList },
+          { href: "/incidents", label: "Incidents", icon: AlertTriangle },
         ],
       },
       {
@@ -100,6 +103,7 @@ export const WORKS = {
             ],
           },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
+          { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],
       },
       {
@@ -121,6 +125,7 @@ export const WORKS = {
               { href: "/settings/general", label: "General" },
               { href: "/settings/users/new", label: "Add User" },
               { href: "/settings/api", label: "API Access" },
+              { href: "/settings/number-coding", label: "Number Coding" },
             ],
           },
         ],
@@ -148,6 +153,9 @@ export const WORKS = {
           { href: "/maintenance", label: "Maintenance", icon: Wrench },
           { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Wrench },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
+          { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+          { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],
       },
       {
@@ -173,6 +181,8 @@ export const WORKS = {
           { href: "/dispatch/calendar", label: "Dispatch Calendar", icon: CalendarCheck },
           { href: "/trips/active", label: "Active Trips", icon: ClipboardList },
           { href: "/trips", label: "Trips", icon: Route },
+          { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+          { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],
       },
       {
@@ -221,6 +231,10 @@ export const WORKS = {
         label: "Monitoring",
         items: [
           { href: "/tracking/history", label: "Operational Review", icon: ClipboardList },
+          { href: "/fleet/availability", label: "Fleet Availability", icon: Truck },
+          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
+          { href: "/incidents", label: "Incidents", icon: AlertTriangle },
+          { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],
       },
     ],

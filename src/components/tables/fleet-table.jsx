@@ -10,6 +10,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getVehicles, deleteVehicle } from "@/services/vehicle.service";
+import { getUvvrpPolicy } from "@/services/settings.service";
+import { isRestricted } from "@/lib/uvvrp/policy";
 import { formatDate, formatNumber } from "@/lib/utils";
 import { Pencil, Archive, Eye, Plus, Truck } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -36,6 +38,19 @@ export function FleetTable({ filters = {} }) {
     queryKey: ["vehicles", filters],
     queryFn: () => getVehicles(filters),
   });
+
+  const { data: uvvrpPolicy } = useQuery({
+    queryKey: ["uvvrp-policy"],
+    queryFn: getUvvrpPolicy,
+  });
+  const restrictedPlates = useMemo(() => {
+    const set = new Set();
+    if (!uvvrpPolicy?.enabled) return set;
+    vehicles.forEach((v) => {
+      if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) set.add(v.plate_number);
+    });
+    return set;
+  }, [uvvrpPolicy, vehicles]);
 
   const archiveMutation = useMutation({
     mutationFn: deleteVehicle,
@@ -111,11 +126,12 @@ export function FleetTable({ filters = {} }) {
       }),
       columnHelper.accessor("vehicle_status", {
         header: "Status",
-        cell: (info) => (
-          <Badge variant={statusVariant[info.getValue()] || "default"}>
-            {info.getValue()}
-          </Badge>
-        ),
+        cell: (info) => {
+          const restricted = restrictedPlates.has(info.row.original.plate_number);
+          const status = restricted ? "Coding Restricted" : info.getValue();
+          const variant = restricted ? "danger" : statusVariant[info.getValue()] || "default";
+          return <Badge variant={variant}>{status}</Badge>;
+        },
       }),
       columnHelper.display({
         id: "actions",
@@ -156,7 +172,7 @@ export function FleetTable({ filters = {} }) {
         ),
       }),
     ],
-    [router]
+    [router, restrictedPlates]
   );
 
   if (isLoading) {

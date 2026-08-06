@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
 
 export async function GET(req) {
   try {
@@ -42,6 +43,15 @@ export async function GET(req) {
     }
 
     const { rows } = await query(sql, params);
-    return ok(rows);
+
+    // Travel-date, pair-coupled availability. The date is the proposed
+    // `pickup_at` (a future booking must not be blocked by today's coding); when
+    // absent, fall back to today. A vehicle is hidden if it cannot travel on
+    // that date (coding, registration/insurance) OR its paired driver cannot.
+    const codingDate = pickupAt ? new Date(pickupAt) : new Date();
+    const ctx = await loadVehicleTravelContext(codingDate);
+    const available = (rows || []).filter((v) => vehicleCanTravel(v, ctx));
+
+    return ok(available);
   } catch (e) { return handleError(e); }
 }

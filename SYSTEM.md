@@ -166,7 +166,7 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 
 ## 5. Database Schema (PostgreSQL on Supabase)
 
-27 migrations in `supabase/migrations/` (numbers are non-linear: no 008; pairs share 011, 013, 014, 017, 018, 019 — applied in filename order). **Migrations are applied via a direct `pg` connection (small Node script in repo dir), NOT the Supabase CLI or SQL editor** (see `AGENTS.md`).
+28 migrations in `supabase/migrations/` (numbers are non-linear: no 008; pairs share 011, 013, 014, 017, 018, 019 — applied in filename order). **Migrations are applied via a direct `pg` connection (small Node script in repo dir), NOT the Supabase CLI or SQL editor** (see `AGENTS.md`).
 
 ### 5.1 Migration timeline
 | Mig | File | Purpose |
@@ -198,6 +198,9 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 | 020 | `fuel_hardening.sql` | fuel review workflow (`rejection_reason`, `approved_by/at`, status CHECK) |
 | 021 | `driver_personal_details.sql` | `drivers.address/sex/birthdate/nationality` (license scan auto-fill) |
 | 022 | `remove_front_desk_roles.sql` | ★ drop `reception_staff`/`restaurant_staff`/`concierge` (role rows 5/6/8); disable the 3 employees who held them |
+| 023 | `dispatch_overlap_guard.sql` | ★ DB-level double-booking guard trigger + advisory locks on `dispatchschedules` |
+| 024 | `driverincidents.sql` | ★ recreate `driverincidents` (dropped in 005) — driver incident reporting + breakdown automation |
+| 025 | `uvvrp.sql` | ★ Number Coding (UVVRP): `uvvrp_exemptions` + `uvvrp_violations` tables |
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
@@ -287,6 +290,10 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `manifest`, `status/sync`, `cron/sync` (CRON_SECRET).
+- `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
+- `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
+- `uvvrp/exemptions` (GET/POST), `uvvrp/exemptions/[id]` (PUT) ★ — per-vehicle coding exemptions (category, approver, optional expiry).
+- `uvvrp/violations` (GET), `uvvrp/violations/[id]/decide` (POST) ★ — coding violation history + approve/deny pending approvals (defer-then-retry: an approved violation exempts that vehicle+date).
 - `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/trips`, `mobile/driver/trips/[id]/accept|gps`, `mobile/fuel`.
 
 ### Client service layer (`src/services/`)
@@ -334,6 +341,22 @@ and `GET /api/reports/driver-performance` (extended with `on_time_rate`,
 `total_distance`, `cost_per_km`). Driver performance is computed from the merged
 `trips`/`drivers` columns (`tripperformance`/`tripcostanalysis`/`driverincidents`
 were dropped in migrations 005/007).
+
+### 7.2 Number Coding (UVVRP) validation
+
+Configurable plate-coding policy (`src/lib/uvvrp/`). Enforced at dispatch create
+and update (`dispatch/route.js`, `dispatch/[id]/route.js`) and surfaced as a
+queue conflict (`conflicts.js`). Response modes:
+- **block** → dispatch rejected (409), violation recorded, dispatcher notified.
+- **warn** → dispatch proceeds, violation recorded as `warned`.
+- **approve** → dispatch deferred; `pending_approval` violation; an authorized
+  role approves/denies via `PUT …/uvvrp/violations/[id]/decide`; once approved
+  (vehicle+date) the dispatcher retries and it passes.
+Per-vehicle exemptions (category + approver + optional expiry) skip the check.
+Policy config UI at `/settings/number-coding` (admin/system_admin); read-only
+board at `/uvvrp` (ops roles). New endpoints `settings/uvvrp`, `uvvrp`,
+`uvvrp/exemptions[/[id]]`, `uvvrp/violations[/[id]/decide]`; tables
+`uvvrp_exemptions`, `uvvrp_violations` (migration 025).
 
 ### Web sessions (NextAuth)
 - Credentials provider; bcrypt vs `employees.password_hash`; **IP rate limit 5/min**; JWT session strategy (`NEXTAUTH_SECRET`); role/employeeId/name embedded in token. Login redirects drivers → `/driver`, others → `/dashboard`.

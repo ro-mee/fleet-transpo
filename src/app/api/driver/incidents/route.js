@@ -1,6 +1,12 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { getAdminClient } from "@/lib/db";
+
+// A breakdown-type incident triggers automation (see POST): the vehicle is set
+// to Under Maintenance and dispatchers are notified, so it stops receiving
+// future assignments.
+const BREAKDOWN_RE = /breakdown|mechanical|engine|flat tire|battery|electrical|overheat/i;
 
 async function resolveDriverId(employeeId) {
   const { rows } = await query(
@@ -71,10 +77,48 @@ export async function POST(req) {
           description, location, severity)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING incident_id, incident_type, incident_date, description, location,
-                 severity, status, created_at`,
+                 severity, status, created_at, vehicle_id`,
       [driverId, body.vehicle_id || null, body.trip_id || null, body.incident_type,
        incidentDate, body.description, body.location || null, severity]
     );
+
+    // Breakdown automation: a breakdown report takes the vehicle out of service
+    // and alerts dispatchers. Best-effort — a sync hiccup must not fail the
+    // report that was just recorded.
+    if (rows[0]?.vehicle_id && BREAKDOWN_RE.test(String(body.incident_type || ""))) {
+      try {
+        const supabase = getAdminClient();
+        await supabase
+          .from("vehicles")
+          .update({ vehicle_status: "Under Maintenance" })
+          .eq("vehicle_id", rows[0].vehicle_id)
+          .is("deleted_at", null);
+
+        const { data: dispatchers } = await supabase
+          .from("employees")
+          .select("employee_id")
+          .in("role_id", [1, 2, 3, 7, 9]) // system_admin, fleet_manager, dispatcher, management, admin
+          .is("deleted_at", null);
+        const { data: vehicle } = await supabase
+          .from("vehicles")
+          .select("plate_number")
+          .eq("vehicle_id", rows[0].vehicle_id)
+          .maybeSingle();
+
+        const rows2 = (dispatchers || []).map((emp) => ({
+          employee_id: emp.employee_id,
+          title: "Vehicle Breakdown Reported",
+          message: `Vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} reported breakdown and set to Under Maintenance (incident #${rows[0].incident_id}).`,
+          type: "Alert",
+          reference_type: "incident",
+          reference_id: rows[0].incident_id,
+        }));
+        if (rows2.length) await supabase.from("notifications").insert(rows2);
+      } catch (e) {
+        console.warn("breakdown automation failed:", e?.message || e);
+      }
+    }
+
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
 }

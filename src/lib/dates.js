@@ -49,6 +49,21 @@ export function isExpired(value) {
 }
 
 /**
+ * True when `value` is on or before the reference day (e.g. a dispatch's travel
+ * date). Used to block a future trip when a document (registration, insurance,
+ * license) will no longer be valid on the day of travel — the same projection
+ * number coding applies via `pickup_at`. When the reference is unparseable,
+ * falls back to today's rule (strictly-before-today).
+ */
+export function isExpiredOn(value, reference) {
+  const day = toCalendarDay(value);
+  if (day === null) return false;
+  const ref = toCalendarDay(reference);
+  if (ref === null) return isExpired(value);
+  return day <= ref;
+}
+
+/**
  * Renders a bare "YYYY-MM-DD" calendar day for display, without a timezone
  * round-trip.
  *

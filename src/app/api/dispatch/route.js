@@ -4,7 +4,8 @@ import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/se
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
-import { isExpired, toCalendarDay } from "@/lib/dates";
+import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
+import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 
@@ -88,16 +89,31 @@ export async function POST(req) {
 
     if (body.vehicle_id) {
       const { rows: vehicles } = await query(
-        `SELECT vehicle_id, plate_number, registration_expiry, vehicle_status FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        `SELECT vehicle_id, plate_number, registration_expiry, insurance_expiry, vehicle_status FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
         [body.vehicle_id]
       );
       const vehicle = vehicles[0];
       if (!vehicle) return err("Vehicle not found", 404);
-      if (isExpired(vehicle.registration_expiry)) {
-        return err(`Vehicle ${vehicle.plate_number} has an expired registration (${toCalendarDay(vehicle.registration_expiry)}). Renew before dispatching.`, 400);
+      const vehicleTravelExpired = (expiry) => (body.scheduled_departure ? isExpiredOn(expiry, body.scheduled_departure) : isExpired(expiry));
+      if (vehicleTravelExpired(vehicle.registration_expiry)) {
+        return err(`Vehicle ${vehicle.plate_number} registration ${isExpired(vehicle.registration_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.registration_expiry)}) before this trip.`, 400);
+      }
+      if (vehicleTravelExpired(vehicle.insurance_expiry)) {
+        return err(`Vehicle ${vehicle.plate_number} insurance ${isExpired(vehicle.insurance_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.insurance_expiry)}) before this trip.`, 400);
       }
       if (["Under Maintenance", "Decommissioned", "Registration Expired"].includes(vehicle.vehicle_status)) {
         return err(`Vehicle ${vehicle.plate_number} cannot be dispatched (status: ${vehicle.vehicle_status}).`, 400);
+      }
+
+      // Number coding (UVVRP): block/warn/defer per the active policy.
+      if (body.scheduled_departure) {
+        const coding = await enforceCoding({
+          vehicleId: body.vehicle_id,
+          plateNumber: vehicle.plate_number,
+          scheduledDeparture: body.scheduled_departure,
+          createdBy: session.user?.employeeId ?? null,
+        });
+        if (!coding.ok) return err(coding.message, coding.status);
       }
     }
 
@@ -108,10 +124,11 @@ export async function POST(req) {
       );
       const driver = drivers[0];
       if (!driver) return err("Driver not found", 404);
-      if (isExpired(driver.license_expiry)) {
-        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} has an expired license (${toCalendarDay(driver.license_expiry)}). Renew before dispatching.`, 400);
+      const driverTravelExpired = (expiry) => (body.scheduled_departure ? isExpiredOn(expiry, body.scheduled_departure) : isExpired(expiry));
+      if (driverTravelExpired(driver.license_expiry)) {
+        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
       }
-      if (["Suspended", "On Leave"].includes(driver.driver_status)) {
+      if (["Suspended", "On Leave", "Off Duty"].includes(driver.driver_status)) {
         return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} cannot be dispatched (status: ${driver.driver_status}).`, 400);
       }
     }

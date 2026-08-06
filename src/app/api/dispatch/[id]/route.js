@@ -3,6 +3,12 @@ import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/l
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { assertDispatchOwnership } from "@/lib/api/ownership";
+import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
+import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
+import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
+
+const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
+const NON_DISPATCHABLE_DRIVER = ["Suspended", "On Leave", "Off Duty"];
 
 const JOIN_SELECT = `
   ds.*,
@@ -127,7 +133,10 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
-    const { rows: before } = await query(`SELECT vehicle_id, driver_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`, [id]);
+    const { rows: before } = await query(
+      `SELECT vehicle_id, driver_id, scheduled_departure, scheduled_arrival FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
+      [id]
+    );
 
     const columns = [];
     const values = [];
@@ -138,6 +147,81 @@ export async function PUT(req, { params }) {
       }
     }
     if (columns.length === 0) return err("No updatable fields provided", 400);
+
+    // Validate the effective final state of the dispatch — body value where
+    // present, else the existing row — so edits cannot bypass the guards that
+    // the create path enforces (vehicle/driver status, expiring documents, and
+    // double-booking overlap).
+    const effVehicleId = body.vehicle_id !== undefined ? body.vehicle_id : before[0]?.vehicle_id;
+    const effDriverId = body.driver_id !== undefined ? body.driver_id : before[0]?.driver_id;
+    const effDeparture = body.scheduled_departure !== undefined ? body.scheduled_departure : before[0]?.scheduled_departure;
+    const effArrival = body.scheduled_arrival !== undefined ? body.scheduled_arrival : before[0]?.scheduled_arrival;
+
+    if (effVehicleId) {
+      const { rows: vehicles } = await query(
+        `SELECT vehicle_id, plate_number, registration_expiry, insurance_expiry, vehicle_status
+           FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+        [effVehicleId]
+      );
+      const vehicle = vehicles[0];
+      if (!vehicle) return err("Vehicle not found", 400);
+      const vehicleTravelExpired = (expiry) => (effDeparture ? isExpiredOn(expiry, effDeparture) : isExpired(expiry));
+      if (vehicleTravelExpired(vehicle.registration_expiry)) {
+        return err(`Vehicle ${vehicle.plate_number} registration ${isExpired(vehicle.registration_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.registration_expiry)}) before this trip.`, 400);
+      }
+      if (vehicleTravelExpired(vehicle.insurance_expiry)) {
+        return err(`Vehicle ${vehicle.plate_number} insurance ${isExpired(vehicle.insurance_expiry) ? "has expired" : "expires"} (${toCalendarDay(vehicle.insurance_expiry)}) before this trip.`, 400);
+      }
+      if (NON_DISPATCHABLE_VEHICLE.includes(vehicle.vehicle_status)) {
+        return err(`Vehicle ${vehicle.plate_number} cannot be dispatched (status: ${vehicle.vehicle_status}).`, 400);
+      }
+
+      // Number coding (UVVRP): block/warn/defer per the active policy.
+      if (effDeparture) {
+        const coding = await enforceCoding({
+          vehicleId: effVehicleId,
+          plateNumber: vehicle.plate_number,
+          scheduledDeparture: effDeparture,
+          createdBy: session.user?.employeeId ?? null,
+        });
+        if (!coding.ok) return err(coding.message, coding.status);
+      }
+    }
+
+    if (effDriverId) {
+      const { rows: drivers } = await query(
+        `SELECT d.driver_id, d.license_expiry, d.driver_status, e.first_name, e.last_name
+           FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id
+          WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
+        [effDriverId]
+      );
+      const driver = drivers[0];
+      if (!driver) return err("Driver not found", 400);
+      const driverTravelExpired = (expiry) => (effDeparture ? isExpiredOn(expiry, effDeparture) : isExpired(expiry));
+      if (driverTravelExpired(driver.license_expiry)) {
+        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
+      }
+      if (NON_DISPATCHABLE_DRIVER.includes(driver.driver_status)) {
+        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} cannot be dispatched (status: ${driver.driver_status}).`, 400);
+      }
+    }
+
+    // Block double-booking on edit: reject if the effective vehicle or driver
+    // already has an overlapping active dispatch (excluding this one).
+    if ((effVehicleId || effDriverId) && effDeparture) {
+      const conflicts = await findDispatchConflicts({
+        vehicleId: effVehicleId || null,
+        driverId: effDriverId || null,
+        departure: effDeparture,
+        arrival: effArrival || null,
+        excludeId: id,
+      });
+      if (conflicts.length > 0) {
+        const c = conflicts[0];
+        const who = c.vehicle_id && c.vehicle_id === effVehicleId ? "vehicle" : "driver";
+        return err(`This ${who} is already dispatched (${c.dispatch_number || `#${c.dispatch_id}`}) during that time window.`, 409);
+      }
+    }
 
     const assignments = columns.map((c, i) => `${c} = $${i + 1}`);
     assignments.push(`updated_at = NOW()`, `updated_by = $${columns.length + 1}`);

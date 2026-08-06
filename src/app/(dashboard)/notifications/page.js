@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -88,7 +88,17 @@ export default function NotificationsPage() {
     onError: (err) => toast.error(err.message),
   });
 
-  const unread = notifications.filter((n) => !n.is_read).length;
+  const uniqueNotifications = useMemo(() => {
+    const seen = new Set();
+    return (notifications || []).filter((notif) => {
+      const key = `${notif.message}-${notif.title}-${notif.reference_type}-${notif.reference_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [notifications]);
+
+  const unread = uniqueNotifications.filter((n) => !n.is_read).length;
 
   return (
     <div className="space-y-6">
@@ -120,7 +130,7 @@ export default function NotificationsPage() {
 
       <Card className="border-0 shadow-sm">
         <CardContent className="p-0">
-          {notifications.length === 0 ? (
+          {uniqueNotifications.length === 0 ? (
             <EmptyState
               icon={Bell}
               title="No notifications"
@@ -128,7 +138,7 @@ export default function NotificationsPage() {
             />
           ) : (
             <div className="divide-y divide-border">
-              {notifications.map((notif) => {
+              {uniqueNotifications.map((notif) => {
                 const Icon = typeIcons[notif.type] || Info;
                 const isUnread = !notif.is_read;
 

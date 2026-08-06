@@ -493,3 +493,55 @@ read-only.
 - `npm run lint` (changed files) and `npm run build` — clean.
 - `getWorkspace(role)` resolves all 6 roles; removed/unknown roles fall back to
   `WORKS.admin`.
+
+---
+
+## 10. Business-rule hardening & Incidents module
+
+FleetOps business rules were audited and gaps closed (documented for the record;
+see `docs/rbac-model.md` and the code for the authoritative implementation).
+
+### 10.1 Dispatch rules enforced
+- **Double vehicle/driver booking** — hard 409 via `findDispatchConflicts`
+  (`src/lib/scheduling/conflicts.js`) on dispatch-create, request-assign, **and**
+  now dispatch-update (`PUT /api/dispatch/[id]`). DB-level trigger
+  `trg_dispatch_overlap` (migration `023_dispatch_overlap_guard.sql`) makes it
+  race-free via `pg_advisory_xact_lock`.
+- **Maintenance vs dispatch** — a vehicle with `Under Maintenance /
+  Decommissioned / Registration Expired` cannot be dispatched (400) on create or
+  update.
+- **Driver availability** — `Suspended / On Leave / Off Duty` drivers cannot be
+  dispatched (400/409) on create, assign, or update.
+- **Expired documents** — expired `registration_expiry`, `insurance_expiry`
+  (vehicle) and `license_expiry` (driver) block dispatch. Insurance expiry was
+  previously unenforced; now checked at create/update/assign and surfaced as a
+  queue conflict.
+- **Reservation cancellation cascade** — cancelling a request marks related
+  dispatches + trips Cancelled, re-syncs vehicle/driver status, **and** nulls the
+  request's `vehicle_id`/`driver_id` for consistency.
+
+### 10.2 Incidents module
+- `driverincidents` table (dropped in migration 005) was **recreated** (migration
+  `024_driverincidents.sql`) — the driver portal and `/api/driver/incidents`
+  referenced a nonexistent table and were broken.
+- **Driver self-service** — `GET`/`POST /api/driver/incidents` (driver-scoped).
+- **Staff view** — new `GET /api/incidents` (all incidents, joined to
+  vehicle/driver; filterable by severity/status/type/date) and a read-only
+  `/incidents` page for dispatcher/management/ops.
+- **Breakdown automation** — a driver reporting a breakdown
+  (`/breakdown|mechanical|engine|flat tire|battery|electrical|overheat/i`) sets
+  the vehicle to `Under Maintenance` and notifies system_admin/fleet_manager/
+  dispatcher/management/admin, so the vehicle stops receiving assignments.
+
+### 10.3 Driver acceptance (documentation only — not implemented)
+Optional enterprise workflow, intentionally **not** built yet:
+
+```
+Dispatcher → Assign Driver → Driver accepts → Trip confirmed → Trip started
+```
+
+The mobile app already lets a driver accept/decline an assigned trip. A full web
+"Accepted" hop in the trip state machine (`src/lib/scheduling/trip-state.js`,
+currently `Assigned → … → Completed`) would formalize this as a hard gate before
+a trip can start. Treat as follow-up; no schema or state-machine change was made
+for it in this pass.

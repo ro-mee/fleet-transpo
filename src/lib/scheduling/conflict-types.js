@@ -16,6 +16,8 @@ export const CONFLICT_TYPE = {
   DRIVER_UNAVAILABLE: "driver_unavailable",
   LICENSE_EXPIRED: "license_expired",
   REGISTRATION_EXPIRED: "registration_expired",
+  INSURANCE_EXPIRED: "insurance_expired",
+  UVVRP_RESTRICTED: "uvvrp_restricted",
   CAPACITY_MISMATCH: "capacity_mismatch",
   VEHICLE_NOT_ASSIGNED_TO_DRIVER: "vehicle_not_assigned_to_driver",
 };
@@ -31,6 +33,8 @@ export const CONFLICT_LABEL = {
   [CONFLICT_TYPE.DRIVER_UNAVAILABLE]: "Driver Unavailable",
   [CONFLICT_TYPE.LICENSE_EXPIRED]: "License Expired",
   [CONFLICT_TYPE.REGISTRATION_EXPIRED]: "Registration Expired",
+  [CONFLICT_TYPE.INSURANCE_EXPIRED]: "Insurance Expired",
+  [CONFLICT_TYPE.UVVRP_RESTRICTED]: "Number Coding Restricted",
   [CONFLICT_TYPE.CAPACITY_MISMATCH]: "Capacity Mismatch",
   [CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER]: "Not Driver's Vehicle",
 };

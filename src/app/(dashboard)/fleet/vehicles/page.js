@@ -11,6 +11,8 @@ import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity } 
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { getUvvrpPolicy } from "@/services/settings.service";
+import { isRestricted } from "@/lib/uvvrp/policy";
 import { exportToCSV } from "@/lib/export";
 import { useVehicleStatusSync } from "@/hooks/use-vehicle-status-sync";
 
@@ -25,18 +27,28 @@ export default function FleetVehiclesPage() {
     queryFn: () => getVehicles(),
   });
 
+  const { data: uvvrpPolicy } = useQuery({ queryKey: ["uvvrp-policy"], queryFn: getUvvrpPolicy });
+  const restrictedPlates = new Set();
+  if (uvvrpPolicy?.enabled) {
+    vehicles.forEach((v) => {
+      if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) restrictedPlates.add(v.plate_number);
+    });
+  }
+
   const stats = {
     total: vehicles.length,
-    available: vehicles.filter((v) => v.vehicle_status === "Available").length,
+    available: vehicles.filter((v) => v.vehicle_status === "Available" && !restrictedPlates.has(v.plate_number)).length,
     inUse: vehicles.filter((v) => v.vehicle_status === "In Use").length,
     maintenance: vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length,
     outOfService: vehicles.filter((v) => v.vehicle_status === "Out of Service").length,
     registrationExpired: vehicles.filter((v) => v.vehicle_status === "Registration Expired").length,
+    codingRestricted: restrictedPlates.size,
   };
 
   const statCards = [
     { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status, onClick: () => setFilters({}) },
     { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch", active: filters.status === "Available", onClick: () => setFilters({ status: "Available" }) },
+    { label: "Coding Restricted", value: stats.codingRestricted, icon: AlertTriangle, tone: "warning", trend: "restricted today", active: false, onClick: () => setFilters({}) },
     { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road", active: filters.status === "In Use", onClick: () => setFilters({ status: "In Use" }) },
     { label: "Under Maintenance", value: stats.maintenance, icon: Wrench, tone: "warning", trend: "being serviced", active: filters.status === "Under Maintenance", onClick: () => setFilters({ status: "Under Maintenance" }) },
     { label: "Out of Service", value: stats.outOfService, icon: AlertTriangle, tone: "danger", trend: "cannot be dispatched", active: filters.status === "Out of Service", onClick: () => setFilters({ status: "Out of Service" }) },
@@ -82,9 +94,9 @@ export default function FleetVehiclesPage() {
       />
 
       {isLoading ? (
-        <StatsGridSkeleton count={6} />
+        <StatsGridSkeleton count={7} />
       ) : (
-        <StatGrid cols={6}>
+        <StatGrid cols={7}>
           {statCards.map((card) => (
             <StatCard key={card.label} {...card} />
           ))}

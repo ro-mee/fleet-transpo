@@ -43,7 +43,7 @@ export async function PUT(req, { params }) {
       eventType: E.CANCELLED,
       description: reason ? `Request cancelled: ${reason}` : "Request cancelled.",
       metadata: reason ? { reason, cancelled_from: before.fleet_status } : { cancelled_from: before.fleet_status },
-      patch: { status_reason: reason },
+      patch: { status_reason: reason, vehicle_id: null, driver_id: null },
     });
 
     if (!result.ok) return err(result.error, result.status || 409);

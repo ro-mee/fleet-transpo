@@ -1,6 +1,8 @@
 import { query } from "@/lib/db";
-import { isExpired, toCalendarDay } from "@/lib/dates";
+import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
+import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
+import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
 
 // Double-booking prevention.
 //
@@ -187,7 +189,7 @@ function maintenanceCoversDay(row, day) {
  * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [] } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], uvvrp = null } = {}) {
   const findings = [];
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
@@ -215,12 +217,28 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
   }
 
   if (vehicle) {
-    if (isExpired(vehicle.registration_expiry)) {
+    if (isExpiredOn(vehicle.registration_expiry, request.pickup_datetime)) {
       findings.push({
         type: CONFLICT_TYPE.REGISTRATION_EXPIRED,
         severity: SEVERITY.BLOCKING,
-        message: `Vehicle ${vehicle.plate_number} registration expired (${toCalendarDay(vehicle.registration_expiry)}).`,
+        message: `Vehicle ${vehicle.plate_number} registration ${toCalendarDay(vehicle.registration_expiry)} is not valid for this trip.`,
         detail: { vehicle_id: vehicle.vehicle_id },
+      });
+    }
+    if (isExpiredOn(vehicle.insurance_expiry, request.pickup_datetime)) {
+      findings.push({
+        type: CONFLICT_TYPE.INSURANCE_EXPIRED,
+        severity: SEVERITY.BLOCKING,
+        message: `Vehicle ${vehicle.plate_number} insurance ${toCalendarDay(vehicle.insurance_expiry)} is not valid for this trip.`,
+        detail: { vehicle_id: vehicle.vehicle_id },
+      });
+    }
+    if (uvvrp?.restricted && !uvvrp.exempt) {
+      findings.push({
+        type: CONFLICT_TYPE.UVVRP_RESTRICTED,
+        severity: uvvrp.response === "warn" ? SEVERITY.WARNING : SEVERITY.BLOCKING,
+        message: `Vehicle ${vehicle.plate_number} is number-coding restricted (ends ${uvvrp.digit}) on ${uvvrp.weekday}.`,
+        detail: { vehicle_id: vehicle.vehicle_id, weekday: uvvrp.weekday, plate_digit: uvvrp.digit, response: uvvrp.response },
       });
     }
     if ((vehicle.seating_capacity || 0) > 0 && vehicle.seating_capacity < passengers) {
@@ -235,7 +253,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
 
   if (driver) {
     const name = `${driver.first_name || ""} ${driver.last_name || ""}`.trim() || `#${driver.driver_id}`;
-    if (["Suspended", "On Leave"].includes(driver.driver_status)) {
+    if (["Suspended", "On Leave", "Off Duty"].includes(driver.driver_status)) {
       findings.push({
         type: CONFLICT_TYPE.DRIVER_UNAVAILABLE,
         severity: SEVERITY.BLOCKING,
@@ -243,11 +261,11 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         detail: { driver_id: driver.driver_id, driver_status: driver.driver_status },
       });
     }
-    if (isExpired(driver.license_expiry)) {
+    if (isExpiredOn(driver.license_expiry, request.pickup_datetime)) {
       findings.push({
         type: CONFLICT_TYPE.LICENSE_EXPIRED,
         severity: SEVERITY.BLOCKING,
-        message: `Driver ${name} license expired (${toCalendarDay(driver.license_expiry)}).`,
+        message: `Driver ${name} license ${toCalendarDay(driver.license_expiry)} is not valid for this trip.`,
         detail: { driver_id: driver.driver_id },
       });
     }
@@ -320,6 +338,31 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
 }
 
 /**
+ * Number-coding (UVVRP) finding context for a vehicle + departure. Failure-
+ * tolerant: a policy/exemption read error degrades to no finding.
+ */
+async function buildUvvrpCtx(vehicle, date) {
+  if (!vehicle || !date) return null;
+  try {
+    const policy = await getUvvrpPolicy();
+    if (!policy.enabled) return null;
+    const restricted = isRestricted(vehicle.plate_number, policy, new Date(date));
+    if (!restricted) return null;
+    const exemptVehicleIds = await getExemptVehicleIds();
+    return {
+      restricted: true,
+      response: policy.response,
+      exempt: exemptVehicleIds.has(vehicle.vehicle_id),
+      weekday: weekdayFor(date),
+      digit: plateLastDigit(vehicle.plate_number),
+    };
+  } catch (e) {
+    console.warn("uvvrp ctx failed:", e?.message || e);
+    return null;
+  }
+}
+
+/**
  * Inspect a request (plus any assigned/proposed vehicle & driver) for problems.
  *
  * Every check is independent and failure-tolerant: a query error on one check
@@ -354,7 +397,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     // 6. Vehicle registration + 7. capacity.
     vehicleId
       ? query(
-          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, vehicle_status
+          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status
              FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
           [vehicleId]
         )
@@ -414,6 +457,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     dispatches: overlap,
     maintenance: maintenance.map((m) => ({ ...m, vehicle_id: vehicleId })),
     assignments,
+    uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime),
   });
 }
 
@@ -456,7 +500,7 @@ export async function detectConflictsForRequests(requests = []) {
   const [vehicles, drivers, dispatches, maintenance, assignments] = await Promise.all([
     vehicleIds.length
       ? query(
-          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, vehicle_status
+          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status
              FROM vehicles WHERE vehicle_id = ANY($1) AND deleted_at IS NULL`,
           [vehicleIds]
         ).then((r) => r.rows).catch(() => [])
@@ -503,6 +547,11 @@ export async function detectConflictsForRequests(requests = []) {
   const vehicleById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
+  const uvvrpPolicy = await getUvvrpPolicy().catch(() => null);
+  const exemptVehicleIds = uvvrpPolicy?.enabled
+    ? await getExemptVehicleIds().catch(() => new Set())
+    : new Set();
+
   for (const r of requests) {
     const vehicle = r.vehicle_id ? vehicleById.get(r.vehicle_id) ?? null : null;
     const driver = r.driver_id ? driverById.get(r.driver_id) ?? null : null;
@@ -515,11 +564,25 @@ export async function detectConflictsForRequests(requests = []) {
         (driver && d.driver_id === driver.driver_id)
     );
 
+    let uvvrp = null;
+    if (vehicle && uvvrpPolicy?.enabled && r.pickup_datetime) {
+      const restricted = isRestricted(vehicle.plate_number, uvvrpPolicy, new Date(r.pickup_datetime));
+      if (restricted) {
+        uvvrp = {
+          restricted: true,
+          response: uvvrpPolicy.response,
+          exempt: exemptVehicleIds.has(vehicle.vehicle_id),
+          weekday: weekdayFor(r.pickup_datetime),
+          digit: plateLastDigit(vehicle.plate_number),
+        };
+      }
+    }
+
     out.set(
       r.request_id,
       // `assignments` is passed whole: the evaluator looks pairings up by exact
       // driver_id/vehicle_id, so unlike `dispatches` there is nothing to narrow.
-      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments })
+      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments, uvvrp })
     );
   }
 

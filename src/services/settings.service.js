@@ -16,3 +16,14 @@ export async function seedNaiaRoutes() {
     method: "POST",
   });
 }
+
+export async function getUvvrpPolicy() {
+  return apiFetch("/api/settings/uvvrp");
+}
+
+export async function updateUvvrpPolicy(policy) {
+  return apiFetch("/api/settings/uvvrp", {
+    method: "PUT",
+    body: policy,
+  });
+}
