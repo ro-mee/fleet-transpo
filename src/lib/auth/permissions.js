@@ -16,6 +16,11 @@ import { ROLES } from "@/lib/constants";
 export const NAV_ROLES = {
   "/dashboard": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
   "/driver": ["driver"],
+  "/driver/trips": ["driver"],
+  "/driver/vehicle": ["driver"],
+  "/driver/fuel": ["driver"],
+  "/driver/incidents": ["driver"],
+  "/driver/profile": ["driver"],
   "/fleet": ["admin", "system_admin", "fleet_manager"],
   "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
   "/fleet/documents": ["admin", "system_admin", "fleet_manager"],

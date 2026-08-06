@@ -39,32 +39,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverSchema } from "@/lib/validation/schemas";
-
-// Helper to rotate Base64 Image on Canvas for OCR & preview
-const rotateBase64Image = (base64Str, degrees = 90) => {
-  return new Promise((resolve) => {
-    if (!base64Str || typeof window === "undefined") return resolve(base64Str);
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      if (degrees === 90 || degrees === 270) {
-        canvas.width = img.height;
-        canvas.height = img.width;
-      } else {
-        canvas.width = img.width;
-        canvas.height = img.height;
-      }
-      const ctx = canvas.getContext("2d");
-      ctx.translate(canvas.width / 2, canvas.height / 2);
-      ctx.rotate((degrees * Math.PI) / 180);
-      ctx.drawImage(img, -img.width / 2, -img.height / 2);
-      resolve(canvas.toDataURL("image/jpeg", 0.95));
-    };
-    img.onerror = () => resolve(base64Str);
-    img.src = base64Str;
-  });
-};
+import { rotateBase64Image } from "@/lib/images";
 
 export default function NewDriverPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);

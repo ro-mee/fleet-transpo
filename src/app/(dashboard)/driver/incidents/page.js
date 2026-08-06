@@ -1,0 +1,132 @@
+"use client";
+
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
+import { toast } from "@/components/ui/toast";
+import { getMyIncidents, reportIncident } from "@/services/driver.service";
+import { formatDate } from "@/lib/utils";
+import { useRequireRole } from "@/lib/auth/role-guard";
+import { DriverConsentGate } from "@/components/driver/consent-gate";
+import { AlertTriangle, Send } from "lucide-react";
+
+export default function DriverIncidentsPage() {
+  useRequireRole(["driver"]);
+  const queryClient = useQueryClient();
+
+  const { data: incidents = [] } = useQuery({
+    queryKey: ["driver-incidents"],
+    queryFn: getMyIncidents,
+  });
+
+  const [incidentForm, setIncidentForm] = useState({
+    incident_type: "",
+    severity: "Minor",
+    location: "",
+    description: "",
+  });
+
+  const reportMutation = useMutation({
+    mutationFn: () => reportIncident(incidentForm),
+    onSuccess: () => {
+      toast.success("Incident reported. Thank you for flagging it.");
+      setIncidentForm({ incident_type: "", severity: "Minor", location: "", description: "" });
+      queryClient.invalidateQueries({ queryKey: ["driver-incidents"] });
+    },
+    onError: (err) => toast.error(err.message || "Could not submit the incident report."),
+  });
+
+  return (
+    <DriverConsentGate>
+      <div className="space-y-6">
+        <PageHeader
+          eyebrow="My Work"
+          title="Incident Reporting"
+          description="Report an incident and track the reports you have submitted."
+        />
+
+        <Card className="border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-primary" /> Report an Incident
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <Input placeholder="Incident type (e.g. vehicle breakdown, accident, near miss)"
+                value={incidentForm.incident_type}
+                onChange={(e) => setIncidentForm({ ...incidentForm, incident_type: e.target.value })} />
+              <Input placeholder="Location" value={incidentForm.location}
+                onChange={(e) => setIncidentForm({ ...incidentForm, location: e.target.value })} />
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-foreground-muted w-16">Severity</label>
+              {["Minor", "Moderate", "Major", "Critical"].map((s) => (
+                <button key={s} type="button"
+                  onClick={() => setIncidentForm({ ...incidentForm, severity: s })}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
+                    incidentForm.severity === s ? "bg-foreground text-surface border-foreground" : "border-border text-foreground-secondary hover:bg-hover"
+                  }`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+            <textarea
+              rows={3}
+              placeholder="Describe what happened…"
+              value={incidentForm.description}
+              onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            />
+            <div className="flex items-center gap-3">
+              <Button
+                disabled={reportMutation.isPending || !incidentForm.incident_type || !incidentForm.description}
+                onClick={() => reportMutation.mutate()}
+              >
+                <Send className="w-4 h-4 mr-2" />
+                {reportMutation.isPending ? "Submitting…" : "Report Incident"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base font-semibold">My Incident Reports</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {incidents.length === 0 ? (
+              <EmptyState
+                icon={AlertTriangle}
+                title="No incidents reported"
+                description="Incidents you report will appear here."
+                className="py-8"
+              />
+            ) : (
+              <div className="divide-y divide-border">
+                {incidents.map((inc) => (
+                  <div key={inc.incident_id} className="py-2.5 flex items-center justify-between text-xs">
+                    <div className="min-w-0 pr-3">
+                      <div className="font-medium text-foreground truncate">{inc.incident_type}</div>
+                      <div className="text-foreground-muted truncate">{inc.description}</div>
+                      {inc.location && <div className="text-foreground-muted truncate mt-0.5">{inc.location}</div>}
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <StatusBadge severity={inc.severity === "Critical" ? "danger" : inc.severity === "Major" ? "warning" : "info"}>{inc.severity}</StatusBadge>
+                      <div className="text-[11px] text-foreground-muted mt-1">{inc.incident_date ? formatDate(inc.incident_date) : "—"}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </DriverConsentGate>
+  );
+}

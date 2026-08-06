@@ -381,7 +381,12 @@ name as the breadcrumb root. Login/guards route each role to `workspace.home`
   Dispatch Board, Dispatch Calendar, Active Trips, Trips), Operations (Fleet
   Availability, Driver Availability, Routes, Live GPS Tracking, Trip Timeline),
   Insights (AI Insights, Reports).
-- **Driver Workspace**: single "My Dashboard" (`/driver`).
+- **Driver Workspace**: Overview (My Dashboard `/driver`), My Work (My Trips
+  `/driver/trips`, My Vehicle `/driver/vehicle`, Fuel Logs `/driver/fuel`,
+  Incident Reporting `/driver/incidents`), Account (Profile & Credentials
+  `/driver/profile`). Every driver page is gated by the shared privacy-consent
+  gate, and `/driver/trips` reads a dedicated driver-scoped endpoint
+  (`/api/driver/trips`) so drivers only ever see their own trips.
 - **Executive Center** (management): Insights (Executive KPI Center, Reports,
   Fleet Cost, Analytics, Driver Performance, Strategic Insights), Monitoring
   (Operational Review, Fleet Availability, Driver Availability). All read-only —

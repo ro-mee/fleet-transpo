@@ -1,8 +1,30 @@
 import { query } from "@/lib/db";
 import { requireAuth, requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject, normalizePhone, isUrl } from "@/lib/validation/helpers";
+import { validateBody, isValidObject, normalizePhone, isUrl, isBase64DataUrl } from "@/lib/validation/helpers";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
-import { DRIVER_SELF_EDITABLE_FIELDS, DRIVER_VISIBLE_SECTIONS } from "@/lib/consent/driver-visibility";
+import {
+  DRIVER_SELF_EDITABLE_FIELDS,
+  DRIVER_VISIBLE_SECTIONS,
+  LICENSE_REUPLOAD_WINDOW_DAYS,
+  canUpdateLicenseScan,
+} from "@/lib/consent/driver-visibility";
+
+// Auto-ensure the license scan columns exist (staff routes add them via the same
+// inline guard). A driver's own endpoint must not assume a staff route has run.
+let migrationRan = false;
+async function ensureDriverColumnsExist() {
+  if (migrationRan) return;
+  try {
+    await query(`
+      ALTER TABLE drivers
+      ADD COLUMN IF NOT EXISTS license_image_url TEXT,
+      ADD COLUMN IF NOT EXISTS license_back_image_url TEXT;
+    `);
+    migrationRan = true;
+  } catch (err) {
+    console.warn("Driver table column check skipped:", err.message);
+  }
+}
 
 /**
  * GET /api/driver/me
@@ -18,12 +40,13 @@ import { DRIVER_SELF_EDITABLE_FIELDS, DRIVER_VISIBLE_SECTIONS } from "@/lib/cons
 export async function GET(req) {
   try {
     const session = await requireDriver(req);
+    await ensureDriverColumnsExist();
 
     const { rows } = await query(
       `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.phone, e.avatar_url,
               d.driver_id, d.driver_status, d.license_number, d.license_type,
               d.license_class, d.license_expiry, d.years_of_experience,
-              d.face_image_url
+              d.face_image_url, d.license_image_url, d.license_back_image_url
          FROM employees e
          JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
         WHERE e.employee_id = $1 AND e.deleted_at IS NULL
@@ -35,6 +58,12 @@ export async function GET(req) {
     if (!driver) {
       return err("No driver record is linked to this account", 403);
     }
+
+    const licenseScanGate = {
+      frontImageUrl: driver.license_image_url,
+      backImageUrl: driver.license_back_image_url,
+      licenseExpiry: driver.license_expiry,
+    };
 
     // Performance from the driver_stats view (computed from completed trips).
     let performance = null;
@@ -103,6 +132,11 @@ export async function GET(req) {
         expiry: driver.license_expiry,
         yearsExperience: driver.years_of_experience,
         imageUrl: driver.face_image_url,
+        frontScanImageUrl: driver.license_image_url,
+        backScanImageUrl: driver.license_back_image_url,
+        canUploadFront: canUpdateLicenseScan({ ...licenseScanGate, side: "front" }),
+        canUploadBack: canUpdateLicenseScan({ ...licenseScanGate, side: "back" }),
+        reuploadWindowDays: LICENSE_REUPLOAD_WINDOW_DAYS,
       },
       performance,
       trips,
@@ -127,13 +161,20 @@ export async function GET(req) {
  * PATCH /api/driver/me
  *
  * Minimal self-edits on a driver's own profile — only the fields declared in
- * DRIVER_SELF_EDITABLE_FIELDS (phone, face image URL). Everything else is
- * read-only; the endpoint rejects any other field.
+ * DRIVER_SELF_EDITABLE_FIELDS (phone, face image URL, license scan images).
+ * Everything else is read-only; the endpoint rejects any other field.
+ *
+ * The license scan columns are writable only while the per-side gate passes
+ * (no scan on file yet, or the license is inside the re-upload window). The
+ * AI-readability check is done separately by POST /api/driver/license-scan
+ * before a scan is ever submitted here — so an unreadable image is never
+ * persisted.
  */
 export async function PATCH(req) {
   try {
     const session = await requireDriver(req);
     const driverId = session.user.driverId;
+    await ensureDriverColumnsExist();
 
     const body = await parseBody(req);
 
@@ -147,13 +188,16 @@ export async function PATCH(req) {
     const errors = validateBody(body, {
       phone: { type: "phone", label: "Phone" },
       face_image_url: { type: "url", label: "Face image URL" },
+      license_image_url: { type: "base64Url", label: "License front scan" },
+      license_back_image_url: { type: "base64Url", label: "License back scan" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
 
     const { rows: drv } = await query(
-      `SELECT d.driver_id, d.employee_id
+      `SELECT d.driver_id, d.employee_id, d.license_expiry,
+              d.license_image_url, d.license_back_image_url
          FROM drivers d
         WHERE d.driver_id = $1 AND d.deleted_at IS NULL
         LIMIT 1`,
@@ -164,6 +208,12 @@ export async function PATCH(req) {
       return err("Driver record not found", 404);
     }
 
+    const scanGate = {
+      frontImageUrl: driver.license_image_url,
+      backImageUrl: driver.license_back_image_url,
+      licenseExpiry: driver.license_expiry,
+    };
+
     if (body.phone !== undefined) {
       await query(`UPDATE employees SET phone = $1, updated_at = NOW() WHERE employee_id = $2`, [
         normalizePhone(body.phone) || null,
@@ -173,6 +223,24 @@ export async function PATCH(req) {
     if (body.face_image_url !== undefined) {
       await query(`UPDATE drivers SET face_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
         isUrl(body.face_image_url) ? body.face_image_url : null,
+        driver.driver_id,
+      ]);
+    }
+    if (body.license_image_url !== undefined) {
+      if (!canUpdateLicenseScan({ ...scanGate, side: "front" })) {
+        return err("License front scan is locked. You may only re-upload within 30 days of expiry.", 403);
+      }
+      await query(`UPDATE drivers SET license_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
+        isBase64DataUrl(body.license_image_url) ? body.license_image_url : null,
+        driver.driver_id,
+      ]);
+    }
+    if (body.license_back_image_url !== undefined) {
+      if (!canUpdateLicenseScan({ ...scanGate, side: "back" })) {
+        return err("License back scan is locked. You may only re-upload within 30 days of expiry.", 403);
+      }
+      await query(`UPDATE drivers SET license_back_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
+        isBase64DataUrl(body.license_back_image_url) ? body.license_back_image_url : null,
         driver.driver_id,
       ]);
     }

@@ -153,6 +153,11 @@ export function isUrl(value) {
   }
 }
 
+export function isBase64DataUrl(value) {
+  if (typeof value !== "string") return false;
+  return /^data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
 export function normalizePlate(value) {
   return String(value ?? "").trim().toUpperCase();
 }

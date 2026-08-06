@@ -255,7 +255,8 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `drivers/[id]/account` (PUT) ★ — **enable/reset driver login**: force driver role, set/reset bcrypt password, revoke all `mobile_refresh_tokens`.
 - `drivers/link` (POST) ★ — finalize a driver profile for an existing driver-role employee missing a `drivers` row.
 - `drivers/stats` (GET) — counts by status.
-- `driver/me` (GET/PATCH) ★ — **driver's own profile**: license, performance, trips, attendance, consent status, editable fields, visible sections; PATCH only `DRIVER_SELF_EDITABLE_FIELDS` (`phone`, `face_image_url`).
+- `driver/me` (GET/PATCH) ★ — **driver's own profile**: license, performance, trips, attendance, consent status, editable fields, visible sections; PATCH only `DRIVER_SELF_EDITABLE_FIELDS` (`phone`, `face_image_url`, `license_image_url`, `license_back_image_url`). The license scan columns are writable only while the per-side `canUpdateLicenseScan` gate passes (no scan on file yet, or license within 30 days of expiry); otherwise they 403 as view-only. License number/class/expiry remain staff-only.
+- `driver/license-scan` (POST) ★ — OCR + regex check (shared `src/lib/ai/license-ocr.js`) of a driver's own scan; returns `ok`/`unclear`, **no persistence** — an unreadable photo is never saved, so a driver retakes it until it reads clean.
 - `driver/me/consent` (POST) ★ — record policy acceptance; 409 on stale `policy_version`.
 - `driver/incidents` (GET/POST) ★ — driver-reported incidents (self-scoped to own trips).
 - `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting.
@@ -405,8 +406,9 @@ This is the most recent feature (merged from the `5794427` feature branch). It m
 - **No UPDATE/DELETE** — a mistaken acceptance is superseded by a new one, never corrected in place.
 
 ### 9.3 Server API
-- `GET /api/driver/me` (`requireDriver`) — profile + `consent: { acceptedVersion, acceptedAt, acceptedVia, requiredVersion, accepted, policy }` (lookup `.catch()`-guarded so a missing table keeps the gate on). Also returns `editableFields` and `visibleSections` from `src/lib/consent/driver-visibility.js`.
-- `PATCH /api/driver/me` — only `phone`, `face_image_url` (403 otherwise).
+- `GET /api/driver/me` (`requireDriver`) — profile + `consent: { acceptedVersion, acceptedAt, acceptedVia, requiredVersion, accepted, policy }` (lookup `.catch()`-guarded so a missing table keeps the gate on). Also returns `editableFields`, `visibleSections` from `src/lib/consent/driver-visibility.js`, and `license.{frontScanImageUrl, backScanImageUrl, canUploadFront, canUploadBack, reuploadWindowDays}` for the scan upload UI.
+- `PATCH /api/driver/me` — only `phone`, `face_image_url`, `license_image_url`, `license_back_image_url` (403 otherwise); the scan columns additionally require the per-side `canUpdateLicenseScan` gate (no scan on file yet, or within 30 days of expiry) and are validated as base64 data URLs.
+- `POST /api/driver/license-scan` (`requireDriver`) — body `{ side, file_url }`; runs Tesseract OCR + the shared license regex parsers; returns `{ ok, extracted_data, confidence_scores, validation_issues }` and persists nothing. `ok` mirrors the staff route's key-fields check (`license_number || last_name` front; `emergency_contact_name || emergency_contact_phone` back).
 - `POST /api/driver/me/consent` (`requireDriver`) — body `{ policy_version, accepted: true, via }`; rejects stale version with **409**; inserts audit row with client IP; responds with updated consent.
 - `PUT /api/drivers/[id]/account` — **enable/set driver login**: forces driver role, bcrypt-hashes a new password if supplied, **revokes all mobile refresh tokens** on credential change.
 - `POST /api/drivers/link` — finalize a driver profile for an orphaned driver-role employee.

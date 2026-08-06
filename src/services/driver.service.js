@@ -43,6 +43,16 @@ export async function updateMyDriverProfile(data) {
   return apiFetch("/api/driver/me", { method: "PATCH", body: data });
 }
 
+// Runs OCR + the license regex parsers on a driver's own scan. Returns
+// { ok, extracted_data, ... }; "unclear" scans are never persisted client-side.
+export async function scanLicenseDocument(payload) {
+  return apiFetch("/api/driver/license-scan", { method: "POST", body: payload });
+}
+
+export async function getMyTrips(filters = {}) {
+  return apiFetch(`/api/driver/trips${buildQuery(filters)}`);
+}
+
 export async function acceptDriverConsent({ policyVersion, via }) {
   return apiFetch("/api/driver/me/consent", {
     method: "POST",

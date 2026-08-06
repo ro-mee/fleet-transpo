@@ -211,6 +211,21 @@ export const WORKS = {
         label: "Overview",
         items: [{ href: "/driver", label: "My Dashboard", icon: LayoutDashboard }],
       },
+      {
+        label: "My Work",
+        items: [
+          { href: "/driver/trips", label: "My Trips", icon: ClipboardList },
+          { href: "/driver/vehicle", label: "My Vehicle", icon: Truck },
+          { href: "/driver/fuel", label: "Fuel Logs", icon: Fuel },
+          { href: "/driver/incidents", label: "Incident Reporting", icon: AlertTriangle },
+        ],
+      },
+      {
+        label: "Account",
+        items: [
+          { href: "/driver/profile", label: "Profile & Credentials", icon: UserCog },
+        ],
+      },
     ],
   },
   management: {

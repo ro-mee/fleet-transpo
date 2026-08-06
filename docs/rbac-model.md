@@ -95,6 +95,7 @@ Nine roles are seeded and present in `src/lib/constants.js` (`ROLES`, `ROLE_IDS`
 - **Description:** Mobile user. Executes assigned trips, reports GPS location, logs fuel receipts, checks in/out for attendance.
 - **Scope:** Own data only — assigned trips, own attendance, own performance.
 - **Access Pattern:** Insert own GPS, attendance, fuel records. Read own trips, dispatch, performance, notifications. Update own trip/dispatch status (via the trip start/complete/status and dispatch status routes, which include `driver`). Cannot view other drivers' data, fleet management, or admin pages.
+- **License scans (self-service, view-only):** A driver may upload a scan of their own license (front/back) on `/driver/profile` only while a side has no scan on file yet, or their license is within 30 days of expiry (or already expired). Before a scan is saved it is passed through `POST /api/driver/license-scan` (Tesseract OCR + the shared license regex parsers in `src/lib/ai/license-ocr.js`, no LLM call); if the photo is unreadable the scan is **not persisted** and the driver retakes it — the DB never stores an unreadable scan. A saved scan is locked/view-only (persisted via `PATCH /api/driver/me`, which enforces the per-side `canUpdateLicenseScan` gate). License **number / class / expiry fields remain staff-only**; a driver cannot change them. The staff document scanner (`POST /api/ai/scan-document`) remains gated to system_admin/admin/fleet_manager/dispatcher and is not exposed to drivers.
 
 ### 3.6 reception_staff
 
