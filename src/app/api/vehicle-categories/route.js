@@ -11,7 +11,7 @@ const DEFAULT_HOTEL_CATEGORIES = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     let { rows } = await query(
       `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
     );

@@ -19,3 +19,7 @@ export async function getDriverPerformanceReport(from, to) {
 export async function getFinancialSummary(from, to) {
   return apiFetch(`/api/reports/financial${buildQuery({ from, to })}`);
 }
+
+export async function getFleetCostReport(from, to) {
+  return apiFetch(`/api/reports/fleet-cost${buildQuery({ from, to })}`);
+}

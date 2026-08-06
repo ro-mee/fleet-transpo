@@ -14,16 +14,20 @@
 import { ROLES } from "@/lib/constants";
 
 export const NAV_ROLES = {
-  "/dashboard": ["*"],
+  "/dashboard": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
   "/driver": ["driver"],
   "/fleet": ["admin", "system_admin", "fleet_manager"],
   "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
+  "/fleet/documents": ["admin", "system_admin", "fleet_manager"],
   "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
   "/reservations": ["*"],
+  "/reservations/queue": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/dispatch": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/drivers": ["admin", "system_admin", "fleet_manager"],
+  "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],
+  "/executive": ["admin", "management"],
   "/trips": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/tracking": ["admin", "system_admin", "fleet_manager", "dispatcher"],
+  "/tracking": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/tracking/live-map": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/tracking/history": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/routes": ["admin", "system_admin", "fleet_manager", "dispatcher"],
@@ -35,12 +39,16 @@ export const NAV_ROLES = {
   "/ai/insights": ["admin", "system_admin", "fleet_manager", "management"],
   "/ai/predictive-maintenance": ["admin", "system_admin", "fleet_manager"],
   "/reports": ["admin", "system_admin", "fleet_manager", "management"],
+  "/reports/cost": ["admin", "system_admin", "fleet_manager", "management"],
   "/analytics": ["admin", "system_admin", "fleet_manager", "management"],
   "/notifications": ["*"],
   "/notifications/templates": ["admin", "system_admin"],
   "/notifications/preferences": ["*"],
+  "/system/audit": ["system_admin"],
   "/settings/general": ["admin", "system_admin"],
   "/settings/users/new": ["admin", "system_admin"],
+  "/settings/ai": ["admin", "system_admin", "fleet_manager"],
+  "/settings/ai/logs": ["admin", "system_admin", "fleet_manager"],
   "/settings/profile": ["*"],
   "/settings/security": ["*"],
   "/settings/api": ["admin", "system_admin"],
@@ -140,49 +148,6 @@ const MATRIX = {
     employees: { read: true },
     system: { read: false },
   },
-  reception_staff: {
-    vehicles: { read: true },
-    reservations: {
-      create: true, read: true, update: false, delete: false,
-      approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,
-    },
-    dispatch: { read: true },
-    categories: { read: true },
-    reports: { read: false },
-    analytics: { read: false },
-    ai: { read: true },
-    employees: { read: true },
-    system: { read: false },
-  },
-  restaurant_staff: {
-    vehicles: { read: true },
-    reservations: {
-      create: true, read: true, update: false, delete: false,
-      approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,
-    },
-    dispatch: { read: true },
-    categories: { read: true },
-    reports: { read: false },
-    analytics: { read: false },
-    ai: { read: true },
-    employees: { read: true },
-    system: { read: false },
-  },
-  concierge: {
-    vehicles: { read: true },
-    reservations: {
-      create: true, read: true, update: false, delete: false,
-      approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,
-    },
-    dispatch: { read: true },
-    routes: { read: true },
-    categories: { read: true },
-    reports: { read: false },
-    analytics: { read: false },
-    ai: { read: true },
-    employees: { read: true },
-    system: { read: false },
-  },
   management: {
     vehicles: { read: true },
     driver_assignments: { read: true },
@@ -249,7 +214,7 @@ export function getRequiredRolesForPath(pathname) {
   if (exactMatch) return exactMatch;
 
   const prefixMatch = Object.entries(NAV_ROLES)
-    .filter(([key]) => key !== "/" && pathname.startsWith(key))
+    .filter(([key]) => key !== "/" && (pathname === key || pathname.startsWith(key + "/")))
     .sort(([a], [b]) => b.length - a.length);
 
   return prefixMatch.length > 0 ? prefixMatch[0][1] : ["*"];

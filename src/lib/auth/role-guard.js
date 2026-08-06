@@ -26,9 +26,9 @@ export function useRequireRole(requiredRoles) {
   useEffect(() => {
     if (loading) return;
     if (!isAuthorized) {
-      router.replace('/dashboard');
+      router.replace(role === 'driver' ? '/driver' : '/dashboard');
     }
-  }, [loading, isAuthorized, router]);
+  }, [loading, isAuthorized, router, role]);
 
   return { authorized: isAuthorized, role };
 }

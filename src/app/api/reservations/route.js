@@ -36,6 +36,6 @@ export async function GET(req) {
 }
 
 export async function POST(req) {
-  await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "reception_staff", "restaurant_staff", "concierge"]);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
   return err("Legacy reservation writes are deprecated. Create/update reservations through the Booking integration flow (POST /api/integration/transport-requests and its lifecycle endpoints).", 410);
 }

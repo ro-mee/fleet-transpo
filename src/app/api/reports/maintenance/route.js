@@ -6,7 +6,7 @@ export async function GET(req) {
     await requireAuth(req);
     const sp = new URL(req.url).searchParams;
     const from = sp.get("from") || "1970-01-01", to = sp.get("to") || "2100-01-01";
-    const { rows: records } = await query(`SELECT maintenance_date, cost, maintenance_type, description, vehicle_id, row_to_json(v.*) as vehicles FROM vehiclemaintenance LEFT JOIN vehicles v ON vehiclemaintenance.vehicle_id = v.vehicle_id WHERE maintenance_date >= $1 AND maintenance_date <= $2 ORDER BY maintenance_date DESC`, [from, to]);
+    const { rows: records } = await query(`SELECT vehiclemaintenance.maintenance_date, vehiclemaintenance.cost, vehiclemaintenance.maintenance_type, vehiclemaintenance.description, vehiclemaintenance.vehicle_id, row_to_json(v.*) as vehicles FROM vehiclemaintenance LEFT JOIN vehicles v ON vehiclemaintenance.vehicle_id = v.vehicle_id WHERE vehiclemaintenance.maintenance_date >= $1 AND vehiclemaintenance.maintenance_date <= $2 ORDER BY vehiclemaintenance.maintenance_date DESC`, [from, to]);
     if (!records?.length) return ok({ totalCost: 0, totalRecords: 0, byType: [], monthlyData: [] });
     const totalCost = records.reduce((s, r) => s + (r.cost || 0), 0);
     const typeMap = {};

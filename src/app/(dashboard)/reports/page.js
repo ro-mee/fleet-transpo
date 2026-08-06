@@ -350,7 +350,7 @@ export default function ReportsPage() {
             <StatCard
               icon={BarChart3}
               label="Fleet Utilization Rate"
-              value={`${fleetReport?.utilization || 0}%`}
+              value={`${isNaN(Number(fleetReport?.utilization)) ? 0 : Number(fleetReport?.utilization)}%`}
               tone="success"
               active={activeKpi === "utilization"}
               onClick={() => setActiveKpi((k) => (k === "utilization" ? "all" : "utilization"))}
@@ -409,7 +409,7 @@ export default function ReportsPage() {
             <StatCard
               icon={Fuel}
               label="Total Fuel Consumed"
-              value={`${(fuelReport?.totalLiters || 0).toFixed(1)} L`}
+              value={`${(isNaN(Number(fuelReport?.totalLiters)) ? 0 : Number(fuelReport?.totalLiters)).toFixed(1)} L`}
               tone="primary"
               active={activeKpi === "liters"}
               onClick={() => setActiveKpi((k) => (k === "liters" ? "all" : "liters"))}
@@ -542,7 +542,7 @@ export default function ReportsPage() {
             <StatCard
               icon={UserCheck}
               label="Average Driver Performance Score"
-              value={`${driverReport?.avgScore || 0}/100`}
+              value={`${isNaN(Number(driverReport?.avgScore)) ? 0 : Number(driverReport?.avgScore)}/100`}
               tone="success"
               active={activeKpi === "avgScore"}
               onClick={() => setActiveKpi((k) => (k === "avgScore" ? "all" : "avgScore"))}

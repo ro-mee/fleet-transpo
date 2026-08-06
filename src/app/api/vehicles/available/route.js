@@ -22,6 +22,25 @@ export async function GET(req) {
     const fuel_type = searchParams.get("fuel_type");
     if (fuel_type) { sql += ` AND v.fuel_type = $${idx++}`; params.push(fuel_type); }
 
+    // Time-window conflict exclusion: omit vehicles already dispatched in the
+    // requested slot so the pair card never proposes an occupied resource.
+    // Half-open overlap: departure < return_at AND arrival > pickup_at.
+    const pickupAt = searchParams.get("pickup_at");
+    const returnAt = searchParams.get("return_at");
+    if (pickupAt) {
+      const end = returnAt || pickupAt;
+      sql += `
+        AND NOT EXISTS (
+          SELECT 1 FROM dispatchschedules ds
+          WHERE ds.vehicle_id = v.vehicle_id
+            AND ds.deleted_at IS NULL
+            AND ds.status = ANY(ARRAY['Scheduled','In Progress'])
+            AND ds.scheduled_departure < $${idx++}::timestamptz
+            AND COALESCE(ds.scheduled_arrival, ds.scheduled_departure) > $${idx++}::timestamptz
+        )`;
+      params.push(end, pickupAt);
+    }
+
     const { rows } = await query(sql, params);
     return ok(rows);
   } catch (e) { return handleError(e); }

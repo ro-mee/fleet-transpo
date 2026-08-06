@@ -215,7 +215,7 @@ export default function MaintenancePage() {
           </div>
         ),
       }),
-      columnHelper.accessor("vehicles.plate_number", {
+      columnHelper.accessor((row) => row.vehicles?.plate_number, {
         id: "vehicle",
         header: "Vehicle",
         cell: (info) => (

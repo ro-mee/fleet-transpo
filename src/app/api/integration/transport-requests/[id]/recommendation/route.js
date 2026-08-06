@@ -46,11 +46,21 @@ async function fetchCandidates(request) {
     ).then((r) => r.rows),
 
     query(
-      `SELECT d.*, e.first_name, e.last_name
+      `SELECT d.*,
+              e.first_name,
+              e.last_name,
+              ROUND(AVG(t.customer_rating)::numeric, 2)      AS avg_guest_rating,
+              ROUND(AVG(t.smooth_driving_score)::numeric, 2) AS avg_driving_score,
+              COUNT(t.trip_id)::int                          AS total_completed_trips
          FROM drivers d
          LEFT JOIN employees e ON e.employee_id = d.employee_id
+         LEFT JOIN trips t
+                ON t.driver_id = d.driver_id
+               AND t.trip_status = 'Completed'
+               AND t.deleted_at IS NULL
         WHERE d.deleted_at IS NULL
-          AND d.driver_status = 'Available'`
+          AND d.driver_status = 'Available'
+        GROUP BY d.driver_id, e.first_name, e.last_name`
     ).then((r) => r.rows),
   ]);
 

@@ -478,7 +478,7 @@ export default function DriverDetailPage() {
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-foreground">Trip #{trip.trip_id}</span>
-                          <Badge variant="outline" className="rounded-full">{trip.trip_status}</Badge>
+                          <StatusBadge status={trip.trip_status} entity="trip" />
                         </div>
                         <p className="text-foreground-secondary">
                           {trip.origin_name || "Depot"} ➔ {trip.destination_name || "Destination"}

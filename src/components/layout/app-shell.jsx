@@ -1,127 +1,73 @@
-"use client";
-
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { APP_NAME } from "@/lib/constants";
 import { useAuth } from "@/hooks/use-auth";
 import { useRoleAccess } from "@/hooks/use-role-access";
+import { getWorkspace } from "@/lib/workspaces";
 import {
-  LayoutDashboard,
-  Truck,
-  CalendarCheck,
-  Inbox,
-  Send,
-  Users,
-  Route,
-  Fuel,
-  Wrench,
-  MapPin,
-  BarChart3,
-  Bell,
-  Settings,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   CarFront,
-  Brain,
   Sun,
   Moon,
+  Bell,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { UserDropdown } from "@/components/ui/user-dropdown";
+import { NotificationDropdown } from "@/components/ui/notification-dropdown";
 import { getInitials } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
 
-const navGroups = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { href: "/fleet/vehicles", label: "Fleet", icon: Truck },
-      { href: "/reservations", label: "Reservations", icon: CalendarCheck },
-      { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
-      { href: "/dispatch", label: "Dispatch", icon: Send },
-      { href: "/routes", label: "Routes", icon: Route },
-      { href: "/drivers", label: "Drivers", icon: Users },
-      { href: "/trips", label: "Trips", icon: Route },
-    ],
-  },
-  {
-    label: "Monitoring",
-    items: [
-      { href: "/fuel", label: "Fuel", icon: Fuel },
-      {
-        href: "/maintenance",
-        label: "Maintenance",
-        icon: Wrench,
-        children: [
-          { href: "/maintenance", label: "Records" },
-          { href: "/maintenance/predictive", label: "Predictive" },
-        ],
-      },
-      { href: "/tracking/live-map", label: "GPS Tracking", icon: MapPin },
-    ],
-  },
-  {
-    label: "Intelligence",
-    items: [
-      {
-        href: "/ai",
-        label: "AI & Automation",
-        icon: Brain,
-        children: [
-          { href: "/ai", label: "AI Dashboard" },
-          { href: "/ai/insights", label: "Operational Insights" },
-          // No Predictive Maintenance entry here. It lives under Monitoring →
-          // Maintenance → Predictive. The /ai/predictive-maintenance path now
-          // redirects to that canonical route, so an entry here could never
-          // highlight as active — it would send you somewhere the sidebar then
-          // showed as a different section.
-          { href: "/settings/ai", label: "AI Providers & Settings" },
-          { href: "/settings/ai/logs", label: "AI Request Logs" },
-        ],
-      },
-      { href: "/reports", label: "Reports", icon: BarChart3 },
-      { href: "/analytics", label: "Analytics", icon: BarChart3 },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      { href: "/notifications", label: "Notifications", icon: Bell },
-      {
-        href: "/settings/general",
-        label: "Settings",
-        icon: Settings,
-        children: [
-          { href: "/settings/general", label: "General" },
-          { href: "/settings/users/new", label: "Add User" },
-          { href: "/settings/api", label: "API Access" },
-        ],
-      },
-    ],
-  },
-];
+const accentChip = {
+  primary: "bg-primary/10 text-primary",
+  success: "bg-success/10 text-success",
+  warning: "bg-warning/10 text-warning",
+  info: "bg-info/10 text-info",
+  danger: "bg-danger/10 text-danger",
+  neutral: "bg-foreground text-surface",
+};
 
-function isActive(pathname, href) {
+function isActive(pathname, href, allHrefs = []) {
   if (pathname === href) return true;
   if (href === "/dashboard") return false;
-  return pathname.startsWith(href + "/");
+  if (!pathname.startsWith(href + "/")) return false;
+
+  // Suppress parent route highlight if a longer/more specific visible nav item matches
+  const hasBetterMatch = allHrefs.some(
+    (otherHref) =>
+      otherHref !== href &&
+      otherHref.length > href.length &&
+      (pathname === otherHref || pathname.startsWith(otherHref + "/"))
+  );
+
+  return !hasBetterMatch;
 }
 
 export function Sidebar({ collapsed, setCollapsed }) {
   const pathname = usePathname();
   const { employee, signOut, loading } = useAuth();
   const { filterNav, userRole } = useRoleAccess();
-  const visibleGroups = filterNav(navGroups);
+  const workspace = getWorkspace(userRole);
+  const visibleGroups = filterNav(workspace.nav || []);
+  const homeHref = workspace.home;
+  const chip = accentChip[workspace.accent] || accentChip.neutral;
+
+  const allHrefs = useMemo(() => {
+    const hrefs = [];
+    visibleGroups.forEach((group) => {
+      (group.items || []).forEach((item) => {
+        if (item.href) hrefs.push(item.href);
+        if (item.children) {
+          item.children.forEach((child) => {
+            if (child.href) hrefs.push(child.href);
+          });
+        }
+      });
+    });
+    return hrefs;
+  }, [visibleGroups]);
 
   return (
     <aside
@@ -135,16 +81,16 @@ export function Sidebar({ collapsed, setCollapsed }) {
         collapsed ? "justify-center px-0" : "px-4"
       )}>
         {!collapsed ? (
-          <Link href="/dashboard" className="flex items-center gap-2.5">
-            <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground">
-              <CarFront className="h-4 w-4 text-surface" />
+          <Link href={homeHref} className="flex items-center gap-2.5">
+            <div className={cn("flex h-7 w-7 items-center justify-center rounded", chip)}>
+              <CarFront className="h-4 w-4" />
             </div>
-            <span className="text-base font-semibold tracking-tight text-foreground">{APP_NAME}</span>
+            <span className="text-base font-semibold tracking-tight text-foreground">{workspace.name}</span>
           </Link>
         ) : (
-          <Link href="/dashboard">
-            <div className="flex h-7 w-7 items-center justify-center rounded bg-foreground">
-              <CarFront className="h-4 w-4 text-surface" />
+          <Link href={homeHref}>
+            <div className={cn("flex h-7 w-7 items-center justify-center rounded", chip)}>
+              <CarFront className="h-4 w-4" />
             </div>
           </Link>
         )}
@@ -169,7 +115,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
             )}
             <div className="space-y-0.5">
               {group.items.map((item) => {
-                const active = isActive(pathname, item.href);
+                const active = isActive(pathname, item.href, allHrefs);
                 if (item.children && !collapsed) {
                   return (
                     <NavGroupItem
@@ -178,6 +124,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
                       pathname={pathname}
                       collapsed={collapsed}
                       userRole={userRole}
+                      allHrefs={allHrefs}
                     />
                   );
                 }
@@ -260,11 +207,11 @@ export function Sidebar({ collapsed, setCollapsed }) {
   );
 }
 
-function NavGroupItem({ item, pathname, collapsed, userRole }) {
+function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
   const [expanded, setExpanded] = useState(
     pathname.startsWith(item.href) && item.href !== "/dashboard"
   );
-  const active = isActive(pathname, item.href);
+  const active = isActive(pathname, item.href, allHrefs);
 
   if (collapsed) {
     return (
@@ -319,7 +266,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole }) {
           {visibleChildren.map((child) => {
             const isChildActive = child.href === item.href
               ? pathname === child.href
-              : isActive(pathname, child.href);
+              : isActive(pathname, child.href, allHrefs);
             return (
               <Link
                 key={child.href}
@@ -349,10 +296,8 @@ export function TopNav({ collapsed }) {
   const { signOut, user, employee, loading } = useAuth();
   const { theme, toggle, mounted } = useTheme();
 
+  const workspace = getWorkspace(employee?.roles?.role_name || user?.role);
   const segments = pathname.split("/").filter(Boolean);
-  const pageTitle = segments.length > 0
-    ? segments[segments.length - 1].replace(/-/g, " ")
-    : "Dashboard";
 
   return (
     <header
@@ -362,6 +307,8 @@ export function TopNav({ collapsed }) {
       )}
     >
       <div className="flex items-center gap-2 px-6">
+        <span className="text-sm font-medium text-foreground">{workspace.name}</span>
+        {segments.length > 0 && <span className="text-foreground-muted text-xs">/</span>}
         {segments.map((seg, i) => {
           const href = "/" + segments.slice(0, i + 1).join("/");
           const label = seg.replace(/-/g, " ");
@@ -394,12 +341,7 @@ export function TopNav({ collapsed }) {
           )}
         </button>
 
-        <button className="relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer">
-          <Bell className="h-4 w-4" />
-          <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-foreground text-[10px] font-medium text-surface">
-            3
-          </span>
-        </button>
+        <NotificationDropdown />
 
         <div className="h-5 w-px bg-border" />
 

@@ -66,7 +66,7 @@ export function FleetTable({ filters = {} }) {
           </div>
         ),
       }),
-      columnHelper.accessor("vehiclecategories.category_name", {
+      columnHelper.accessor((row) => row.vehiclecategories?.category_name, {
         id: "category",
         header: "Category",
         cell: (info) => (

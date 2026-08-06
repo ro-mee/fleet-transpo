@@ -4,7 +4,7 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT r.*, row_to_json(ol.*) as origin_location, row_to_json(dl.*) as destination_location FROM routes r LEFT JOIN locations ol ON r.origin_location_id = ol.location_id LEFT JOIN locations dl ON r.destination_location_id = dl.location_id WHERE r.deleted_at IS NULL AND r.status = 'Active'`;
     const params = []; let idx = 1;

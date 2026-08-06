@@ -49,6 +49,10 @@ export function scoreReservationVehicles(vehicles = [], passengerCount = 1) {
 }
 
 // 2. Dispatch Driver Scoring
+// Primary signal: guest reviews (avg_guest_rating, 1–5 scale from customer_rating on trips).
+// Secondary signal: smooth_driving_score (system-tracked driving behaviour).
+// Years of experience is deliberately NOT used — a driver with one year and perfect
+// guest reviews outperforms a 10-year veteran with poor ratings.
 export function scoreDispatchDrivers(drivers = []) {
   const dayMs = 24 * 60 * 60 * 1000;
   const now = Date.now();
@@ -57,32 +61,68 @@ export function scoreDispatchDrivers(drivers = []) {
     let score = 50;
     const reasons = [];
 
-    // Experience
-    if ((d.years_of_experience || 0) >= 3) {
-      score += 20;
-      reasons.push(`${d.years_of_experience}+ years driving experience`);
+    // PRIMARY: Guest rating (customer_rating AVG from completed trips, 1–5 scale).
+    // Worth up to 35 points — most important signal for guest experience.
+    const guestRating = Number(d.avg_guest_rating);
+    const tripCount   = Number(d.total_completed_trips) || 0;
+    if (!Number.isNaN(guestRating) && guestRating > 0 && tripCount > 0) {
+      if (guestRating >= 4.5) {
+        score += 35;
+        reasons.push(`Outstanding guest rating: ${guestRating.toFixed(1)}/5 across ${tripCount} trips`);
+      } else if (guestRating >= 4.0) {
+        score += 25;
+        reasons.push(`High guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
+      } else if (guestRating >= 3.0) {
+        score += 10;
+        reasons.push(`Average guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
+      } else {
+        score -= 10;
+        reasons.push(`Low guest rating: ${guestRating.toFixed(1)}/5 — monitor performance`);
+      }
+    } else if (tripCount === 0) {
+      // New driver with no trip history — neutral, no penalty.
+      reasons.push("New driver — no guest ratings yet");
+    }
+
+    // SECONDARY: Smooth driving score (system-tracked, 0–100).
+    // Worth up to 20 points.
+    const drivingScore = Number(d.avg_driving_score);
+    if (!Number.isNaN(drivingScore) && drivingScore > 0) {
+      if (drivingScore >= 85) {
+        score += 20;
+        reasons.push(`Excellent driving score: ${drivingScore.toFixed(0)}/100`);
+      } else if (drivingScore >= 70) {
+        score += 10;
+        reasons.push(`Good driving score: ${drivingScore.toFixed(0)}/100`);
+      } else if (drivingScore < 50) {
+        score -= 10;
+        reasons.push(`Low driving score: ${drivingScore.toFixed(0)}/100`);
+      }
     }
 
     // License validity
     if (d.license_expiry) {
       const daysToExpiry = Math.round((new Date(d.license_expiry).getTime() - now) / dayMs);
       if (daysToExpiry > 90) {
-        score += 20;
-        reasons.push("Professional driver's license valid long-term");
+        score += 10;
+        reasons.push("License valid long-term");
       } else if (daysToExpiry <= 30) {
         score -= 20;
-        reasons.push("License expiring soon — Renewal recommended");
+        reasons.push("License expiring soon — renewal recommended");
       }
     }
 
     // Status
     if (d.driver_status === "Available") {
-      score += 10;
+      score += 5;
       reasons.push("Ready for dispatch");
     }
 
     return {
       driver: d,
+      avg_guest_rating:     d.avg_guest_rating ?? null,
+      avg_driving_score:    d.avg_driving_score ?? null,
+      total_completed_trips: tripCount,
       score: Math.min(Math.max(score, 10), 100),
       confidence: (Math.min(Math.max(score, 10), 100) / 100).toFixed(2),
       reasons,

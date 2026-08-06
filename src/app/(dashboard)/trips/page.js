@@ -55,7 +55,7 @@ export default function TripsPage() {
         header: "ID",
         cell: (info) => <span className="font-data text-xs text-foreground-muted">#{info.getValue()}</span>,
       }),
-      columnHelper.accessor("vehicles.plate_number", {
+      columnHelper.accessor((row) => row.vehicles?.plate_number, {
         id: "vehicle",
         header: "Vehicle",
         cell: (info) => <span className="font-medium text-foreground">{info.getValue() || "Unassigned"}</span>,
@@ -68,12 +68,12 @@ export default function TripsPage() {
           return d ? `${d.first_name || ""} ${d.last_name || ""}`.trim() : "Unassigned";
         },
       }),
-      columnHelper.accessor("dispatchschedules.dispatch_number", {
+      columnHelper.accessor((row) => row.dispatchschedules?.dispatch_number, {
         id: "dispatch",
         header: "Dispatch #",
         cell: (info) => <span className="font-data text-xs text-foreground-muted">{info.getValue() || "—"}</span>,
       }),
-      columnHelper.accessor("routes.route_name", {
+      columnHelper.accessor((row) => row.routes?.route_name, {
         id: "route",
         header: "Route",
         cell: (info) => (
@@ -93,7 +93,7 @@ export default function TripsPage() {
       }),
       columnHelper.accessor("trip_status", {
         header: "Status",
-        cell: (info) => <StatusBadge status={info.getValue()} />,
+        cell: (info) => <StatusBadge status={info.getValue()} entity="trip" />,
       }),
     ],
     []

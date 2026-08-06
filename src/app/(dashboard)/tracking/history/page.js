@@ -33,7 +33,7 @@ export default function TrackingHistoryPage() {
     },
   });
 
-  const totalDistance = trips.reduce((s, t) => s + (t.distance || 0), 0);
+  const totalDistance = trips.reduce((s, t) => s + (Number(t.distance) || 0), 0);
 
   const columns = useMemo(
     () => [
@@ -41,7 +41,8 @@ export default function TrackingHistoryPage() {
         header: "Trip",
         cell: (info) => <span className="font-data font-medium text-foreground">#{info.getValue()}</span>,
       }),
-      columnHelper.accessor("vehicles.plate_number", {
+      columnHelper.accessor((row) => row.vehicles?.plate_number, {
+        id: "vehicle",
         header: "Vehicle",
         cell: (info) => (
           <div className="flex items-center gap-1.5">

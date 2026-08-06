@@ -40,7 +40,7 @@ function check(label, condition, detail) {
 // Routes under test, with the role list each one declares.
 // ---------------------------------------------------------------------------
 const ACTION_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher"];
-const READ_ROLES = [...ACTION_ROLES, "management", "reception_staff", "concierge"];
+const READ_ROLES = [...ACTION_ROLES, "management"];
 
 const ROUTES = [
   { name: "review",      mod: "app/api/integration/transport-requests/[id]/review/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
@@ -55,7 +55,7 @@ const ROUTES = [
 
 const ALL_ROLES = [
   "system_admin", "admin", "fleet_manager", "dispatcher",
-  "driver", "reception_staff", "restaurant_staff", "concierge", "management",
+  "driver", "management",
 ];
 
 // A request id that cannot exist, so an authorized call stops at the 404 lookup
@@ -128,26 +128,13 @@ for (const route of ROUTES) {
 // ---------------------------------------------------------------------------
 // 3. The plan's named cases, called out explicitly.
 // ---------------------------------------------------------------------------
-console.log("3. Plan cases: dispatcher acts, reception_staff is read-only");
+console.log("3. Plan cases: dispatcher acts, management reads only");
 const dispatcherStatuses = {};
 for (const route of ROUTES) dispatcherStatuses[route.name] = await callAs(route, "dispatcher");
 check(
   "dispatcher is admitted to every lifecycle route",
   Object.values(dispatcherStatuses).every((s) => s !== 401 && s !== 403),
   JSON.stringify(dispatcherStatuses)
-);
-
-const receptionStatuses = {};
-for (const route of ROUTES) receptionStatuses[route.name] = await callAs(route, "reception_staff");
-check(
-  "reception_staff gets 403 on every action route",
-  ROUTES.filter((r) => r.kind === "action").every((r) => receptionStatuses[r.name] === 403),
-  JSON.stringify(receptionStatuses)
-);
-check(
-  "reception_staff can still read the timeline",
-  receptionStatuses.timeline !== 401 && receptionStatuses.timeline !== 403,
-  `got ${receptionStatuses.timeline}`
 );
 
 // management is read-only by design — it observes without acting.
@@ -180,15 +167,12 @@ check(
   "can(): system_admin short-circuits to allowed",
   VERBS.every((v) => can(employee("system_admin"), "reservations", v) === true)
 );
-for (const role of ["reception_staff", "restaurant_staff", "concierge", "management"]) {
+for (const role of ["management"]) {
   check(
     `can(): ${role} holds none of the 5 verbs`,
     VERBS.every((v) => can(employee(role), "reservations", v) === false)
   );
 }
-check("can(): reception_staff may still read", can(employee("reception_staff"), "reservations", "read") === true);
-check("can(): reception_staff may create (front desk authors requests)", can(employee("reception_staff"), "reservations", "create") === true);
-check("can(): reception_staff may not update", can(employee("reception_staff"), "reservations", "update") === false);
 check("can(): management may read", can(employee("management"), "reservations", "read") === true);
 check("can(): driver has no reservation read", can(employee("driver"), "reservations", "read") === false);
 check("can(): null employee is denied", can(null, "reservations", "approve") === false);
@@ -224,7 +208,7 @@ const { rows: before } = await query(
           (SELECT COUNT(*)::int FROM integration_log) AS logs,
           (SELECT COUNT(*)::int FROM dispatchschedules) AS dispatches`
 );
-for (const role of ["reception_staff", "concierge", "management", "driver"]) {
+for (const role of ["management", "driver"]) {
   for (const route of ROUTES.filter((r) => r.kind === "action")) await callAs(route, role);
 }
 const { rows: after } = await query(

@@ -6,9 +6,6 @@ export const ROLES = {
   FLEET_MANAGER: "fleet_manager",
   DISPATCHER: "dispatcher",
   DRIVER: "driver",
-  RECEPTION_STAFF: "reception_staff",
-  RESTAURANT_STAFF: "restaurant_staff",
-  CONCIERGE: "concierge",
   MANAGEMENT: "management",
   SYSTEM_ADMIN: "system_admin",
 };
@@ -18,10 +15,8 @@ export const ROLE_IDS = {
   fleet_manager: 2,
   dispatcher: 3,
   driver: 4,
-  reception_staff: 5,
-  restaurant_staff: 6,
   management: 7,
-  concierge: 8,
+  admin: 9,
 };
 
 export const REGISTRATION_ROLES = [
@@ -29,10 +24,8 @@ export const REGISTRATION_ROLES = [
   { id: 2, name: "Fleet Manager", value: "fleet_manager" },
   { id: 3, name: "Dispatcher", value: "dispatcher" },
   { id: 4, name: "Driver", value: "driver" },
-  { id: 5, name: "Reception Staff", value: "reception_staff" },
-  { id: 6, name: "Restaurant Staff", value: "restaurant_staff" },
   { id: 7, name: "Management", value: "management" },
-  { id: 8, name: "Concierge", value: "concierge" },
+  { id: 9, name: "FleetOps Admin", value: "admin" },
 ];
 
 export const VEHICLE_STATUS = {

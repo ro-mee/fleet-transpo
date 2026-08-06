@@ -49,3 +49,16 @@ export async function acceptDriverConsent({ policyVersion, via }) {
     body: { policy_version: policyVersion, accepted: true, via },
   });
 }
+
+export async function getMyVehicleInspection() {
+  return apiFetch("/api/driver/vehicle-inspection");
+}
+
+export async function getMyIncidents() {
+  return apiFetch("/api/driver/incidents");
+}
+
+export async function reportIncident(incident) {
+  return apiFetch("/api/driver/incidents", { method: "POST", body: incident });
+}
+

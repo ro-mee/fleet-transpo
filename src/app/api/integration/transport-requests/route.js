@@ -52,7 +52,7 @@ async function authorize(req) {
 // add filters without a lockstep API change.
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "reception_staff", "concierge"]);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT tr.*,
                       row_to_json(st.*) AS service_types,

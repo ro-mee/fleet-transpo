@@ -68,7 +68,7 @@ const WRITABLE_COLUMNS = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
     const { searchParams } = new URL(req.url);
 
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories

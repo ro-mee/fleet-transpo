@@ -56,6 +56,10 @@ export async function getVehicleDocuments(vehicleId) {
   return apiFetch(`/api/vehicles/${vehicleId}/documents`);
 }
 
+export async function getExpiringDocuments() {
+  return apiFetch("/api/documents/expiring");
+}
+
 export async function createVehicleDocument(doc) {
   return apiFetch(`/api/vehicles/${doc.vehicle_id}/documents`, { method: "POST", body: doc });
 }

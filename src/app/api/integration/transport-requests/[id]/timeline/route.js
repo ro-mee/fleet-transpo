@@ -5,8 +5,7 @@ import { loadRequest } from "@/services/reservation-lifecycle.service";
 // Read a request's timeline (Phase 15).
 //
 // Read-only and broadly readable: anyone who can see the queue can see why a
-// request is where it is, including management and the reception/concierge
-// roles that hand guests off to Fleet.
+// request is where it is, including management.
 export async function GET(req, { params }) {
   try {
     await requireAuth(req, [
@@ -15,8 +14,6 @@ export async function GET(req, { params }) {
       "fleet_manager",
       "dispatcher",
       "management",
-      "reception_staff",
-      "concierge",
     ]);
     const { id } = await params;
 

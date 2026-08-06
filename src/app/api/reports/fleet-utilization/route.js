@@ -6,7 +6,7 @@ export async function GET(req) {
     await requireAuth(req);
     const sp = new URL(req.url).searchParams;
     const from = sp.get("from") || "1970-01-01", to = sp.get("to") || "2100-01-01";
-    const { rows: trips } = await query(`SELECT start_time, end_time, distance, trip_status, vehicle_id, row_to_json(v.*) as vehicles FROM trips LEFT JOIN vehicles v ON trips.vehicle_id = v.vehicle_id WHERE start_time >= $1 AND start_time <= $2 ORDER BY start_time DESC`, [from, to]);
+    const { rows: trips } = await query(`SELECT trips.start_time, trips.end_time, trips.distance, trips.trip_status, trips.vehicle_id, row_to_json(v.*) as vehicles FROM trips LEFT JOIN vehicles v ON trips.vehicle_id = v.vehicle_id WHERE trips.start_time >= $1 AND trips.start_time <= $2 ORDER BY trips.start_time DESC`, [from, to]);
     const { rows: vehicles } = await query(`SELECT vehicle_id, plate_number, vehicle_status FROM vehicles WHERE deleted_at IS NULL`);
     const total = (vehicles || []).length;
     const active = (vehicles || []).filter(v => v.vehicle_status === "In Use").length;

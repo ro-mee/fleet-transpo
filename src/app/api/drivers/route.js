@@ -35,7 +35,7 @@ async function ensureDriverColumnsExist() {
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
     await ensureDriverColumnsExist();
 
     const { searchParams } = new URL(req.url);
@@ -102,6 +102,24 @@ export async function GET(req) {
       )`;
       params.push(`%${search.trim()}%`);
       idx++;
+    }
+
+    // Time-window conflict exclusion: skip drivers already dispatched in the
+    // requested slot. Same half-open overlap rule as the vehicles endpoint.
+    const pickupAt = searchParams.get("pickup_at");
+    const returnAt = searchParams.get("return_at");
+    if (pickupAt) {
+      const end = returnAt || pickupAt;
+      sql += `
+        AND NOT EXISTS (
+          SELECT 1 FROM dispatchschedules ds
+          WHERE ds.driver_id = d.driver_id
+            AND ds.deleted_at IS NULL
+            AND ds.status = ANY(ARRAY['Scheduled','In Progress'])
+            AND ds.scheduled_departure < $${idx++}::timestamptz
+            AND COALESCE(ds.scheduled_arrival, ds.scheduled_departure) > $${idx++}::timestamptz
+        )`;
+      params.push(end, pickupAt);
     }
 
     if (includeUnlinked) {

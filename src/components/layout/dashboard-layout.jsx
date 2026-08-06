@@ -9,16 +9,12 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useRequireRole } from "@/hooks/use-role-access";
-import { NAV_ROLES } from "@/lib/auth/role-guard";
+import { NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
 const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 function isRestrictedRoute(pathname) {
-  const entry = Object.keys(NAV_ROLES).find(
-    (route) => pathname === route || pathname.startsWith(route + "/")
-  );
-  if (!entry) return false;
-  const roles = NAV_ROLES[entry];
+  const roles = getRequiredRolesForPath(pathname);
   return !roles.includes("*");
 }
 
@@ -93,11 +89,7 @@ function RoleNotConfiguredCard({ email, router }) {
 }
 
 function RouteGuard({ pathname, children }) {
-  const entry = Object.entries(NAV_ROLES).find(
-    ([route]) => pathname === route || pathname.startsWith(route + '/')
-  );
-
-  const requiredRoles = entry ? entry[1] : ['*'];
+  const requiredRoles = getRequiredRolesForPath(pathname);
   const { authorized } = useRequireRole(requiredRoles);
 
   if (!authorized) return null;

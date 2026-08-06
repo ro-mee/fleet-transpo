@@ -101,15 +101,72 @@ const ENTITY_MAPS = {
   },
 };
 
+const GLOBAL_STATUS_MAP = {
+  completed: "success",
+  done: "success",
+  passed: "success",
+  approved: "success",
+  confirmed: "success",
+  returned: "success",
+  available: "success",
+  active: "success",
+  healthy: "success",
+
+  assigned: "info",
+  dispatched: "info",
+  scheduled: "info",
+  "in progress": "info",
+  "en route": "info",
+  "driver accepted": "info",
+  "trip started": "info",
+  "checked out": "info",
+  "under review": "info",
+
+  pending: "warning",
+  "in use": "warning",
+  "under maintenance": "warning",
+  medium: "warning",
+  warning: "warning",
+
+  cancelled: "danger",
+  rejected: "danger",
+  suspended: "danger",
+  "out of service": "danger",
+  "registration expired": "danger",
+  overdue: "danger",
+  critical: "danger",
+  urgent: "danger",
+  high: "danger",
+
+  "off duty": "secondary",
+  inactive: "secondary",
+  low: "info",
+};
+
 function lookup(status, entity) {
   if (!status) return null;
-  const map = ENTITY_MAPS[entity];
-  if (map) return map[String(status).toLowerCase()];
+  const s = String(status).toLowerCase();
+
+  // Try entity-specific map first
+  if (entity && ENTITY_MAPS[entity]) {
+    const found = ENTITY_MAPS[entity][s];
+    if (found) return found;
+  }
+
+  // Fallback to global map or search all entity maps
+  if (GLOBAL_STATUS_MAP[s]) return GLOBAL_STATUS_MAP[s];
+
+  for (const mapName of Object.keys(ENTITY_MAPS)) {
+    if (ENTITY_MAPS[mapName][s]) {
+      return ENTITY_MAPS[mapName][s];
+    }
+  }
+
   return null;
 }
 
 export function statusVariant(status, entity) {
-  return lookup(status, entity) || "outline";
+  return lookup(status, entity) || "info";
 }
 
 // Static (compile-safe) chip classes per tone for icon rails/boxes.

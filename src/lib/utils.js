@@ -32,24 +32,32 @@ export function formatTime(date) {
 }
 
 export function formatCurrency(amount, currency = "PHP") {
+  const num = Number(amount);
+  const valid = isNaN(num) || num == null ? 0 : num;
   return new Intl.NumberFormat("en-PH", {
     style: "currency",
     currency,
-  }).format(amount);
+  }).format(valid);
 }
 
 export function formatNumber(number) {
-  return new Intl.NumberFormat("en-US").format(number);
+  const num = Number(number);
+  const valid = isNaN(num) || num == null ? 0 : num;
+  return new Intl.NumberFormat("en-US").format(valid);
 }
 
 export function formatDistance(km) {
-  if (km < 1) return `${Math.round(km * 1000)} m`;
-  return `${km.toFixed(1)} km`;
+  const num = Number(km);
+  const valid = isNaN(num) || num == null ? 0 : num;
+  if (valid < 1) return `${Math.round(valid * 1000)} m`;
+  return `${valid.toFixed(1)} km`;
 }
 
 export function formatDuration(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
+  const num = Number(minutes);
+  const valid = isNaN(num) || num == null ? 0 : num;
+  const hours = Math.floor(valid / 60);
+  const mins = Math.round(valid % 60);
   if (hours === 0) return `${mins} min`;
   if (mins === 0) return `${hours}h`;
   return `${hours}h ${mins}m`;

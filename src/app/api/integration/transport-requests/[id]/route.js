@@ -9,17 +9,13 @@ import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
 // and the review/approval actors resolved to names. Both are joined here so the
 // page renders from a single response instead of fanning out.
 //
-// Read access is deliberately wider than write access. Reception and concierge
-// hand guests to Fleet and get asked "where is the car?", so they can read a
-// request; only the action endpoints narrow to the dispatcher set.
+// Read access is deliberately wider than write access.
 const READ_ROLES = [
   "system_admin",
   "admin",
   "fleet_manager",
   "dispatcher",
   "management",
-  "reception_staff",
-  "concierge",
 ];
 
 export async function GET(req, { params }) {

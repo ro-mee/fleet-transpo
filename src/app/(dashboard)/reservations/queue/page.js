@@ -23,6 +23,7 @@ import {
 import {
   QueueFilters,
   EMPTY_FILTERS,
+  DEFAULT_ACTIVE_STATUSES,
   ANY,
   hasActiveFilters,
   toQueryParams,
@@ -88,6 +89,14 @@ export default function ReservationQueuePage() {
     () => ({ ...toQueryParams(filters), with_conflicts: "true" }),
     [filters]
   );
+
+  // Query total active queue without status filter to keep top KPI numbers stable and accurate
+  const { data: allActiveRequests = [] } = useQuery({
+    queryKey: ["transport-requests", "base-active-kpi"],
+    queryFn: () => getTransportRequests({ fleet_status: DEFAULT_ACTIVE_STATUSES, with_conflicts: "true" }),
+    refetchInterval: REFETCH_MS,
+    placeholderData: (prev) => prev,
+  });
 
   const {
     data: requests = [],
@@ -181,18 +190,18 @@ export default function ReservationQueuePage() {
   const currentStatTab = useMemo(() => {
     if (filters.has_conflict_only) return "conflicts";
     if (filters.fleet_status === L.APPROVED) return "approved";
-    if (filters.fleet_status === L.PENDING || filters.fleet_status === L.UNDER_REVIEW) return "reviewing";
+    if (filters.fleet_status === L.PENDING || filters.fleet_status === L.UNDER_REVIEW || filters.fleet_status?.includes("Pending")) return "reviewing";
     if (filters.fleet_status === ANY) return "all";
     return null;
   }, [filters]);
 
   const stats = useMemo(() => {
-    const count = (fn) => requests.filter(fn).length;
+    const count = (fn) => allActiveRequests.filter(fn).length;
 
     return [
       {
         label: "In Queue",
-        value: requests.length,
+        value: allActiveRequests.length,
         icon: Inbox,
         tone: "primary",
         trend: "active queue",
@@ -206,7 +215,7 @@ export default function ReservationQueuePage() {
         tone: "warning",
         trend: "needs a decision",
         active: currentStatTab === "reviewing",
-        onClick: () => setFilters((f) => ({ ...f, fleet_status: L.PENDING, has_conflict_only: false })),
+        onClick: () => setFilters((f) => ({ ...f, fleet_status: `${L.PENDING},${L.UNDER_REVIEW}`, has_conflict_only: false })),
       },
       {
         label: "Ready to Assign",
@@ -232,7 +241,7 @@ export default function ReservationQueuePage() {
           })),
       },
     ];
-  }, [requests, currentStatTab]);
+  }, [allActiveRequests, currentStatTab]);
 
   const displayRequests = useMemo(() => {
     if (filters.has_conflict_only) {

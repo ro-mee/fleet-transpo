@@ -13,7 +13,7 @@ const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id =
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT ${JOIN_SELECT} ${JOINS} WHERE ds.deleted_at IS NULL`;
     const params = []; let idx = 1;

@@ -446,7 +446,7 @@ try {
   const employee = (role) => ({ roles: { role_name: role } });
   const ALL_ROLES = [
     "system_admin", "admin", "fleet_manager", "dispatcher",
-    "driver", "reception_staff", "restaurant_staff", "concierge", "management",
+    "driver", "management",
   ];
 
   for (const role of ALL_ROLES) {

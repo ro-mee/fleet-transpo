@@ -159,7 +159,11 @@ function toDriverCandidate(scored) {
     driver_name: driverName(driver),
     driver_status: driver.driver_status,
     years_of_experience: driver.years_of_experience,
-    rating: driver.rating,
+    avg_guest_rating: scored.avg_guest_rating ?? driver.avg_guest_rating ?? null,
+    avg_driving_score: scored.avg_driving_score ?? driver.avg_driving_score ?? null,
+    total_completed_trips: scored.total_completed_trips ?? driver.total_completed_trips ?? 0,
+    // legacy field kept for LLM rationale prompt compatibility
+    rating: scored.avg_guest_rating ?? driver.avg_guest_rating ?? null,
     license_expiry: driver.license_expiry,
     score: scored.score,
     confidence: Number(scored.confidence),
