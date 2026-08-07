@@ -317,7 +317,7 @@ export default function VehicleDetailPage() {
               <FileText className="w-5 h-5 text-primary" /> Vehicle Document Verification Zoom
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {previewModalUrl && (
               <img
                 src={previewModalUrl}

@@ -43,7 +43,7 @@ import { isRestricted } from "@/lib/uvvrp/policy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatsGridSkeleton, CardSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -266,8 +266,10 @@ export function RoleDashboard({ role, employee }) {
 
   return (
     <div className="space-y-6">
-      <PageHeader
+      <HeroHeader
+        icon={BarChart3}
         title={config.title}
+        badge={role ? role.replace(/_/g, " ").toUpperCase() : "DASHBOARD"}
         description={`Welcome${employee ? `, ${employee.first_name}` : ""}. ${config.description}`}
       />
 
@@ -290,19 +292,21 @@ export function RoleDashboard({ role, employee }) {
       )}
 
       {config.quickActions?.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Quick Actions</CardTitle>
+        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+              <Activity className="w-4 h-4 text-primary" /> Quick Actions
+            </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-4">
             <div className="flex flex-wrap gap-3">
               {config.quickActions.map((action) => (
                 <Link
                   key={action.href}
                   href={action.href}
-                  className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2 text-sm font-medium text-foreground hover:border-primary/50 hover:shadow-sm transition-all"
+                  className="inline-flex items-center gap-2 rounded-3xl border border-border/80 bg-surface px-4 py-2.5 text-xs font-bold text-foreground hover:border-primary/50 hover:bg-hover/50 hover:shadow-xs transition-all"
                 >
-                  <action.icon className="h-4 w-4 text-foreground-muted" />
+                  <action.icon className="h-4 w-4 text-primary" />
                   {action.label}
                   <ChevronRight className="h-3.5 w-3.5 text-foreground-muted" />
                 </Link>
@@ -350,15 +354,15 @@ export function RoleDashboard({ role, employee }) {
 
 function SectionCard({ title, icon: Icon, children, extra, flush = false }) {
   return (
-    <Card className="h-full">
-      <CardHeader className="flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-foreground-muted" />
+    <Card className="h-full border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col">
+      <CardHeader className="flex-row items-center justify-between pb-3.5 border-b border-border/60 bg-muted/20">
+        <CardTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
+          <Icon className="w-4 h-4 text-primary" />
           {title}
         </CardTitle>
         {extra}
       </CardHeader>
-      <CardContent className={cn(flush ? "p-0" : "", "h-full")}>{children}</CardContent>
+      <CardContent className={cn(flush ? "p-0" : "p-5", "flex-1")}>{children}</CardContent>
     </Card>
   );
 }
@@ -704,7 +708,7 @@ function DashboardSection({ section, data }) {
                   <Link
                     key={insight.insight_id || insight.title}
                     href="/ai/insights"
-                    className="block p-4 rounded-lg border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all"
+                    className="block p-4 rounded-3xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all"
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <StatusBadge severity={sev} className="text-[11px]" />

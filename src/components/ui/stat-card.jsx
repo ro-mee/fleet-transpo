@@ -1,12 +1,12 @@
 import { cn } from "@/lib/utils";
 
 const tones = {
-  primary: { chip: "bg-primary/10 text-primary", value: "text-foreground" },
-  success: { chip: "bg-success/10 text-success", value: "text-success" },
-  warning: { chip: "bg-warning/10 text-warning", value: "text-warning" },
-  danger: { chip: "bg-danger/10 text-danger", value: "text-danger" },
-  info: { chip: "bg-info/10 text-info", value: "text-info" },
-  neutral: { chip: "bg-hover text-foreground-secondary", value: "text-foreground" },
+  primary: { chip: "bg-primary/10 text-primary border border-primary/20", value: "text-foreground" },
+  success: { chip: "bg-success/10 text-success border border-success/20", value: "text-success" },
+  warning: { chip: "bg-warning/10 text-warning border border-warning/20", value: "text-warning" },
+  danger: { chip: "bg-danger/10 text-danger border border-danger/20", value: "text-danger" },
+  info: { chip: "bg-info/10 text-info border border-info/20", value: "text-info" },
+  neutral: { chip: "bg-hover text-foreground-secondary border border-border/60", value: "text-foreground" },
 };
 
 export function StatCard({
@@ -24,26 +24,28 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "rounded-lg border border-border bg-surface shadow-xs p-4",
-        onClick && "cursor-pointer transition-all hover:shadow-md",
-        active && "ring-2 ring-primary bg-primary/5",
+        "rounded-3xl border border-border/80 bg-surface shadow-xs p-5 flex flex-col justify-between space-y-3 transition-all select-none",
+        onClick && "cursor-pointer hover:border-primary/40 hover:shadow-sm",
+        active && "border-primary bg-primary/10 shadow-xs",
         className
       )}
       onClick={onClick}
       {...props}
     >
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider truncate">{label}</span>
         {Icon && (
-          <span className={cn("flex h-8 w-8 items-center justify-center rounded-lg", t.chip)}>
+          <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl shrink-0 transition-colors", t.chip)}>
             <Icon className="w-4 h-4" />
           </span>
         )}
-        <span className="text-xs font-medium text-foreground-secondary truncate">{label}</span>
       </div>
-      <p className={cn("text-2xl font-semibold font-data leading-none tracking-tight", t.value)}>
-        {value}
-      </p>
-      {trend && <p className="text-xs text-foreground-muted mt-1.5 truncate">{trend}</p>}
+      <div>
+        <p className={cn("text-3xl font-black font-data leading-none tracking-tight", t.value)}>
+          {value}
+        </p>
+        {trend && <p className="text-[11px] font-semibold text-foreground-muted mt-1.5 truncate">{trend}</p>}
+      </div>
     </div>
   );
 }
@@ -58,7 +60,7 @@ const gridCols = {
 
 export function StatGrid({ cols = 4, className, children }) {
   return (
-    <div className={cn("grid grid-cols-2 gap-3", gridCols[cols] || gridCols[4], className)}>
+    <div className={cn("grid grid-cols-1 sm:grid-cols-2 gap-4", gridCols[cols] || gridCols[4], className)}>
       {children}
     </div>
   );

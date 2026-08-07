@@ -81,7 +81,7 @@ export default function DriverIncidentsPage() {
               placeholder="Describe what happened…"
               value={incidentForm.description}
               onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
-              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="w-full rounded-3xl border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             />
             <div className="flex items-center gap-3">
               <Button

@@ -4,25 +4,30 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import { FloatingField } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
-import { PageHeader } from "@/components/ui/page-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenance, getVehicles, archiveVehicleMaintenance } from "@/services/vehicle.service";
-import { formatDate, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toDateInput } from "@/lib/dates";
-import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2, TriangleAlert } from "lucide-react";
+import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2, TriangleAlert, DollarSign, Calendar, Sparkles, ChevronRight, Activity, Tag, FileText } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { maintenanceDateRule } from "@/lib/validation/helpers";
+import Link from "next/link";
 
 const maintenanceFormSchema = {
   vehicle_id: { required: true, label: "Vehicle" },
@@ -137,24 +142,17 @@ export default function MaintenancePage() {
     setDialogOpen(true);
   }
 
-  function openViewDialog(record) {
-    setViewingRecord(record);
-    setEditingRecord(null);
-    resetValidation();
-    setDialogOpen(true);
-  }
-
   function openEditDialog(record) {
     setEditingRecord(record);
     setViewingRecord(null);
     setFormData({
-      vehicle_id: String(record.vehicle_id || ""),
+      vehicle_id: record.vehicle_id || "",
       maintenance_type: record.maintenance_type || "Routine",
       description: record.description || "",
-      maintenance_date: toDateInput(record.maintenance_date, new Date().toISOString().split("T")[0]),
+      maintenance_date: toDateInput(record.maintenance_date),
       completed_date: toDateInput(record.completed_date),
-      cost: record.cost ?? "",
-      mileage_at_service: record.mileage_at_service ?? "",
+      cost: record.cost ? String(record.cost) : "",
+      mileage_at_service: record.mileage_at_service ? String(record.mileage_at_service) : "",
       service_provider: record.service_provider || "",
       service_center: record.service_center || "",
       priority: record.priority || "Normal",
@@ -162,117 +160,109 @@ export default function MaintenancePage() {
       remarks: record.remarks || "",
     });
     setFormError(null);
+    resetValidation();
+    setDialogOpen(true);
+  }
+
+  function openViewDialog(record) {
+    setViewingRecord(record);
+    setEditingRecord(null);
     setDialogOpen(true);
   }
 
   function closeDialog() {
     setDialogOpen(false);
-    setEditingRecord(null);
     setViewingRecord(null);
+    setEditingRecord(null);
     setFormError(null);
   }
 
   function handleSubmit(e) {
     e.preventDefault();
     setFormError(null);
+    const submissionData = {
+      ...formData,
+      cost: formData.cost !== "" ? Number(formData.cost) : null,
+      mileage_at_service: formData.mileage_at_service !== "" ? Number(formData.mileage_at_service) : null,
+      completed_date: formData.completed_date !== "" ? formData.completed_date : null,
+    };
+    if (!validate(submissionData)) return;
 
-    const isValid = validate(formData, {
-      onSuccess: () => {
-        const payload = {
-          vehicle_id: Number(formData.vehicle_id),
-          maintenance_type: formData.maintenance_type,
-          description: formData.description || null,
-          maintenance_date: formData.maintenance_date,
-          completed_date: formData.completed_date || null,
-          cost: formData.cost ? Number(formData.cost) : 0,
-          mileage_at_service: formData.mileage_at_service ? Number(formData.mileage_at_service) : null,
-          service_provider: formData.service_provider || null,
-          service_center: formData.service_center || null,
-          priority: formData.priority,
-          status: formData.status,
-          remarks: formData.remarks || null,
-        };
-        if (editingRecord) {
-          updateMutation.mutate({ id: editingRecord.maintenance_id, data: payload });
-        } else {
-          createMutation.mutate(payload);
-        }
-      },
-    });
-    if (!isValid) return;
+    if (editingRecord) {
+      updateMutation.mutate({ id: editingRecord.maintenance_id, data: submissionData });
+    } else {
+      createMutation.mutate(submissionData);
+    }
   }
-
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   const columns = useMemo(
     () => [
+      columnHelper.accessor("vehicles.plate_number", {
+        header: "Vehicle",
+        cell: (info) => {
+          const row = info.row.original;
+          const plate = info.getValue();
+          return (
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 text-foreground border border-border/40 shadow-2xs">
+                <Wrench className="h-4.5 w-4.5" />
+              </div>
+              <div>
+                <div className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-2.5 py-1 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+                  {plate || "—"}
+                </div>
+                <p className="text-xs text-foreground-muted font-medium mt-0.5">{row.vehicles?.vehicle_name || ""}</p>
+              </div>
+            </div>
+          );
+        },
+      }),
       columnHelper.accessor("maintenance_type", {
         header: "Type",
-        cell: (info) => (
-          <div className="flex items-center gap-2">
-            <Wrench className="w-4 h-4 text-foreground-muted" />
-            <span className="font-medium text-foreground">{info.getValue()}</span>
-          </div>
-        ),
-      }),
-      columnHelper.accessor((row) => row.vehicles?.plate_number, {
-        id: "vehicle",
-        header: "Vehicle",
-        cell: (info) => (
-          <div>
-            <p className="font-medium text-foreground">{info.getValue() || "—"}</p>
-            <p className="text-xs text-foreground-muted">{info.row.original.vehicles?.vehicle_name}</p>
-          </div>
-        ),
+        cell: (info) => <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs font-bold">{info.getValue()}</Badge>,
       }),
       columnHelper.accessor("maintenance_date", {
-        header: "Date",
-        cell: (info) => (
-          <span className="text-foreground-secondary">{formatDate(info.getValue())}</span>
-        ),
+        header: "Scheduled Date",
+        cell: (info) => <span className="font-data text-xs text-foreground font-bold">{formatDate(info.getValue())}</span>,
+      }),
+      columnHelper.accessor("status", {
+        header: "Status",
+        cell: (info) => <StatusBadge status={info.getValue()} entity="maintenance" className="rounded-full px-3 py-1 text-xs font-bold" />,
+      }),
+      columnHelper.accessor("priority", {
+        header: "Priority",
+        cell: (info) => <StatusBadge status={info.getValue()} entity="priority" className="rounded-full px-3 py-1 text-xs font-bold" />,
       }),
       columnHelper.accessor("cost", {
         header: "Cost",
         cell: (info) => (
-          <span className="font-medium text-foreground">{formatCurrency(info.getValue() || 0)}</span>
-        ),
-      }),
-      columnHelper.accessor("priority", {
-        header: "Priority",
-        cell: (info) => (
-          <StatusBadge status={info.getValue()} entity="priority" />
-        ),
-      }),
-      columnHelper.accessor("status", {
-        header: "Status",
-        cell: (info) => (
-          <StatusBadge status={info.getValue()} entity="maintenance" />
+          <span className="font-data text-xs font-black text-foreground">{formatCurrency(info.getValue() || 0)}</span>
         ),
       }),
       columnHelper.accessor("service_provider", {
         header: "Provider",
         cell: (info) => (
-          <span className="text-foreground-secondary">{info.getValue() || "—"}</span>
+          <span className="text-xs text-foreground-secondary font-medium">{info.getValue() || "—"}</span>
         ),
       }),
       columnHelper.display({
         id: "actions",
         header: "",
         cell: (info) => (
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-            <Tooltip content="View">
-              <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => openViewDialog(info.row.original)}>
-                <Eye className="w-4 h-4" />
+          <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
+            <Tooltip content="View Details">
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer" onClick={() => openViewDialog(info.row.original)}>
+                <Eye className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
-            <Tooltip content="Edit">
-              <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEditDialog(info.row.original)}>
-                <Pencil className="w-4 h-4" />
+            <Tooltip content="Edit Record">
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer" onClick={() => openEditDialog(info.row.original)}>
+                <Pencil className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
-            <Tooltip content="Archive">
-              <Button variant="ghost" size="icon" className="w-8 h-8 text-danger" onClick={() => setArchivingId(info.row.original.maintenance_id)}>
-                <Trash2 className="w-4 h-4" />
+            <Tooltip content="Archive Record">
+              <Button variant="ghost" size="icon" className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer" onClick={() => setArchivingId(info.row.original.maintenance_id)}>
+                <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
           </div>
@@ -282,245 +272,355 @@ export default function MaintenancePage() {
     []
   );
 
+  const stats = useMemo(() => {
+    const scheduled = records.filter((r) => r.status === "Scheduled").length;
+    const inProgress = records.filter((r) => r.status === "In Progress").length;
+    const totalCost = records.reduce((sum, r) => sum + Number(r.cost || 0), 0);
+    return { total: records.length, scheduled, inProgress, totalCost };
+  }, [records]);
+
   if (isError) {
     return (
-      <div className="space-y-6">
-        <PageHeader
-          eyebrow="Operations"
-          title="Maintenance"
-          description="Vehicle maintenance records and scheduling."
-        />
+      <div className="space-y-6 pb-12 w-full">
         <EmptyState
           icon={TriangleAlert}
           title="Could not load maintenance records"
           description={error?.message || "Something went wrong reading the maintenance register."}
-          action={<Button onClick={() => refetch()}>Try again</Button>}
+          action={<Button onClick={() => refetch()} className="rounded-2xl text-xs font-bold mt-2">Try again</Button>}
         />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Maintenance"
-        description="Vehicle maintenance records and scheduling."
+    <div className="space-y-6 pb-12 w-full">
+      {/* ── TOP HERO HEADER BAR ── */}
+      <HeroHeader
+        icon={Wrench}
+        title="Fleet Maintenance Register"
+        badge="Work Orders & Servicing"
+        description="Vehicle maintenance history, scheduled servicing, repairs, and service center cost tracking."
         actions={
-          <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
-            <Button className="h-10" onClick={openNewDialog}>
-              <Wrench className="w-4 h-4 mr-2" />
-              Add Record
+          <>
+            <Link href="/maintenance/predictive">
+              <Button variant="outline" size="sm" className={cn("rounded-2xl h-10 px-4 text-xs font-bold", heroButtonOutlineClass)}>
+                <Sparkles className="w-4 h-4 mr-2 text-warning" /> AI Predictive Health
+              </Button>
+            </Link>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={openNewDialog}
+              className={cn("rounded-2xl h-10 px-5 text-xs font-bold shadow-xs cursor-pointer", heroButtonPrimaryClass)}
+            >
+              <Wrench className="w-4 h-4 mr-2" /> Add Maintenance Record
             </Button>
-            <DialogContent className="max-w-3xl">
-            <DialogHeader>
-              <DialogTitle>
-                {viewingRecord ? "Maintenance Details" : editingRecord ? "Edit Maintenance Record" : "Add Maintenance Record"}
-              </DialogTitle>
-            </DialogHeader>
-            {viewingRecord ? (
-              <div className="p-6 pt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-foreground-muted text-xs">Vehicle</p>
-                    <p className="font-medium">{viewingRecord.vehicles?.plate_number || "—"} ({viewingRecord.vehicles?.vehicle_name || "—"})</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Type</p>
-                    <p className="font-medium">{viewingRecord.maintenance_type}</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Date</p>
-                    <p className="font-medium">{formatDate(viewingRecord.maintenance_date)}</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Status</p>
-                    <StatusBadge status={viewingRecord.status} entity="maintenance" />
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Priority</p>
-                    <StatusBadge status={viewingRecord.priority} entity="priority" />
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Cost</p>
-                    <p className="font-medium">{formatCurrency(viewingRecord.cost || 0)}</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Provider</p>
-                    <p className="font-medium">{viewingRecord.service_provider || "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-foreground-muted text-xs">Service Center</p>
-                    <p className="font-medium">{viewingRecord.service_center || "—"}</p>
-                  </div>
-                  {viewingRecord.completed_date && (
-                    <div>
-                      <p className="text-foreground-muted text-xs">Completed Date</p>
-                      <p className="font-medium">{formatDate(viewingRecord.completed_date)}</p>
-                    </div>
-                  )}
-                  {viewingRecord.mileage_at_service && (
-                    <div>
-                      <p className="text-foreground-muted text-xs">Mileage at Service</p>
-                      <p className="font-medium">{viewingRecord.mileage_at_service.toLocaleString()} km</p>
-                    </div>
-                  )}
-                </div>
-                {viewingRecord.description && (
-                  <div>
-                    <p className="text-foreground-muted text-xs mb-1">Description</p>
-                    <p className="text-sm text-foreground bg-muted/30 rounded-lg p-3">{viewingRecord.description}</p>
-                  </div>
-                )}
-                {viewingRecord.remarks && (
-                  <div>
-                    <p className="text-foreground-muted text-xs mb-1">Remarks</p>
-                    <p className="text-sm text-foreground bg-muted/30 rounded-lg p-3">{viewingRecord.remarks}</p>
-                  </div>
-                )}
-                <div className="flex items-center justify-end pt-2">
-                  <Button variant="outline" onClick={closeDialog}>Close</Button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="vehicle_id">Vehicle *</Label>
-                    <Select value={formData.vehicle_id} onValueChange={(val) => setFormData({ ...formData, vehicle_id: val })}>
-                      <SelectTrigger className={fieldError("vehicle_id").invalid ? "border-danger/70" : ""}><SelectValue placeholder="Select a vehicle" /></SelectTrigger>
-                      <SelectContent>
-                        {vehicles.filter((v) => !v.deleted_at).map((v) => (
-                          <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>
-                            {v.plate_number} — {v.vehicle_name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {fieldError("vehicle_id").error && <p className="text-xs text-danger">{fieldError("vehicle_id").error}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="maintenance_type">Type</Label>
-                    <Select value={formData.maintenance_type} onValueChange={(val) => setFormData({ ...formData, maintenance_type: val })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Routine">Routine</SelectItem>
-                        <SelectItem value="Repair">Repair</SelectItem>
-                        <SelectItem value="Inspection">Inspection</SelectItem>
-                        <SelectItem value="Emergency">Emergency</SelectItem>
-                        <SelectItem value="Scheduled">Scheduled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="maintenance_date">Date *</Label>
-                    <Input id="maintenance_date" type="date" value={formData.maintenance_date} onChange={(e) => setFormData({ ...formData, maintenance_date: e.target.value })} ref={registerField("maintenance_date")} invalid={fieldError("maintenance_date").invalid} />
-                    {fieldError("maintenance_date").error && <p className="text-xs text-danger">{fieldError("maintenance_date").error}</p>}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="priority">Priority</Label>
-                    <Select value={formData.priority} onValueChange={(val) => setFormData({ ...formData, priority: val })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Low">Low</SelectItem>
-                        <SelectItem value="Normal">Normal</SelectItem>
-                        <SelectItem value="High">High</SelectItem>
-                        <SelectItem value="Critical">Critical</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="status">Status</Label>
-                    <Select value={formData.status} onValueChange={(val) => setFormData({ ...formData, status: val })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Scheduled">Scheduled</SelectItem>
-                        <SelectItem value="In Progress">In Progress</SelectItem>
-                        <SelectItem value="Completed">Completed</SelectItem>
-                        <SelectItem value="Cancelled">Cancelled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="completed_date">Completed Date</Label>
-                    <Input id="completed_date" type="date" value={formData.completed_date} onChange={(e) => setFormData({ ...formData, completed_date: e.target.value })} ref={registerField("completed_date")} invalid={fieldError("completed_date").invalid} />
-                    {fieldError("completed_date").error && <p className="text-xs text-danger">{fieldError("completed_date").error}</p>}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="cost">Cost (₱)</Label>
-                    <Input id="cost" type="number" min="0" step="0.01" value={formData.cost} onChange={(e) => setFormData({ ...formData, cost: e.target.value })} ref={registerField("cost")} invalid={fieldError("cost").invalid} placeholder="0.00" />
-                    {fieldError("cost").error && <p className="text-xs text-danger">{fieldError("cost").error}</p>}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="mileage_at_service">Mileage at Service (km)</Label>
-                    <Input id="mileage_at_service" type="number" min="0" value={formData.mileage_at_service} onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })} ref={registerField("mileage_at_service")} invalid={fieldError("mileage_at_service").invalid} placeholder="e.g. 10000" />
-                    {fieldError("mileage_at_service").error && <p className="text-xs text-danger">{fieldError("mileage_at_service").error}</p>}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="service_provider">Service Provider</Label>
-                    <Input id="service_provider" value={formData.service_provider} onChange={(e) => setFormData({ ...formData, service_provider: e.target.value })} placeholder="e.g. Toyota Cebu" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="service_center">Service Center</Label>
-                    <Input id="service_center" value={formData.service_center} onChange={(e) => setFormData({ ...formData, service_center: e.target.value })} placeholder="e.g. Main Branch" />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="description">Description</Label>
-                  <Input id="description" value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} placeholder="Describe the maintenance work" />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="remarks">Remarks</Label>
-                  <Input id="remarks" value={formData.remarks} onChange={(e) => setFormData({ ...formData, remarks: e.target.value })} placeholder="Additional notes" />
-                </div>
-
-                {formError && <p className="text-sm text-destructive">{formError}</p>}
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
-                  <Button type="submit" disabled={isSubmitting}>
-                    {isSubmitting ? "Saving..." : editingRecord ? "Update Record" : "Create Record"}
-                  </Button>
-                </div>
-              </form>
-            )}
-          </DialogContent>
-          </Dialog>
+          </>
         }
       />
 
-      <StatGrid cols={4}>
-        <StatCard icon={Clock} label="Scheduled" value={records.filter((r) => r.status === "Scheduled").length} tone="info" />
-        <StatCard icon={Wrench} label="In Progress" value={records.filter((r) => r.status === "In Progress").length} tone="warning" />
-        <StatCard icon={CheckCircle2} label="Completed" value={records.filter((r) => r.status === "Completed").length} tone="success" />
-        <StatCard icon={Wrench} label="Total Cost" value={formatCurrency(records.reduce((s, r) => s + (r.cost || 0), 0))} tone="primary" />
-      </StatGrid>
+      {/* ── EXECUTIVE KPI CARDS ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Records</span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary">
+              <Wrench className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{stats.total}</div>
+            <p className="text-[11px] text-primary font-medium mt-1">Logged service records</p>
+          </div>
+        </div>
 
-      <DataTable
-        columns={columns}
-        data={records}
-        searchPlaceholder="Search maintenance records..."
-        isLoading={isLoading}
-      />
+        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Scheduled Servicing</span>
+            <div className="p-2 rounded-xl bg-info/10 text-info">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{stats.scheduled}</div>
+            <p className="text-[11px] text-info font-medium mt-1">Pending maintenance dates</p>
+          </div>
+        </div>
 
+        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">In Progress</span>
+            <div className="p-2 rounded-xl bg-warning/10 text-warning">
+              <Activity className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{stats.inProgress}</div>
+            <p className="text-[11px] text-warning font-semibold mt-1">Currently in shop</p>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Expense</span>
+            <div className="p-2 rounded-xl bg-success/10 text-success">
+              <DollarSign className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-2xl font-black text-foreground font-data">{formatCurrency(stats.totalCost)}</div>
+            <p className="text-[11px] text-success font-semibold mt-1">Cumulative maintenance cost</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── MAINTENANCE TABLE ── */}
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardContent className="p-0">
+          <DataTable
+            data={records}
+            columns={columns}
+            isLoading={isLoading}
+            pageSize={10}
+            title="Maintenance Records Registry"
+            description="Schedule, track, and audit vehicle repairs, preventive maintenance, and service costs."
+            icon={Wrench}
+            context="Maintenance"
+            searchPlaceholder="Search maintenance by vehicle plate or provider..."
+            onRowClick={openViewDialog}
+          />
+        </CardContent>
+      </Card>
+
+      {/* ── CREATE / EDIT / VIEW DIALOG ── */}
+      <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
+        <DialogContent className="max-w-3xl rounded-3xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-base font-extrabold flex items-center gap-2 text-foreground">
+              <Wrench className="w-5 h-5 text-primary" />
+              {viewingRecord ? "Maintenance Record Details" : editingRecord ? "Edit Maintenance Record" : "Add Maintenance Record"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {viewingRecord ? (
+            <div className="space-y-4 pt-2">
+              <div className="grid grid-cols-2 gap-4 text-xs bg-hover/40 p-4 rounded-3xl border border-border/60">
+                <div>
+                  <p className="text-foreground-muted font-bold">Vehicle</p>
+                  <p className="font-extrabold text-foreground font-data mt-0.5">{viewingRecord.vehicles?.plate_number || "—"} ({viewingRecord.vehicles?.vehicle_name || "—"})</p>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Maintenance Type</p>
+                  <p className="font-extrabold text-foreground mt-0.5">{viewingRecord.maintenance_type}</p>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Scheduled Date</p>
+                  <p className="font-extrabold text-foreground font-data mt-0.5">{formatDate(viewingRecord.maintenance_date)}</p>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Status</p>
+                  <div className="mt-0.5"><StatusBadge status={viewingRecord.status} entity="maintenance" className="text-[11px] font-bold" /></div>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Priority</p>
+                  <div className="mt-0.5"><StatusBadge status={viewingRecord.priority} entity="priority" className="text-[11px] font-bold" /></div>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Total Cost</p>
+                  <p className="font-extrabold text-foreground font-data mt-0.5">{formatCurrency(viewingRecord.cost || 0)}</p>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Service Provider</p>
+                  <p className="font-bold text-foreground mt-0.5">{viewingRecord.service_provider || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-foreground-muted font-bold">Service Center</p>
+                  <p className="font-bold text-foreground mt-0.5">{viewingRecord.service_center || "—"}</p>
+                </div>
+              </div>
+              {viewingRecord.description && (
+                <div className="p-4 rounded-2xl bg-surface border border-border/60 text-xs">
+                  <p className="text-foreground-muted font-bold mb-1">Description &amp; Work Performed</p>
+                  <p className="text-foreground font-medium">{viewingRecord.description}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+              {formError && (
+                <div className="p-3 rounded-xl bg-danger/10 border border-danger/30 text-danger text-xs font-semibold">
+                  {formError}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FloatingField label="Vehicle" icon={Wrench} required error={fieldError("vehicle_id")}>
+                  <select
+                    id="vehicle_id"
+                    value={formData.vehicle_id}
+                    onChange={(e) => setFormData({ ...formData, vehicle_id: e.target.value })}
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
+                  >
+                    <option value="">Select vehicle</option>
+                    {vehicles.map((v) => (
+                      <option key={v.vehicle_id} value={v.vehicle_id}>
+                        {v.plate_number} — {v.vehicle_name} ({v.model || "Standard"})
+                      </option>
+                    ))}
+                  </select>
+                </FloatingField>
+
+                <FloatingField label="Maintenance Type" icon={Tag}>
+                  <select
+                    id="maintenance_type"
+                    value={formData.maintenance_type}
+                    onChange={(e) => setFormData({ ...formData, maintenance_type: e.target.value })}
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
+                  >
+                    <option value="Routine">Routine Service</option>
+                    <option value="Repair">Repair</option>
+                    <option value="Emergency">Emergency</option>
+                    <option value="Inspection">Inspection</option>
+                  </select>
+                </FloatingField>
+
+                <div>
+                  <DatePicker
+                    id="maintenance_date"
+                    label="Scheduled Date"
+                    value={formData.maintenance_date}
+                    onChange={(val) => setFormData({ ...formData, maintenance_date: val })}
+                  />
+                  {fieldError("maintenance_date") && (
+                    <p className="text-xs text-danger font-semibold mt-1">{fieldError("maintenance_date")}</p>
+                  )}
+                </div>
+
+                <div>
+                  <DatePicker
+                    id="completed_date"
+                    label="Completed Date (Optional)"
+                    value={formData.completed_date}
+                    onChange={(val) => setFormData({ ...formData, completed_date: val })}
+                  />
+                </div>
+
+                <FloatingField label="Cost (₱)" icon={DollarSign} error={fieldError("cost")}>
+                  <input
+                    id="cost"
+                    type="number"
+                    step="0.01"
+                    value={formData.cost}
+                    onChange={(e) => setFormData({ ...formData, cost: e.target.value })}
+                    placeholder="0.00"
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data"
+                  />
+                </FloatingField>
+
+                <FloatingField label="Mileage at Service (km)" icon={Activity} error={fieldError("mileage_at_service")}>
+                  <input
+                    id="mileage_at_service"
+                    type="number"
+                    value={formData.mileage_at_service}
+                    onChange={(e) => setFormData({ ...formData, mileage_at_service: e.target.value })}
+                    placeholder="e.g. 45000"
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data"
+                  />
+                </FloatingField>
+
+                <FloatingField label="Service Provider" icon={Wrench}>
+                  <input
+                    id="service_provider"
+                    value={formData.service_provider}
+                    onChange={(e) => setFormData({ ...formData, service_provider: e.target.value })}
+                    placeholder="e.g. Toyota Motors Service"
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1"
+                  />
+                </FloatingField>
+
+                <FloatingField label="Service Center Location" icon={Wrench}>
+                  <input
+                    id="service_center"
+                    value={formData.service_center}
+                    onChange={(e) => setFormData({ ...formData, service_center: e.target.value })}
+                    placeholder="e.g. Pasig Branch"
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1"
+                  />
+                </FloatingField>
+
+                <FloatingField label="Priority Level" icon={Tag}>
+                  <select
+                    id="priority"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
+                  >
+                    <option value="Low">Low</option>
+                    <option value="Normal">Normal</option>
+                    <option value="High">High</option>
+                    <option value="Urgent">Urgent</option>
+                  </select>
+                </FloatingField>
+
+                <FloatingField label="Work Status" icon={Tag}>
+                  <select
+                    id="status"
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
+                  >
+                    <option value="Scheduled">Scheduled</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                    <option value="Cancelled">Cancelled</option>
+                  </select>
+                </FloatingField>
+
+                <FloatingField label="Description &amp; Work Done" icon={FileText} className="md:col-span-2">
+                  <textarea
+                    id="description"
+                    rows={2}
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Describe maintenance work performed..."
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 resize-none"
+                  />
+                </FloatingField>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-border/60">
+                <Button type="button" variant="outline" onClick={closeDialog} className="rounded-xl text-xs">
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={createMutation.isPending || updateMutation.isPending}
+                  className="rounded-xl px-5 text-xs font-bold shadow-xs cursor-pointer"
+                >
+                  {editingRecord ? "Update Record" : "Create Record"}
+                </Button>
+              </div>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ARCHIVE CONFIRM DIALOG */}
       <ConfirmDialog
         open={!!archivingId}
         onOpenChange={(open) => { if (!open) setArchivingId(null); }}
-        title="Archive Record?"
-        message="This maintenance record will be hidden from active lists."
+        title="Archive Maintenance Record"
+        description="Are you sure you want to archive this maintenance record? This action can be audited."
         confirmLabel="Archive"
-        variant="archive"
-        onConfirm={() => { if (archivingId) archiveMutation.mutate(archivingId); }}
+        variant="danger"
+        isLoading={archiveMutation.isPending}
+        onConfirm={() => {
+          if (archivingId) {
+            archiveMutation.mutate(archivingId, {
+              onSuccess: () => setArchivingId(null),
+            });
+          }
+        }}
       />
     </div>
   );

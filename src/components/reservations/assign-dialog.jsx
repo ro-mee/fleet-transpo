@@ -23,7 +23,8 @@ import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
 import { formatDateTime } from "@/lib/utils";
-import { Send, Info } from "lucide-react";
+import { Send, Info, Car, UserCheck } from "lucide-react";
+import { FloatingField } from "@/components/ui/field";
 
 // Name off either shape: /api/drivers nests the person under `employees`,
 // /api/driver-assignments returns the same columns flattened.
@@ -277,43 +278,24 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
       </DialogHeader>
 
       <div className="space-y-4 px-6 pt-4">
-        <div>
-          <label className="text-sm font-medium text-foreground">Vehicle &amp; Driver</label>
-          {requiredClass && (
-            <p className="mt-0.5 text-xs text-foreground-muted">
-              {requiredClass} only — the class this request was booked as.
-            </p>
-          )}
-          <Select value={selection} onValueChange={setSelection}>
-            <SelectTrigger className="mt-1.5">
-              <SelectValue
-                placeholder={
-                  loadingVehicles || loadingDrivers ? "Loading…" : "Select a vehicle"
-                }
-              />
-            </SelectTrigger>
-            <SelectContent>
-              {allOptions.map((o) => (
-                <SelectItem key={o.value} value={o.value}>
-                  {o.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-
-          {request.passenger_count > 1 && (
-            <p className="mt-1 text-xs text-foreground-muted">
-              Needs seating for {request.passenger_count}.
-            </p>
-          )}
-          {hiddenCount > 0 && (
-            <p className="mt-1 text-xs text-foreground-muted">
-              {hiddenCount} available {hiddenCount === 1 ? "vehicle isn't" : "vehicles aren't"}{" "}
-              listed — {requiredClass ? "a different class, " : ""}too few seats for this request,
-              no assigned driver, or that driver is off duty.
-            </p>
-          )}
-        </div>
+        <FloatingField
+          label="Vehicle & Driver Assignment"
+          icon={Car}
+          hint={requiredClass ? `${requiredClass} only — the class this request was booked as.` : undefined}
+        >
+          <select
+            value={selection}
+            onChange={(e) => setSelection(e.target.value)}
+            className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
+          >
+            <option value="">{loadingVehicles || loadingDrivers ? "Loading available vehicles..." : "-- Select Vehicle & Driver Pair --"}</option>
+            {allOptions.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </FloatingField>
 
         {selectedOpt?.isPinned && (
           <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">

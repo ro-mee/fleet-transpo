@@ -9,8 +9,10 @@ import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { useRouter } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Truck, Navigation, RefreshCw } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 const LiveLocationsMap = dynamic(
@@ -40,17 +42,18 @@ export default function LiveMapPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Tracking"
+      <HeroHeader
+        icon={Navigation}
         title="Live GPS Tracking"
+        badge="Tracking"
         description={`${activeTrips.length} vehicle${activeTrips.length === 1 ? "" : "s"} currently active — updated every 15 seconds.`}
         actions={
           <div className="flex items-center gap-2">
-            <Badge variant="success" className="gap-1.5">
+            <Badge variant="success" className="gap-1.5 px-3 py-1 text-xs rounded-full font-bold">
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
               Live
             </Badge>
-            <Button variant="outline" size="sm" onClick={handleRefresh}>
+            <Button variant="outline" size="sm" onClick={handleRefresh} className={cn(heroButtonOutlineClass)}>
               <RefreshCw className="w-4 h-4 mr-2" />
               Refresh
             </Button>

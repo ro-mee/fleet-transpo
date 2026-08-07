@@ -8,19 +8,17 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
 import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Mail, Lock, User, Truck } from "lucide-react";
+import { FloatingField } from "@/components/ui/field";
+import { cn } from "@/lib/utils";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
-// Drivers are created from the Drivers section, not from this account screen —
-// a driver login also needs a linked driver profile, which only the drivers
-// flow sets up. Staff and support roles (everything except Driver) can be
-// provisioned here.
 const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 
 export default function AddUserPage() {
@@ -70,121 +68,108 @@ export default function AddUserPage() {
   };
 
   return (
-    <div className="space-y-6 w-full max-w-4xl mx-auto pb-12">
-      {/* ── Top Page Banner & Header Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
-            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">Create Employee Account</h1>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
-                User Provisioning
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              Provision a new internal staff or driver user account with role-based access control.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => router.back()} className="rounded-xl">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            className="rounded-xl px-5 h-10 shadow-sm"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating Account...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4 mr-2" /> Create Account
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-6 w-full pb-6">
+      {/* ── Top Hero Header Bar ── */}
+      <HeroHeader
+        icon={UserPlus}
+        title="Create Employee Account"
+        badge="User Provisioning"
+        description="Provision a new internal staff or driver user account with role-based access control."
+        actions={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => router.back()}
+              className={cn("rounded-xl", heroButtonOutlineClass)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={form.handleSubmit(onSubmit)}
+              disabled={isSubmitting}
+              className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-4 h-4 mr-2" /> Create Account
+                </>
+              )}
+            </Button>
+          </>
+        }
+      />
 
       {/* ── USER ACCOUNT PROVISIONING CARD ── */}
-      <Card className="border-0 shadow-sm rounded-2xl">
-        <CardHeader className="pb-3 border-b border-border/60">
-          <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+          <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
             <UserPlus className="w-4 h-4 text-primary" /> Employee Profile &amp; Role Credentials
           </CardTitle>
-          <CardDescription className="text-xs">
+          <CardDescription className="text-xs text-foreground-secondary">
             Fill in account credentials and select access permissions.
           </CardDescription>
         </CardHeader>
-        <CardContent className="pt-4">
+        <CardContent className="pt-5">
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="first_name" className="text-xs font-semibold text-foreground">First Name *</Label>
-                <Input id="first_name" {...form.register("first_name")} placeholder="e.g. Juan" className="rounded-xl" />
-                {form.formState.errors.first_name && (
-                  <p className="text-xs text-danger mt-1">{form.formState.errors.first_name.message}</p>
-                )}
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <FloatingField label="First Name" icon={User} required error={form.formState.errors.first_name?.message}>
+                <input
+                  id="first_name"
+                  {...form.register("first_name")}
+                  placeholder="e.g. Juan"
+                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                />
+              </FloatingField>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="last_name" className="text-xs font-semibold text-foreground">Last Name *</Label>
-                <Input id="last_name" {...form.register("last_name")} placeholder="e.g. Dela Cruz" className="rounded-xl" />
-                {form.formState.errors.last_name && (
-                  <p className="text-xs text-danger mt-1">{form.formState.errors.last_name.message}</p>
-                )}
-              </div>
+              <FloatingField label="Last Name" icon={User} required error={form.formState.errors.last_name?.message}>
+                <input
+                  id="last_name"
+                  {...form.register("last_name")}
+                  placeholder="e.g. Dela Cruz"
+                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                />
+              </FloatingField>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="email" className="text-xs font-semibold text-foreground flex items-center gap-1">
-                  <Mail className="w-3 h-3 text-foreground-muted" /> Email Address *
-                </Label>
-                <Input id="email" type="email" {...form.register("email")} placeholder="employee@example.com" className="rounded-xl" />
-                {form.formState.errors.email && (
-                  <p className="text-xs text-danger mt-1">{form.formState.errors.email.message}</p>
-                )}
-              </div>
+              <FloatingField label="Email Address" icon={Mail} required error={form.formState.errors.email?.message}>
+                <input
+                  id="email"
+                  type="email"
+                  {...form.register("email")}
+                  placeholder="employee@example.com"
+                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                />
+              </FloatingField>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="password" className="text-xs font-semibold text-foreground flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-foreground-muted" /> Initial Password *
-                </Label>
-                <div className="relative">
-                  <Input
+              <FloatingField label="Initial Password" icon={Lock} required error={form.formState.errors.password?.message}>
+                <div className="relative flex items-center">
+                  <input
                     id="password"
                     type={showPassword ? "text" : "password"}
                     {...form.register("password")}
                     placeholder="At least 6 characters"
-                    className="rounded-xl pr-10"
+                    className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 pr-8"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground"
+                    className="absolute right-0 text-foreground-muted hover:text-foreground p-1 cursor-pointer"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                {form.formState.errors.password && (
-                  <p className="text-xs text-danger mt-1">{form.formState.errors.password.message}</p>
-                )}
-              </div>
+              </FloatingField>
 
-              <div className="space-y-1.5 md:col-span-2">
-                <Label htmlFor="role_id" className="text-xs font-semibold text-foreground flex items-center gap-1">
-                  <ShieldCheck className="w-3 h-3 text-foreground-muted" /> Assigned System Role *
-                </Label>
+              <FloatingField label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2">
                 <select
                   id="role_id"
                   {...form.register("role_id")}
-                  className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                 >
                   <option value="">Select system role</option>
                   {ACCOUNT_ROLES.map((role) => (
@@ -193,23 +178,20 @@ export default function AddUserPage() {
                     </option>
                   ))}
                 </select>
-                {form.formState.errors.role_id && (
-                  <p className="text-xs text-danger mt-1">{form.formState.errors.role_id.message}</p>
-                )}
-              </div>
+              </FloatingField>
+            </div>
 
-              <div className="p-3.5 rounded-xl bg-info/10 border border-info/30 text-xs text-foreground-secondary flex items-start gap-2.5 md:col-span-2">
-                <ShieldCheck className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                <span>
-                  Use this screen for staff and support roles.{" "}
-                  <strong className="text-foreground font-semibold">Driver</strong> accounts
-                  are created from the{" "}
-                  <Link href="/drivers" className="text-primary font-medium underline underline-offset-2 inline-flex items-center gap-1">
-                    <Truck className="w-3 h-3" /> Drivers
-                  </Link>{" "}
-                  section, which also sets up their mobile login and consent.
-                </span>
-              </div>
+            <div className="p-4 rounded-2xl bg-info/10 border border-info/20 text-xs text-foreground-secondary flex items-start gap-2.5 md:col-span-2 mt-4">
+              <ShieldCheck className="w-4 h-4 text-info shrink-0 mt-0.5" />
+              <span>
+                Use this screen for staff and support roles.{" "}
+                <strong className="text-foreground font-bold">Driver</strong> accounts
+                are created from the{" "}
+                <Link href="/drivers" className="text-primary font-bold underline underline-offset-2 inline-flex items-center gap-1">
+                  <Truck className="w-3.5 h-3.5" /> Drivers Directory
+                </Link>{" "}
+                section, which also sets up their mobile login and consent.
+              </span>
             </div>
           </form>
         </CardContent>

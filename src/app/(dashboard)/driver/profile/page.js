@@ -156,7 +156,7 @@ function LicenseScanTile({ side, label, imageUrl, canUpload, windowDays }) {
             <img
               src={previewUrl}
               alt={`${label} scan preview`}
-              className="max-h-40 rounded-lg border border-border object-contain bg-black/5"
+              className="max-h-40 rounded-3xl border border-border object-contain bg-black/5"
             />
           )}
         </div>
@@ -174,7 +174,7 @@ function LicenseScanTile({ side, label, imageUrl, canUpload, windowDays }) {
               <IdCard className="w-5 h-5 text-primary" /> {label} License Scan
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {enlargeUrl && (
               <img src={enlargeUrl} alt={`${label} license scan`} className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}

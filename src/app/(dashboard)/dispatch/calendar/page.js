@@ -175,7 +175,7 @@ export default function DispatchCalendarPage() {
       />
 
       {/* Controls */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="flex flex-col gap-3 rounded-3xl border border-border bg-surface p-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="icon" onClick={() => step(-1)} aria-label="Previous">
@@ -196,7 +196,7 @@ export default function DispatchCalendarPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* View switch. Disabled under lanes, which are inherently per-day. */}
           <div
-            className="flex rounded-lg border border-border p-0.5"
+            className="flex rounded-3xl border border-border p-0.5"
             role="tablist"
             aria-label="Calendar view"
           >
@@ -220,7 +220,7 @@ export default function DispatchCalendarPage() {
             ))}
           </div>
 
-          <div className="flex rounded-lg border border-border p-0.5" role="tablist" aria-label="Grouping">
+          <div className="flex rounded-3xl border border-border p-0.5" role="tablist" aria-label="Grouping">
             {LANE_MODES.map((m) => {
               const Icon = m.icon;
               return (
@@ -279,7 +279,7 @@ export default function DispatchCalendarPage() {
       </div>
 
       {isError ? (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+        <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
             <div>
@@ -294,7 +294,7 @@ export default function DispatchCalendarPage() {
           </div>
         </div>
       ) : isLoading ? (
-        <div className="rounded-xl border border-border bg-surface p-3">
+        <div className="rounded-3xl border border-border bg-surface p-3">
           <Skeleton className="h-8 w-full" />
           <div className="mt-2 space-y-2">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -303,7 +303,7 @@ export default function DispatchCalendarPage() {
           </div>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-surface">
+        <div className="overflow-hidden rounded-3xl border border-border bg-surface">
           {laneMode !== LANE.NONE ? (
             <LaneGrid
               mode={laneMode}

@@ -35,9 +35,16 @@ import {
   Users,
   Clock,
   ShieldCheck,
+  Hash,
+  Layers,
+  FileText,
+  CarFront,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { FloatingField } from "@/components/ui/field";
 
 const GATEWAY = process.env.NEXT_PUBLIC_BOOKING_GATEWAY || "mock";
 
@@ -74,7 +81,7 @@ export default function MockInjectorPage() {
     guest_name: "",
     pickup_location: "NAIA Terminal 2",
     dropoff_location: "CoCo Star Hotel",
-    pickup_datetime: nowPlusHoursLocal(2),
+    pickup_datetime: "",
     passenger_count: 1,
     special_requests: "",
     requested_vehicle_type: "",
@@ -260,7 +267,7 @@ export default function MockInjectorPage() {
                   type="button"
                   onClick={() => applyRoutePreset(preset.pickup, preset.dropoff)}
                   className={cn(
-                    "flex items-center justify-between gap-3 p-3.5 rounded-xl border text-left transition-all group cursor-pointer",
+                    "flex items-center justify-between gap-3 p-3.5 rounded-3xl border text-left transition-all group cursor-pointer",
                     active
                       ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/30 font-medium shadow-xs"
                       : "border-border bg-surface hover:bg-hover hover:border-primary/40 text-foreground"
@@ -304,107 +311,97 @@ export default function MockInjectorPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="pt-4">
-          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="external_booking_id" className="text-xs font-semibold text-foreground">External Booking ID *</Label>
-              <Input
+          <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+            <FloatingField label="External Booking ID" icon={Hash} required>
+              <input
                 id="external_booking_id"
                 value={form.external_booking_id}
                 onChange={(e) => set("external_booking_id", e.target.value)}
                 placeholder="BK-2026-00999"
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="source_system" className="text-xs font-medium text-foreground-secondary">Source System</Label>
+            </FloatingField>
+
+            <FloatingField label="Source System" icon={Layers}>
               <select
                 id="source_system"
                 value={form.source_system}
                 onChange={(e) => set("source_system", e.target.value)}
-                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
               >
                 <option value="PMS">PMS (Hotel Front Office)</option>
                 <option value="POS">POS (Restaurant / Concierge)</option>
                 <option value="Web">Web Booking Portal</option>
               </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="booking_reference" className="text-xs font-medium text-foreground-secondary">Booking Reference</Label>
-              <Input
+            </FloatingField>
+
+            <FloatingField label="Booking Reference" icon={FileText}>
+              <input
                 id="booking_reference"
                 value={form.booking_reference}
                 onChange={(e) => set("booking_reference", e.target.value)}
                 placeholder="REF-999"
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="guest_name" className="text-xs font-medium text-foreground-secondary">Guest Name</Label>
-              <Input
+            </FloatingField>
+
+            <FloatingField label="Guest Name" icon={User}>
+              <input
                 id="guest_name"
                 value={form.guest_name}
                 onChange={(e) => set("guest_name", e.target.value)}
                 placeholder="e.g. Maria Clara"
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pickup_location" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-foreground-muted" /> Pickup Location
-              </Label>
-              <Input
+            </FloatingField>
+
+            <FloatingField label="Pickup Location" icon={MapPin}>
+              <input
                 id="pickup_location"
                 value={form.pickup_location}
                 onChange={(e) => set("pickup_location", e.target.value)}
                 placeholder="NAIA Terminal 2"
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="dropoff_location" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                <MapPin className="w-3 h-3 text-foreground-muted" /> Dropoff Location
-              </Label>
-              <Input
+            </FloatingField>
+
+            <FloatingField label="Dropoff Location" icon={MapPin}>
+              <input
                 id="dropoff_location"
                 value={form.dropoff_location}
                 onChange={(e) => set("dropoff_location", e.target.value)}
                 placeholder="CoCo Star Hotel"
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="pickup_datetime" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                <Clock className="w-3 h-3 text-foreground-muted" /> Pickup Date &amp; Time
-              </Label>
-              <Input
+            </FloatingField>
+
+            <div>
+              <DateTimePicker
                 id="pickup_datetime"
-                type="datetime-local"
+                label="Pickup Date & Time"
                 value={form.pickup_datetime}
-                onChange={(e) => set("pickup_datetime", e.target.value)}
-                className="rounded-xl text-xs"
+                onChange={(val) => set("pickup_datetime", val)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="passenger_count" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                <Users className="w-3 h-3 text-foreground-muted" /> Passenger Count
-              </Label>
-              <Input
+
+            <FloatingField label="Passenger Count" icon={Users}>
+              <input
                 id="passenger_count"
                 type="number"
                 min={1}
                 max={50}
                 value={form.passenger_count}
                 onChange={(e) => set("passenger_count", parseInt(e.target.value, 10) || 1)}
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data"
               />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="requested_vehicle_type" className="text-xs font-medium text-foreground-secondary">Requested Vehicle Category</Label>
+            </FloatingField>
+
+            <FloatingField label="Requested Vehicle Category" icon={CarFront}>
               <select
                 id="requested_vehicle_type"
                 value={form.requested_vehicle_type}
                 onChange={(e) => set("requested_vehicle_type", e.target.value)}
-                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
               >
                 <option value="">Any Category</option>
                 {categories.map((c) => (
@@ -413,30 +410,30 @@ export default function MockInjectorPage() {
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="priority" className="text-xs font-medium text-foreground-secondary">Priority Level</Label>
+            </FloatingField>
+
+            <FloatingField label="Priority Level" icon={AlertCircle}>
               <select
                 id="priority"
                 value={form.priority}
                 onChange={(e) => set("priority", e.target.value)}
-                className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
               >
                 <option value="Normal">Normal</option>
                 <option value="High">High (VIP)</option>
                 <option value="Urgent">Urgent</option>
               </select>
-            </div>
-            <div className="space-y-1.5 md:col-span-2">
-              <Label htmlFor="special_requests" className="text-xs font-medium text-foreground-secondary">Special Requests &amp; Notes</Label>
-              <Input
+            </FloatingField>
+
+            <FloatingField label="Special Requests & Notes" icon={Sparkles} className="md:col-span-2">
+              <input
                 id="special_requests"
                 value={form.special_requests}
                 onChange={(e) => set("special_requests", e.target.value)}
                 placeholder="Cold towels, child seat, luggage assistance..."
-                className="rounded-xl"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
+            </FloatingField>
           </form>
         </CardContent>
       </Card>

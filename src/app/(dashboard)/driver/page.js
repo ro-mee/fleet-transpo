@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getMyDriverProfile } from "@/services/driver.service";
@@ -61,19 +61,21 @@ export default function DriverHomePage() {
 
   return (
     <DriverConsentGate>
-      <div className="space-y-6 max-w-5xl">
-        <PageHeader
+      <div className="space-y-6 w-full">
+        <HeroHeader
+          icon={Truck}
           title={`Hello, ${profile.firstName}`}
+          badge="Driver Workspace"
           description="Welcome to your Driver Workspace. Pick a module below to get started."
         />
 
-        <Card className="border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
+        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
               <CalendarCheck className="w-4 h-4 text-primary" /> My Performance
             </CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center pt-4">
             <Stat label="Total Trips" value={profile.performance?.total_trips ?? 0} />
             <Stat label="Distance" value={`${Math.round(profile.performance?.total_distance ?? 0)} km`} />
             <Stat label="Hours" value={`${Math.round(profile.performance?.total_hours ?? 0)}h`} />
@@ -86,19 +88,19 @@ export default function DriverHomePage() {
             <Link
               key={mod.href}
               href={mod.href}
-              className="group rounded-2xl border border-border bg-surface p-5 shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+              className="group rounded-3xl border border-border/80 bg-surface p-5 shadow-xs transition-all hover:border-primary/40 hover:shadow-sm select-none"
             >
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shrink-0">
                     <mod.icon className="h-5 w-5" />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-foreground">{mod.label}</p>
+                    <p className="text-sm font-bold text-foreground">{mod.label}</p>
                     <p className="text-xs text-foreground-secondary mt-0.5">{mod.description}</p>
                   </div>
                 </div>
-                <ChevronRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:translate-x-0.5" />
+                <ChevronRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:translate-x-1 mt-1" />
               </div>
             </Link>
           ))}

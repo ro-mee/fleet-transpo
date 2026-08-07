@@ -35,7 +35,19 @@ export function AuthProvider({ children }) {
   const loading = status === "loading";
 
   const handleSignOut = async () => {
-    await nextAuthSignOut({ callbackUrl: "/login" });
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.clear();
+        sessionStorage.clear();
+      }
+      await nextAuthSignOut({ callbackUrl: "/login", redirect: true });
+    } catch (e) {
+      console.error("Signout error:", e);
+    } finally {
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+    }
   };
 
   const refreshEmployee = async () => {

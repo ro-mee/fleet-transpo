@@ -30,6 +30,7 @@ import {
   Mail,
   UserCheck,
   ShieldAlert,
+  ShieldCheck,
   RotateCw,
   Zap,
   FileText,
@@ -40,6 +41,8 @@ import Link from "next/link";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverEditSchema } from "@/lib/validation/schemas";
 import { rotateBase64Image } from "@/lib/images";
+import { FloatingField } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 
 export default function EditDriverPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -391,63 +394,51 @@ export default function EditDriverPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="first_name" className="text-xs font-semibold text-foreground">First Name *</Label>
-                    <Input id="first_name" {...form.register("first_name")} className="rounded-xl" />
-                    {form.formState.errors.first_name && (
-                      <p className="text-xs text-danger mt-1">{form.formState.errors.first_name.message}</p>
-                    )}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                  <FloatingField label="First Name" icon={User} required error={form.formState.errors.first_name?.message}>
+                    <input id="first_name" {...form.register("first_name")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
+
+                  <FloatingField label="Last Name" icon={User} required error={form.formState.errors.last_name?.message}>
+                    <input id="last_name" {...form.register("last_name")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
+
+                  <FloatingField label="Email Address" icon={Mail}>
+                    <input id="email" type="email" {...form.register("email")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
+
+                  <FloatingField label="Phone Number" icon={Phone}>
+                    <input id="phone" {...form.register("phone")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data" />
+                  </FloatingField>
+
+                  <div>
+                    <DatePicker
+                      id="birthdate"
+                      label="Birthdate"
+                      value={form.watch("birthdate")}
+                      onChange={(val) => form.setValue("birthdate", val)}
+                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="last_name" className="text-xs font-semibold text-foreground">Last Name *</Label>
-                    <Input id="last_name" {...form.register("last_name")} className="rounded-xl" />
-                    {form.formState.errors.last_name && (
-                      <p className="text-xs text-danger mt-1">{form.formState.errors.last_name.message}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="email" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-foreground-muted" /> Email Address
-                    </Label>
-                    <Input id="email" type="email" {...form.register("email")} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="phone" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-foreground-muted" /> Phone Number
-                    </Label>
-                    <Input id="phone" {...form.register("phone")} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="birthdate" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-foreground-muted" /> Birthdate
-                    </Label>
-                    <Input id="birthdate" type="date" {...form.register("birthdate")} className="rounded-xl text-xs" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="sex" className="text-xs font-medium text-foreground-secondary">Sex</Label>
+
+                  <FloatingField label="Sex" icon={User}>
                     <select
                       id="sex"
                       {...form.register("sex")}
-                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="">Select sex</option>
                       <option value="M">Male</option>
                       <option value="F">Female</option>
                     </select>
-                  </div>
-                  <div className="space-y-1.5 md:col-span-2">
-                    <Label htmlFor="nationality" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-foreground-muted" /> Nationality
-                    </Label>
-                    <Input id="nationality" {...form.register("nationality")} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5 md:col-span-2">
-                    <Label htmlFor="address" className="text-xs font-medium text-foreground-secondary flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-foreground-muted" /> Address
-                    </Label>
-                    <Input id="address" {...form.register("address")} className="rounded-xl" />
-                  </div>
+                  </FloatingField>
+
+                  <FloatingField label="Nationality" icon={Globe} className="md:col-span-2">
+                    <input id="nationality" {...form.register("nationality")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
+
+                  <FloatingField label="Address" icon={MapPin} className="md:col-span-2">
+                    <input id="address" {...form.register("address")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
                 </div>
               </CardContent>
             </Card>
@@ -466,51 +457,55 @@ export default function EditDriverPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="license_number" className="text-xs font-semibold text-foreground">License Number *</Label>
-                    <Input id="license_number" {...form.register("license_number")} className="rounded-xl font-data uppercase" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                  <FloatingField label="License Number" icon={IdCard} required>
+                    <input id="license_number" {...form.register("license_number")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data uppercase" />
+                  </FloatingField>
+
+                  <div>
+                    <DatePicker
+                      id="license_expiry"
+                      label="License Expiration Date"
+                      value={form.watch("license_expiry")}
+                      onChange={(val) => form.setValue("license_expiry", val)}
+                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="license_expiry" className="text-xs font-medium text-foreground-secondary">License Expiration Date</Label>
-                    <Input id="license_expiry" type="date" {...form.register("license_expiry")} className="rounded-xl text-xs" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="license_class" className="text-xs font-medium text-foreground-secondary">Vehicle License Class *</Label>
+
+                  <FloatingField label="Vehicle License Class" icon={IdCard} required>
                     <select
                       id="license_class"
                       {...form.register("license_class")}
-                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="B">Class B — Passenger Cars &amp; Light Vehicles</option>
                       <option value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</option>
                     </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="license_type" className="text-xs font-medium text-foreground-secondary">License Type</Label>
-                    <Input id="license_type" value="Professional Driver" readOnly className="rounded-xl bg-muted/50 text-foreground font-medium text-xs cursor-not-allowed" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="position" className="text-xs font-medium text-foreground-secondary">Position Title</Label>
-                    <Input id="position" {...form.register("position")} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="years_of_experience" className="text-xs font-medium text-foreground-secondary">Years of Experience</Label>
-                    <Input id="years_of_experience" type="number" min="0" {...form.register("years_of_experience")} className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5 md:col-span-2">
-                    <Label htmlFor="driver_status" className="text-xs font-medium text-foreground-secondary">Duty Status</Label>
+                  </FloatingField>
+
+                  <FloatingField label="License Type" icon={Briefcase}>
+                    <input id="license_type" value="Professional Driver" readOnly className="w-full bg-transparent text-xs font-semibold text-foreground-secondary focus:outline-hidden py-1 cursor-not-allowed" />
+                  </FloatingField>
+
+                  <FloatingField label="Position Title" icon={Briefcase}>
+                    <input id="position" {...form.register("position")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
+                  </FloatingField>
+
+                  <FloatingField label="Years of Experience" icon={Briefcase}>
+                    <input id="years_of_experience" type="number" min="0" {...form.register("years_of_experience")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data" />
+                  </FloatingField>
+
+                  <FloatingField label="Duty Status" icon={UserCheck} className="md:col-span-2">
                     <select
                       id="driver_status"
                       {...form.register("driver_status")}
-                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="Available">Available</option>
                       <option value="Off Duty">Off Duty</option>
                       <option value="On Leave">On Leave</option>
                       <option value="Suspended">Suspended</option>
                     </select>
-                  </div>
+                  </FloatingField>
                 </div>
               </CardContent>
             </Card>
@@ -695,7 +690,7 @@ export default function EditDriverPage() {
               <IdCard className="w-5 h-5 text-primary" /> Driver License Verification Zoom
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {enlargeModalUrl && <img src={enlargeModalUrl} alt="License Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />}
           </div>
         </DialogContent>
@@ -714,7 +709,7 @@ export default function EditDriverPage() {
           </DialogHeader>
           <div className="space-y-3 py-2 text-xs">
             {scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0 ? (
-              <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border">
+              <div className="space-y-2 bg-muted/30 p-4 rounded-3xl border border-border">
                 {Object.entries(scanResult.extracted_data).map(([key, val]) => (
                   <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5">
                     <span className="text-foreground-muted capitalize">{key.replace(/_/g, " ")}:</span>

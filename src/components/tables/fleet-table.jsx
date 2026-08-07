@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
@@ -13,10 +13,9 @@ import { getVehicles, deleteVehicle } from "@/services/vehicle.service";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
 import { formatDate, formatNumber } from "@/lib/utils";
-import { Pencil, Archive, Eye, Plus, Truck } from "lucide-react";
+import { Archive, CalendarClock, CircleGauge, Eye, Pencil, Truck, Users } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
 const statusVariant = {
   Available: "success",
@@ -32,8 +31,6 @@ const columnHelper = createColumnHelper();
 export function FleetTable({ filters = {} }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const [page, setPage] = useState(0);
-
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles", filters],
     queryFn: () => getVehicles(filters),
@@ -43,6 +40,7 @@ export function FleetTable({ filters = {} }) {
     queryKey: ["uvvrp-policy"],
     queryFn: getUvvrpPolicy,
   });
+
   const restrictedPlates = useMemo(() => {
     const set = new Set();
     if (!uvvrpPolicy?.enabled) return set;
@@ -69,15 +67,22 @@ export function FleetTable({ filters = {} }) {
       columnHelper.accessor("plate_number", {
         header: "Plate #",
         cell: (info) => (
-          <span className="font-medium text-foreground">{info.getValue()}</span>
+          <div className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+            {info.getValue()}
+          </div>
         ),
       }),
       columnHelper.accessor("vehicle_name", {
         header: "Vehicle",
         cell: (info) => (
-          <div>
-            <p className="font-medium text-foreground">{info.getValue()}</p>
-            <p className="text-xs text-foreground-muted">{info.row.original.model}</p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 text-foreground border border-border/40 shadow-2xs">
+              <Truck className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <p className="font-bold text-sm text-foreground">{info.getValue()}</p>
+              <p className="text-xs text-foreground-muted font-medium">{info.row.original.model || "Model not listed"}</p>
+            </div>
           </div>
         ),
       }),
@@ -85,19 +90,23 @@ export function FleetTable({ filters = {} }) {
         id: "category",
         header: "Category",
         cell: (info) => (
-          <span className="text-foreground-secondary">{info.getValue() || "—"}</span>
+          <span className="text-xs font-medium text-foreground-secondary">{info.getValue() || "—"}</span>
         ),
       }),
       columnHelper.accessor("seating_capacity", {
         header: "Capacity",
         cell: (info) => (
-          <span className="text-foreground-secondary">{info.getValue()} seats</span>
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
+            <Users className="h-3.5 w-3.5 text-foreground-muted" />
+            {info.getValue()} seats
+          </span>
         ),
       }),
       columnHelper.accessor("fuel_type", {
         header: "Fuel",
         cell: (info) => (
-          <Badge variant="secondary" className="text-xs">
+          <Badge variant="secondary" className="gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+            <CircleGauge className="h-3 w-3" />
             {info.getValue()}
           </Badge>
         ),
@@ -105,7 +114,7 @@ export function FleetTable({ filters = {} }) {
       columnHelper.accessor("mileage", {
         header: "Mileage",
         cell: (info) => (
-          <span className="text-foreground-secondary">
+          <span className="text-xs font-medium text-foreground-secondary font-data">
             {formatNumber(info.getValue() || 0)} km
           </span>
         ),
@@ -114,12 +123,13 @@ export function FleetTable({ filters = {} }) {
         header: "Registration",
         cell: (info) => {
           const expiry = info.getValue();
-          if (!expiry) return <span className="text-foreground-secondary">—</span>;
+          if (!expiry) return <span className="text-xs font-medium text-foreground-secondary">—</span>;
           const overdue = new Date(expiry) < new Date(new Date().toDateString());
           return (
-            <div>
-              <span className="text-foreground-secondary">{formatDate(expiry)}</span>
-              {overdue && <Badge variant="danger" className="ml-2 text-[10px]">Overdue</Badge>}
+            <div className="flex items-center gap-2">
+              <CalendarClock className={overdue ? "h-3.5 w-3.5 text-danger" : "h-3.5 w-3.5 text-foreground-muted"} />
+              <span className={overdue ? "font-medium text-danger text-xs font-data" : "text-xs font-medium text-foreground-secondary font-data"}>{formatDate(expiry)}</span>
+              {overdue && <Badge variant="danger" className="ml-1.5 text-[10px] rounded-full">Overdue</Badge>}
             </div>
           );
         },
@@ -130,42 +140,42 @@ export function FleetTable({ filters = {} }) {
           const restricted = restrictedPlates.has(info.row.original.plate_number);
           const status = restricted ? "Coding Restricted" : info.getValue();
           const variant = restricted ? "danger" : statusVariant[info.getValue()] || "default";
-          return <Badge variant={variant}>{status}</Badge>;
+          return <Badge variant={variant} className="rounded-full px-3 py-1 text-xs font-bold">{status}</Badge>;
         },
       }),
       columnHelper.display({
         id: "actions",
         header: "",
         cell: (info) => (
-          <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+          <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
             <Tooltip content="View">
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-8 h-8"
+                className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
                 onClick={() => router.push(`/fleet/vehicles/${info.row.original.vehicle_id}`)}
               >
-                <Eye className="w-4 h-4" />
+                <Eye className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
             <Tooltip content="Edit">
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-8 h-8"
+                className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
                 onClick={() => router.push(`/fleet/vehicles/${info.row.original.vehicle_id}/edit`)}
               >
-                <Pencil className="w-4 h-4" />
+                <Pencil className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
             <Tooltip content="Archive">
               <Button
                 variant="ghost"
                 size="icon"
-                className="w-8 h-8 text-danger hover:text-danger"
+                className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
                 onClick={() => setArchivingId(info.row.original.vehicle_id)}
               >
-                <Archive className="w-4 h-4" />
+                <Archive className="w-3.5 h-3.5" />
               </Button>
             </Tooltip>
           </div>
@@ -177,22 +187,29 @@ export function FleetTable({ filters = {} }) {
 
   if (isLoading) {
     return (
-      <Card className="border-0 shadow-sm">
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="py-12 text-center text-foreground-muted">
           <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-muted rounded w-1/3 mx-auto" />
-            <div className="h-64 bg-muted rounded" />
+            <div className="h-8 bg-muted rounded-xl w-1/3 mx-auto" />
+            <div className="h-64 bg-muted rounded-2xl" />
           </div>
         </CardContent>
       </Card>
     );
   }
 
+  const activeLabel = filters.status || "All vehicles";
+
   return (
     <>
       <DataTable
         columns={columns}
         data={vehicles}
+        pageSize={8}
+        title="Fleet Inventory"
+        description="Select a row to view its complete vehicle record."
+        icon={Truck}
+        context={activeLabel}
         searchPlaceholder="Search by plate or name..."
         onRowClick={(row) => router.push(`/fleet/vehicles/${row.vehicle_id}`)}
       />

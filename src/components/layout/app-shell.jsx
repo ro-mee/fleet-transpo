@@ -34,7 +34,6 @@ function isActive(pathname, href, allHrefs = []) {
   if (href === "/dashboard") return false;
   if (!pathname.startsWith(href + "/")) return false;
 
-  // Suppress parent route highlight if a longer/more specific visible nav item matches
   const hasBetterMatch = allHrefs.some(
     (otherHref) =>
       otherHref !== href &&
@@ -72,10 +71,11 @@ export function Sidebar({ collapsed, setCollapsed }) {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200",
+        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200 select-none",
         collapsed ? "w-[72px]" : "w-60"
       )}
     >
+      {/* ── ORIGINAL CLEAN BRAND HEADER ── */}
       <div className={cn(
         "flex h-14 items-center border-b border-sidebar-border",
         collapsed ? "justify-center px-0" : "px-4"
@@ -105,6 +105,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
         </button>
       </div>
 
+      {/* ── NAVIGATION LIST WITH SMOOTH HOVER ANIMATION ── */}
       <nav className="flex-1 overflow-y-auto scrollbar-none px-2 py-4 space-y-6">
         {visibleGroups.map((group) => (
           <div key={group.label}>
@@ -133,8 +134,8 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors relative",
-                      collapsed && "justify-center px-1",
+                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
+                      collapsed && "justify-center px-1 hover:translate-x-0",
                       active
                         ? "bg-hover text-foreground font-medium"
                         : "text-foreground-secondary hover:text-foreground hover:bg-hover"
@@ -157,6 +158,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
         ))}
       </nav>
 
+      {/* ── ORIGINAL USER FOOTER CARD ── */}
       {!loading && (
         <div className={cn(
           "border-t border-sidebar-border py-3",
@@ -169,7 +171,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
               side="top"
               align="start"
               chevron="up"
-              triggerClassName="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-hover transition-colors duration-150"
+              triggerClassName="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer"
             >
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
@@ -192,7 +194,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
               side="top"
               align="start"
               chevron="up"
-              triggerClassName="justify-center w-full rounded-md px-1 py-1.5 hover:bg-hover transition-colors duration-150"
+              triggerClassName="justify-center w-full rounded-md px-1 py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer"
             >
               <Avatar className="h-7 w-7">
                 <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
@@ -218,7 +220,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
       <Link
         href={item.children?.[0]?.href || item.href}
         className={cn(
-          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-colors relative",
+          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
           active
             ? "bg-hover text-foreground"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
@@ -242,7 +244,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
       <button
         onClick={() => setExpanded(!expanded)}
         className={cn(
-          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-colors relative cursor-pointer",
+          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
           active
             ? "bg-hover text-foreground font-medium"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
@@ -272,7 +274,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
                 key={child.href}
                 href={child.href}
                 className={cn(
-                  "relative block rounded-md px-3 py-1.5 text-sm transition-colors",
+                  "relative block rounded-md px-3 py-1.5 text-sm transition-all duration-150 hover:translate-x-0.5 cursor-pointer",
                   isChildActive
                     ? "bg-hover text-foreground font-medium"
                     : "text-foreground-secondary hover:text-foreground hover:bg-hover"
@@ -302,7 +304,7 @@ export function TopNav({ collapsed }) {
   return (
     <header
       className={cn(
-        "fixed top-0 right-0 z-30 flex h-14 items-center border-b border-border bg-surface transition-all duration-200",
+        "fixed top-0 right-0 z-30 flex h-14 items-center border-b border-border bg-surface transition-all duration-200 select-none",
         collapsed ? "left-[72px]" : "left-60"
       )}
     >

@@ -473,7 +473,7 @@ export default function DriverDetailPage() {
                   {trips.map((trip) => (
                     <div
                       key={trip.trip_id}
-                      className="p-4 rounded-xl border border-border bg-surface flex flex-col md:flex-row md:items-center md:justify-between gap-3"
+                      className="p-4 rounded-3xl border border-border bg-surface flex flex-col md:flex-row md:items-center md:justify-between gap-3"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -637,7 +637,7 @@ export default function DriverDetailPage() {
               <IdCard className="w-5 h-5 text-primary" /> License Document Verification Zoom
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {previewModalUrl && (
               <img src={previewModalUrl} alt="License Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}

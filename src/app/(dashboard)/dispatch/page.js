@@ -5,8 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
@@ -30,6 +30,7 @@ import {
 import { startTrip, completeTrip } from "@/services/trip.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import {
   CalendarDays,
   CheckCircle2,
@@ -280,40 +281,86 @@ export default function DispatchPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Dispatch Board"
-        description="Every committed vehicle and driver, and where each trip stands."
+      {/* Hero Header */}
+      <HeroHeader
+        icon={Send}
+        title="Dispatch Operations Board"
+        badge="Live Fleet Control"
+        description="Real-time dispatch scheduling, trip management, and driver assignment board."
         actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" asChild>
+          <>
+            <Button variant="outline" asChild className={cn(heroButtonOutlineClass)}>
               <Link href="/dispatch/calendar">
                 <CalendarDays className="w-4 h-4 mr-2" />
                 Calendar
               </Link>
             </Button>
-            <Button variant="outline" asChild>
+            <Button variant="outline" asChild className={cn(heroButtonOutlineClass)}>
               <Link href="/reservations/queue">
                 <Send className="w-4 h-4 mr-2" />
                 Request Queue
               </Link>
             </Button>
-          </div>
+            <Button
+              variant="outline"
+              size="icon"
+              disabled={isFetching}
+              onClick={() => refetch()}
+              className={cn(heroButtonOutlineClass)}
+              aria-label="Refresh the board"
+            >
+              <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+            </Button>
+          </>
         }
       />
 
-      <StatGrid cols={4}>
-        {stats.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
-      </StatGrid>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map((s) => {
+          const Icon = s.icon;
+          const isActive = s.active;
+          const activeStyle = s.tone === 'primary' ? 'border-primary bg-primary/10 shadow-xs'
+                            : s.tone === 'warning' ? 'border-warning bg-warning/10 shadow-xs'
+                            : s.tone === 'success' ? 'border-success bg-success/10 shadow-xs'
+                            : 'border-border bg-muted shadow-xs';
+          const iconStyle = s.tone === 'primary' ? 'bg-primary/10 text-primary'
+                          : s.tone === 'warning' ? 'bg-warning/10 text-warning'
+                          : s.tone === 'success' ? 'bg-success/10 text-success'
+                          : 'bg-muted text-foreground-secondary';
+          const textStyle = s.tone === 'primary' ? 'text-primary'
+                          : s.tone === 'warning' ? 'text-warning'
+                          : s.tone === 'success' ? 'text-success'
+                          : 'text-foreground-secondary';
 
-      {/* Lane selector + search. Counts stay visible for every lane so the board
-          still reads as a board even though one lane is shown at a time. */}
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Dispatch status">
+          return (
+            <button
+              key={s.label}
+              type="button"
+              onClick={s.onClick}
+              className={cn(
+                "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+                isActive ? activeStyle : "border-border/80 bg-surface hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{s.label}</span>
+                <div className={cn("p-2 rounded-xl", iconStyle)}><Icon className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-foreground font-data">{s.value}</div>
+                <p className={cn("text-[11px] font-medium mt-1", textStyle)}>{s.trend}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Lane selector + search. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Dispatch status">
           {LANES.map((l) => {
-            const Icon = l.icon;
+            const LaneIcon = l.icon;
             const active = lane === l.id;
             return (
               <button
@@ -323,48 +370,33 @@ export default function DispatchPage() {
                 aria-selected={active}
                 onClick={() => setLane(l.id)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  'flex items-center gap-2 px-4 h-9 rounded-full text-xs font-bold border transition-all cursor-pointer',
                   active
                     ? LANE_ACTIVE[l.tone]
-                    : "border-border text-foreground-secondary hover:bg-hover"
+                    : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40'
                 )}
               >
-                <Icon className="w-3.5 h-3.5" aria-hidden="true" />
-                {l.label}
-                <span className="font-data opacity-70">{counts[l.id]}</span>
+                <LaneIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                {l.label} ({counts[l.id]})
               </button>
             );
           })}
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-72">
-            <Search
-              className="absolute left-2.5 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"
-              aria-hidden="true"
-            />
-            <Input
-              className="pl-8"
-              placeholder="Dispatch, guest, plate, driver, route…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              aria-label="Search dispatches"
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            disabled={isFetching}
-            onClick={() => refetch()}
-            aria-label="Refresh the board"
-          >
-            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-          </Button>
+        <div className="bg-surface border border-border/80 rounded-2xl px-3 flex items-center gap-2 sm:w-72">
+          <Search className="w-4 h-4 text-foreground-muted shrink-0" aria-hidden="true" />
+          <Input
+            className="border-0 bg-transparent focus-visible:ring-0 px-0 h-9"
+            placeholder="Dispatch, guest, plate, driver, route…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search dispatches"
+          />
         </div>
       </div>
 
       {isError ? (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+        <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
             <div>
@@ -385,7 +417,7 @@ export default function DispatchPage() {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-border bg-surface">
+        <div className="rounded-3xl border border-border bg-surface">
           <EmptyState
             icon={searching ? Search : Inbox}
             title={searching ? "No dispatches match that search" : `Nothing in ${LANES.find((l) => l.id === lane)?.label}`}
@@ -407,21 +439,25 @@ export default function DispatchPage() {
           />
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          {items.map((d) => (
-            <DispatchCard
-              key={d.dispatch_id}
-              dispatch={d}
-              permissions={permissions}
-              isBusy={busyId === d.dispatch_id}
-              onStart={(dispatch) => setOdometer({ dispatch, mode: "start" })}
-              onComplete={(dispatch) => setOdometer({ dispatch, mode: "complete" })}
-              onCancel={(dispatch) => setCancelling(dispatch)}
-              onReassign={(dispatch, mode) => setEditing({ dispatch, mode })}
-              onEditNotes={(dispatch) => setEditing({ dispatch, mode: "notes" })}
-            />
-          ))}
-        </div>
+        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardContent className="p-4 space-y-3">
+            <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+              {items.map((d) => (
+                <DispatchCard
+                  key={d.dispatch_id}
+                  dispatch={d}
+                  permissions={permissions}
+                  isBusy={busyId === d.dispatch_id}
+                  onStart={(dispatch) => setOdometer({ dispatch, mode: "start" })}
+                  onComplete={(dispatch) => setOdometer({ dispatch, mode: "complete" })}
+                  onCancel={(dispatch) => setCancelling(dispatch)}
+                  onReassign={(dispatch, mode) => setEditing({ dispatch, mode })}
+                  onEditNotes={(dispatch) => setEditing({ dispatch, mode: "notes" })}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       )}
 
       <DispatchEditDialog

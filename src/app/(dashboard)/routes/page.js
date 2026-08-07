@@ -5,10 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
 import { Badge } from "@/components/ui/badge";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { cn } from "@/lib/utils";
 import { Route as RouteIcon, MapPin, TriangleAlert } from "lucide-react";
 import { getRoutes } from "@/services/route.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -102,10 +103,11 @@ export default function RoutesPage() {
   if (isError) {
     return (
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="Operations"
-          title="Routes"
-          description="Predefined origin–destination routes used when dispatching vehicles."
+        <HeroHeader
+          icon={RouteIcon}
+          title="Fleet Routes Registry"
+          badge="Operations"
+          description="Predefined origin-destination routes used when dispatching vehicles."
         />
         <EmptyState
           icon={TriangleAlert}
@@ -119,46 +121,75 @@ export default function RoutesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Routes"
-        description="Predefined origin–destination routes used when dispatching vehicles."
+      <HeroHeader
+        icon={RouteIcon}
+        title="Fleet Routes Registry"
+        badge="Operations"
+        description="Predefined origin-destination routes used when dispatching vehicles."
       />
 
-      <StatGrid cols={3}>
-        <StatCard
-          icon={RouteIcon}
-          label="Total Routes"
-          value={routes.length}
-          tone="primary"
-          active={statusFilter === "all"}
-          onClick={() => setStatusFilter("all")}
-        />
-        <StatCard
-          icon={MapPin}
-          label="Active Routes"
-          value={activeCount}
-          tone="success"
-          active={statusFilter === "Active"}
-          onClick={() => setStatusFilter("Active")}
-        />
-        <StatCard
-          icon={RouteIcon}
-          label="Total Distance"
-          value={`${totalDistance.toLocaleString()} km`}
-          tone="info"
-          active={false}
-        />
-      </StatGrid>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <button
+          type="button"
+          onClick={() => setStatusFilter('all')}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            statusFilter === "all" ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Total Routes</span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary"><RouteIcon className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{routes.length}</div>
+          </div>
+        </button>
 
-      <DataTable
-        columns={columns}
-        data={displayRoutes}
-        searchPlaceholder="Search routes..."
-        emptyTitle="No routes found"
-        emptyDescription="Routes created here can be attached to dispatches."
-        isLoading={isLoading}
-      />
+        <button
+          type="button"
+          onClick={() => setStatusFilter('Active')}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            statusFilter === "Active" ? "border-success bg-success/10 shadow-xs" : "border-border/80 bg-surface hover:border-success/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Active Routes</span>
+            <div className="p-2 rounded-xl bg-success/10 text-success"><MapPin className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{activeCount}</div>
+          </div>
+        </button>
+
+        <div
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 select-none border-border/80 bg-surface"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Total Distance</span>
+            <div className="p-2 rounded-xl bg-info/10 text-info"><RouteIcon className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{`${totalDistance.toLocaleString()} km`}</div>
+          </div>
+        </div>
+      </div>
+
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardContent className="p-0">
+          <DataTable
+            columns={columns}
+            data={displayRoutes}
+            searchPlaceholder="Search routes..."
+            emptyTitle="No routes found"
+            emptyDescription="Routes created here can be attached to dispatches."
+            isLoading={isLoading}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

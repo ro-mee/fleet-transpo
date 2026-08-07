@@ -6,13 +6,13 @@ import Link from "next/link";
 import { getFinancialSummary, getDriverPerformanceReport, getFleetUtilizationReport, getFuelConsumptionReport, getFleetCostReport } from "@/services/report.service";
 import { getAiInsights } from "@/services/ai.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 const money = (n) => `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
 
@@ -49,30 +49,52 @@ export default function ExecutiveKpiPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Executive KPI Center" description="High-level operational and financial KPIs for leadership. Read-only." />
+      <HeroHeader
+        icon={Gauge}
+        title="Executive KPI Center"
+        badge="Management"
+        description="High-level operational and financial KPIs for leadership. Read-only."
+      />
 
-      {loading ? (
-        <StatsGridSkeleton count={8} gridClass="md:grid-cols-2 lg:grid-cols-4" />
-      ) : (
-        <StatGrid cols={4}>
-          {kpis.map((k) => (
-            <StatCard key={k.label} icon={k.icon} label={k.label} value={k.value} tone={k.tone} href={k.href} />
-          ))}
-        </StatGrid>
-      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        {kpis.map((k) => {
+          const Icon = k.icon;
+          return (
+            <Link key={k.label} href={k.href || "#"}>
+              <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs hover:shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between space-y-3 h-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{k.label}</span>
+                  <div className={cn("p-2 rounded-xl", {
+                    "bg-primary/10 text-primary": k.tone === "primary",
+                    "bg-success/10 text-success": k.tone === "success",
+                    "bg-warning/10 text-warning": k.tone === "warning",
+                    "bg-info/10 text-info": k.tone === "info",
+                    "bg-danger/10 text-danger": k.tone === "danger"
+                  })}>
+                    <Icon className="w-4 h-4" />
+                  </div>
+                </div>
+                <div>
+                  <div className="text-3xl font-black text-foreground font-data">{loading ? "..." : k.value}</div>
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Fleet Utilization by Vehicle</CardTitle>
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">Fleet Utilization by Vehicle</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {utilVehicles.length ? (
               <div className="divide-y divide-border">
                 {utilVehicles.map((v) => (
                   <div key={v.plate} className="flex items-center justify-between gap-3 px-5 py-3">
-                    <span className="text-sm text-foreground truncate">{v.plate}</span>
-                    <span className="text-sm text-foreground-muted">{v.trips} trips · {Number(v.distance).toLocaleString()} km</span>
+                    <span className="text-sm font-bold text-foreground truncate">{v.plate}</span>
+                    <span className="text-sm text-foreground-muted font-medium">{v.trips} trips · {Number(v.distance).toLocaleString()} km</span>
                   </div>
                 ))}
               </div>
@@ -82,9 +104,9 @@ export default function ExecutiveKpiPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">Top Drivers</CardTitle>
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">Top Drivers</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {topDrivers.length ? (
@@ -92,8 +114,8 @@ export default function ExecutiveKpiPage() {
                 {topDrivers.map((d) => (
                   <div key={d.driver_id} className="flex items-center justify-between gap-3 px-5 py-3">
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">{d.name}</p>
-                      <p className="text-xs text-foreground-muted">{d.total_trips} trips · on-time {(d.on_time_rate * 100).toFixed(0)}%</p>
+                      <p className="text-sm font-bold text-foreground truncate">{d.name}</p>
+                      <p className="text-xs text-foreground-muted font-medium">{d.total_trips} trips · on-time {(d.on_time_rate * 100).toFixed(0)}%</p>
                     </div>
                     <StatusBadge severity={d.performance_score >= 70 ? "high" : d.performance_score >= 40 ? "medium" : "low"} className="flex-shrink-0" />
                   </div>
@@ -105,9 +127,9 @@ export default function ExecutiveKpiPage() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-1">
-          <CardHeader>
-            <CardTitle className="text-base">AI Strategic Insights</CardTitle>
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="text-sm font-bold flex items-center gap-2">AI Strategic Insights</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {insights.length ? (
@@ -116,9 +138,9 @@ export default function ExecutiveKpiPage() {
                   <Link key={ins.insight_id || i} href="/ai/insights" className="block px-5 py-3 hover:bg-hover transition-colors">
                     <div className="flex items-center gap-2 mb-1">
                       <StatusBadge severity={(ins.severity || ins.impact || "low").toLowerCase()} className="text-[11px]" />
-                      <span className="text-xs text-foreground-muted">{ins.category || "General"}</span>
+                      <span className="text-xs text-foreground-muted font-medium">{ins.category || "General"}</span>
                     </div>
-                    <p className="text-sm font-medium text-foreground truncate">{ins.title}</p>
+                    <p className="text-sm font-bold text-foreground truncate">{ins.title}</p>
                   </Link>
                 ))}
               </div>

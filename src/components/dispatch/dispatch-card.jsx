@@ -26,6 +26,9 @@ import {
   XCircle,
 } from "lucide-react";
 
+// Safe numeric coercer — returns a finite number or null.
+const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
+
 // Phase 13 — one dispatch as a dense operations card.
 //
 // The board is where a dispatcher decides without opening anything, so every

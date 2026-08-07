@@ -15,13 +15,15 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
 import { toast } from "@/components/ui/toast";
-import { Car, ShieldCheck, Clock } from "lucide-react";
+import { Car, ShieldCheck, Clock, Hash, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { UVVRP_PRESETS } from "@/lib/uvvrp/policy";
+import { cn } from "@/lib/utils";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DIGITS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -52,13 +54,13 @@ function PolicyForm({ policy, queryClient }) {
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <Label className="w-32">Enabled</Label>
+        <Label className="w-32 font-bold text-xs">Policy State</Label>
         <select
           value={form.enabled ? "yes" : "no"}
           onChange={(e) => setForm({ ...form, enabled: e.target.value === "yes" })}
-          className="h-10 rounded-xl border border-border bg-surface px-3 text-sm"
+          className="h-9 rounded-3xl border border-border/80 bg-surface px-3 text-xs font-semibold"
         >
           <option value="yes">Enabled</option>
           <option value="no">Disabled</option>
@@ -66,9 +68,9 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Label className="w-32">Location</Label>
+        <Label className="w-32 font-bold text-xs">Location Preset</Label>
         <Select value={form.location || "custom"} onValueChange={applyPreset}>
-          <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue /></SelectTrigger>
           <SelectContent>
             {Object.keys(UVVRP_PRESETS).map((p) => (
               <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -79,9 +81,9 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Label className="w-32">On violation</Label>
+        <Label className="w-32 font-bold text-xs">On Violation</Label>
         <Select value={form.response} onValueChange={(v) => setForm({ ...form, response: v })}>
-          <SelectTrigger className="flex-1"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="block">Block dispatch</SelectItem>
             <SelectItem value="warn">Warning only</SelectItem>
@@ -91,11 +93,11 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div>
-        <Label className="block mb-2">Restricted plate-ending digits (per weekday)</Label>
-        <div className="space-y-2">
+        <Label className="block mb-2 text-xs font-bold text-foreground">Restricted Plate Digits (per weekday)</Label>
+        <div className="space-y-2 p-3 rounded-2xl bg-muted/20 border border-border/60">
           {WEEKDAYS.map((wd) => (
             <div key={wd} className="flex items-center gap-2">
-              <span className="w-24 text-xs text-foreground-muted">{wd}</span>
+              <span className="w-24 text-xs font-bold text-foreground-secondary">{wd}</span>
               <div className="flex flex-wrap gap-1">
                 {DIGITS.map((d) => {
                   const on = (form.weekdayRestrictions?.[wd] || []).includes(d);
@@ -104,9 +106,10 @@ function PolicyForm({ policy, queryClient }) {
                       key={d}
                       type="button"
                       onClick={() => toggleDigit(wd, d)}
-                      className={`h-7 w-7 rounded-md text-xs font-medium transition-colors cursor-pointer ${
-                        on ? "bg-danger text-surface" : "bg-hover text-foreground-muted hover:text-foreground"
-                      }`}
+                      className={cn(
+                        "h-7 w-7 rounded-lg text-xs font-black transition-all cursor-pointer font-data",
+                        on ? "bg-danger text-white shadow-xs" : "bg-surface border border-border/60 text-foreground-muted hover:border-danger/40 hover:text-danger"
+                      )}
                     >
                       {d}
                     </button>
@@ -119,15 +122,16 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div>
-        <Label className="block mb-2">Exemption categories (comma separated)</Label>
+        <Label className="block mb-2 text-xs font-bold text-foreground">Exemption Categories (comma separated)</Label>
         <Input
           value={(form.exemptionCategories || []).join(", ")}
           onChange={(e) => setForm({ ...form, exemptionCategories: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
           placeholder="Emergency Vehicles, Government Vehicles, ..."
+          className="h-10 rounded-3xl border border-border/80 text-xs"
         />
       </div>
 
-      <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending}>
+      <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending} className="rounded-xl font-bold">
         {saveMutation.isPending ? "Saving…" : "Save Policy"}
       </Button>
     </div>
@@ -178,63 +182,74 @@ export default function NumberCodingSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Number Coding (UVVRP)" description="Configure the plate-coding policy and manage exemptions. Admin only." />
+      {/* ── Hero Header ── */}
+      <HeroHeader
+        icon={Hash}
+        title="Number Coding (UVVRP) Settings"
+        badge="Compliance"
+        description="Configure the plate-coding policy, travel restrictions, and manage vehicle exemptions."
+      />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base"><ShieldCheck className="h-4 w-4 text-foreground-muted" /> Policy</CardTitle>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+              <ShieldCheck className="h-4 w-4 text-primary" /> Active Policy Configuration
+            </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-5">
             {isLoading ? (
-              <p className="text-sm text-foreground-muted">Loading policy…</p>
+              <p className="text-xs font-semibold text-foreground-muted">Loading policy…</p>
             ) : (
               <PolicyForm key={policy?.updated_at || "policy"} policy={policy} queryClient={queryClient} />
             )}
           </CardContent>
         </Card>
 
-        <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base"><Car className="h-4 w-4 text-foreground-muted" /> Vehicle Exemptions</CardTitle>
+        <div className="space-y-6">
+          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+            <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+              <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+                <Car className="h-4 w-4 text-primary" /> Vehicle Exemptions
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="pt-5 space-y-4">
               <div className="grid grid-cols-2 gap-2">
                 <Select value={exForm.vehicle_id ? String(exForm.vehicle_id) : undefined} onValueChange={(v) => setExForm({ ...exForm, vehicle_id: v })}>
-                  <SelectTrigger><SelectValue placeholder="Vehicle" /></SelectTrigger>
+                  <SelectTrigger className="h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue placeholder="Vehicle" /></SelectTrigger>
                   <SelectContent>
                     {vehicles.map((v) => (
                       <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>{v.plate_number}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Input value={exForm.category} onChange={(e) => setExForm({ ...exForm, category: e.target.value })} placeholder="Category (e.g. Hotel Shuttle)" />
+                <Input value={exForm.category} onChange={(e) => setExForm({ ...exForm, category: e.target.value })} placeholder="Category (e.g. Hotel Shuttle)" className="h-9 rounded-3xl border-border/80 text-xs" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <Input value={exForm.reason} onChange={(e) => setExForm({ ...exForm, reason: e.target.value })} placeholder="Reason (optional)" />
-                <Input type="date" value={exForm.expires_on} onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })} />
+                <Input value={exForm.reason} onChange={(e) => setExForm({ ...exForm, reason: e.target.value })} placeholder="Reason (optional)" className="h-9 rounded-3xl border-border/80 text-xs" />
+                <Input type="date" value={exForm.expires_on} onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })} className="h-9 rounded-3xl border-border/80 text-xs font-data" />
               </div>
               <Button
                 onClick={() => addExemption.mutate({ ...exForm, vehicle_id: Number(exForm.vehicle_id), expires_on: exForm.expires_on || null })}
                 disabled={addExemption.isPending || !exForm.vehicle_id || !exForm.category}
+                className="rounded-xl font-bold h-9 text-xs"
               >
                 {addExemption.isPending ? "Adding…" : "Add Exemption"}
               </Button>
 
               {exemptions.length ? (
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-border/50 pt-2">
                   {exemptions.map((ex) => (
-                    <div key={ex.exemption_id} className="flex items-center justify-between gap-3 py-2.5">
+                    <div key={ex.exemption_id} className="flex items-center justify-between gap-3 py-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
-                        <p className="text-xs text-foreground-muted truncate">
+                        <p className="text-xs font-bold text-foreground font-data truncate">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
+                        <p className="text-[11px] text-foreground-muted truncate mt-0.5">
                           {ex.category}{ex.expires_on ? ` · until ${ex.expires_on.slice(0, 10)}` : ""}
                         </p>
                       </div>
                       <button
                         onClick={() => toggleExemption.mutate({ id: ex.exemption_id, active: !ex.active })}
-                        className="text-xs font-medium text-primary hover:underline cursor-pointer"
+                        className="text-xs font-bold text-primary hover:underline cursor-pointer"
                       >
                         {ex.active ? "Revoke" : "Reactivate"}
                       </button>
@@ -247,26 +262,28 @@ export default function NumberCodingSettingsPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base"><Clock className="h-4 w-4 text-foreground-muted" /> Pending Coding Approvals</CardTitle>
+          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+            <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+              <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
+                <Clock className="h-4 w-4 text-warning" /> Pending Coding Approvals
+              </CardTitle>
             </CardHeader>
             <CardContent className="p-0">
               {pending.length === 0 ? (
                 <EmptyState icon={Clock} title="Nothing pending" description="Approval-required coding violations will appear here." className="py-8" />
               ) : (
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-border/50">
                   {pending.map((v) => (
-                    <div key={v.violation_id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div key={v.violation_id} className="flex items-center justify-between gap-3 px-5 py-3.5">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{v.plate_number || `Vehicle #${v.vehicle_id}`}</p>
-                        <p className="text-xs text-foreground-muted truncate">
+                        <p className="text-xs font-bold font-data text-foreground truncate">{v.plate_number || `Vehicle #${v.vehicle_id}`}</p>
+                        <p className="text-[11px] text-foreground-muted truncate mt-0.5">
                           {v.weekday} · ends {v.plate_digit} · {v.scheduled_departure ? new Date(v.scheduled_departure).toLocaleString() : ""}
                         </p>
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
-                        <Button size="sm" variant="success" onClick={() => decide.mutate({ id: v.violation_id, approve: true })}>Approve</Button>
-                        <Button size="sm" variant="danger" onClick={() => decide.mutate({ id: v.violation_id, approve: false })}>Deny</Button>
+                        <Button size="xs" variant="success" className="rounded-xl font-bold" onClick={() => decide.mutate({ id: v.violation_id, approve: true })}>Approve</Button>
+                        <Button size="xs" variant="danger" className="rounded-xl font-bold" onClick={() => decide.mutate({ id: v.violation_id, approve: false })}>Deny</Button>
                       </div>
                     </div>
                   ))}

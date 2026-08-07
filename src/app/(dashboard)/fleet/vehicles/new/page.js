@@ -38,6 +38,8 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { FloatingField } from "@/components/ui/field";
+import { DatePicker } from "@/components/ui/date-picker";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
 
@@ -338,42 +340,61 @@ export default function VehicleFormPage({ params }) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="plate_number" className="text-xs font-semibold text-foreground">Plate No. *</Label>
-                    <Input
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                  <FloatingField label="Plate No." icon={Car} required error={form.formState.errors.plate_number?.message}>
+                    <input
                       id="plate_number"
                       {...form.register("plate_number")}
                       placeholder="NBO 1234 / ABC-1234"
-                      className="rounded-xl font-data uppercase"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data uppercase"
                     />
-                    {form.formState.errors.plate_number && (
-                      <p className="text-xs text-danger mt-1">{form.formState.errors.plate_number.message}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="vehicle_name" className="text-xs font-semibold text-foreground">Vehicle Type / Name *</Label>
-                    <Input id="vehicle_name" {...form.register("vehicle_name")} placeholder="VAN / SUV / SEDAN / BUS" className="rounded-xl" />
-                    {form.formState.errors.vehicle_name && (
-                      <p className="text-xs text-danger mt-1">{form.formState.errors.vehicle_name.message}</p>
-                    )}
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="manufacturer" className="text-xs font-medium text-foreground-secondary">Make / Brand</Label>
-                    <Input id="manufacturer" {...form.register("manufacturer")} placeholder="TOYOTA / HONDA / MITSUBISHI" className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="model" className="text-xs font-medium text-foreground-secondary">Series / Model</Label>
-                    <Input id="model" {...form.register("model")} placeholder="HIACE COMMUTER / L300" className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="year" className="text-xs font-medium text-foreground-secondary">Year Model</Label>
-                    <Input id="year" type="number" {...form.register("year")} placeholder="2023" className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="color" className="text-xs font-medium text-foreground-secondary">Color</Label>
-                    <Input id="color" {...form.register("color")} placeholder="WHITE PEARL / SILVER" className="rounded-xl" />
-                  </div>
+                  </FloatingField>
+
+                  <FloatingField label="Vehicle Type / Name" icon={Tag} required error={form.formState.errors.vehicle_name?.message}>
+                    <input
+                      id="vehicle_name"
+                      {...form.register("vehicle_name")}
+                      placeholder="VAN / SUV / SEDAN / BUS"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Make / Brand" icon={Car}>
+                    <input
+                      id="manufacturer"
+                      {...form.register("manufacturer")}
+                      placeholder="TOYOTA / HONDA / MITSUBISHI"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Series / Model" icon={Car}>
+                    <input
+                      id="model"
+                      {...form.register("model")}
+                      placeholder="HIACE COMMUTER / L300"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Year Model" icon={Calendar}>
+                    <input
+                      id="year"
+                      type="number"
+                      {...form.register("year")}
+                      placeholder="2023"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Color" icon={Sparkles}>
+                    <input
+                      id="color"
+                      {...form.register("color")}
+                      placeholder="WHITE PEARL / SILVER"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                    />
+                  </FloatingField>
                 </div>
               </CardContent>
             </Card>
@@ -392,13 +413,12 @@ export default function VehicleFormPage({ params }) {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="category_id" className="text-xs font-medium text-foreground-secondary">Vehicle Category</Label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
+                  <FloatingField label="Vehicle Category" icon={Tag}>
                     <select
                       id="category_id"
                       {...form.register("category_id")}
-                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="">Select category</option>
                       {categories.map((cat) => (
@@ -407,21 +427,32 @@ export default function VehicleFormPage({ params }) {
                         </option>
                       ))}
                     </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="fuel_type" className="text-xs font-medium text-foreground-secondary">Fuel Type</Label>
-                    <Input id="fuel_type" {...form.register("fuel_type")} placeholder="DIESEL / GASOLINE" className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="seating_capacity" className="text-xs font-medium text-foreground-secondary">Passenger Capacity</Label>
-                    <Input id="seating_capacity" type="number" {...form.register("seating_capacity")} placeholder="15" className="rounded-xl" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="vehicle_status" className="text-xs font-medium text-foreground-secondary">Status</Label>
+                  </FloatingField>
+
+                  <FloatingField label="Fuel Type" icon={Zap}>
+                    <input
+                      id="fuel_type"
+                      {...form.register("fuel_type")}
+                      placeholder="DIESEL / GASOLINE"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Passenger Capacity" icon={Tag}>
+                    <input
+                      id="seating_capacity"
+                      type="number"
+                      {...form.register("seating_capacity")}
+                      placeholder="15"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                    />
+                  </FloatingField>
+
+                  <FloatingField label="Status" icon={AlertCircle}>
                     <select
                       id="vehicle_status"
                       {...form.register("vehicle_status")}
-                      className="flex h-10 w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="Available">Available</option>
                       <option value="In Use">In Use</option>
@@ -430,7 +461,7 @@ export default function VehicleFormPage({ params }) {
                       <option value="Reserved">Reserved</option>
                       <option value="Registration Expired">Registration Expired</option>
                     </select>
-                  </div>
+                  </FloatingField>
                 </div>
               </CardContent>
             </Card>
@@ -489,15 +520,25 @@ export default function VehicleFormPage({ params }) {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-border pt-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="insurance_expiry" className="text-xs font-medium text-foreground-secondary">Insurance Policy Expiry</Label>
-                    <Input id="insurance_expiry" type="date" {...form.register("insurance_expiry")} className="rounded-xl text-xs" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 border-t border-border pt-4">
+                  <div>
+                    <DatePicker
+                      id="insurance_expiry"
+                      label="Insurance Policy Expiry"
+                      value={form.watch("insurance_expiry")}
+                      onChange={(val) => form.setValue("insurance_expiry", val)}
+                    />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="service_interval_km" className="text-xs font-medium text-foreground-secondary">Service Interval (km)</Label>
-                    <Input id="service_interval_km" type="number" {...form.register("service_interval_km")} placeholder="5000" className="rounded-xl text-xs" />
-                  </div>
+
+                  <FloatingField label="Service Interval (km)" icon={Wrench}>
+                    <input
+                      id="service_interval_km"
+                      type="number"
+                      {...form.register("service_interval_km")}
+                      placeholder="5000"
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1 font-data"
+                    />
+                  </FloatingField>
                 </div>
               </CardContent>
             </Card>
@@ -695,7 +736,7 @@ export default function VehicleFormPage({ params }) {
               <IdCard className="w-5 h-5 text-primary" /> Document Scan Verification Zoom
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[70vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {previewModalUrl && (
               <img src={previewModalUrl} alt="Document Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}
@@ -734,7 +775,7 @@ export default function VehicleFormPage({ params }) {
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 gap-2 bg-hover/30 p-3.5 rounded-xl border border-border/60 max-h-[300px] overflow-y-auto">
+                <div className="grid grid-cols-1 gap-2 bg-hover/30 p-3.5 rounded-3xl border border-border/60 max-h-[300px] overflow-y-auto">
                   {Object.entries(scanResult.extracted_data)
                     .filter(([key]) => !["category", "category_id", "status", "vehicle_status", "model"].includes(key.toLowerCase()))
                     .map(([key, val]) => (
@@ -750,7 +791,7 @@ export default function VehicleFormPage({ params }) {
                 </div>
               </div>
             ) : (
-              <div className="p-6 text-center text-foreground-muted bg-hover/20 rounded-xl border border-dashed border-border">
+              <div className="p-6 text-center text-foreground-muted bg-hover/20 rounded-3xl border border-dashed border-border">
                 <p className="text-xs font-semibold text-foreground">No readable fields extracted</p>
                 <p className="text-[11px] text-foreground-muted mt-1">Please ensure the document image is clear or fill in the vehicle details manually.</p>
               </div>

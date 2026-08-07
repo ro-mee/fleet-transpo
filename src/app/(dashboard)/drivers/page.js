@@ -6,22 +6,32 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
+import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
-import { StatsGridSkeleton } from "@/components/ui/skeleton";
-import { getDrivers, getDriverStats, deleteDriver, linkDriverAccount } from "@/services/driver.service";
-import { useRequireRole } from "@/lib/auth/role-guard";
 import { toast } from "@/components/ui/toast";
+import { getDrivers, deleteDriver, getDriverStats, linkDriverAccount } from "@/services/driver.service";
 import {
-  Users, UserCheck, Truck, Clock, UserX, Ban,
-  Download, Plus, Search, Eye, Pencil, Archive, RotateCcw, Link2
+  Users,
+  UserCheck,
+  UserX,
+  Truck,
+  Clock,
+  Ban,
+  Plus,
+  Download,
+  Mail,
+  Phone,
+  Eye,
+  Pencil,
+  Archive,
+  Link2,
 } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
+import { useRequireRole } from "@/lib/auth/role-guard";
+import { cn } from "@/lib/utils";
 
 export default function DriversPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
@@ -90,23 +100,50 @@ export default function DriversPage() {
   ];
 
   const columns = [
-    { key: "driver_id", label: "Driver ID", sortable: true, render: (val) => <span className="font-data text-xs text-foreground-muted">{val}</span> },
+    {
+      key: "driver_id",
+      label: "Driver ID",
+      sortable: true,
+      render: (val) => (
+        <span className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+          #{val}
+        </span>
+      ),
+    },
     {
       key: "name",
       label: "Driver Name",
       sortable: true,
       render: (_, row) => {
         const emp = row.employees;
-        return emp ? `${emp.first_name} ${emp.last_name}` : "—";
+        const name = emp ? `${emp.first_name} ${emp.last_name}` : "Unassigned driver";
+        const initials = name ? name.split(" ").map((part) => part[0]).join("").slice(0, 2) : "DR";
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
+              {initials}
+            </div>
+            <div>
+              <p className="font-bold text-sm text-foreground">{name}</p>
+              <p className="text-xs text-foreground-muted font-medium">Driver profile</p>
+            </div>
+          </div>
+        );
       },
     },
     {
       key: "email",
       label: "Email / Phone",
       render: (_, row) => (
-        <div className="text-xs space-y-0.5">
-          <div className="font-medium text-foreground">{row.employees?.email || "—"}</div>
-          <div className="text-foreground-secondary">{row.employees?.phone || "—"}</div>
+        <div className="space-y-1 text-xs">
+          <div className="flex items-center gap-1.5 font-medium text-foreground">
+            <Mail className="h-3.5 w-3.5 text-foreground-muted" />
+            {row.employees?.email || "—"}
+          </div>
+          <div className="flex items-center gap-1.5 text-foreground-secondary">
+            <Phone className="h-3.5 w-3.5 text-foreground-muted" />
+            {row.employees?.phone || "—"}
+          </div>
         </div>
       ),
     },
@@ -114,9 +151,9 @@ export default function DriversPage() {
       key: "license",
       label: "License Info",
       render: (_, row) => (
-        <div className="text-xs space-y-0.5">
-          <div className="font-data font-medium">{row.license_number || "—"}</div>
-          <div className="text-foreground-secondary">
+        <div className="space-y-1 text-xs">
+          <div className="font-data font-bold text-foreground">{row.license_number || "—"}</div>
+          <div className="text-foreground-secondary font-medium">
             Class {row.license_class || "—"} • {row.years_of_experience || 0} yrs exp
           </div>
         </div>
@@ -126,30 +163,30 @@ export default function DriversPage() {
       key: "driver_status",
       label: "Status",
       sortable: true,
-      render: (val) => <StatusBadge status={val || "Available"} entity="driver" />,
+      render: (val) => <StatusBadge status={val || "Available"} entity="driver" className="rounded-full px-3 py-1 text-xs font-bold" />,
     },
     {
       key: "account",
       label: "Login",
       render: (_, row) =>
         row.account ? (
-          <Badge variant={row.account.has_password ? "success" : "secondary"}>
+          <Badge variant={row.account.has_password ? "success" : "secondary"} className="rounded-full px-3 py-1 text-xs font-bold">
             {row.account.has_password ? "Enabled" : "No login"}
           </Badge>
         ) : (
-          <Badge variant="warning">Needs profile</Badge>
+          <Badge variant="warning" className="rounded-full px-3 py-1 text-xs font-bold">Needs profile</Badge>
         ),
     },
     {
       key: "actions",
-      label: "Actions",
+      label: "",
       render: (_, row) => (
-        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+        <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
           {row.requires_completion ? (
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-2 text-xs"
+              className="h-7 px-3 text-xs rounded-full font-bold border-primary/40 text-primary hover:bg-primary/10 cursor-pointer"
               onClick={() => linkMutation.mutate(row.employee_id)}
               disabled={linkMutation.isPending}
             >
@@ -157,32 +194,36 @@ export default function DriversPage() {
             </Button>
           ) : (
             <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs text-primary"
-                onClick={() => router.push(`/drivers/${row.driver_id}`)}
-              >
-                <Eye className="w-3.5 h-3.5 mr-1" /> View
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-foreground-secondary hover:text-foreground"
-                onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
-                title="Edit Driver"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-warning hover:text-warning hover:bg-warning/10"
-                onClick={() => setDeletingId(row.driver_id)}
-                title="Archive Driver"
-              >
-                <Archive className="w-3.5 h-3.5" />
-              </Button>
+              <Tooltip content="View">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+                  onClick={() => router.push(`/drivers/${row.driver_id}`)}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Edit">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+                  onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              </Tooltip>
+              <Tooltip content="Archive">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
+                  onClick={() => setDeletingId(row.driver_id)}
+                >
+                  <Archive className="w-3.5 h-3.5" />
+                </Button>
+              </Tooltip>
             </>
           )}
         </div>
@@ -192,14 +233,16 @@ export default function DriversPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Drivers Directory"
-        description="Manage operational drivers, license compliance, shifts, and performance metrics."
+      <HeroHeader
+        icon={Users}
+        title="Fleet Drivers Directory"
+        badge="Operations"
+        description="Manage operational drivers, license compliance, and performance metrics."
         actions={
           <>
             <Button
               variant="outline"
+              className={cn(heroButtonOutlineClass)}
               onClick={() =>
                 exportToCSV(drivers, "drivers", [
                   { label: "Driver ID", key: "driver_id" },
@@ -217,7 +260,7 @@ export default function DriversPage() {
               <Download className="w-4 h-4 mr-2" />
               Export CSV
             </Button>
-            <Button onClick={() => router.push("/drivers/new")}>
+            <Button onClick={() => router.push("/drivers/new")} className={cn(heroButtonPrimaryClass)}>
               <Plus className="w-4 h-4 mr-2" />
               Add Driver
             </Button>
@@ -226,91 +269,46 @@ export default function DriversPage() {
       />
 
       {isLoading ? (
-        <StatsGridSkeleton count={6} />
+        <div className="h-28 bg-muted/20 animate-pulse rounded-3xl border border-border/40" />
       ) : (
-        <StatGrid cols={6}>
-          {statCards.map((card) => (
-            <StatCard
-              key={card.label}
-              {...card}
-              active={statusFilter === card.status}
-              onClick={() => setStatusFilter(card.status)}
-            />
-          ))}
-        </StatGrid>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {statCards.map((card) => {
+            const isActive = statusFilter === card.status;
+            const Icon = card.icon;
+            return (
+              <button
+                key={card.label}
+                type="button"
+                onClick={() => setStatusFilter(isActive ? "all" : card.status)}
+                className={cn(
+                  "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+                  isActive ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">{card.label}</span>
+                  <div className="p-2 rounded-2xl bg-primary/10 text-primary">
+                    <Icon className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-black text-foreground font-data">{card.value}</div>
+              </button>
+            );
+          })}
+        </div>
       )}
 
-      <Card>
-        <CardContent className="p-4 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-3 text-foreground-muted" />
-              <Input
-                placeholder="Search name, license, phone..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-10"
-              />
-            </div>
-
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="All Statuses" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                <SelectItem value="Available">Available</SelectItem>
-                <SelectItem value="On Trip">On Trip</SelectItem>
-                <SelectItem value="Off Duty">Off Duty</SelectItem>
-                <SelectItem value="On Leave">On Leave</SelectItem>
-                <SelectItem value="Suspended">Suspended</SelectItem>
-                <SelectItem value="Inactive">Inactive</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Select value={licenseClassFilter} onValueChange={setLicenseClassFilter}>
-              <SelectTrigger className="h-10">
-                <SelectValue placeholder="All License Classes" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All License Classes</SelectItem>
-                <SelectItem value="B">Class B — Passenger Cars & Light Vehicles</SelectItem>
-                <SelectItem value="B1">Class B1 — Light Vans & Commercial Vehicles</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {(search || statusFilter !== "all" || licenseClassFilter !== "all") && (
-            <div className="flex items-center justify-between pt-2 border-t border-border text-xs">
-              <span className="text-foreground-secondary">
-                Showing filtered drivers ({drivers.length} results)
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 text-xs text-foreground-muted hover:text-foreground"
-                onClick={() => {
-                  setSearch("");
-                  setStatusFilter("all");
-                  setLicenseClassFilter("all");
-                }}
-              >
-                <RotateCcw className="w-3.5 h-3.5 mr-1" /> Reset Filters
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
           <DataTable
             columns={columns}
             data={drivers}
-            isLoading={isLoading}
-            searchable={false}
-            emptyTitle="No drivers found"
-            emptyDescription="Try adjusting your filters, or add a new driver to the directory."
+            pageSize={10}
+            title="Drivers Directory"
+            description="Manage operational drivers and licensing."
+            icon={Users}
+            context={statusFilter === "all" ? "All Drivers" : statusFilter}
+            searchPlaceholder="Search drivers by name or email..."
             onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
           />
         </CardContent>
@@ -322,7 +320,7 @@ export default function DriversPage() {
           if (!open) setDeletingId(null);
         }}
         title="Archive Driver Profile?"
-        message="Are you sure you want to archive this driver? The record will be hidden from active dispatch selection while preserving historical trip data."
+        message="Are you sure you want to archive this driver? The driver will be hidden from active dispatch selection."
         confirmLabel="Archive Driver"
         variant="archive"
         onConfirm={() => {

@@ -107,7 +107,7 @@ export default function NotificationPreferencesPage() {
                       <button
                         key={ch.id}
                         onClick={() => toggle(event, ch.id)}
-                        className={`p-2 rounded-lg border transition-all ${
+                        className={`p-2 rounded-3xl border transition-all ${
                           prefs[ch.id]
                             ? "bg-primary/10 border-primary/30 text-primary"
                             : "bg-surface border-border text-foreground-muted hover:border-foreground-muted/30"

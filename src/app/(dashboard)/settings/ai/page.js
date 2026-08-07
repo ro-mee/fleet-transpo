@@ -665,7 +665,7 @@ export default function AiSettingsPage() {
                   setFormData({ ...formData, provider_class: e.target.value });
                   setFetchedModelList([]);
                 }}
-                className="flex h-9 w-full rounded-xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                className="flex h-9 w-full rounded-3xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               >
                 <option value="" disabled>Select provider type...</option>
                 <option value="OpenAI">OpenAI</option>
@@ -719,7 +719,7 @@ export default function AiSettingsPage() {
                     id="model_name"
                     value={formData.model_name}
                     onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
-                    className="flex h-9 w-full rounded-xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="flex h-9 w-full rounded-3xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     {fetchedModelList.map((m) => (
                       <option key={m} value={m}>{m}</option>

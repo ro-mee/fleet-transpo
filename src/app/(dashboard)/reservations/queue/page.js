@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
@@ -44,6 +44,7 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
+import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 // The unified Transportation Queue — the merged dispatcher workspace.
 //
@@ -224,58 +225,91 @@ export default function UnifiedQueuePage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
+      {/* ── Hero Header ── */}
+      <HeroHeader
+        icon={Inbox}
         title="Transportation Queue"
+        badge="Operations"
         description="Every request and committed dispatch in one place — auto-sorted by urgency."
         actions={
-          <Button onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
+          <Button className={cn(heroButtonPrimaryClass)} onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
             <DownloadCloud className="w-4 h-4 mr-2" />
             {pullMutation.isPending ? "Pulling…" : "Pull from Booking"}
           </Button>
         }
       />
 
-      <StatGrid cols={4}>
-        <StatCard
-          label="Today"
-          value={counts.today}
-          icon={Inbox}
-          tone="primary"
-          trend="awaiting action"
-          active={tab === "today"}
+      {/* ── KPI Stat Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button
+          type="button"
           onClick={() => setTab("today")}
-        />
-        <StatCard
-          label="Upcoming"
-          value={counts.upcoming}
-          icon={CalendarClock}
-          tone="info"
-          trend="later"
-          active={tab === "upcoming"}
-          onClick={() => setTab("upcoming")}
-        />
-        <StatCard
-          label="In Progress"
-          value={counts.inProgress}
-          icon={PlayCircle}
-          tone="warning"
-          trend="on the road"
-          active={tab === "inProgress"}
-          onClick={() => setTab("inProgress")}
-        />
-        <StatCard
-          label="Active Total"
-          value={activeCount}
-          icon={TriangleAlert}
-          tone="primary"
-          trend="across all tabs"
-          active={false}
-        />
-      </StatGrid>
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            tab === "today" ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Today</span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary"><Inbox className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{counts.today}</div>
+            <p className="text-[11px] text-primary font-medium mt-1">awaiting action</p>
+          </div>
+        </button>
 
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Queue sections">
+        <button
+          type="button"
+          onClick={() => setTab("upcoming")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            tab === "upcoming" ? "border-info bg-info/10 shadow-xs" : "border-border/80 bg-surface hover:border-info/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Upcoming</span>
+            <div className="p-2 rounded-xl bg-info/10 text-info"><CalendarClock className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{counts.upcoming}</div>
+            <p className="text-[11px] text-info font-medium mt-1">later</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTab("inProgress")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            tab === "inProgress" ? "border-warning bg-warning/10 shadow-xs" : "border-border/80 bg-surface hover:border-warning/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">In Progress</span>
+            <div className="p-2 rounded-xl bg-warning/10 text-warning"><PlayCircle className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{counts.inProgress}</div>
+            <p className="text-[11px] text-warning font-medium mt-1">on the road</p>
+          </div>
+        </button>
+
+        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Active Total</span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary"><TriangleAlert className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{activeCount}</div>
+            <p className="text-[11px] text-primary font-medium mt-1">across all tabs</p>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Filters & Search Row ── */}
+      <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
+        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Queue sections">
           {QUEUE_TABS.map((id) => {
             const meta = TAB_META[id];
             const Icon = meta.icon;
@@ -288,25 +322,27 @@ export default function UnifiedQueuePage() {
                 aria-selected={active}
                 onClick={() => setTab(id)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
-                  active ? TAB_ACTIVE[tabTone(id)] : "border-border text-foreground-secondary hover:bg-hover"
+                  "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
+                  active
+                    ? "bg-primary text-white dark:text-slate-950 border-primary shadow-xs"
+                    : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/40 hover:text-foreground"
                 )}
               >
                 <Icon className="w-3.5 h-3.5" aria-hidden="true" />
                 {meta.label}
-                <span className="font-data opacity-70">{counts[id]}</span>
+                <span className="font-data text-[11px] opacity-80">({counts[id]})</span>
               </button>
             );
           })}
         </div>
 
-        <div className="relative flex-1 sm:w-72">
+        <div className="relative flex-1 sm:max-w-xs">
           <Search
-            className="absolute left-2.5 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"
+            className="absolute left-3 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"
             aria-hidden="true"
           />
-          <Input
-            className="pl-8"
+          <input
+            className="w-full h-9 pl-9 pr-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
             placeholder="Guest, reference, location…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -316,7 +352,7 @@ export default function UnifiedQueuePage() {
       </div>
 
       {isError ? (
-        <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
+        <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" aria-hidden="true" />
             <div>
@@ -335,7 +371,7 @@ export default function UnifiedQueuePage() {
           <ReservationCardSkeleton />
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-border bg-surface">
+        <div className="rounded-3xl border border-border bg-surface">
           <EmptyState
             icon={searching ? Search : Inbox}
             title={

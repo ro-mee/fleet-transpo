@@ -219,7 +219,7 @@ export function MonthGrid({ days, events, conflicts, anchor, onPickDay }) {
                   className={cn(
                     "text-xs font-semibold",
                     isToday
-                      ? "flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white"
+                      ? "flex h-5 w-5 items-center justify-center rounded-full bg-primary text-white dark:text-slate-950"
                       : outside
                         ? "text-foreground-muted"
                         : "text-foreground"

@@ -4,9 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FleetTable } from "@/components/tables/fleet-table";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
-import { StatsGridSkeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
@@ -15,6 +14,7 @@ import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
 import { exportToCSV } from "@/lib/export";
 import { useVehicleStatusSync } from "@/hooks/use-vehicle-status-sync";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 export default function FleetVehiclesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -57,14 +57,16 @@ export default function FleetVehiclesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Fleet Vehicles"
-        description="Manage and monitor your vehicle fleet."
+      <HeroHeader
+        icon={Truck}
+        title="Fleet Vehicles Registry"
+        badge="Fleet Management"
+        description="Manage and monitor your complete vehicle fleet."
         actions={
           <>
             <Button
               variant="outline"
+              className={heroButtonOutlineClass}
               onClick={() => exportToCSV(vehicles, "fleet-vehicles", [
                 { label: "Plate Number", key: "plate_number" },
                 { label: "Vehicle Name", key: "vehicle_name" },
@@ -85,7 +87,7 @@ export default function FleetVehiclesPage() {
               <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
-            <Button onClick={() => router.push("/fleet/vehicles/new")}>
+            <Button className={heroButtonPrimaryClass} onClick={() => router.push("/fleet/vehicles/new")}>
               <Plus className="w-4 h-4 mr-2" />
               Add Vehicle
             </Button>
@@ -93,52 +95,77 @@ export default function FleetVehiclesPage() {
         }
       />
 
-      {isLoading ? (
-        <StatsGridSkeleton count={7} />
-      ) : (
-        <StatGrid cols={7}>
-          {statCards.map((card) => (
-            <StatCard key={card.label} {...card} />
-          ))}
-        </StatGrid>
-      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-4">
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <button
+              key={card.label}
+              type="button"
+              onClick={card.onClick}
+              className={cn(
+                "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+                card.active ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{card.label}</span>
+                <div className={cn("p-2 rounded-xl", {
+                  "bg-primary/10 text-primary": card.tone === "primary",
+                  "bg-success/10 text-success": card.tone === "success",
+                  "bg-warning/10 text-warning": card.tone === "warning",
+                  "bg-info/10 text-info": card.tone === "info",
+                  "bg-danger/10 text-danger": card.tone === "danger"
+                })}>
+                  <Icon className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-foreground font-data">{isLoading ? "..." : card.value}</div>
+                <p className={cn("text-[11px] font-medium mt-1", {
+                  "text-primary": card.tone === "primary",
+                  "text-success": card.tone === "success",
+                  "text-warning": card.tone === "warning",
+                  "text-info": card.tone === "info",
+                  "text-danger": card.tone === "danger"
+                })}>{card.trend}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant={!filters.status ? "default" : "outline"}
-          size="sm"
+        <button
           onClick={() => setFilters({})}
+          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", !filters.status ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
         >
           All
-        </Button>
-        <Button
-          variant={filters.status === "Available" ? "default" : "outline"}
-          size="sm"
+        </button>
+        <button
           onClick={() => setFilters({ status: "Available" })}
+          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Available" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
         >
           Available
-        </Button>
-        <Button
-          variant={filters.status === "In Use" ? "default" : "outline"}
-          size="sm"
+        </button>
+        <button
           onClick={() => setFilters({ status: "In Use" })}
+          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "In Use" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
         >
           In Use
-        </Button>
-        <Button
-          variant={filters.status === "Under Maintenance" ? "default" : "outline"}
-          size="sm"
+        </button>
+        <button
           onClick={() => setFilters({ status: "Under Maintenance" })}
+          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Under Maintenance" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
         >
           Maintenance
-        </Button>
-        <Button
-          variant={filters.status === "Registration Expired" ? "default" : "outline"}
-          size="sm"
+        </button>
+        <button
           onClick={() => setFilters({ status: "Registration Expired" })}
+          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Registration Expired" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
         >
           Registration Expired
-        </Button>
+        </button>
       </div>
 
       <FleetTable filters={filters} />

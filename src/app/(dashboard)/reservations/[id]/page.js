@@ -20,6 +20,9 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
+import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { FloatingField } from "@/components/ui/field";
+import { AlertCircle } from "lucide-react";
 import { ConflictChips } from "@/components/reservations/conflict-chips";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
@@ -95,7 +98,7 @@ function Field({ icon: Icon, label, children, className }) {
 function LifecycleBar({ status }) {
   if (ABORTED[status]) {
     return (
-      <div className="flex items-center gap-2 rounded-2xl border border-danger/30 bg-danger/5 px-4 py-3 text-xs">
+      <div className="flex items-center gap-2 rounded-3xl border border-danger/30 bg-danger/5 px-4 py-3 text-xs">
         <Ban className="w-4 h-4 shrink-0 text-danger" />
         <p className="text-foreground">
           This request was <span className="font-bold text-danger">{ABORTED[status].toLowerCase()}</span> and is no longer progressing.
@@ -160,7 +163,7 @@ function DispatchList({ dispatches }) {
           <Link
             key={d.dispatch_id}
             href={`/dispatch/${d.dispatch_id}`}
-            className="flex items-center justify-between gap-3 rounded-xl border border-border p-3.5 transition-all hover:bg-hover hover:border-primary/40 bg-surface"
+            className="flex items-center justify-between gap-3 rounded-3xl border border-border p-3.5 transition-all hover:bg-hover hover:border-primary/40 bg-surface"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -422,7 +425,7 @@ export default function ReservationDetailPage() {
       <LifecycleBar status={status} />
 
       {conflicts.length > 0 && (
-        <div className="rounded-2xl border border-danger/30 bg-danger/5 p-4">
+        <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
             <TriangleAlert className="mt-0.5 w-5 h-5 shrink-0 text-danger" />
             <div className="min-w-0">
@@ -613,15 +616,16 @@ export default function ReservationDetailPage() {
               This will mark the request rejected and notify the originating Booking system.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 py-2">
-            <Label htmlFor="reject-reason" className="text-xs font-semibold">Reason (optional)</Label>
-            <Input
-              id="reject-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. No vehicles available at requested time"
-              className="rounded-xl text-xs"
-            />
+          <div className="py-2 pt-3">
+            <FloatingField label="Rejection Reason (Optional)" icon={AlertCircle}>
+              <input
+                id="reject-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. No vehicles available at requested time"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+              />
+            </FloatingField>
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setRejecting(false)} className="rounded-xl">
@@ -648,15 +652,16 @@ export default function ReservationDetailPage() {
               This will cancel the request in Fleet and notify the Booking system.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-2 py-2">
-            <Label htmlFor="cancel-reason" className="text-xs font-semibold">Reason (optional)</Label>
-            <Input
-              id="cancel-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Guest cancelled booking"
-              className="rounded-xl text-xs"
-            />
+          <div className="py-2 pt-3">
+            <FloatingField label="Cancellation Reason (Optional)" icon={AlertCircle}>
+              <input
+                id="cancel-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Guest cancelled booking"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
+              />
+            </FloatingField>
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setCancelling(false)} className="rounded-xl">
@@ -683,27 +688,24 @@ export default function ReservationDetailPage() {
               Change the requested pickup datetime. The timeline will log this change.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-pickup" className="text-xs font-semibold">New Pickup Date &amp; Time *</Label>
-              <Input
+          <div className="space-y-4 py-2 pt-3">
+            <div>
+              <DateTimePicker
                 id="new-pickup"
-                type="datetime-local"
+                label="New Pickup Date & Time"
                 value={newPickup}
-                onChange={(e) => setNewPickup(e.target.value)}
-                className="rounded-xl text-xs"
+                onChange={(val) => setNewPickup(val)}
               />
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="reschedule-reason" className="text-xs font-semibold">Reason (optional)</Label>
-              <Input
+            <FloatingField label="Reschedule Reason (Optional)" icon={AlertCircle}>
+              <input
                 id="reschedule-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="e.g. Flight delay"
-                className="rounded-xl text-xs"
+                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
               />
-            </div>
+            </FloatingField>
           </div>
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={() => setRescheduling(false)} className="rounded-xl">

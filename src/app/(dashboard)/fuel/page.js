@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,10 +12,8 @@ import { DataTable } from "@/components/tables/data-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { getFuelRecords, updateFuelRecord, updateFuelStatus, deleteFuelRecord } from "@/services/fuel.service";
-import { formatDate, formatCurrency } from "@/lib/utils";
+import { formatDate, formatCurrency, cn } from "@/lib/utils";
 import {
   Fuel,
   Download,
@@ -137,15 +136,26 @@ export default function FuelPage() {
       key: "fuel_date",
       label: "Refuel Date",
       sortable: true,
-      render: (val) => (val ? formatDate(val) : "—"),
+      render: (val) => (
+        <span className="font-data font-bold text-xs text-foreground">
+          {val ? formatDate(val) : "—"}
+        </span>
+      ),
     },
     {
       key: "vehicle_info",
       label: "Vehicle",
       render: (_, row) => (
-        <div>
-          <p className="font-semibold text-foreground font-data">{row.vehicles?.plate_number || "N/A"}</p>
-          <p className="text-xs text-foreground-secondary">{row.vehicles?.vehicle_name || "—"}</p>
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 text-foreground border border-border/40 shadow-2xs">
+            <Truck className="h-4.5 w-4.5" />
+          </div>
+          <div>
+            <div className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-2.5 py-1 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+              {row.vehicles?.plate_number || "N/A"}
+            </div>
+            <p className="text-xs text-foreground-muted font-medium mt-0.5">{row.vehicles?.vehicle_name || "—"}</p>
+          </div>
         </div>
       ),
     },
@@ -154,68 +164,89 @@ export default function FuelPage() {
       label: "Driver",
       render: (_, row) => {
         const emp = row.drivers?.employees;
-        return emp ? `${emp.first_name} ${emp.last_name}` : "—";
+        const name = emp ? `${emp.first_name} ${emp.last_name}` : "—";
+        const initials = emp ? `${emp.first_name?.[0] || ""}${emp.last_name?.[0] || ""}`.toUpperCase() : "DR";
+        return (
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
+              {initials}
+            </div>
+            <div>
+              <p className="font-bold text-sm text-foreground">{name}</p>
+              <p className="text-xs text-foreground-muted font-medium">Refueling driver</p>
+            </div>
+          </div>
+        );
       },
     },
     {
       key: "station_name",
       label: "Gas Station",
-      render: (val) => val || "Station Scan",
+      render: (val) => <span className="font-semibold text-xs text-foreground">{val || "Station Scan"}</span>,
     },
-    { key: "fuel_type", label: "Fuel Type" },
+    {
+      key: "fuel_type",
+      label: "Fuel Type",
+      render: (val) => <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs font-bold">{val || "Fuel"}</Badge>,
+    },
     {
       key: "liters",
       label: "Liters",
-      render: (val) => (val ? `${val} L` : "—"),
+      render: (val) => <span className="font-data font-bold text-xs text-foreground">{val ? `${val} L` : "—"}</span>,
     },
     {
       key: "amount",
       label: "Total Amount",
       sortable: true,
-      render: (val) => (val ? formatCurrency(val) : "—"),
+      render: (val) => <span className="font-data font-black text-xs text-foreground">{val ? formatCurrency(val) : "—"}</span>,
     },
     {
       key: "status",
-      label: "Verification Status",
+      label: "Status",
       render: (val) => {
         const st = (val || "Pending").toLowerCase();
         if (st === "approved" || st === "completed") {
-          return <Badge variant="success" className="text-[11px]">Approved</Badge>;
+          return <Badge variant="success" className="rounded-full px-3 py-1 text-xs font-bold">Approved</Badge>;
         }
         if (st === "rejected") {
-          return <Badge variant="danger" className="text-[11px]">Rejected</Badge>;
+          return <Badge variant="danger" className="rounded-full px-3 py-1 text-xs font-bold">Rejected</Badge>;
         }
-        return <Badge variant="warning" className="text-[11px]">Pending Review</Badge>;
+        return <Badge variant="warning" className="rounded-full px-3 py-1 text-xs font-bold">Pending Review</Badge>;
       },
     },
     {
       key: "actions",
-      label: "Actions",
+      label: "",
       render: (_, row) => (
-        <div className="flex items-center gap-1">
+        <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
           <Tooltip content="Inspect Receipt">
             <Button
-              variant="outline"
-              size="sm"
-              className="h-8 px-2 text-xs flex items-center gap-1 border-primary/30 text-primary hover:bg-primary/10"
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
               onClick={() => setInspectRecord(row)}
             >
-              <Eye className="w-3.5 h-3.5" /> Inspect
+              <Eye className="w-3.5 h-3.5" />
             </Button>
           </Tooltip>
 
           <Tooltip content="Edit Details">
-            <Button variant="ghost" size="icon" className="w-8 h-8 text-foreground-secondary" onClick={() => {
-              setEditRecord(row);
-              setEditForm({
-                station_name: row.station_name || "",
-                liters: row.liters != null ? String(row.liters) : "",
-                amount: row.amount != null ? String(row.amount) : "",
-                price_per_liter: row.price_per_liter != null ? String(row.price_per_liter) : "",
-                odometer: row.odometer != null ? String(row.odometer) : "",
-                fuel_date: row.fuel_date ? row.fuel_date.substring(0, 10) : "",
-              });
-            }}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+              onClick={() => {
+                setEditRecord(row);
+                setEditForm({
+                  station_name: row.station_name || "",
+                  liters: row.liters != null ? String(row.liters) : "",
+                  amount: row.amount != null ? String(row.amount) : "",
+                  price_per_liter: row.price_per_liter != null ? String(row.price_per_liter) : "",
+                  odometer: row.odometer != null ? String(row.odometer) : "",
+                  fuel_date: row.fuel_date ? row.fuel_date.substring(0, 10) : "",
+                });
+              }}
+            >
               <Pencil className="w-3.5 h-3.5" />
             </Button>
           </Tooltip>
@@ -224,7 +255,7 @@ export default function FuelPage() {
             <Button
               variant="ghost"
               size="icon"
-              className="w-8 h-8 text-warning hover:text-warning hover:bg-warning/10"
+              className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
               onClick={() => setArchivingRecord(row)}
             >
               <Archive className="w-3.5 h-3.5" />
@@ -295,14 +326,15 @@ export default function FuelPage() {
   return (
     <div className="space-y-6">
       {/* ── Page Header ── */}
-      <PageHeader
-        eyebrow="Operations"
+      <HeroHeader
+        icon={Fuel}
         title="Fuel Receipt Audit & Review"
-        description="Verify scanned driver fuel receipts and approve or reject claims for hotel fleet operations."
+        badge="Operations"
+        description="Verify scanned driver fuel receipts and approve or reject claims."
         actions={
           <Button
             variant="outline"
-            className="h-10"
+            className={cn("h-10", heroButtonOutlineClass)}
             onClick={() =>
               exportToCSV(records, "fuel-receipt-claims", [
                 { label: "Refuel Date", key: "fuel_date" },
@@ -323,52 +355,111 @@ export default function FuelPage() {
       />
 
       {/* ── Metric Cards ── */}
-      <StatGrid cols={4}>
-        <StatCard icon={Fuel} label="Total Submissions" value={records.length} tone="primary" active={activeTab === "all"} onClick={() => setActiveTab("all")} />
-        <StatCard icon={Clock} label="Pending Audit" value={pendingCount} tone="warning" active={activeTab === "Pending"} onClick={() => setActiveTab("Pending")} />
-        <StatCard icon={CheckCircle2} label="Approved Expense" value={formatCurrency(totalCost)} tone="success" active={activeTab === "Approved"} onClick={() => setActiveTab("Approved")} />
-        <StatCard icon={XCircle} label="Flagged / Rejected" value={rejectedCount} tone="danger" active={activeTab === "Rejected"} onClick={() => setActiveTab("Rejected")} />
-      </StatGrid>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <button
+          type="button"
+          onClick={() => setActiveTab("all")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            activeTab === "all" ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Total Submissions</span>
+            <div className="p-2 rounded-xl bg-primary/10 text-primary"><Fuel className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{records.length}</div>
+            <p className="text-[11px] text-primary font-medium mt-1">All fuel logs</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("Pending")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            activeTab === "Pending" ? "border-warning bg-warning/10 shadow-xs" : "border-border/80 bg-surface hover:border-warning/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Pending Audit</span>
+            <div className="p-2 rounded-xl bg-warning/10 text-warning"><Clock className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{pendingCount}</div>
+            <p className="text-[11px] text-warning font-medium mt-1">Needs review</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("Approved")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            activeTab === "Approved" ? "border-success bg-success/10 shadow-xs" : "border-border/80 bg-surface hover:border-success/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Approved Expense</span>
+            <div className="p-2 rounded-xl bg-success/10 text-success"><CheckCircle2 className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{formatCurrency(totalCost)}</div>
+            <p className="text-[11px] text-success font-medium mt-1">Total cleared</p>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab("Rejected")}
+          className={cn(
+            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+            activeTab === "Rejected" ? "border-danger bg-danger/10 shadow-xs" : "border-border/80 bg-surface hover:border-danger/40"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Rejected</span>
+            <div className="p-2 rounded-xl bg-danger/10 text-danger"><XCircle className="w-4 h-4" /></div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{rejectedCount}</div>
+            <p className="text-[11px] text-danger font-medium mt-1">Flagged logs</p>
+          </div>
+        </button>
+      </div>
 
       {/* ── Status Filter Tabs & Table ── */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-2 overflow-x-auto">
-            <Button
-              variant={activeTab === "Pending" ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs font-medium"
+            <button
+              className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Pending" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
               onClick={() => setActiveTab("Pending")}
             >
               <Clock className="w-3.5 h-3.5 mr-1.5" /> Pending Review ({pendingCount})
-            </Button>
+            </button>
 
-            <Button
-              variant={activeTab === "Approved" ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs font-medium"
+            <button
+              className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Approved" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
               onClick={() => setActiveTab("Approved")}
             >
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5 text-success" /> Approved ({approvedCount})
-            </Button>
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Approved ({approvedCount})
+            </button>
 
-            <Button
-              variant={activeTab === "Rejected" ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs font-medium"
+            <button
+              className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Rejected" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
               onClick={() => setActiveTab("Rejected")}
             >
-              <XCircle className="w-3.5 h-3.5 mr-1.5 text-danger" /> Rejected ({rejectedCount})
-            </Button>
+              <XCircle className="w-3.5 h-3.5 mr-1.5" /> Rejected ({rejectedCount})
+            </button>
 
-            <Button
-              variant={activeTab === "all" ? "default" : "outline"}
-              size="sm"
-              className="h-8 text-xs font-medium"
+            <button
+              className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "all" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
               onClick={() => setActiveTab("all")}
             >
               All Records ({records.length})
-            </Button>
+            </button>
           </div>
         </CardHeader>
 
@@ -377,6 +468,11 @@ export default function FuelPage() {
             columns={columns}
             data={filteredRecords}
             isLoading={isLoading}
+            pageSize={10}
+            title="Fuel Audit Registry"
+            description="Verify scanned driver fuel receipts and approve or reject claims."
+            icon={Fuel}
+            context={activeTab === "all" ? "All Fuel Logs" : activeTab}
             searchable
             searchValue={search}
             onSearchChange={setSearch}
@@ -419,7 +515,7 @@ export default function FuelPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-xl border-2 border-dashed border-border p-8 text-center bg-muted/20 aspect-[3/4] flex flex-col items-center justify-center text-foreground-muted">
+                    <div className="rounded-3xl border-2 border-dashed border-border p-8 text-center bg-muted/20 aspect-[3/4] flex flex-col items-center justify-center text-foreground-muted">
                       <FileText className="w-8 h-8 mb-2 opacity-50" />
                       <p className="text-xs font-medium">No receipt scan photo attached</p>
                     </div>
@@ -499,7 +595,7 @@ export default function FuelPage() {
                   </div>
 
                   {/* Verification Decision Buttons */}
-                  <div className="p-4 rounded-xl border border-border bg-surface space-y-3">
+                  <div className="p-4 rounded-3xl border border-border bg-surface space-y-3">
                     <span className="text-xs font-semibold text-foreground block">Verification Decision</span>
                     <div className="flex items-center gap-3">
                       <Button
@@ -690,7 +786,7 @@ export default function FuelPage() {
               <FileText className="w-5 h-5 text-primary" /> Full Resolution Scanned Receipt
             </DialogTitle>
           </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[75vh] overflow-auto bg-black/5 rounded-xl border border-border">
+          <div className="p-2 flex items-center justify-center max-h-[75vh] overflow-auto bg-black/5 rounded-3xl border border-border">
             {zoomReceiptUrl && (
               <img
                 src={zoomReceiptUrl}

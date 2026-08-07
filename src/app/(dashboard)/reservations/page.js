@@ -7,27 +7,30 @@ import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/tables/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getTransportRequests } from "@/services/transport.service";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
-import { formatDate, formatTime } from "@/lib/utils";
+import { formatDate, formatTime, cn } from "@/lib/utils";
 import { exportToCSV } from "@/lib/export";
 import {
+  ArrowUpRight,
   Building,
   Calendar,
   CalendarCheck,
   CarFront,
   Clock,
   Download,
-  FlaskConical,
   Inbox,
   MapPin,
+  Plus,
+  SlidersHorizontal,
   TriangleAlert,
   UserCheck,
   Users,
 } from "lucide-react";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 // Phase 17 — the reservation list, repointed to transportation_requests.
 //
@@ -82,11 +85,11 @@ export default function ReservationsPage() {
         header: "Reservation",
         cell: (info) => (
           <div>
-            <p className="font-data text-xs font-medium text-foreground">
+            <div className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
               {info.getValue() || `#${info.row.original.request_id}`}
-            </p>
+            </div>
             {info.row.original.booking_reference && (
-              <p className="text-xs text-foreground-muted">{info.row.original.booking_reference}</p>
+              <p className="text-[11px] text-foreground-muted mt-1 font-medium">{info.row.original.booking_reference}</p>
             )}
           </div>
         ),
@@ -95,8 +98,8 @@ export default function ReservationsPage() {
         header: "Guest",
         cell: (info) => (
           <div>
-            <p className="font-medium text-foreground">{info.getValue() || "—"}</p>
-            <p className="text-xs text-foreground-muted">{info.row.original.source_system}</p>
+            <p className="font-bold text-sm text-foreground">{info.getValue() || "—"}</p>
+            <p className="text-xs text-foreground-muted font-medium">{info.row.original.source_system}</p>
           </div>
         ),
       }),
@@ -104,12 +107,12 @@ export default function ReservationsPage() {
         header: "Route",
         cell: (info) => (
           <div className="max-w-[220px]">
-            <p className="flex items-center gap-1.5 truncate text-sm text-foreground-secondary">
+            <p className="flex items-center gap-1.5 truncate text-xs font-medium text-foreground-secondary">
               <MapPin className="h-3.5 w-3.5 shrink-0 text-danger" />
               {info.getValue()}
             </p>
             {info.row.original.dropoff_location && (
-              <p className="flex items-center gap-1.5 truncate text-sm text-foreground-secondary">
+              <p className="flex items-center gap-1.5 truncate text-xs font-medium text-foreground-secondary mt-0.5">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-success" />
                 {info.row.original.dropoff_location}
               </p>
@@ -117,18 +120,15 @@ export default function ReservationsPage() {
           </div>
         ),
       }),
-      // pickup_datetime is a single timestamptz — date and time are split across
-      // two columns for scanning, but both read the same field. The old page had
-      // separate reservation_date and pickup_time columns; they no longer exist.
       columnHelper.accessor("pickup_datetime", {
         header: "Pickup",
         cell: (info) => (
           <div>
-            <p className="flex items-center gap-1.5 text-foreground-secondary">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-foreground-secondary font-data">
               <Calendar className="h-3.5 w-3.5 text-foreground-muted" />
               {formatDate(info.getValue())}
             </p>
-            <p className="flex items-center gap-1.5 text-foreground-secondary">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-foreground-secondary font-data mt-0.5">
               <Clock className="h-3.5 w-3.5 text-foreground-muted" />
               {formatTime(info.getValue())}
             </p>
@@ -137,31 +137,25 @@ export default function ReservationsPage() {
       }),
       columnHelper.accessor("priority", {
         header: "Priority",
-        cell: (info) => <StatusBadge status={info.getValue()} entity="priority" />,
+        cell: (info) => <StatusBadge status={info.getValue()} entity="priority" className="rounded-full px-3 py-1 text-xs font-bold" />,
       }),
       columnHelper.accessor("service_types", {
         header: "Service",
         cell: (info) => {
           const st = info.getValue();
           const r = info.row.original;
-          // Resolved category before Booking's raw wording, so this column agrees
-          // with the queue cards (which show the category). Falling straight
-          // through to the raw string showed "Executive SUV" here and
-          // "VIP Guest Transport" there for the same request.
           const label =
             st?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type;
           return label ? (
-            <span className="flex items-center gap-1.5 text-sm text-foreground-secondary">
+            <span className="flex items-center gap-1.5 text-xs font-medium text-foreground-secondary">
               <Building className="h-3.5 w-3.5 text-foreground-muted" />
               {label}
             </span>
           ) : (
-            <span className="text-sm text-foreground-muted">—</span>
+            <span className="text-xs text-foreground-muted">—</span>
           );
         },
       }),
-      // One column for both halves of the assignment: a request is dispatchable
-      // only when it has each, so showing them together makes the gap obvious.
       columnHelper.display({
         id: "assignment",
         header: "Assigned",
@@ -169,16 +163,16 @@ export default function ReservationsPage() {
           const r = info.row.original;
           const driver = r.drivers;
           return (
-            <div className="space-y-0.5 text-sm">
+            <div className="space-y-1 text-xs font-medium">
               <p className="flex items-center gap-1.5">
                 <CarFront className="h-3.5 w-3.5 text-foreground-muted" />
-                <span className={r.vehicles ? "text-foreground-secondary" : "text-foreground-muted"}>
+                <span className={r.vehicles ? "font-data font-bold text-foreground" : "text-foreground-muted"}>
                   {r.vehicles?.plate_number || "—"}
                 </span>
               </p>
               <p className="flex items-center gap-1.5">
                 <UserCheck className="h-3.5 w-3.5 text-foreground-muted" />
-                <span className={driver ? "text-foreground-secondary" : "text-foreground-muted"}>
+                <span className={driver ? "text-foreground-secondary font-semibold" : "text-foreground-muted"}>
                   {driver ? [driver.first_name, driver.last_name].filter(Boolean).join(" ") : "—"}
                 </span>
               </p>
@@ -189,7 +183,7 @@ export default function ReservationsPage() {
       columnHelper.accessor("passenger_count", {
         header: "Pax",
         cell: (info) => (
-          <span className="flex items-center gap-1 text-foreground-secondary">
+          <span className="flex items-center gap-1 text-xs font-bold text-foreground-secondary font-data">
             <Users className="h-3.5 w-3.5 text-foreground-muted" />
             {info.getValue() || 1}
           </span>
@@ -197,10 +191,28 @@ export default function ReservationsPage() {
       }),
       columnHelper.accessor("fleet_status", {
         header: "Status",
-        cell: (info) => <StatusBadge status={info.getValue()} entity="reservation" />,
+        cell: (info) => <StatusBadge status={info.getValue()} entity="reservation" className="rounded-full px-3 py-1 text-xs font-bold" />,
+      }),
+      columnHelper.display({
+        id: "open",
+        header: "",
+        cell: (info) => (
+          <div className="inline-flex items-center rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              aria-label={`Open ${info.row.original.reservation_number || "reservation"}`}
+              onClick={() => {
+                router.push(`/reservations/${info.row.original.request_id}`);
+              }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-foreground-secondary transition-colors hover:bg-hover hover:text-foreground cursor-pointer"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ),
       }),
     ],
-    []
+    [router]
   );
 
   const [activeFilter, setActiveFilter] = useState("all");
@@ -252,6 +264,13 @@ export default function ReservationsPage() {
     },
   ];
 
+  const filters = [
+    { value: "all", label: "All requests" },
+    { value: "open", label: "Open" },
+    { value: "review", label: "Needs review" },
+    { value: "today", label: "Today" },
+  ];
+
   if (isError) {
     return (
       <EmptyState
@@ -265,15 +284,18 @@ export default function ReservationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
-        title="Reservations"
-        description="Every transportation request received from Booking, in every state."
+      {/* ── Hero Header ── */}
+      <HeroHeader
+        icon={CalendarCheck}
+        title="Reservations Register"
+        badge="Operations"
+        description="Monitor every transportation request from Booking in one place."
         actions={
           <>
             <Button
               variant="outline"
               disabled={!requests.length}
+              className={cn(heroButtonOutlineClass)}
               onClick={() =>
                 exportToCSV(requests, "reservations", [
                   { label: "Reservation No.", key: "reservation_number" },
@@ -303,33 +325,100 @@ export default function ReservationsPage() {
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
-            <Button variant="outline" onClick={() => router.push("/reservations/queue")}>
+            <Button variant="outline" className={cn(heroButtonOutlineClass)} onClick={() => router.push("/reservations/queue")}>
               <Inbox className="mr-2 h-4 w-4" />
               Request Queue
             </Button>
-            <Button onClick={() => router.push("/reservations/new")}>
-              <FlaskConical className="mr-2 h-4 w-4" />
-              Inject Mock Request
+            <Button className={cn(heroButtonPrimaryClass)} onClick={() => router.push("/reservations/new")}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Request
             </Button>
           </>
         }
       />
 
-      <StatGrid cols={4}>
-        {statCards.map((card) => (
-          <StatCard key={card.label} {...card} />
-        ))}
-      </StatGrid>
+      {/* ── KPI Filter Cards ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {statCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <button
+              key={card.label}
+              type="button"
+              onClick={card.onClick}
+              className={cn(
+                "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
+                card.active
+                  ? "border-primary bg-primary/10 shadow-xs"
+                  : "border-border/80 bg-surface hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{card.label}</span>
+                <div className={cn("p-2 rounded-xl", {
+                  "bg-primary/10 text-primary": card.tone === "primary",
+                  "bg-success/10 text-success": card.tone === "success",
+                  "bg-warning/10 text-warning": card.tone === "warning",
+                  "bg-info/10 text-info": card.tone === "info",
+                  "bg-danger/10 text-danger": card.tone === "danger",
+                })}>
+                  <Icon className="w-4 h-4" />
+                </div>
+              </div>
+              <div>
+                <div className="text-3xl font-black text-foreground font-data">{card.value}</div>
+                <p className={cn("text-[11px] font-medium mt-1", {
+                  "text-primary": card.tone === "primary",
+                  "text-success": card.tone === "success",
+                  "text-warning": card.tone === "warning",
+                  "text-info": card.tone === "info",
+                  "text-danger": card.tone === "danger",
+                })}>{card.trend}</p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
-      <DataTable
-        columns={columns}
-        data={displayRequests}
-        isLoading={isLoading}
-        searchPlaceholder="Search by reservation no., guest, booking reference, or location..."
-        emptyTitle="No transportation requests yet"
-        emptyDescription="Requests arrive from the Booking subsystem. Use Inject Mock Request to create one in development."
-        onRowClick={(row) => router.push(`/reservations/${row.request_id}`)}
-      />
+      {/* ── Table ── */}
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardContent className="p-0">
+          <DataTable
+            columns={columns}
+            data={displayRequests}
+            pageSize={12}
+            title="Reservations Register"
+            description="Select a row to view its complete reservation record."
+            icon={CalendarCheck}
+            context={activeFilter === "all" ? "All Reservations" : activeFilter}
+            isLoading={isLoading}
+            searchPlaceholder="Search by reservation no., guest, booking reference, or location..."
+            toolbar={
+              <div className="flex items-center gap-1" aria-label="Reservation filters">
+                <SlidersHorizontal className="hidden h-3.5 w-3.5 text-foreground-muted sm:block" />
+                {filters.map((filter) => (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    onClick={() => setActiveFilter(filter.value)}
+                    className={cn(
+                      "whitespace-nowrap rounded-full px-3 h-7 text-[11px] font-bold border transition-colors cursor-pointer",
+                      activeFilter === filter.value
+                        ? "bg-primary text-white dark:text-slate-950 border-primary"
+                        : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/40 hover:text-foreground"
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+            }
+            emptyTitle="No transportation requests yet"
+            emptyDescription="Requests arrive from the Booking subsystem. Use Inject Mock Request to create one in development."
+            onRowClick={(row) => router.push(`/reservations/${row.request_id}`)}
+          />
+        </CardContent>
+      </Card>
     </div>
   );
 }

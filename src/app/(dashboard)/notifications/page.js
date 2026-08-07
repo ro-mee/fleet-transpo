@@ -5,15 +5,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from "@/services/notification.service";
-import { formatDate } from "@/lib/utils";
+import { formatDate, cn } from "@/lib/utils";
 import {
   Bell, Info, AlertTriangle, CheckCircle2, CalendarCheck,
   Send, Wrench, Fuel, Route, X, CheckCheck, Trash2,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 const typeIcons = {
   Info: Info,
@@ -102,33 +102,27 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="System"
-        title="Notifications"
-        description="View and manage system notifications."
+      <HeroHeader
+        icon={Bell}
+        title="Notification Center"
+        badge={unread > 0 ? unread + ' Unread' : 'All Read'}
+        description="System alerts, trip updates, and operational notifications."
         actions={
-          <>
-            {unread > 0 && (
-              <Button variant="outline" size="sm" className="h-9" onClick={() => markAllMutation.mutate()}>
-                <CheckCheck className="w-4 h-4 mr-1.5" />
-                Mark All Read
-              </Button>
-            )}
-            {unread > 0 && <Badge variant="default">{unread} unread</Badge>}
-          </>
+          unread > 0 && (
+            <Button variant="outline" size="sm" className={cn("h-9", heroButtonOutlineClass)} onClick={() => markAllMutation.mutate()}>
+              <CheckCheck className="w-4 h-4 mr-1.5" />
+              Mark All Read
+            </Button>
+          )
         }
       />
 
       <div className="flex items-center gap-2">
-        <Button variant={filter === "all" ? "default" : "outline"} size="sm" onClick={() => setFilter("all")}>
-          All
-        </Button>
-        <Button variant={filter === "unread" ? "default" : "outline"} size="sm" onClick={() => setFilter("unread")}>
-          Unread ({unread})
-        </Button>
+        <button onClick={()=>setFilter('all')} className={cn('px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer', filter==='all' ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}>All Notifications</button>
+        <button onClick={()=>setFilter('unread')} className={cn('px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer', filter==='unread' ? 'bg-warning text-white border-warning' : 'bg-surface border-border/60 text-foreground-secondary hover:border-warning/40')}>Unread ({unread})</button>
       </div>
 
-      <Card className="border-0 shadow-sm">
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
           {uniqueNotifications.length === 0 ? (
             <EmptyState
@@ -147,12 +141,12 @@ export default function NotificationsPage() {
                     key={notif.notification_id}
                     className={`flex items-start gap-4 px-5 py-4 transition-colors hover:bg-hover ${isUnread ? "bg-primary/[0.02]" : ""}`}
                   >
-                    <div className={`p-2 rounded-lg ${typeBg[notif.type] || "bg-muted"} mt-0.5`}>
+                    <div className={`p-2 rounded-xl ${typeBg[notif.type] || "bg-muted"} mt-0.5`}>
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-0.5">
-                        <p className={`text-sm ${isUnread ? "font-semibold text-foreground" : "text-foreground"}`}>
+                        <p className={`text-sm font-bold ${isUnread ? "text-foreground" : "text-foreground"}`}>
                           {notif.title}
                         </p>
                         {isUnread && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />}
