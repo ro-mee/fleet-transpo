@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
@@ -99,16 +100,25 @@ export default function VehicleFormPage({ params }) {
     if (!scanResult?.extracted_data) return;
     const data = scanResult.extracted_data;
 
+    // Apply document physical specifications to form (excluding Category and Status)
     if (data.plate_number) form.setValue("plate_number", data.plate_number, { shouldValidate: true });
     if (data.vehicle_type) form.setValue("vehicle_name", data.vehicle_type, { shouldValidate: true });
     else if (data.vehicle_name) form.setValue("vehicle_name", data.vehicle_name, { shouldValidate: true });
-    if (data.manufacturer) form.setValue("manufacturer", data.manufacturer);
-    if (data.model) form.setValue("model", data.model);
-    if (data.year) form.setValue("year", data.year);
-    if (data.color) form.setValue("color", data.color);
-    if (data.fuel_type) form.setValue("fuel_type", data.fuel_type);
+    if (data.manufacturer) form.setValue("manufacturer", data.manufacturer, { shouldValidate: true });
+    // The form has one combined "Series / Model" field. Prefer the model name and,
+    // when the OR/CR carries a distinct series value (e.g. model "HIACE" /
+    // series "COMMUTER"), append it so nothing is lost.
+    if (data.model || data.series) {
+      const model = (data.model || "").trim().toUpperCase();
+      const series = (data.series || "").trim().toUpperCase();
+      form.setValue("model", series && series !== model ? `${model} ${series}`.trim() : (model || series), {
+        shouldValidate: true,
+      });
+    }
+    if (data.year) form.setValue("year", Number(data.year), { shouldValidate: true });
+    if (data.color) form.setValue("color", data.color, { shouldValidate: true });
+    if (data.fuel_type) form.setValue("fuel_type", data.fuel_type, { shouldValidate: true });
     if (data.seating_capacity) form.setValue("seating_capacity", Number(data.seating_capacity), { shouldValidate: true });
-    if (data.insurance_expiry) form.setValue("insurance_expiry", toDateInput(data.insurance_expiry));
 
     if (data.registration_number && scanResult.document_type === "OR_CR") {
       setOrCrDoc((prev) => ({ ...prev, document_number: data.registration_number }));
@@ -117,7 +127,7 @@ export default function VehicleFormPage({ params }) {
       setInsuranceDoc((prev) => ({ ...prev, document_number: data.insurance_policy_number }));
     }
 
-    toast.success("AI extracted document details applied to form!");
+    toast.success("Document specifications applied to form!");
     setScanReviewModalOpen(false);
   };
 
@@ -695,34 +705,64 @@ export default function VehicleFormPage({ params }) {
 
       {/* ── SCAN REVIEW MODAL ── */}
       <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
-        <DialogContent className="max-w-lg rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" /> AI Extracted Document Data
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Review extracted fields from your scanned document before applying.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2 text-xs">
+        <DialogContent className="max-w-md rounded-2xl p-6 border border-border shadow-xl bg-surface">
+          <div className="flex items-start gap-3.5">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5 text-primary" />
+            </div>
+            <div className="space-y-1">
+              <DialogTitle className="text-base font-bold text-foreground">AI Extracted Document Data</DialogTitle>
+              <DialogDescription className="text-xs text-foreground-muted">
+                Review extracted fields from your scanned document before applying to form.
+              </DialogDescription>
+            </div>
+          </div>
+
+          <div className="space-y-3 py-3 text-xs">
             {scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0 ? (
-              <div className="space-y-2 bg-muted/30 p-4 rounded-xl border border-border">
-                {Object.entries(scanResult.extracted_data).map(([key, val]) => (
-                  <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                    <span className="text-foreground-muted capitalize">{key.replace(/_/g, " ")}:</span>
-                    <span className="font-semibold text-foreground">{String(val || "—")}</span>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">Extracted Details</span>
+                  {scanResult.is_ai_vision_used ? (
+                    <Badge variant="primary" className="text-[10px] px-2 py-0.5 gap-1">
+                      <Sparkles className="w-3 h-3" /> AI Vision Enhanced
+                    </Badge>
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px] px-2 py-0.5">
+                      OCR Scanned
+                    </Badge>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-2 bg-hover/30 p-3.5 rounded-xl border border-border/60 max-h-[300px] overflow-y-auto">
+                  {Object.entries(scanResult.extracted_data)
+                    .filter(([key]) => !["category", "category_id", "status", "vehicle_status", "model"].includes(key.toLowerCase()))
+                    .map(([key, val]) => (
+                      <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5 pt-0.5 last:border-b-0 last:pb-0">
+                        <span className="text-foreground-muted font-medium capitalize text-xs">
+                          {key.toLowerCase() === "series" ? "Series / Model" : key.replace(/_/g, " ")}:
+                        </span>
+                        <span className="font-bold text-foreground text-xs text-right font-data">
+                          {String(val || "—")}
+                        </span>
+                      </div>
+                    ))}
+                </div>
               </div>
             ) : (
-              <p className="text-foreground-muted py-4 text-center">No readable fields extracted.</p>
+              <div className="p-6 text-center text-foreground-muted bg-hover/20 rounded-xl border border-dashed border-border">
+                <p className="text-xs font-semibold text-foreground">No readable fields extracted</p>
+                <p className="text-[11px] text-foreground-muted mt-1">Please ensure the document image is clear or fill in the vehicle details manually.</p>
+              </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl">
+
+          <DialogFooter className="gap-2 pt-2 border-t border-border/60">
+            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl h-9">
               Cancel
             </Button>
-            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl px-4">
+            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl h-9 px-4 font-medium gap-1.5 shadow-xs">
+              <CheckCircle2 className="w-4 h-4" />
               Apply Extracted Data
             </Button>
           </DialogFooter>

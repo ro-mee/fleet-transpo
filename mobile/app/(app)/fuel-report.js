@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { ACTIONS, canAction } from "../../lib/rbac";
-import { colors, fonts, space } from "../../lib/theme";
+import { useTheme } from "../../lib/theme-context";
+import { fonts, space } from "../../lib/theme";
 import {
   Button,
   Card,
@@ -22,6 +23,7 @@ import {
   EmptyState,
   ErrorNotice,
   ScreenTitle,
+  SkeletonCard,
   styles as ui,
 } from "../../components/ui";
 import { BrandBar } from "../../components/logo";
@@ -42,6 +44,7 @@ export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const { colors } = useTheme();
 
   const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
 
@@ -118,7 +121,7 @@ export default function FuelReport() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <BrandBar />
@@ -134,7 +137,7 @@ export default function FuelReport() {
         <ErrorNotice message={error} />
 
         {loading ? (
-          <Text style={ui.bodyText}>Loading your vehicle…</Text>
+          <SkeletonCard lines={3} />
         ) : !canReportFuel ? (
           <EmptyState
             title="Fuel reports not available"
@@ -156,7 +159,7 @@ export default function FuelReport() {
         ) : (
           <>
             <Card>
-              <Text style={ui.eyebrow}>Vehicle</Text>
+              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Vehicle</Text>
               <View style={styles.plateRow}>
                 <Plate plate={trip.plate_number ?? `#${trip.vehicle_id}`} />
               </View>
@@ -165,13 +168,13 @@ export default function FuelReport() {
                 value={`#${trip.trip_id} · ${trip.destination ?? "—"}`}
                 mono
               />
-              <Text style={ui.bodyText}>
+              <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
                 Taken from your active trip.
               </Text>
             </Card>
 
             <Card>
-              <Text style={ui.eyebrow}>Receipt details</Text>
+              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Receipt details</Text>
               <Field
                 label="Fuel station"
                 required
@@ -216,8 +219,8 @@ export default function FuelReport() {
               />
 
               <View style={styles.calculation}>
-                <Text style={ui.bodyText}>Price per liter</Text>
-                <Text style={styles.calculatedValue}>₱ {pricePerLiter}</Text>
+                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>Price per liter</Text>
+                <Text style={[styles.calculatedValue, { color: colors.onSurface }]}>₱ {pricePerLiter}</Text>
               </View>
 
               <Button
@@ -241,7 +244,7 @@ export default function FuelReport() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
   plateRow: { paddingVertical: space.xs },
   calculation: {
@@ -250,14 +253,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: space.md,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
     marginTop: space.xs,
   },
   calculatedValue: {
     fontFamily: fonts.dataSemiBold,
     fontSize: 16,
     lineHeight: 22,
-    color: colors.foreground,
     fontVariant: ["tabular-nums"],
   },
 });

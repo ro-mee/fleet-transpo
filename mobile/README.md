@@ -25,15 +25,19 @@ Routing is file-based via `expo-router`; `package.json` `main` points at
 
 | Path | Purpose |
 |---|---|
-| `app/_layout.js` | Root layout, wraps everything in `AuthProvider` |
+| `app/_layout.js` | Root layout, wraps everything in `AuthProvider` + error boundary |
 | `app/login.js` | Driver sign in; redirects out once a session exists |
-| `app/(app)/_layout.js` | Auth guard for signed-in routes |
-| `app/(app)/index.js` | Trip list, accept/decline, status flow, location |
+| `app/(app)/_layout.js` | Auth + consent guard for signed-in routes |
+| `app/(app)/(tabs)/` | Bottom-tab driver app: home, history, alerts, profile |
 | `app/(app)/fuel-report.js` | Fuel submission for the active trip's vehicle |
-| `lib/api.js` | fetch wrapper; refreshes the access token on 401 |
+| `app/(app)/incidents.js` | Driver incident / emergency reporting |
+| `app/(app)/inspection.js` | Vehicle inspection snapshot (read-only) |
+| `app/(app)/consent.js` | Privacy policy consent gate |
+| `lib/api.js` | fetch wrapper; timeout, retry, refreshes token on 401 |
 | `lib/auth.js` | Session context |
 | `lib/storage.js` | Token storage via `expo-secure-store` |
 | `lib/tracking.js` | 30-second GPS posts during an active trip |
+| `lib/tripRef.js` | Server-fed trip status reference data (`/api/mobile/driver/ref`) |
 | `lib/theme.js` | Semantic tokens from `docs/design-system.md` |
 | `components/ui.js` | Shared primitives (card, pill, button, field) |
 | `components/logo.js` | Brand mark and signed-in top bar |
@@ -46,10 +50,11 @@ token, both signed with `NEXTAUTH_SECRET`. `lib/api.js` refreshes transparently
 on a 401 and funnels concurrent refreshes into one request, because refresh is
 single-use and rotating.
 
-For a quick demo without a backend, set `EXPO_PUBLIC_ENABLE_DEMO=true` in the
-mobile `.env` and rebuild. This shows a "Sign in as driver (demo)" button and
-serves the request layer from local fixtures. It is off by default; production
-builds only ever reach the real API.
+## Trip status data
+
+Trip status grouping, tones, and the next-available driver action come from
+`GET /api/mobile/driver/ref` (server-owned state machine in
+`src/lib/scheduling/trip-state.js`), not hardcoded client constants.
 
 ## Not implemented
 

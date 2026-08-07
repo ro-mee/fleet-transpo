@@ -11,8 +11,13 @@ export const ROLE = {
   DRIVER: "driver",
 };
 
+/**
+ * Driver feature flags. Every session in this app is a driver (enforced
+ * server-side by requireDriver), so these are treated as always-on for driver
+ * sessions; they exist to keep UI gating explicit rather than scattering
+ * role checks across screens.
+ */
 export const ACTIONS = {
-  READ_TRIPS: "read_trips",
   MANAGE_TRIP: "manage_trip",
   REPORT_LOCATION: "report_location",
   REPORT_FUEL: "report_fuel",
@@ -42,21 +47,19 @@ export function decodeJwtRole(token) {
 }
 
 /**
- * True when the signed-in session belongs to a driver. The demo driver signs
- * in without a real token, so it is identified by flag instead of a JWT claim.
+ * True when the signed-in session belongs to a driver.
  *
  * @param {Object|null} user
  * @returns {boolean}
  */
 export function isDriverSession(user) {
-  return Boolean(user?.role === ROLE.DRIVER || user?.isDemoDriver);
+  return Boolean(user?.role === ROLE.DRIVER);
 }
 
 /**
- * Action matrix for the app. Mirrors the driver column in docs/rbac-model.md;
- * every session in this app is a driver, so the matrix is the driver row and
- * everything else is denied. Kept as an explicit matrix so UI gating stays in
- * one place and future roles are added here, never scattered across screens.
+ * Action availability for the app. Every session here is a driver (the server
+ * rejects anything else), so all driver actions are granted; the switch makes
+ * this explicit and easy to narrow if a future role appears.
  *
  * @param {Object|null} user
  * @param {string} action  one of ACTIONS
@@ -64,7 +67,9 @@ export function isDriverSession(user) {
  */
 export function canAction(user, action) {
   if (!isDriverSession(user)) return false;
-  return [ACTIONS.READ_TRIPS, ACTIONS.MANAGE_TRIP, ACTIONS.REPORT_LOCATION, ACTIONS.REPORT_FUEL].includes(
-    action
-  );
+  return [
+    ACTIONS.MANAGE_TRIP,
+    ACTIONS.REPORT_LOCATION,
+    ACTIONS.REPORT_FUEL,
+  ].includes(action);
 }

@@ -4,7 +4,7 @@ import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth } from "../../lib/auth";
 import { isDriverSession } from "../../lib/rbac";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
-import { colors } from "../../lib/theme";
+import { useTheme } from "../../lib/theme-context";
 
 /**
  * Auth + consent guard for every signed-in route.
@@ -22,6 +22,7 @@ import { colors } from "../../lib/theme";
  */
 export default function AppLayout() {
   const { user, loading } = useAuth();
+  const { colors } = useTheme();
   const [consentVersion, setConsentVersion] = useState(null);
   const [consentLoading, setConsentLoading] = useState(true);
 
@@ -44,7 +45,7 @@ export default function AppLayout() {
 
   if (loading || consentLoading) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
@@ -65,7 +66,12 @@ export default function AppLayout() {
         headerShown: false,
         contentStyle: { backgroundColor: colors.background },
       }}
-    />
+    >
+      <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="fuel-report" />
+      <Stack.Screen name="incidents" />
+      <Stack.Screen name="inspection" />
+    </Stack>
   );
 }
 
@@ -74,6 +80,5 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.background,
   },
 });

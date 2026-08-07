@@ -8,15 +8,16 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
+import { api } from "../lib/api";
+import { useAuth } from "../lib/auth";
 import {
   CURRENT_PRIVACY_POLICY_VERSION,
   setAcceptedConsentVersion,
-} from "../../lib/consent";
-import { colors, space, type } from "../../lib/theme";
-import { Button, Card, ErrorNotice, ScreenTitle, styles as ui } from "../../components/ui";
-import { BrandBar } from "../../components/logo";
+} from "../lib/consent";
+import { useTheme } from "../lib/theme-context";
+import { fonts, space } from "../lib/theme";
+import { Button, Card, ErrorNotice, ScreenTitle, styles as ui } from "../components/ui";
+import { BrandBar } from "../components/logo";
 
 /**
  * Driver consent gate for the app.
@@ -31,6 +32,7 @@ export default function ConsentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
+  const { colors } = useTheme();
 
   const [policy, setPolicy] = useState(null);
   const [loadingPolicy, setLoadingPolicy] = useState(true);
@@ -61,13 +63,11 @@ export default function ConsentScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      if (!user?.isDemoDriver) {
-        await api.post("/api/driver/me/consent", {
-          policy_version: CURRENT_PRIVACY_POLICY_VERSION,
-          accepted: true,
-          via: "mobile",
-        });
-      }
+      await api.post("/api/driver/me/consent", {
+        policy_version: CURRENT_PRIVACY_POLICY_VERSION,
+        accepted: true,
+        via: "mobile",
+      });
       await setAcceptedConsentVersion(CURRENT_PRIVACY_POLICY_VERSION);
       // The layout guard now lets this driver through; head to the home screen.
       router.replace("/");
@@ -79,7 +79,7 @@ export default function ConsentScreen() {
   }, [router, user]);
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <BrandBar />
       <ScrollView
         contentContainerStyle={[
@@ -101,19 +101,19 @@ export default function ConsentScreen() {
             <Card style={styles.policyCard}>
               {policy ? (
                 <>
-                  <Text style={styles.versionLine}>
+                  <Text style={[styles.versionLine, { color: colors.onSurfaceVariant }]}>
                     Version {policy.version} · Effective{" "}
                     {policy.effectiveDate ?? "Aug 5, 2026"}
                   </Text>
                   {policy.sections?.map((section) => (
                     <View key={section.heading} style={styles.section}>
-                      <Text style={styles.sectionHeading}>{section.heading}</Text>
-                      <Text style={ui.bodyText}>{section.body}</Text>
+                      <Text style={[styles.sectionHeading, { color: colors.onSurface }]}>{section.heading}</Text>
+                      <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>{section.body}</Text>
                     </View>
                   ))}
                 </>
               ) : (
-                <Text style={ui.bodyText}>
+                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
                   Before using the app, your acceptance of the organization's data
                   privacy policy is required. Your license scan, face photo, live
                   location while on duty, and trip activity are used for dispatch,
@@ -122,7 +122,7 @@ export default function ConsentScreen() {
               )}
             </Card>
 
-            <Text style={styles.note}>
+            <Text style={[styles.note, { color: colors.onSurfaceVariant }]}>
               You can review and correct your own information from your profile at
               any time.
             </Text>
@@ -140,20 +140,25 @@ export default function ConsentScreen() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
   policyCard: { gap: space.base },
   versionLine: {
-    ...type.label,
-    color: colors.foregroundSecondary,
+    fontFamily: fonts.data,
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
   section: { gap: space.xs },
   sectionHeading: {
-    ...type.cardTitle,
-    color: colors.foreground,
+    fontFamily: fonts.display,
+    fontSize: 16,
+    lineHeight: 22,
   },
   note: {
-    ...type.supporting,
-    color: colors.foregroundSecondary,
+    fontFamily: fonts.body,
+    fontSize: 13,
+    lineHeight: 19,
   },
 });

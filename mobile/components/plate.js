@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
-import { colors, fonts, space } from "../lib/theme";
+import { useTheme } from "../lib/theme-context";
+import { fonts, space } from "../lib/theme";
 
 /**
  * Vehicle identity as a physical plate.
@@ -11,18 +12,23 @@ import { colors, fonts, space } from "../lib/theme";
  * in high-value spots: the active trip and pending assignment cards.
  */
 export function Plate({ plate, size = "md" }) {
+  const { colors } = useTheme();
   if (!plate) return null;
   const large = size === "lg";
 
   return (
     <View
-      style={[styles.plate, large && styles.plateLg]}
+      style={[
+        styles.plate,
+        { borderColor: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
+        large && styles.plateLg,
+      ]}
       accessibilityLabel={`Vehicle plate ${plate}`}
     >
-      <View style={[styles.screw, styles.screwLeft, large && styles.screwLg]} />
-      <View style={[styles.screw, styles.screwRight, large && styles.screwLg]} />
+      <View style={[styles.screw, { backgroundColor: colors.outline }, styles.screwLeft, large && styles.screwLg]} />
+      <View style={[styles.screw, { backgroundColor: colors.outline }, styles.screwRight, large && styles.screwLg]} />
       <Text
-        style={[styles.text, large && styles.textLg]}
+        style={[styles.text, { color: colors.onSurface }, large && styles.textLg]}
         numberOfLines={1}
         adjustsFontSizeToFit
       >
@@ -38,8 +44,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    backgroundColor: "#FCFCFA",
-    borderColor: colors.foreground,
     borderWidth: 1.5,
     borderRadius: 6,
     height: 34,
@@ -57,7 +61,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     letterSpacing: 2,
-    color: colors.foreground,
     fontVariant: ["tabular-nums"],
   },
   textLg: {
@@ -71,7 +74,6 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
-    backgroundColor: colors.foregroundMuted,
   },
   screwLg: {
     top: 7,
@@ -82,3 +84,4 @@ const styles = StyleSheet.create({
   screwLeft: { left: 7 },
   screwRight: { right: 7 },
 });
+

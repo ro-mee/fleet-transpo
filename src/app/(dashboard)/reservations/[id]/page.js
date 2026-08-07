@@ -606,150 +606,116 @@ export default function ReservationDetailPage() {
       )}
 
       <Dialog open={rejecting} onOpenChange={setRejecting}>
-        <DialogContent className="rounded-2xl sm:max-w-[440px] p-6 border border-border shadow-xl bg-surface">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 rounded-xl bg-danger/10 text-danger border border-danger/20 flex items-center justify-center shrink-0">
-              <Ban className="w-5 h-5 text-danger" />
-            </div>
-            <div className="space-y-1">
-              <DialogTitle className="text-base font-bold text-foreground">Reject Transport Request</DialogTitle>
-              <DialogDescription className="text-xs text-foreground-muted leading-relaxed">
-                This will mark the request as rejected and send an automated status update to the guest.
-              </DialogDescription>
-            </div>
-          </div>
-
-          <div className="space-y-2 py-4">
-            <Label htmlFor="reject-reason" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-foreground-muted" /> Rejection Reason (optional)
-            </Label>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Reject Transport Request</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will mark the request rejected and notify the originating Booking system.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="reject-reason" className="text-xs font-semibold">Reason (optional)</Label>
             <Input
               id="reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="e.g. No vehicles available at requested time"
-              className="rounded-xl text-xs h-10 border-border bg-hover/30 focus-visible:ring-danger"
+              className="rounded-xl text-xs"
             />
           </div>
-
-          <DialogFooter className="gap-2 pt-3 border-t border-border/60">
-            <Button variant="outline" size="sm" onClick={() => setRejecting(false)} className="rounded-xl h-9">
-              Dismiss
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRejecting(false)} className="rounded-xl">
+              Cancel
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
               disabled={rejectMutation.isPending}
               onClick={() => rejectMutation.mutate()}
-              className="rounded-xl h-9 font-medium px-4 gap-1.5 shadow-sm"
+              className="rounded-xl"
             >
-              <Ban className="w-4 h-4" />
-              {rejectMutation.isPending ? "Rejecting…" : "Confirm Rejection"}
+              Reject Request
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={cancelling} onOpenChange={setCancelling}>
-        <DialogContent className="rounded-2xl sm:max-w-[440px] p-6 border border-border shadow-xl bg-surface">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 rounded-xl bg-danger/10 text-danger border border-danger/20 flex items-center justify-center shrink-0">
-              <TriangleAlert className="w-5 h-5 text-danger" />
-            </div>
-            <div className="space-y-1">
-              <DialogTitle className="text-base font-bold text-foreground">Cancel Transport Request</DialogTitle>
-              <DialogDescription className="text-xs text-foreground-muted leading-relaxed">
-                This will cancel the booking request in Fleet and notify the originating PMS/POS system.
-              </DialogDescription>
-            </div>
-          </div>
-
-          <div className="space-y-2 py-4">
-            <Label htmlFor="cancel-reason" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-              <FileText className="w-3.5 h-3.5 text-foreground-muted" /> Reason for Cancellation (optional)
-            </Label>
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Cancel Transport Request</DialogTitle>
+            <DialogDescription className="text-xs">
+              This will cancel the request in Fleet and notify the Booking system.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="cancel-reason" className="text-xs font-semibold">Reason (optional)</Label>
             <Input
               id="cancel-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Guest cancelled booking, duplicate request"
-              className="rounded-xl text-xs h-10 border-border bg-hover/30 focus-visible:ring-danger"
+              placeholder="e.g. Guest cancelled booking"
+              className="rounded-xl text-xs"
             />
-            <p className="text-[11px] text-foreground-muted">This reason will be logged permanently in the audit timeline.</p>
           </div>
-
-          <DialogFooter className="gap-2 pt-3 border-t border-border/60">
-            <Button variant="outline" size="sm" onClick={() => setCancelling(false)} className="rounded-xl h-9">
-              Keep Request
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCancelling(false)} className="rounded-xl">
+              Back
             </Button>
             <Button
-              variant="destructive"
+              variant="danger"
               size="sm"
               disabled={cancelMutation.isPending}
               onClick={() => cancelMutation.mutate()}
-              className="rounded-xl h-9 font-medium px-4 gap-1.5 shadow-sm"
+              className="rounded-xl"
             >
-              <XCircle className="w-4 h-4" />
-              {cancelMutation.isPending ? "Cancelling…" : "Confirm Cancel"}
+              Cancel Request
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       <Dialog open={rescheduling} onOpenChange={setRescheduling}>
-        <DialogContent className="rounded-2xl sm:max-w-[440px] p-6 border border-border shadow-xl bg-surface">
-          <div className="flex items-start gap-4">
-            <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
-              <CalendarClock className="w-5 h-5 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <DialogTitle className="text-base font-bold text-foreground">Reschedule Pickup Time</DialogTitle>
-              <DialogDescription className="text-xs text-foreground-muted leading-relaxed">
-                Update the requested pickup datetime. The change will be appended to the reservation history.
-              </DialogDescription>
-            </div>
-          </div>
-
-          <div className="space-y-3.5 py-4">
+        <DialogContent className="rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold">Reschedule Pickup Time</DialogTitle>
+            <DialogDescription className="text-xs">
+              Change the requested pickup datetime. The timeline will log this change.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
             <div className="space-y-1.5">
-              <Label htmlFor="new-pickup" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-primary" /> New Pickup Date &amp; Time *
-              </Label>
+              <Label htmlFor="new-pickup" className="text-xs font-semibold">New Pickup Date &amp; Time *</Label>
               <Input
                 id="new-pickup"
                 type="datetime-local"
                 value={newPickup}
                 onChange={(e) => setNewPickup(e.target.value)}
-                className="rounded-xl text-xs h-10 border-border bg-hover/30 focus-visible:ring-primary cursor-pointer font-medium"
+                className="rounded-xl text-xs"
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="reschedule-reason" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-foreground-muted" /> Reason for Change (optional)
-              </Label>
+              <Label htmlFor="reschedule-reason" className="text-xs font-semibold">Reason (optional)</Label>
               <Input
                 id="reschedule-reason"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Flight delay, guest requested time adjustment"
-                className="rounded-xl text-xs h-10 border-border bg-hover/30 focus-visible:ring-primary"
+                placeholder="e.g. Flight delay"
+                className="rounded-xl text-xs"
               />
             </div>
           </div>
-
-          <DialogFooter className="gap-2 pt-3 border-t border-border/60">
-            <Button variant="outline" size="sm" onClick={() => setRescheduling(false)} className="rounded-xl h-9">
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setRescheduling(false)} className="rounded-xl">
               Cancel
             </Button>
             <Button
-              variant="default"
               size="sm"
               disabled={rescheduleMutation.isPending || !newPickup}
               onClick={() => rescheduleMutation.mutate()}
-              className="rounded-xl h-9 font-medium px-4 gap-1.5 shadow-sm"
+              className="rounded-xl px-4"
             >
-              <CalendarClock className="w-4 h-4" />
-              {rescheduleMutation.isPending ? "Saving…" : "Save New Pickup Time"}
+              Save New Pickup Time
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,5 +1,6 @@
 import { StyleSheet, Text, View } from "react-native";
-import { colors, fonts, space } from "../lib/theme";
+import { useTheme } from "../lib/theme-context";
+import { fonts, space } from "../lib/theme";
 
 /**
  * FleetOps brand mark: a dark rounded square with a white car silhouette,
@@ -7,6 +8,7 @@ import { colors, fonts, space } from "../lib/theme";
  * carries no icon dependency.
  */
 export function LogoMark({ variant = "app", size = "sm" }) {
+  const { colors } = useTheme();
   const large = size === "lg";
   const bg = variant === "login" ? colors.primary : colors.foreground;
 
@@ -19,11 +21,12 @@ export function LogoMark({ variant = "app", size = "sm" }) {
       ]}
       accessibilityLabel="FleetOps"
     >
-      <View style={[styles.cabin, large ? styles.cabinLg : styles.cabinSm]} />
-      <View style={[styles.body, large ? styles.bodyLg : styles.bodySm]} />
+      <View style={[styles.cabin, { backgroundColor: colors.surface }, large ? styles.cabinLg : styles.cabinSm]} />
+      <View style={[styles.body, { backgroundColor: colors.surface }, large ? styles.bodyLg : styles.bodySm]} />
       <View
         style={[
           styles.wheel,
+          { backgroundColor: colors.foreground },
           large ? styles.wheelLg : styles.wheelSm,
           large ? styles.wheelLgPosL : styles.wheelPosL,
         ]}
@@ -31,6 +34,7 @@ export function LogoMark({ variant = "app", size = "sm" }) {
       <View
         style={[
           styles.wheel,
+          { backgroundColor: colors.foreground },
           large ? styles.wheelLg : styles.wheelSm,
           large ? styles.wheelLgPosR : styles.wheelPosR,
         ]}
@@ -41,11 +45,12 @@ export function LogoMark({ variant = "app", size = "sm" }) {
 
 /** Signed-in top bar: brand mark + wordmark, with an optional right slot. */
 export function BrandBar({ right }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.bar}>
+    <View style={[styles.bar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
       <View style={styles.barBrand}>
         <LogoMark size="sm" />
-        <Text style={styles.barName}>FleetOps</Text>
+        <Text style={[styles.barName, { color: colors.onSurface }]}>FleetOps</Text>
       </View>
       {right}
     </View>
@@ -63,14 +68,12 @@ const styles = StyleSheet.create({
   // Cabin sits above and overlapping the body, front view.
   cabin: {
     position: "absolute",
-    backgroundColor: colors.surface,
     borderRadius: 2,
   },
   cabinSm: { top: 8, left: 9, width: 10, height: 5 },
   cabinLg: { top: 18, left: 20, width: 23, height: 12, borderRadius: 4 },
   body: {
     position: "absolute",
-    backgroundColor: colors.surface,
     borderRadius: 2,
   },
   bodySm: { top: 12, left: 5, width: 18, height: 6 },
@@ -93,9 +96,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: space.xl,
-    backgroundColor: colors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   barBrand: {
     flexDirection: "row",
@@ -106,6 +107,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.display,
     fontSize: 16,
     lineHeight: 20,
-    color: colors.foreground,
   },
 });
+

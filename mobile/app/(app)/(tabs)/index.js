@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useEffect } from "react";
 import {
   Alert,
   RefreshControl,
@@ -6,63 +7,57 @@ import {
   StyleSheet,
   Text,
   View,
+  Pressable,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../lib/api";
-import { useAuth } from "../../lib/auth";
-import { ACTIONS, canAction } from "../../lib/rbac";
-import { useTripTracking } from "../../lib/tracking";
+import { api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
+import { ACTIONS, canAction } from "../../../lib/rbac";
+import { useTripTracking } from "../../../lib/tracking";
 import {
-  colors,
-  fonts,
-  space,
-  tripStatusTone,
-  type,
-} from "../../lib/theme";
+  getActiveStatuses,
+  getTone,
+  getNextStatus,
+} from "../../../lib/tripRef";
+import { useTheme } from "../../../lib/theme-context";
+import { fonts, space } from "../../../lib/theme";
 import {
   Avatar,
   Button,
   Card,
   EmptyState,
   ErrorNotice,
-  ScreenTitle,
+  SkeletonCard,
   StatusPill,
   styles as ui,
-} from "../../components/ui";
-import { BrandBar } from "../../components/logo";
-import { Plate } from "../../components/plate";
-
-const ACTIVE_STATUSES = [
-  "Driver Accepted",
-  "Trip Started",
-  "En Route",
-  "Arrived",
-  "In Progress",
-];
-
+} from "../../../components/ui";
+import { BrandBar } from "../../../components/logo";
+import { Plate } from "../../../components/plate";
 /**
  * Driver home. Answers three things at a glance: am I on a trip, what is
  * assigned next, and what do I do about it.
  *
- * The layout inherits the web dispatch floor: a brand bar, an eyebrowed page
- * title, then the one active trip as a paper slip with the vehicle rendered as
- * a physical plate.
+ * Status grouping, tones, and the next-action chain come from the server
+ * (GET /api/mobile/driver/ref) so the client never re-implements the state
+ * machine.
  */
 export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { colors } = useTheme();
 
   const [trips, setTrips] = useState([]);
+  const [activeStatuses, setActiveStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [actingOn, setActingOn] = useState(null);
 
-  const activeTrip = trips.find((t) => ACTIVE_STATUSES.includes(t.trip_status));
+  const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
   const pendingTrips = trips.filter(
-    (t) => !ACTIVE_STATUSES.includes(t.trip_status)
+    (t) => !activeStatuses.includes(t.trip_status)
   );
 
   // Feature gates mirror the driver column of docs/rbac-model.md. The server
@@ -81,8 +76,12 @@ export default function Home() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const data = await api.get("/api/mobile/driver/trips");
+      const [data, active] = await Promise.all([
+        api.get("/api/mobile/driver/trips"),
+        getActiveStatuses(),
+      ]);
       setTrips(Array.isArray(data) ? data : []);
+      setActiveStatuses(active);
     } catch (e) {
       setError(e.message || "Could not load your trips.");
     }
@@ -146,10 +145,10 @@ export default function Home() {
   );
 
   const updateStatus = useCallback(
-    async (trip, status) => {
+    async (trip, status, extra = {}) => {
       setActingOn(trip.trip_id);
       try {
-        await api.put(`/api/trips/${trip.trip_id}/status`, { status });
+        await api.put(`/api/trips/${trip.trip_id}/status`, { status, ...extra });
         await load();
       } catch (e) {
         setError(e.message || "Could not update the trip status.");
@@ -162,8 +161,9 @@ export default function Home() {
 
   /**
    * Completing a trip is the one step a driver cannot walk back, and it stops
-   * location sharing, so it is confirmed. The intermediate steps are cheap to
-   * correct and go through without a prompt.
+   * location sharing, so it is confirmed. End-odometer is captured here and
+   * sent to the server, which validates it (src/lib/vehicles/odometer.js). The
+   * intermediate steps are cheap to correct and go through without a prompt.
    */
   const advance = useCallback(
     (trip, next) => {
@@ -171,26 +171,31 @@ export default function Home() {
         updateStatus(trip, next.status);
         return;
       }
-      Alert.alert(
+      let odometer = "";
+      Alert.prompt(
         "Complete this trip?",
-        "This closes the trip and stops sharing your location. Report any fuel before completing.",
+        "Enter the ending odometer (km), then confirm. This closes the trip and stops location sharing.",
         [
           { text: "Not yet", style: "cancel" },
           {
             text: "Complete trip",
-            onPress: () => updateStatus(trip, next.status),
+            onPress: (value) =>
+              updateStatus(trip, next.status, { end_odometer: Number(value) }),
           },
-        ]
+        ],
+        "plain-text",
+        odometer,
+        "decimal-pad"
       );
     },
     [updateStatus]
   );
 
   const driverName = user?.firstName ?? user?.first_name ?? "";
-  const eyebrow = `Driver · ${driverName}`;
+  const firstName = driverName.split(" ")[0];
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <BrandBar right={<Avatar initials={initialsOf(user)} />} />
       <ScrollView
         contentContainerStyle={[
@@ -201,12 +206,22 @@ export default function Home() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        <ScreenTitle eyebrow={eyebrow} title="Today's work" />
+        <View style={styles.greeting}>
+          <Text style={[styles.dateLine, { color: colors.onSurfaceVariant }]}>
+            {formatDate(new Date())}
+          </Text>
+          <Text style={[styles.greetingTitle, { color: colors.onBackground }]}>
+            {greeting()} {firstName ? `, ${firstName}` : ""}
+          </Text>
+        </View>
 
         <ErrorNotice message={error} onRetry={onRefresh} />
 
         {loading ? (
-          <Text style={ui.bodyText}>Loading your trips…</Text>
+          <View style={styles.skeletons}>
+            <SkeletonCard lines={4} />
+            <SkeletonCard lines={3} />
+          </View>
         ) : (
           <>
             {activeTrip ? (
@@ -220,7 +235,7 @@ export default function Home() {
             ) : null}
 
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>
+              <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
                 {pendingTrips.length > 0 ? "Assigned to you" : "Assignments"}
               </Text>
 
@@ -248,7 +263,7 @@ export default function Home() {
                 holds the report_fuel action. */}
             {activeTrip && canReportFuel ? (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Fuel</Text>
+                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Fuel</Text>
                 <Card>
                   <Text style={ui.bodyText}>
                     Report a fuel purchase for{" "}
@@ -263,7 +278,25 @@ export default function Home() {
               </View>
             ) : null}
 
-            <Button label="Sign out" variant="secondary" onPress={signOut} />
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Tools</Text>
+              <View style={styles.buttonRow}>
+                <Button
+                  label="Report incident"
+                  variant="outline"
+                  onPress={() => router.push("/incidents")}
+                  style={styles.flex}
+                />
+                <Button
+                  label="Vehicle inspection"
+                  variant="outline"
+                  onPress={() => router.push("/inspection")}
+                  style={styles.flex}
+                />
+              </View>
+            </View>
+
+            <Button label="Sign out" variant="outline" onPress={signOut} />
           </>
         )}
       </ScrollView>
@@ -272,13 +305,15 @@ export default function Home() {
 }
 
 function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
-  const nextStatus = getNextStatus(trip.trip_status);
+  const { colors } = useTheme();
+  const tone = useStatusTone(trip.trip_status);
+  const nextStatus = useNextStatus(trip.trip_status);
 
   return (
-    <Card>
+    <Card tone={tone}>
       <View style={ui.rowBetween}>
-        <Text style={ui.eyebrow}>Active trip</Text>
-        <StatusPill label={trip.trip_status} tone={tripStatusTone(trip.trip_status)} />
+        <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Active trip</Text>
+        <StatusPill label={trip.trip_status} tone={tone} />
       </View>
 
       <RouteLine origin={trip.origin} destination={trip.destination} />
@@ -303,11 +338,14 @@ function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
 }
 
 function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
+  const { colors } = useTheme();
+  const tone = useStatusTone(trip.trip_status);
+
   return (
     <Card>
       <View style={ui.rowBetween}>
-        <Text style={styles.tripId}>#{trip.trip_id}</Text>
-        <StatusPill label={trip.trip_status} tone={tripStatusTone(trip.trip_status)} />
+        <Text style={[styles.tripId, { color: colors.onSurface }]}>#{trip.trip_id}</Text>
+        <StatusPill label={trip.trip_status} tone={tone} />
       </View>
 
       <RouteLine origin={trip.origin} destination={trip.destination} />
@@ -327,7 +365,7 @@ function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
           />
           <Button
             label="Decline"
-            variant="secondary"
+            variant="outline"
             onPress={onDecline}
             disabled={busy}
             style={styles.flex}
@@ -338,23 +376,54 @@ function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
   );
 }
 
+/** Loads the tone for a trip status from the server reference data. */
+function useStatusTone(status) {
+  const [tone, setTone] = useState("neutral");
+  useEffect(() => {
+    let active = true;
+    getTone(status).then((t) => {
+      if (active) setTone(t);
+    });
+    return () => {
+      active = false;
+    };
+  }, [status]);
+  return tone;
+}
+
+/** Loads the next driver action for a status from the server reference data. */
+function useNextStatus(status) {
+  const [next, setNext] = useState(null);
+  useEffect(() => {
+    let active = true;
+    getNextStatus(status).then((n) => {
+      if (active) setNext(n);
+    });
+    return () => {
+      active = false;
+    };
+  }, [status]);
+  return next;
+}
+
 /**
  * A trip has an inherent direction, so the stops are joined by a dashed rail —
  * a signal marking on paper, like a dispatch board.
  */
 function RouteLine({ origin, destination }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.route}>
       <View style={styles.routeRail}>
-        <View style={[styles.routeDot, styles.routeDotStart]} />
-        <View style={styles.routeStem} />
-        <View style={[styles.routeDot, styles.routeDotEnd]} />
+        <View style={[styles.routeDot, { backgroundColor: colors.primary }]} />
+        <View style={[styles.routeStem, { borderLeftColor: colors.outlineVariant }]} />
+        <View style={[styles.routeDot, { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primary }]} />
       </View>
       <View style={styles.routeText}>
-        <Text style={styles.routeStop} numberOfLines={2}>
+        <Text style={[styles.routeStop, { color: colors.onSurface }]} numberOfLines={2}>
           {origin}
         </Text>
-        <Text style={styles.routeStop} numberOfLines={2}>
+        <Text style={[styles.routeStop, { color: colors.onSurface }]} numberOfLines={2}>
           {destination}
         </Text>
       </View>
@@ -363,11 +432,12 @@ function RouteLine({ origin, destination }) {
 }
 
 function ScheduledBlock({ time }) {
+  const { colors } = useTheme();
   if (!time) return null;
   return (
     <View style={styles.timeBlock}>
-      <Text style={ui.eyebrow}>Scheduled</Text>
-      <Text style={styles.timeValue}>{formatTime(time)}</Text>
+      <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Scheduled</Text>
+      <Text style={[styles.timeValue, { color: colors.onSurface }]}>{formatTime(time)}</Text>
     </View>
   );
 }
@@ -377,11 +447,12 @@ function ScheduledBlock({ time }) {
  * the state in text, not by colour alone.
  */
 function TrackingRow({ tracking }) {
+  const { colors } = useTheme();
   if (tracking.error) {
     return (
       <View style={styles.trackingRow}>
         <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-        <Text style={styles.trackingText}>{tracking.error}</Text>
+        <Text style={[styles.trackingText, { color: colors.onSurfaceVariant }]}>{tracking.error}</Text>
       </View>
     );
   }
@@ -389,7 +460,7 @@ function TrackingRow({ tracking }) {
   return (
     <View style={styles.trackingRow}>
       <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-      <Text style={styles.trackingText}>
+      <Text style={[styles.trackingText, { color: colors.onSurfaceVariant }]}>
         Location shared
         {tracking.lastSentAt
           ? ` · last sent ${tracking.lastSentAt.toLocaleTimeString()}`
@@ -400,20 +471,9 @@ function TrackingRow({ tracking }) {
 }
 
 /**
- * The next step a driver can take, labelled by outcome rather than by the raw
- * status value. Statuses come from DRIVER_ALLOWED_STATUSES in
- * src/app/api/trips/[id]/status/route.js.
+ * The next step a driver can take comes from the server reference data
+ * (GET /api/mobile/driver/ref), not a client-side chain.
  */
-function getNextStatus(current) {
-  const flow = {
-    "Driver Accepted": { status: "Trip Started", label: "Start trip" },
-    "Trip Started": { status: "En Route", label: "Mark en route" },
-    "En Route": { status: "Arrived", label: "Mark arrived" },
-    Arrived: { status: "Completed", label: "Complete trip" },
-  };
-  return flow[current] ?? null;
-}
-
 function initialsOf(user) {
   const first = user?.firstName ?? user?.first_name ?? "";
   const last = user?.lastName ?? user?.last_name ?? "";
@@ -430,17 +490,46 @@ function formatTime(iso) {
   });
 }
 
+function formatDate(d) {
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function greeting() {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
+
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
+  flex: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  skeletons: { gap: space.base },
+  greeting: { gap: space.xs, marginBottom: space.xs },
+  dateLine: {
+    fontFamily: fonts.data,
+    fontSize: 12,
+    lineHeight: 16,
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  greetingTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 26,
+    lineHeight: 32,
+    letterSpacing: -0.4,
+  },
   section: { gap: space.md },
-  sectionTitle: { ...type.sectionTitle },
+  sectionTitle: { fontFamily: fonts.display, fontSize: 18, lineHeight: 24 },
   tripId: {
     fontFamily: fonts.dataSemiBold,
     fontSize: 14,
     lineHeight: 18,
     letterSpacing: 0.5,
-    color: colors.foreground,
   },
   plateRow: {
     flexDirection: "row",
@@ -453,7 +542,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.data,
     fontSize: 13,
     lineHeight: 18,
-    color: colors.foreground,
     fontVariant: ["tabular-nums"],
   },
   route: {
@@ -467,17 +555,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   routeDot: { width: 9, height: 9, borderRadius: 5 },
-  routeDotStart: { backgroundColor: colors.primary },
-  routeDotEnd: {
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
   routeStem: {
     flex: 1,
     marginVertical: 3,
     borderLeftWidth: 1.5,
-    borderLeftColor: colors.border,
     borderStyle: "dashed",
   },
   routeText: { flex: 1, gap: 18, paddingVertical: 2 },
@@ -486,7 +567,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 21,
     fontWeight: "500",
-    color: colors.foreground,
   },
   trackingRow: {
     flexDirection: "row",
@@ -494,11 +574,9 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingTop: space.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
     marginTop: space.xs,
   },
   trackingText: {
-    color: colors.foregroundSecondary,
     fontSize: 13,
     fontFamily: fonts.body,
     flex: 1,

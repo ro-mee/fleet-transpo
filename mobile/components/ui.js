@@ -1,65 +1,57 @@
+import { Component, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
-import {
-  colors,
-  fonts,
-  radius,
-  space,
-  statusSurfaces,
-  TOUCH_TARGET,
-  type,
-} from "../lib/theme";
+import { useTheme } from "../lib/theme-context";
+import { fonts, radius, space, TOUCH_TARGET } from "../lib/theme";
 
 /**
- * Shared primitives for the driver app, built from the semantic tokens in
- * lib/theme.js. Screens compose these rather than defining their own colours or
- * button variants, per docs/design-system.md.
- *
- * The visual language is inherited from the web app: flat paper cards with a
- * hairline border, Archivo headings, IBM Plex Sans copy, and IBM Plex Mono for
- * labels, codes, and figures.
+ * MD3 shared primitives for the driver app. Every component derives its colour
+ * and elevation from useTheme(), so light and dark modes both work without
+ * touching screens. Screens compose these rather than defining their own
+ * colours or button variants.
  */
 
-export function Card({ children, style }) {
-  return <View style={[styles.card, style]}>{children}</View>;
-}
-
-/** Status expressed as text + colour + shape, never colour alone. */
-export function StatusPill({ label, tone = "neutral" }) {
+/**
+ * A tonal MD3 surface card. `tone` draws a short coloured edge along the top
+ * (the dispatch-slip signal) and `elevated` raises the card.
+ */
+export function Card({ children, style, tone, elevated }) {
+  const { colors, statusSurfaces, elevation } = useTheme();
   return (
-    <View style={[styles.pill, { backgroundColor: statusSurfaces[tone] }]}>
-      <View style={[styles.dot, { backgroundColor: toneColor(tone) }]} />
-      <Text style={[styles.pillText, { color: toneColor(tone) }]}>{label}</Text>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.surface, borderColor: colors.outlineVariant },
+        elevated && elevation.level1,
+        tone ? styles.cardWithEdge : null,
+        style,
+      ]}
+    >
+      {tone ? (
+        <View
+          style={[
+            styles.cardEdge,
+            { backgroundColor: colors[tone] ?? colors.primary },
+          ]}
+        />
+      ) : null}
+      {children}
     </View>
   );
 }
 
-function toneColor(tone) {
-  return tone === "neutral" ? colors.foregroundSecondary : colors[tone];
-}
-
-/**
- * Buttons keep their label while loading and block duplicate submissions, per
- * the design system's action rules.
- */
-export function Button({
-  label,
-  onPress,
-  variant = "primary",
-  loading = false,
-  disabled = false,
-  style,
-}) {
+/** MD3 filled button (primary action). */
+export function FilledButton({ label, onPress, loading, disabled, style, size = "lg" }) {
+  const { colors, elevation } = useTheme();
   const isDisabled = disabled || loading;
-  const isPrimary = variant === "primary";
-  const isDanger = variant === "danger";
-
+  const isSmall = size === "sm";
   return (
     <Pressable
       onPress={onPress}
@@ -68,57 +60,196 @@ export function Button({
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       style={({ pressed }) => [
         styles.button,
-        isPrimary && styles.buttonPrimary,
-        isDanger && styles.buttonDanger,
-        !isPrimary && !isDanger && styles.buttonSecondary,
-        pressed && !isDisabled && styles.buttonPressed,
+        isSmall && styles.buttonSmall,
+        { backgroundColor: isDisabled ? colors.onSurfaceVariant : colors.primary },
+        isSmall ? elevation.level0 : elevation.level1,
+        pressed && !isDisabled && { backgroundColor: colors.primaryContainer },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
     >
-      {loading && (
-        <ActivityIndicator
-          size="small"
-          color={isPrimary || isDanger ? colors.surface : colors.foreground}
-        />
-      )}
-      <Text
-        style={[
-          styles.buttonText,
-          { color: isPrimary || isDanger ? colors.surface : colors.foreground },
-        ]}
-      >
+      {loading && <ActivityIndicator size="small" color={colors.onPrimary} />}
+      <Text style={[styles.buttonText, { color: colors.onPrimary }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** MD3 tonal button (secondary). */
+export function TonalButton({ label, onPress, loading, disabled, style, size = "lg" }) {
+  const { colors } = useTheme();
+  const isDisabled = disabled || loading;
+  const isSmall = size === "sm";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={({ pressed }) => [
+        styles.button,
+        isSmall && styles.buttonSmall,
+        { backgroundColor: isDisabled ? colors.surfaceContainer : colors.secondaryContainer },
+        pressed && !isDisabled && { backgroundColor: colors.onSecondaryContainer },
+        isDisabled && styles.buttonDisabled,
+        style,
+      ]}
+    >
+      {loading && <ActivityIndicator size="small" color={colors.onSecondaryContainer} />}
+      <Text style={[styles.buttonText, { color: colors.onSecondaryContainer }]}>
         {label}
       </Text>
     </Pressable>
   );
 }
 
+/** MD3 outlined button. */
+export function OutlinedButton({ label, onPress, loading, disabled, style, size = "lg" }) {
+  const { colors } = useTheme();
+  const isDisabled = disabled || loading;
+  const isSmall = size === "sm";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={({ pressed }) => [
+        styles.button,
+        isSmall && styles.buttonSmall,
+        { borderWidth: 1, borderColor: colors.outline, backgroundColor: "transparent" },
+        pressed && !isDisabled && { backgroundColor: colors.surfaceContainerLow },
+        isDisabled && styles.buttonDisabled,
+        style,
+      ]}
+    >
+      {loading && <ActivityIndicator size="small" color={colors.primary} />}
+      <Text style={[styles.buttonText, { color: colors.primary }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** MD3 text button. */
+export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
+  const { colors } = useTheme();
+  const isDisabled = disabled;
+  const isSmall = size === "sm";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled }}
+      style={({ pressed }) => [
+        styles.button,
+        isSmall && styles.buttonSmall,
+        { backgroundColor: "transparent" },
+        pressed && !isDisabled && { backgroundColor: colors.surfaceContainer },
+        isDisabled && styles.buttonDisabled,
+        style,
+      ]}
+    >
+      <Text style={[styles.buttonText, { color: isDisabled ? colors.outline : colors.primary }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Backward-compatible Button (maps to MD3 variants). */
+export function Button({ label, onPress, variant = "primary", loading, disabled, style, size }) {
+  if (variant === "secondary") {
+    return (
+      <TonalButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />
+    );
+  }
+  if (variant === "outline") {
+    return (
+      <OutlinedButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />
+    );
+  }
+  if (variant === "text") {
+    return <TextButton label={label} onPress={onPress} disabled={disabled} style={style} size={size} />;
+  }
+  return <FilledButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
+}
+
+/** MD3 assist chip (selectable). */
+export function Chip({ label, selected, onPress, disabled }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityState={{ selected: !!selected, disabled: !!disabled }}
+      style={({ pressed }) => [
+        styles.chip,
+        {
+          backgroundColor: selected ? colors.secondaryContainer : colors.surfaceContainerLow,
+          borderColor: selected ? "transparent" : colors.outlineVariant,
+        },
+        pressed && !selected && { backgroundColor: colors.surfaceContainerHigh },
+        style,
+      ]}
+    >
+      {selected ? <View style={[styles.chipDot, { backgroundColor: colors.onSecondaryContainer }]} /> : null}
+      <Text style={[styles.chipText, { color: selected ? colors.onSecondaryContainer : colors.onSurfaceVariant }]}>
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+/** Status expressed as text + colour + shape, never colour alone. */
+export function StatusPill({ label, tone = "neutral" }) {
+  const { colors, statusSurfaces } = useTheme();
+  const bg = statusSurfaces[tone] || statusSurfaces.neutral;
+  const fg = tone === "neutral" ? colors.onSurfaceVariant : colors[tone] || colors.onSurfaceVariant;
+  return (
+    <View style={[styles.pill, { backgroundColor: bg }]}>
+      <View style={[styles.dot, { backgroundColor: fg }]} />
+      <Text style={[styles.pillText, { color: fg }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** MD3 outlined text field with focus state. */
 export function Field({ label, error, required = false, ...inputProps }) {
+  const { colors } = useTheme();
+  const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>
+      <Text style={[styles.label, { color: focused ? colors.primary : colors.onSurfaceVariant }]}>
         {label}
         {required ? " *" : ""}
       </Text>
       <TextInput
-        style={[styles.input, error && styles.inputError]}
-        placeholderTextColor={colors.foregroundMuted}
+        style={[
+          styles.input,
+          {
+            borderColor: error ? colors.error : focused ? colors.primary : colors.outlineVariant,
+            backgroundColor: colors.surface,
+            color: colors.onSurface,
+          },
+        ]}
+        placeholderTextColor={colors.onSurfaceVariant}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         accessibilityLabel={label}
         {...inputProps}
       />
-      {/* Errors sit next to the field they belong to. */}
-      {error ? <Text style={styles.fieldError}>{error}</Text> : null}
+      {error ? <Text style={[styles.fieldError, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
 
 /** Label + value pair for read-only record detail. Data values use mono. */
 export function Detail({ label, value, mono = false }) {
+  const { colors } = useTheme();
   return (
     <View style={styles.detail}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={[styles.detailValue, mono && styles.monoValue]}>
+      <Text style={[styles.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[styles.detailValue, { color: colors.onSurface }, mono && styles.monoValue]}>
         {value ?? "—"}
       </Text>
     </View>
@@ -127,10 +258,15 @@ export function Detail({ label, value, mono = false }) {
 
 /** Empty states say what happened and what to do next. */
 export function EmptyState({ title, message, action }) {
+  const { colors } = useTheme();
   return (
     <Card style={styles.empty}>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.bodyText}>{message}</Text>
+      <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainer }]}>
+        <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 28 }]} />
+        <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 18 }]} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>{title}</Text>
+      <Text style={[styles.bodyText, { color: colors.onSurfaceVariant }]}>{message}</Text>
       {action}
     </Card>
   );
@@ -138,51 +274,137 @@ export function EmptyState({ title, message, action }) {
 
 /** An error that needs action stays visible near the work, not in a toast. */
 export function ErrorNotice({ message, onRetry }) {
+  const { colors } = useTheme();
   if (!message) return null;
   return (
-    <View style={styles.errorNotice} accessibilityLiveRegion="polite">
-      <Text style={styles.errorNoticeText}>{message}</Text>
-      {onRetry ? (
-        <Button label="Try again" variant="secondary" onPress={onRetry} />
-      ) : null}
+    <View
+      style={[styles.errorNotice, { borderColor: colors.error, backgroundColor: colors.errorContainer }]}
+      accessibilityLiveRegion="polite"
+    >
+      <Text style={[styles.errorNoticeText, { color: colors.onErrorContainer }]}>{message}</Text>
+      {onRetry ? <TextButton label="Try again" onPress={onRetry} /> : null}
     </View>
   );
 }
 
+/** Page heading with an optional eyebrow. */
 export function ScreenTitle({ eyebrow, title }) {
+  const { colors, type } = useTheme();
   return (
     <View style={styles.titleBlock}>
-      {eyebrow ? <Text style={styles.eyebrow}>{eyebrow}</Text> : null}
-      <Text style={styles.title} accessibilityRole="header">
+      {eyebrow ? <Text style={[styles.eyebrow, { color: colors.onSurfaceVariant }]}>{eyebrow}</Text> : null}
+      <Text style={[type.pageTitle]} accessibilityRole="header">
         {title}
       </Text>
     </View>
   );
 }
 
-/** Initials avatar, as in the web top bar. */
-export function Avatar({ initials }) {
+/** Initials avatar. */
+export function Avatar({ initials, size = 40 }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.avatar} accessibilityLabel={`Signed in as ${initials}`}>
-      <Text style={styles.avatarText}>{initials}</Text>
+    <View
+      style={[styles.avatar, { width: size, height: size, borderRadius: size / 2, backgroundColor: colors.primary }]}
+      accessibilityLabel={`Signed in as ${initials}`}
+    >
+      <Text style={[styles.avatarText, { color: colors.onPrimary, fontSize: size * 0.4 }]}>{initials}</Text>
+    </View>
+  );
+}
+
+/** A single key figure, value in mono over a small uppercase label. */
+export function Metric({ value, label }) {
+  const { colors } = useTheme();
+  return (
+    <View style={styles.metric}>
+      <Text style={[styles.metricValue, { color: colors.onSurface }]}>{value ?? "—"}</Text>
+      <Text style={[styles.metricLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** A row of Metrics, evenly spread. */
+export function MetricRow({ children, style }) {
+  return <View style={[styles.metricRow, style]}>{children}</View>;
+}
+
+/** Small section label above a group of cards. */
+export function SectionHeading({ children, style }) {
+  const { colors } = useTheme();
+  return <Text style={[styles.sectionHeading, { color: colors.onSurfaceVariant }, style]}>{children}</Text>;
+}
+
+/** MD3 loading skeleton (shimmering block). */
+export function Skeleton({ width = "100%", height = 16, radius: round = radius.sm, style }) {
+  const { colors } = useTheme();
+  const opacity = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.8, duration: 700, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [opacity]);
+
+  return (
+    <Animated.View
+      style={[
+        { width, height, borderRadius: round, backgroundColor: colors.surfaceContainerHigh, opacity },
+        style,
+      ]}
+    />
+  );
+}
+
+/** A row of skeletons used while content loads. */
+export function SkeletonCard({ lines = 3, style }) {
+  const { colors, elevation } = useTheme();
+  return (
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.surface, borderColor: colors.outlineVariant },
+        elevation.level1,
+        style,
+      ]}
+    >
+      <Skeleton width="40%" height={14} />
+      <Skeleton width="100%" height={14} />
+      {lines > 2 ? <Skeleton width="70%" height={14} /> : null}
+    </View>
+  );
+}
+
+/** MD3 snackbar for transient feedback. */
+export function Snackbar({ visible, message, onDismiss, actionLabel, onAction }) {
+  const { colors, elevation } = useTheme();
+  if (!visible) return null;
+  return (
+    <View style={[styles.snackbar, { backgroundColor: colors.inverseSurface }, elevation.level3]}>
+      <Text style={[styles.snackbarText, { color: colors.inverseOnSurface }]}>{message}</Text>
+      {actionLabel && onAction ? (
+        <Pressable onPress={onAction} accessibilityRole="button">
+          <Text style={[styles.snackbarAction, { color: colors.inversePrimary }]}>{actionLabel}</Text>
+        </Pressable>
+      ) : null}
     </View>
   );
 }
 
 export const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: radius.card,
-    padding: space.lg,
+    padding: space.base,
     gap: space.sm,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
-    elevation: 1,
   },
+  cardWithEdge: { paddingTop: space.base + space.xs, overflow: "hidden" },
+  cardEdge: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
   pill: {
     flexDirection: "row",
     alignItems: "center",
@@ -192,7 +414,7 @@ export const styles = StyleSheet.create({
     paddingVertical: space.xs + 1,
     borderRadius: radius.pill,
   },
-  dot: { width: 6, height: 6, borderRadius: radius.marker },
+  dot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontFamily: fonts.data, fontSize: 12, lineHeight: 16 },
   button: {
     flexDirection: "row",
@@ -201,65 +423,57 @@ export const styles = StyleSheet.create({
     gap: space.sm,
     minHeight: TOUCH_TARGET,
     paddingHorizontal: space.base,
-    paddingVertical: space.md,
+    paddingVertical: space.base,
     borderRadius: radius.control,
   },
-  buttonPrimary: { backgroundColor: colors.primary },
-  buttonDanger: { backgroundColor: colors.danger },
-  buttonSecondary: {
-    borderWidth: 1,
-    borderColor: colors.foreground,
-    backgroundColor: "transparent",
-  },
-  buttonPressed: { opacity: 0.88 },
+  buttonSmall: { minHeight: 40, paddingHorizontal: space.base, paddingVertical: space.sm },
   buttonDisabled: { opacity: 0.5 },
   buttonText: { fontFamily: fonts.bodySemiBold, fontSize: 15 },
-  field: { gap: space.xs, marginBottom: space.md },
-  label: { ...type.label },
-  input: {
-    minHeight: TOUCH_TARGET,
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.sm,
+    minHeight: 32,
+    paddingHorizontal: space.base,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.control,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    fontSize: 16,
-    fontFamily: fonts.body,
-    color: colors.foreground,
-    backgroundColor: colors.surface,
   },
-  inputError: { borderColor: colors.danger },
-  fieldError: { color: colors.danger, fontSize: 13, fontFamily: fonts.body },
-  detail: { gap: 2, marginTop: space.xs },
-  detailValue: {
-    color: colors.foreground,
-    fontSize: 15,
-    lineHeight: 20,
-    fontFamily: fonts.body,
-  },
-  monoValue: {
+  chipDot: { width: 6, height: 6, borderRadius: 3 },
+  chipText: { fontFamily: fonts.bodyMedium, fontSize: 13 },
+  field: { gap: space.xs, marginBottom: space.base },
+  label: {
     fontFamily: fonts.data,
-    fontSize: 14,
-    lineHeight: 20,
-    fontVariant: ["tabular-nums"],
+    fontSize: 11,
+    lineHeight: 14,
+    letterSpacing: 1,
+    textTransform: "uppercase",
   },
-  bodyText: { ...type.body },
-  empty: { alignItems: "flex-start", gap: space.md },
-  emptyTitle: {
-    color: colors.foreground,
+  input: {
+    minHeight: 52,
+    borderWidth: 1.5,
+    borderRadius: radius.control,
+    paddingHorizontal: space.base,
+    paddingVertical: space.base,
     fontSize: 16,
-    lineHeight: 21,
-    fontFamily: fonts.bodySemiBold,
+    fontFamily: fonts.body,
   },
+  fieldError: { fontSize: 13, fontFamily: fonts.body },
+  detail: { gap: 2, marginTop: space.xs },
+  detailValue: { fontSize: 15, lineHeight: 20, fontFamily: fonts.body },
+  monoValue: { fontFamily: fonts.data, fontSize: 14, lineHeight: 20 },
+  bodyText: { fontSize: 14, lineHeight: 21, fontFamily: fonts.body },
+  cardTitle: { fontFamily: fonts.display, fontSize: 16, lineHeight: 22 },
+  empty: { alignItems: "center", gap: space.md, paddingVertical: space.xl },
+  emptyMark: { alignItems: "center", gap: 4, padding: space.base, borderRadius: radius.control, marginBottom: space.xs },
+  emptyBar: { height: 3, borderRadius: 2 },
+  emptyTitle: { fontSize: 16, lineHeight: 21, fontFamily: fonts.bodySemiBold, textAlign: "center" },
   errorNotice: {
     gap: space.md,
     padding: space.base,
     borderRadius: radius.control,
     borderWidth: 1,
-    borderColor: colors.danger,
-    backgroundColor: statusSurfaces.danger,
   },
-  errorNoticeText: { color: colors.danger, fontSize: 14, lineHeight: 20, fontFamily: fonts.body },
+  errorNoticeText: { fontSize: 14, lineHeight: 20, fontFamily: fonts.body },
   titleBlock: { gap: space.xs },
   eyebrow: {
     fontFamily: fonts.data,
@@ -268,28 +482,47 @@ export const styles = StyleSheet.create({
     fontWeight: "500",
     letterSpacing: 1.2,
     textTransform: "uppercase",
-    color: colors.foregroundSecondary,
   },
-  title: { ...type.pageTitle, letterSpacing: -0.3 },
   rowBetween: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     gap: space.sm,
   },
-  cardTitle: { ...type.cardTitle },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: colors.hover,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
+  avatar: { alignItems: "center", justifyContent: "center" },
+  avatarText: { fontFamily: fonts.data, fontWeight: "600" },
+  metricRow: { flexDirection: "row", gap: space.base, marginTop: space.xs },
+  metric: { flex: 1, gap: 2 },
+  metricValue: { fontFamily: fonts.dataSemiBold, fontSize: 20, lineHeight: 24, fontVariant: ["tabular-nums"] },
+  metricLabel: {
     fontFamily: fonts.data,
     fontSize: 11,
-    fontWeight: "600",
-    color: colors.foregroundSecondary,
+    lineHeight: 14,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
   },
+  sectionHeading: {
+    fontFamily: fonts.data,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: "500",
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  snackbar: {
+    position: "absolute",
+    left: space.base,
+    right: space.base,
+    bottom: space.base,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.base,
+    paddingHorizontal: space.base,
+    paddingVertical: space.base,
+    borderRadius: radius.control,
+    minHeight: 48,
+  },
+  snackbarText: { fontFamily: fonts.bodyMedium, fontSize: 14, flex: 1 },
+  snackbarAction: { fontFamily: fonts.bodySemiBold, fontSize: 14, textTransform: "uppercase" },
 });

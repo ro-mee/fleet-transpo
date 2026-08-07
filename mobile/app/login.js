@@ -11,14 +11,15 @@ import {
 import { Redirect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../lib/auth";
-import { DEMO_ENABLED } from "../lib/config";
-import { colors, fonts, space } from "../lib/theme";
+import { useTheme } from "../lib/theme-context";
+import { fonts, space } from "../lib/theme";
 import { LogoMark } from "../components/logo";
 import { Button, Card, ErrorNotice, Field, styles as ui } from "../components/ui";
 
 export default function Login() {
-  const { user, loading, signIn, signInDriverDemo } = useAuth();
+  const { user, loading, signIn } = useAuth();
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -29,7 +30,7 @@ export default function Login() {
   // driver who is already signed in.
   if (loading) {
     return (
-      <View style={styles.center}>
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator color={colors.primary} />
       </View>
     );
@@ -59,21 +60,9 @@ export default function Login() {
     }
   };
 
-  const onDriverDemoSubmit = async () => {
-    setError(null);
-    setSubmitting(true);
-    try {
-      await signInDriverDemo();
-    } catch (e) {
-      setError(e.message || "Could not sign in as driver demo.");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <KeyboardAvoidingView
-      style={styles.flex}
+      style={[styles.flex, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
@@ -85,14 +74,15 @@ export default function Login() {
       >
         <View style={styles.brand}>
           <LogoMark variant="login" size="lg" />
-          <Text style={styles.brandName}>FleetOps</Text>
-          <Text style={styles.brandSub}>Driver sign in</Text>
+          <Text style={[styles.brandName, { color: colors.onBackground }]}>FleetOps</Text>
+          <Text style={[styles.brandSub, { color: colors.onSurfaceVariant }]}>Driver sign in</Text>
+          <View style={[styles.brandRule, { backgroundColor: colors.primary }]} />
         </View>
 
         <Card>
-          <Text style={ui.cardTitle}>Welcome back</Text>
-          <Text style={ui.bodyText}>
-            Use your driver account credentials{DEMO_ENABLED ? ", or use a quick demo sign-in below for testing." : "."}
+          <Text style={[ui.cardTitle, { color: colors.onSurface }]}>Welcome back</Text>
+          <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
+            Use your driver account credentials to sign in.
           </Text>
 
           <ErrorNotice message={error} />
@@ -129,36 +119,14 @@ export default function Login() {
             loading={submitting}
           />
         </Card>
-
-        {DEMO_ENABLED ? (
-          <>
-            <View style={styles.demoDivider}>
-              <View style={styles.line} />
-              <Text style={styles.demoLabel}>Temporary testing / demo</Text>
-              <View style={styles.line} />
-            </View>
-
-            <Button
-              label="Sign in as driver (demo)"
-              variant="secondary"
-              onPress={onDriverDemoSubmit}
-              disabled={submitting}
-            />
-          </>
-        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1, backgroundColor: colors.background },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.background,
-  },
+  flex: { flex: 1 },
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
   content: {
     paddingHorizontal: space.xl,
     gap: space.xl,
@@ -166,35 +134,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   brand: { alignItems: "center", gap: space.sm, marginBottom: space.xs },
+  brandRule: { width: 40, height: 3, borderRadius: 2, marginTop: space.xs },
   brandName: {
-    color: colors.foreground,
     fontSize: 28,
     lineHeight: 34,
     fontWeight: "700",
     fontFamily: "Archivo_700Bold",
     marginTop: space.xs,
   },
-  brandSub: {
-    color: colors.foregroundSecondary,
-    fontSize: 14,
-    fontFamily: fonts.body,
-  },
-  demoDivider: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-  },
-  line: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  demoLabel: {
-    color: colors.foregroundSecondary,
-    fontSize: 11,
-    fontWeight: "500",
-    letterSpacing: 0.8,
-    textTransform: "uppercase",
-    fontFamily: "IBMPlexMono_500Medium",
-  },
+  brandSub: { fontSize: 14, fontFamily: fonts.body },
 });
