@@ -22,7 +22,7 @@ import { Skeleton, DetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { TripOdometerDialog } from "@/components/dispatch/trip-odometer-dialog";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
-import { tripProgress } from "@/components/dispatch/dispatch-card";
+import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { useRequireRole } from "@/lib/auth/role-guard";

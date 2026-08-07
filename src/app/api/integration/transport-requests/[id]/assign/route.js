@@ -4,6 +4,7 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
+import { validatePairAvailability } from "@/services/recommendation.service";
 import { writeAudit } from "@/lib/audit";
 
 // ASSIGN a vehicle and/or driver to an approved request.
@@ -50,6 +51,27 @@ export async function PUT(req, { params }) {
         },
         { status: 409 }
       );
+    }
+
+    // Designated-driver enforcement: a pair that departs from the vehicle's
+    // active custodian is only legal when that custodian is provably
+    // unavailable for the pickup window. `force` remains the escape hatch.
+    if (vehicleId && driverId && !force) {
+      const pairCheck = await validatePairAvailability({
+        request: before,
+        vehicleId,
+        driverId,
+      });
+      if (!pairCheck.ok) {
+        return Response.json(
+          {
+            error: pairCheck.conflict.message,
+            conflict: pairCheck.conflict,
+            hint: "Assign the designated driver, or resend with { force: true } to override.",
+          },
+          { status: 409 }
+        );
+      }
     }
 
     // Verify the referenced rows exist before writing FKs, so a bad id gives a

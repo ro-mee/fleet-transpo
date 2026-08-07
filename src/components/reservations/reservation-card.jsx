@@ -148,6 +148,11 @@ export function ReservationCard({
               {r.guest_name || "Unnamed guest"}
             </Link>
             <StatusBadge status={r.priority} entity="priority" />
+            {r.derived_priority && (
+              <StatusBadge status={r.derived_priority} entity="priority" />
+            )}
+            {r.is_vip && <Badge variant="outline">VIP</Badge>}
+            {r.is_emergency && <Badge variant="destructive">Emergency</Badge>}
             {/* The vehicle class the request is for. Beside the guest rather than
                 down in the field grid because it is what the request IS — it
                 decides which vehicles are even eligible, and it is how a

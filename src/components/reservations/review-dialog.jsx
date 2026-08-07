@@ -122,9 +122,12 @@ export function ReviewDialog({
   const bestVehicle = bestPairing ? vById.get(bestPairing.vehicle_id) : null;
   const bestDriver  = bestPairing ? driverById.get(bestPairing.driver_id) : null;
 
-  // AI-scored overlay — enriches the pair with reasons/score if available.
-  const aiVehicle = aiRec?.vehicle?.recommended || r.ai_vehicle_recommendation;
-  const aiDriver  = aiRec?.driver?.recommended  || r.ai_driver_recommendation;
+  // AI-scored pair overlay — the pair is the decision unit, so score/reasons/
+  // risks come from the recommended pair's vehicle & driver halves. Falls back
+  // to the legacy independent columns for read-back compatibility.
+  const aiPair    = aiRec?.pair?.recommended;
+  const aiVehicle = aiPair?.vehicle || aiRec?.vehicle?.recommended || r.ai_vehicle_recommendation;
+  const aiDriver  = aiPair?.driver  || aiRec?.driver?.recommended  || r.ai_driver_recommendation;
 
   // Merge: prefer real pairing for identity, AI for score/reasons.
   const displayVehicle = bestVehicle
@@ -336,6 +339,17 @@ export function ReviewDialog({
                       {pairScore != null ? `${pairScore}% Match` : "Ready"}
                     </Badge>
                   </div>
+
+                  {/* Substitute-pair attribution from the AI pair decision */}
+                  {aiPair?.reason_type === "replacement" && aiPair?.replacement_reason && (
+                    <div className="flex items-start gap-1.5 px-3 py-1.5 border-b border-primary/15 bg-warning/10 text-[11px] text-foreground-secondary">
+                      <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+                      <span>
+                        <span className="font-semibold text-foreground">Substitute pair.</span> The designated
+                        driver was unavailable: {aiPair.replacement_reason}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Combined Vehicle + Driver side by side */}
                   <div className="grid grid-cols-2 divide-x divide-primary/15">

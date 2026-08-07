@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -40,19 +40,6 @@ import {
 // to a rule, which is why the panel can explain itself instead of just asserting.
 const PICK = { RECOMMENDED: "recommended", ALTERNATE: "alternate" };
 
-/** Scorer confidence is 0–1; the bar wants a percentage. */
-function confidencePercent(candidate) {
-  const c = Number(candidate?.confidence);
-  return Number.isFinite(c) ? Math.round(c * 100) : 0;
-}
-
-function confidenceTone(pct) {
-  if (pct >= 80) return "success";
-  if (pct >= 60) return "primary";
-  if (pct >= 40) return "warning";
-  return "danger";
-}
-
 function RiskList({ risks = [] }) {
   if (!risks.length) return null;
   return (
@@ -80,19 +67,55 @@ function RiskList({ risks = [] }) {
  */
 /**
  * Combined Vehicle & Driver Pair Block.
- * Replaces the split separate vehicle/driver blocks with a single unified pair card.
+ *
+ * The pair is the decision unit: recommended and alternate are each a full
+ * vehicle+driver pair. Swapping swaps the WHOLE pair, so swapping the vehicle
+ * also pulls in that vehicle's designated driver in one action — you can never
+ * end up with a vehicle and a driver that don't belong together.
  */
-function VehicleDriverPairBlock({
-  vehicleSide,
-  driverSide,
-  vehiclePick,
-  driverPick,
-  onSwapVehicle,
-  onSwapDriver,
-  expanded,
-}) {
-  const vehicle = vehiclePick === PICK.ALTERNATE ? vehicleSide?.alternate : vehicleSide?.recommended;
-  const driver = driverPick === PICK.ALTERNATE ? driverSide?.alternate : driverSide?.recommended;
+function AvailabilityChip({ availability }) {
+  if (!availability?.label) return null;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+        availability.free ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
+      )}
+    >
+      {availability.free ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+      {availability.label}
+    </span>
+  );
+}
+
+/** The always-visible "Why this pair?" checklist. */
+function ChecklistBlock({ items = [] }) {
+  if (!items.length) return null;
+  return (
+    <div className="rounded-lg border border-border/60 bg-hover/30 px-3 py-2.5">
+      <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">
+        Recommendation Reason
+      </p>
+      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
+        {items.map((item, i) => (
+          <li key={i} className="flex items-start gap-1.5 text-xs">
+            {item.pass ? (
+              <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" aria-hidden="true" />
+            ) : (
+              <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+            )}
+            <span className={item.pass ? "text-foreground-secondary" : "text-foreground"}>{item.text}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function VehicleDriverPairBlock({ pair, pick, onSwap, expanded }) {
+  const chosen = pick === PICK.ALTERNATE ? pair?.alternate : pair?.recommended;
+  const vehicle = chosen?.vehicle;
+  const driver = chosen?.driver;
 
   if (!vehicle) {
     return (
@@ -102,17 +125,13 @@ function VehicleDriverPairBlock({
           <span>Vehicle &amp; Driver Dispatch Pair</span>
         </div>
         <p className="text-xs text-foreground-secondary leading-relaxed">
-          {vehicleSide?.considered > 0
-            ? `None of the ${vehicleSide.considered} available vehicles fit this request's seating capacity or requirements.`
+          {pair?.considered > 0
+            ? `None of the ${pair.considered} available vehicles fit this request's seating capacity or requirements.`
             : "No candidates are currently available for this pickup window."}
         </p>
       </div>
     );
   }
-
-  const vPct = confidencePercent(vehicle);
-  const dPct = driver ? confidencePercent(driver) : 0;
-  const pairPct = driver ? Math.round((vPct + dPct) / 2) : vPct;
 
   const vehicleTitle = vehicle.plate_number
     ? `${vehicle.plate_number}${vehicle.vehicle_name ? ` · ${vehicle.vehicle_name}` : ""}`
@@ -144,20 +163,28 @@ function VehicleDriverPairBlock({
             <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
               Recommended Fleet Pair
             </p>
-            <p className="text-[11px] text-foreground-muted">Vehicle paired with designated shift driver</p>
+            <p className="text-[11px] text-foreground-muted">Vehicle paired with its designated driver</p>
           </div>
         </div>
-        <Badge variant={confidenceTone(pairPct)} className="text-xs font-bold px-2 py-0.5">
-          {pairPct}% Pair Confidence
-        </Badge>
       </div>
+
+      {/* Replacement attribution */}
+      {chosen?.reason_type === "replacement" && chosen?.replacement_reason && (
+        <div className="flex items-start gap-1.5 rounded-lg bg-warning/10 px-3 py-2 text-xs text-foreground-secondary">
+          <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+          <span>
+            <span className="font-semibold text-foreground">Substitute pair.</span> The designated driver
+            was unavailable: {chosen.replacement_reason}
+          </span>
+        </div>
+      )}
 
       {/* Vehicle Info */}
       <div className="flex items-start justify-between gap-2 text-xs">
         <div className="space-y-0.5 min-w-0">
           <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
             <CarFront className="w-3.5 h-3.5 text-primary shrink-0" /> Assigned Vehicle
-            {vehiclePick === PICK.ALTERNATE && (
+            {pick === PICK.ALTERNATE && (
               <Badge variant="secondary" className="text-[9px] py-0 px-1">Alternate</Badge>
             )}
           </span>
@@ -165,10 +192,11 @@ function VehicleDriverPairBlock({
           {vehicleMeta.length > 0 && (
             <p className="text-foreground-muted text-[11px]">{vehicleMeta.join(" · ")}</p>
           )}
+          <AvailabilityChip availability={vehicle.availability} />
         </div>
-        {vehicleSide?.alternate && (
-          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwapVehicle}>
-            <Shuffle className="w-3 h-3 mr-1" /> Swap Vehicle
+        {pair?.alternate && (
+          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwap}>
+            <Shuffle className="w-3 h-3 mr-1" /> Swap Pair
           </Button>
         )}
       </div>
@@ -178,37 +206,30 @@ function VehicleDriverPairBlock({
         <div className="space-y-0.5 min-w-0">
           <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
             <UserCheck className="w-3.5 h-3.5 text-info shrink-0" /> Designated Driver
-            {driverPick === PICK.ALTERNATE && (
-              <Badge variant="secondary" className="text-[9px] py-0 px-1">Alternate</Badge>
+            {chosen?.is_designated === false && (
+              <Badge variant="secondary" className="text-[9px] py-0 px-1">Substitute</Badge>
             )}
           </span>
           <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
           {driverMeta.length > 0 && (
             <p className="text-foreground-muted text-[11px]">{driverMeta.join(" · ")}</p>
           )}
+          <AvailabilityChip availability={driver.availability} />
         </div>
-        {driverSide?.alternate && driver && (
-          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwapDriver}>
-            <Shuffle className="w-3 h-3 mr-1" /> Swap Driver
-          </Button>
-        )}
       </div>
+
+      {/* Why this pair? — always visible checklist */}
+      <ChecklistBlock items={chosen?.checklist} />
 
       {/* Rationale / Match Reasons */}
       {expanded && (
         <div className="pt-2 border-t border-border/40 space-y-1.5">
           <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">Pairing Rationale</p>
           <ul className="space-y-1 text-xs">
-            {(vehicle?.reasons || []).slice(0, 2).map((r, i) => (
-              <li key={`v-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
+            {(chosen?.reasons || []).slice(0, 4).map((r, i) => (
+              <li key={`r-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
                 <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
-                <span>Vehicle: {r}</span>
-              </li>
-            ))}
-            {driver && (driver?.reasons || []).slice(0, 2).map((r, i) => (
-              <li key={`d-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
-                <Check className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
-                <span>Driver: {r}</span>
+                <span>{r}</span>
               </li>
             ))}
           </ul>
@@ -248,6 +269,46 @@ function TripSummary({ trip }) {
   );
 }
 
+/** A live "now" that ticks every 30s, so countdowns and "X ago" stay current. */
+function useNow() {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return now;
+}
+
+function relativeMinutes(iso, now) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.floor((t - now) / 60_000);
+  const abs = Math.abs(mins);
+  if (abs < 1) return "just now";
+  return `${abs} minute${abs === 1 ? "" : "s"} ${mins >= 0 ? "remaining" : "ago"}`;
+}
+
+/** Pickup countdown: the headline dispatchers use to prioritize. */
+function Countdown({ pickupAt, now }) {
+  if (!pickupAt) return null;
+  const t = new Date(pickupAt).getTime();
+  if (!Number.isFinite(t)) return null;
+  const mins = Math.floor((t - now) / 60_000);
+  const remaining = mins >= 0 ? `${mins} min${mins === 1 ? "" : "s"} remaining` : "Pickup time passed";
+  const tone = mins < 30 ? "text-danger" : mins < 60 ? "text-warning" : "text-success";
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-hover/50 px-3 py-2 text-xs">
+      <span className="flex items-center gap-1.5 text-foreground-secondary">
+        <Clock className="w-3.5 h-3.5 text-foreground-muted" aria-hidden="true" />
+        Pickup {formatDateTime(pickupAt)}
+      </span>
+      <span className={cn("font-bold", tone)}>{remaining}</span>
+    </div>
+  );
+}
+
 /**
  * Expandable AI recommendation panel for one request.
  *
@@ -256,13 +317,14 @@ function TripSummary({ trip }) {
  * panel open with the server's blocking conflicts and an explicit override —
  * identical to the manual dialog, because it is the same endpoint answering.
  */
-export function AiRecommendationPanel({ requestId, className, defaultExpanded = false, canAssign = false, onAssigned }) {
+export function AiRecommendationPanel({ requestId, className, defaultExpanded = false, canAssign = false, onAssigned, alreadyAssigned = false, pickupAt = null }) {
   const queryClient = useQueryClient();
+  const now = useNow();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [dismissed, setDismissed] = useState(false);
-  const [vehiclePick, setVehiclePick] = useState(PICK.RECOMMENDED);
-  const [driverPick, setDriverPick] = useState(PICK.RECOMMENDED);
+  const [pick, setPick] = useState(PICK.RECOMMENDED);
   const [conflictError, setConflictError] = useState(null);
+  const [regenerating, setRegenerating] = useState(false);
 
   const {
     data: rec,
@@ -272,14 +334,16 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
     error,
     refetch,
   } = useQuery({
-    queryKey: ["reservation-recommendation", requestId],
-    queryFn: () => getRecommendation(requestId),
+    queryKey: ["reservation-recommendation", requestId, regenerating ? "fresh" : "cached"],
+    queryFn: () => getRecommendation(requestId, { regenerate: regenerating }),
     enabled: requestId != null && !dismissed,
     staleTime: 60_000,
   });
 
-  const vehicle = vehiclePick === PICK.ALTERNATE ? rec?.vehicle?.alternate : rec?.vehicle?.recommended;
-  const driver = driverPick === PICK.ALTERNATE ? rec?.driver?.alternate : rec?.driver?.recommended;
+  const chosen = pick === PICK.ALTERNATE ? rec?.pair?.alternate : rec?.pair?.recommended;
+  const vehicle = chosen?.vehicle ?? null;
+  const driver = chosen?.driver ?? null;
+  const snapshot = rec?.snapshot ?? null;
 
   const assignMutation = useMutation({
     mutationFn: ({ force }) =>
@@ -346,9 +410,12 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
             disabled={isFetching}
             onClick={() => {
               setConflictError(null);
+              setPick(PICK.RECOMMENDED);
+              setRegenerating(true);
               refetch();
             }}
-            aria-label="Refresh recommendation"
+            aria-label="Regenerate recommendation"
+            title="Regenerate a fresh fleet pair"
           >
             <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
           </Button>
@@ -388,19 +455,25 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
           />
         ) : (
           <>
+            <Countdown pickupAt={pickupAt} now={now} />
             <TripSummary trip={rec?.trip} />
 
+            {snapshot?.expired && (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary">
+                <span className="flex items-center gap-1.5">
+                  <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0" aria-hidden="true" />
+                  {snapshot.expiry_reason}
+                </span>
+                <Button variant="outline" size="sm" className="h-7 shrink-0" onClick={() => refetch()}>
+                  <RefreshCw className="w-3 h-3 mr-1" /> Regenerate
+                </Button>
+              </div>
+            )}
+
             <VehicleDriverPairBlock
-              vehicleSide={rec?.vehicle}
-              driverSide={rec?.driver}
-              vehiclePick={vehiclePick}
-              driverPick={driverPick}
-              onSwapVehicle={() =>
-                setVehiclePick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))
-              }
-              onSwapDriver={() =>
-                setDriverPick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))
-              }
+              pair={rec?.pair}
+              pick={pick}
+              onSwap={() => setPick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))}
               expanded={expanded}
             />
 
@@ -412,7 +485,7 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
 
             <ConflictBlock conflicts={blocking} />
 
-            {canAssign && (
+            {canAssign && !alreadyAssigned && (
               <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-border pt-3">
                 <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>
                   <X className="w-3.5 h-3.5 mr-1" />
@@ -441,7 +514,7 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
 
             {rec?.generated_at && (
               <p className="text-xs text-foreground-muted">
-                Generated {formatDateTime(rec.generated_at)}
+                Generated {relativeMinutes(rec.generated_at, now)}
               </p>
             )}
           </>

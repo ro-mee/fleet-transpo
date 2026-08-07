@@ -88,10 +88,17 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
   });
   // Active custodial pairings (migration 017). Without these the dispatcher has
   // to open each vehicle's page to find out who is responsible for it.
-  const { data: pairingData } = useQuery({
+  const { data: pairingData, isLoading: loadingPairings } = useQuery({
     queryKey: ["driver-assignments", "active"],
     queryFn: () => getDriverAssignments(),
   });
+
+  // The reference lists load async; until they do, `vehicles`/`drivers`/`rows`
+  // are all empty and any attribution ("paired", "off duty", "wrong class")
+  // computed from them is a guess that will flash and flip the moment data
+  // lands. Gate the pinned attribution on data being ready so the dialog never
+  // shows a warning it is about to retract.
+  const sourcesLoading = loadingVehicles || loadingDrivers || loadingPairings;
 
   // Same floor the server uses: an absent or zero passenger_count means one seat.
   const passengers = Number(request?.passenger_count) || 1;
@@ -181,6 +188,12 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
       ? personName(d ?? dRow ?? { driver_id: request.driver_id })
       : "No driver";
 
+    // While the reference lists load, any attribution would be a guess that
+    // flashes then flips. Suppress the pinned card entirely until the data is
+    // there — the dropdown's own "Loading…" placeholder covers this moment, so
+    // nothing transient is rendered that a settled state would retract.
+    if (sourcesLoading) return null;
+
     // Tested against the raw pairing rows, not `options` — `options` excludes
     // off-duty pairings, so asking it would report a genuine pairing as "not
     // paired" whenever its driver happened to be off duty today.
@@ -220,7 +233,7 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
               ? "driver off duty"
               : "not paired"),
     };
-  }, [request, options, vehicles, drivers, pairingData, seatsTooFew, reqCategoryId]);
+  }, [request, options, vehicles, drivers, pairingData, seatsTooFew, reqCategoryId, sourcesLoading]);
 
   const allOptions = pinned ? [pinned, ...options] : options;
 

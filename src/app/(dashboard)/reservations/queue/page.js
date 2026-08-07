@@ -20,14 +20,6 @@ import {
   ReservationCard,
   ReservationCardSkeleton,
 } from "@/components/reservations/reservation-card";
-import {
-  QueueFilters,
-  EMPTY_FILTERS,
-  DEFAULT_ACTIVE_STATUSES,
-  ANY,
-  hasActiveFilters,
-  toQueryParams,
-} from "@/components/reservations/queue-filters";
 import { AssignDialog } from "@/components/reservations/assign-dialog";
 import { ReviewDialog } from "@/components/reservations/review-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
@@ -40,31 +32,50 @@ import {
   pullTransportRequests,
 } from "@/services/transport.service";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
+import { groupQueue, QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
+import { cn } from "@/lib/utils";
 import {
-  Building2,
+  CalendarClock,
   CheckCircle2,
-  Clock,
   DownloadCloud,
   Inbox,
+  PlayCircle,
   Search,
   TriangleAlert,
+  XCircle,
 } from "lucide-react";
 
-// The dispatcher's workspace over requests received from Booking.
+// The unified Transportation Queue — the merged dispatcher workspace.
 //
-// Filtering is server-side (every control maps to a query param the list GET
-// already accepts), and the list polls so a request injected by Booking appears
-// without a manual refresh. Conflicts come from ?with_conflicts=true, which
-// batches the detection into four queries for the whole page rather than four
-// per card.
+// Replaces the split Request Queue + Dispatch Board with one surface. Five tabs
+// (Today / Upcoming / In Progress / Completed / Cancelled) are derived from each
+// request's fleet_status and pickup time, and every active tab is auto-sorted by
+// derived_priority (the priority engine's output — never a human choice). The
+// same review / approve / reject / assign dialogs back the whole surface.
 const REFETCH_MS = 30_000;
+
+const TAB_META = {
+  today: { label: "Today", icon: Inbox },
+  upcoming: { label: "Upcoming", icon: CalendarClock },
+  inProgress: { label: "In Progress", icon: PlayCircle },
+  completed: { label: "Completed", icon: CheckCircle2 },
+  cancelled: { label: "Cancelled", icon: XCircle },
+};
+
+const TAB_ACTIVE = {
+  primary: "border-info bg-info/10 text-info",
+  warning: "border-warning bg-warning/10 text-warning",
+  success: "border-success bg-success/10 text-success",
+  secondary: "border-border bg-hover text-foreground",
+};
 
 const isReviewable = (status) => status === L.PENDING || status === L.UNDER_REVIEW;
 
-export default function ReservationQueuePage() {
+export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
-  const [filters, setFilters] = useState(EMPTY_FILTERS);
+  const [tab, setTab] = useState("today");
+  const [search, setSearch] = useState("");
   const [reviewing, setReviewing] = useState(null);
   const [rejecting, setRejecting] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -72,9 +83,6 @@ export default function ReservationQueuePage() {
   const [assignError, setAssignError] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
-  // Authorization is resolved once here and passed down, so the card stays
-  // presentational. Each verb matches the role list its endpoint enforces —
-  // scripts/verify-rbac.mjs asserts the two layers agree.
   const permissions = useMemo(
     () => ({
       update: can("reservations", "update"),
@@ -85,29 +93,17 @@ export default function ReservationQueuePage() {
     [can]
   );
 
-  const queryParams = useMemo(
-    () => ({ ...toQueryParams(filters), with_conflicts: "true" }),
-    [filters]
-  );
-
-  // Query total active queue without status filter to keep top KPI numbers stable and accurate
-  const { data: allActiveRequests = [] } = useQuery({
-    queryKey: ["transport-requests", "base-active-kpi"],
-    queryFn: () => getTransportRequests({ fleet_status: DEFAULT_ACTIVE_STATUSES, with_conflicts: "true" }),
-    refetchInterval: REFETCH_MS,
-    placeholderData: (prev) => prev,
-  });
-
+  // One query for the whole queue. Conflicts are advisory and opt-in; the
+  // queue renders them as chips, assignment enforces them.
   const {
     data: requests = [],
     isLoading,
-    isFetching,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", queryParams],
-    queryFn: () => getTransportRequests(queryParams),
+    queryKey: ["transport-requests", "unified-queue"],
+    queryFn: () => getTransportRequests({ with_conflicts: "true" }),
     refetchInterval: REFETCH_MS,
     placeholderData: (prev) => prev,
   });
@@ -165,8 +161,6 @@ export default function ReservationQueuePage() {
     onError: (e) => toast.error(e.message || "Failed to reject request"),
   });
 
-  // A 409 carries the blocking conflicts; keep the dialog open and hand them to
-  // it so the dispatcher can see and knowingly override rather than guess.
   const assignMutation = useMutation({
     mutationFn: ({ request, vehicleId, driverId, force }) =>
       assignResources(request.request_id, { vehicleId, driverId, force }),
@@ -187,77 +181,53 @@ export default function ReservationQueuePage() {
     },
   });
 
-  const currentStatTab = useMemo(() => {
-    if (filters.has_conflict_only) return "conflicts";
-    if (filters.fleet_status === L.APPROVED) return "approved";
-    if (filters.fleet_status === L.PENDING || filters.fleet_status === L.UNDER_REVIEW || filters.fleet_status?.includes("Pending")) return "reviewing";
-    if (filters.fleet_status === ANY) return "all";
-    return null;
-  }, [filters]);
+  const flagsMutation = useMutation({
+    mutationFn: ({ request, isVip, isEmergency }) =>
+      setRequestFlags(request.request_id, { isVip, isEmergency }),
+    onSuccess: (_res, { request }) => {
+      toast.success("Flags updated — priority recomputed");
+      invalidate();
+    },
+    onError: (e) => toast.error(e.message || "Failed to update flags"),
+  });
 
-  const stats = useMemo(() => {
-    const count = (fn) => allActiveRequests.filter(fn).length;
+  // Group into the five tabs, each auto-sorted by derived_priority.
+  const grouped = useMemo(() => groupQueue(requests), [requests]);
 
-    return [
-      {
-        label: "In Queue",
-        value: allActiveRequests.length,
-        icon: Inbox,
-        tone: "primary",
-        trend: "active queue",
-        active: currentStatTab === "all",
-        onClick: () => setFilters((f) => ({ ...f, fleet_status: ANY, has_conflict_only: false })),
-      },
-      {
-        label: "Awaiting Review",
-        value: count((r) => isReviewable(r.fleet_status)),
-        icon: Clock,
-        tone: "warning",
-        trend: "needs a decision",
-        active: currentStatTab === "reviewing",
-        onClick: () => setFilters((f) => ({ ...f, fleet_status: `${L.PENDING},${L.UNDER_REVIEW}`, has_conflict_only: false })),
-      },
-      {
-        label: "Ready to Assign",
-        value: count((r) => r.fleet_status === L.APPROVED),
-        icon: CheckCircle2,
-        tone: "success",
-        trend: "approved",
-        active: currentStatTab === "approved",
-        onClick: () => setFilters((f) => ({ ...f, fleet_status: L.APPROVED, has_conflict_only: false })),
-      },
-      {
-        label: "With Conflicts",
-        value: count((r) => r.conflicts?.length > 0),
-        icon: TriangleAlert,
-        tone: "danger",
-        trend: "review before assigning",
-        active: currentStatTab === "conflicts",
-        onClick: () =>
-          setFilters((f) => ({
-            ...f,
-            fleet_status: ANY,
-            has_conflict_only: !f.has_conflict_only,
-          })),
-      },
-    ];
-  }, [allActiveRequests, currentStatTab]);
+  const counts = useMemo(() => {
+    const c = {};
+    for (const k of QUEUE_TABS) c[k] = grouped[k]?.length || 0;
+    return c;
+  }, [grouped]);
 
-  const displayRequests = useMemo(() => {
-    if (filters.has_conflict_only) {
-      return requests.filter((r) => r.conflicts?.length > 0);
-    }
-    return requests;
-  }, [requests, filters.has_conflict_only]);
+  const items = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const list = grouped[tab] || [];
+    if (!term) return list;
+    return list.filter((r) =>
+      [r.guest_name, r.reservation_number, r.booking_reference, r.pickup_location, r.dropoff_location]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    );
+  }, [grouped, tab, search]);
 
-  const filtered = hasActiveFilters(filters) || Boolean(filters.has_conflict_only);
+  const activeCount = counts.today + counts.upcoming + counts.inProgress;
+  const searching = search.trim().length > 0;
+  const tabTone = (id) => {
+    if (id === "inProgress") return "warning";
+    if (id === "completed") return "success";
+    if (id === "cancelled") return "secondary";
+    return "primary";
+  };
 
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Operations"
-        title="Request Queue"
-        description="Transportation requests received from the Booking system."
+        title="Transportation Queue"
+        description="Every request and committed dispatch in one place — auto-sorted by urgency."
         actions={
           <Button onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
             <DownloadCloud className="w-4 h-4 mr-2" />
@@ -266,30 +236,84 @@ export default function ReservationQueuePage() {
         }
       />
 
-      <div className="flex items-start gap-3 rounded-xl border border-info/30 bg-info/5 p-4">
-        <Building2 className="mt-0.5 w-5 h-5 shrink-0 text-info" aria-hidden="true" />
-        <div className="text-sm text-foreground-secondary">
-          <p className="font-medium text-foreground">Requests originate from the Booking system.</p>
-          <p className="mt-0.5">
-            Fleet reviews each request, then approves or rejects it and commits a vehicle and driver.
-            Guest and booking details are owned by Booking and shown read-only. Conflict chips are
-            advisory — assignment enforces them.
-          </p>
-        </div>
-      </div>
-
       <StatGrid cols={4}>
-        {stats.map((s) => (
-          <StatCard key={s.label} {...s} />
-        ))}
+        <StatCard
+          label="Today"
+          value={counts.today}
+          icon={Inbox}
+          tone="primary"
+          trend="awaiting action"
+          active={tab === "today"}
+          onClick={() => setTab("today")}
+        />
+        <StatCard
+          label="Upcoming"
+          value={counts.upcoming}
+          icon={CalendarClock}
+          tone="info"
+          trend="later"
+          active={tab === "upcoming"}
+          onClick={() => setTab("upcoming")}
+        />
+        <StatCard
+          label="In Progress"
+          value={counts.inProgress}
+          icon={PlayCircle}
+          tone="warning"
+          trend="on the road"
+          active={tab === "inProgress"}
+          onClick={() => setTab("inProgress")}
+        />
+        <StatCard
+          label="Active Total"
+          value={activeCount}
+          icon={TriangleAlert}
+          tone="primary"
+          trend="across all tabs"
+          active={false}
+        />
       </StatGrid>
 
-      <QueueFilters
-        filters={filters}
-        onChange={setFilters}
-        resultCount={isLoading ? null : displayRequests.length}
-        isFetching={isFetching}
-      />
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Queue sections">
+          {QUEUE_TABS.map((id) => {
+            const meta = TAB_META[id];
+            const Icon = meta.icon;
+            const active = tab === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setTab(id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                  active ? TAB_ACTIVE[tabTone(id)] : "border-border text-foreground-secondary hover:bg-hover"
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+                {meta.label}
+                <span className="font-data opacity-70">{counts[id]}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative flex-1 sm:w-72">
+          <Search
+            className="absolute left-2.5 top-1/2 w-3.5 h-3.5 -translate-y-1/2 text-foreground-muted"
+            aria-hidden="true"
+          />
+          <Input
+            className="pl-8"
+            placeholder="Guest, reference, location…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search the queue"
+          />
+        </div>
+      </div>
 
       {isError ? (
         <div className="rounded-xl border border-danger/30 bg-danger/5 p-4">
@@ -310,20 +334,24 @@ export default function ReservationQueuePage() {
           <ReservationCardSkeleton />
           <ReservationCardSkeleton />
         </div>
-      ) : displayRequests.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="rounded-xl border border-border bg-surface">
           <EmptyState
-            icon={filtered ? Search : Inbox}
-            title={filtered ? "No requests match these filters" : "No transportation requests"}
+            icon={searching ? Search : Inbox}
+            title={
+              searching
+                ? "Nothing matches that search"
+                : `Nothing ${TAB_META[tab].label.toLowerCase()}`
+            }
             description={
-              filtered
-                ? "Try widening the search or clearing the filters."
-                : "Requests from the Booking system will appear here. Use “Pull from Booking” to fetch them."
+              searching
+                ? "Try a different term or clear the search."
+                : "Requests from Booking and active dispatches appear here. Use “Pull from Booking” to fetch new ones."
             }
             action={
-              filtered ? (
-                <Button variant="outline" size="sm" onClick={() => setFilters(EMPTY_FILTERS)}>
-                  Clear filters
+              searching ? (
+                <Button variant="outline" size="sm" onClick={() => setSearch("")}>
+                  Clear search
                 </Button>
               ) : (
                 <Button size="sm" onClick={() => pullMutation.mutate()} disabled={pullMutation.isPending}>
@@ -336,7 +364,7 @@ export default function ReservationQueuePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {displayRequests.map((r) => (
+          {items.map((r) => (
             <ReservationCard
               key={r.request_id}
               request={r}

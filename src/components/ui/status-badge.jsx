@@ -90,14 +90,17 @@ const ENTITY_MAPS = {
     cancelled: "secondary",
   },
   // Reservation priority is Urgent/High/Medium/Low (migration 016). Maintenance
-  // still uses Critical/High/Normal/Low, so both vocabularies live here.
+  // still uses Critical/High/Normal/Low, so both vocabularies live here. Derived
+  // queue priority (migration 026) adds Overdue/Future on top of those levels.
   priority: {
     urgent: "danger",
     critical: "danger",
+    overdue: "danger",
     high: "warning",
     medium: "secondary",
     normal: "secondary",
     low: "info",
+    future: "secondary",
   },
 };
 

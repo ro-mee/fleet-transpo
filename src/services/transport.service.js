@@ -72,6 +72,18 @@ export async function rescheduleRequest(id, pickupDatetime, reason = null) {
   });
 }
 
+// Toggle a request's VIP / emergency flags. Both are inputs to the priority
+// engine; setting one recomputes the derived priority immediately.
+export async function setRequestFlags(id, { isVip, isEmergency } = {}) {
+  return apiFetch(`/api/integration/transport-requests/${id}/flags`, {
+    method: "PATCH",
+    body: {
+      ...(isVip !== undefined ? { is_vip: isVip } : {}),
+      ...(isEmergency !== undefined ? { is_emergency: isEmergency } : {}),
+    },
+  });
+}
+
 // Append-only event log for one request — what the timeline component renders.
 export async function getRequestTimeline(id) {
   return apiFetch(`/api/integration/transport-requests/${id}/timeline`);
@@ -85,8 +97,11 @@ export async function getRequestTimeline(id) {
 // over the pick the rule engine already made. It is a separate, slower call on
 // purpose — the scored result should never wait on prose. Returns the same
 // payload either way, with `narration` null when the provider doesn't answer.
-export async function getRecommendation(id, { persist = false, narrate = false } = {}) {
-  const qs = narrate && !persist ? "?narrate=1" : "";
+export async function getRecommendation(id, { persist = false, narrate = false, regenerate = false } = {}) {
+  const params = new URLSearchParams();
+  if (narrate && !persist) params.set("narrate", "1");
+  if (regenerate) params.set("regenerate", "1");
+  const qs = params.toString() ? `?${params.toString()}` : "";
   return apiFetch(`/api/integration/transport-requests/${id}/recommendation${qs}`, {
     method: persist ? "POST" : "GET",
   });

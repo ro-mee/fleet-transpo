@@ -52,6 +52,12 @@ export const TransportationRequestSchema = z.object({
 
   // What Booking believes the state is. Fleet keeps its own fleet_status.
   booking_status: z.string().optional().default("Pending"),
+
+  // Optional priority-engine signals. Booking may flag a guest as VIP or a
+  // ride as an emergency; both feed the derived queue priority. Absent by
+  // default (false) so legacy senders are unaffected.
+  is_vip: z.boolean().optional().default(false),
+  is_emergency: z.boolean().optional().default(false),
 });
 
 /** @typedef {z.infer<typeof TransportationRequestSchema>} TransportationRequest */

@@ -7,6 +7,7 @@ import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
 import { estimateTrip } from "@/lib/geo/distance";
 import { detectConflictsForRequests } from "@/lib/scheduling/conflicts";
+import { recomputeDerivedPriority } from "@/services/priority.service";
 import { assignReservationNumber } from "@/lib/scheduling/reservation-number";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { RESERVATION_EVENT as E } from "@/lib/constants";
@@ -154,6 +155,17 @@ export async function GET(req) {
     const { rows } = await query(sql, params);
     const requests = rows || [];
 
+    // Recompute + persist derived_priority for the visible set so the queue's
+    // ORDER BY reflects time-to-pickup and flags as of this read. Best-effort
+    // (a recompute failure must not take the list down).
+    if (requests.length) {
+      try {
+        await recomputeDerivedPriority(requests);
+      } catch (e) {
+        console.warn("derived_priority recompute failed on list:", e?.message || e);
+      }
+    }
+
     // ?with_conflicts=true attaches the advisory conflict findings the queue
     // renders as chips. Opt-in because it costs four extra queries: callers that
     // only need the list (dropdowns, counts) shouldn't pay for it. Batched
@@ -223,8 +235,9 @@ export async function POST(req) {
          (external_booking_id, source_system, booking_reference, guest_name,
           pickup_location, dropoff_location, pickup_datetime, passenger_count,
           special_requests, service_type_id, priority, booking_status, fleet_status,
-          requested_vehicle_type, requested_category_id, estimated_distance, estimated_duration)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+          requested_vehicle_type, requested_category_id, estimated_distance, estimated_duration,
+          is_vip, is_emergency)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
        RETURNING *`,
       [
         request.external_booking_id,
@@ -250,6 +263,8 @@ export async function POST(req) {
         category.categoryId,
         estimate.distanceKm,
         estimate.durationMin,
+        request.is_vip === true,
+        request.is_emergency === true,
       ]
     );
     const created = rows[0];

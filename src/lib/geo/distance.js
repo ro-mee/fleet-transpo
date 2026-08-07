@@ -140,7 +140,20 @@ const ROAD_WINDING_FACTOR = 1.35;
 const AVG_SPEED_KMH = 25;
 const FIXED_OVERHEAD_MIN = 10;
 
+/** CoCo Star Hotel base coordinates, used as the fallback when a position is unknown. */
+export const HOTEL_BASE = { lat: 14.5159034, lng: 120.9953405 };
+
 /** Resolve a free-text location to gazetteer coordinates, or null. */
+export function resolveCoordinates(text) {
+  if (!text) return null;
+  const s = String(text);
+  for (const entry of GAZETTEER) {
+    if (entry.match.test(s)) return { lat: entry.lat, lng: entry.lng, label: entry.label };
+  }
+  return null;
+}
+
+/** Resolve a free-text location to the full gazetteer entry, or null. */
 function resolveLocation(text) {
   if (!text) return null;
   const s = String(text);
@@ -151,7 +164,7 @@ function resolveLocation(text) {
 }
 
 /** Great-circle distance between two lat/lng points, in km. */
-function haversineKm(a, b) {
+export function haversineKm(a, b) {
   const toRad = (deg) => (deg * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);

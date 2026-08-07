@@ -27,3 +27,14 @@ export async function updateUvvrpPolicy(policy) {
     body: policy,
   });
 }
+
+export async function getDispatchPolicy() {
+  return apiFetch("/api/settings/dispatch");
+}
+
+export async function updateDispatchPolicy(policy) {
+  return apiFetch("/api/settings/dispatch", {
+    method: "PUT",
+    body: policy,
+  });
+}

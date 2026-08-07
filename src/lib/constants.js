@@ -77,6 +77,31 @@ export const RESERVATION_PRIORITY = {
   LOW: "Low",
 };
 
+// Derived priority for the Smart Transportation Queue. NOT set by humans —
+// recomputed from time-to-pickup + VIP/emergency/overdue by
+// src/lib/scheduling/priority.js. Mirrors chk_transport_derived_priority
+// (migration 026). Overdue is the top of the queue; Future is only shown under
+// the Upcoming tab.
+export const DERIVED_PRIORITY = {
+  OVERDUE: "Overdue",
+  CRITICAL: "Critical",
+  HIGH: "High",
+  MEDIUM: "Medium",
+  NORMAL: "Normal",
+  FUTURE: "Future",
+};
+
+// Sort rank for the queue: Overdue first, Future last. Never shown in the UI
+// as a label; it only drives ordering.
+export const DERIVED_PRIORITY_RANK = {
+  [DERIVED_PRIORITY.OVERDUE]: 1,
+  [DERIVED_PRIORITY.CRITICAL]: 2,
+  [DERIVED_PRIORITY.HIGH]: 3,
+  [DERIVED_PRIORITY.MEDIUM]: 4,
+  [DERIVED_PRIORITY.NORMAL]: 5,
+  [DERIVED_PRIORITY.FUTURE]: 6,
+};
+
 // Timeline event types written to reservation_events (migration 016). Every
 // status transition and operator action appends one row via
 // recordReservationEvent() in src/services/reservation-events.service.js.

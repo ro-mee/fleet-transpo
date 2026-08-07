@@ -1,47 +1,158 @@
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
+import { RISK } from "@/lib/ai/predictive-maintenance";
 
 /**
  * Rule-Based AI Engine
  * Deterministic business logic operating with ZERO external API keys.
  * Acts as the default engine & instant fallback if LLM Mode is unavailable.
+ *
+ * Smart Dispatch adds four decision-support signals on top of the legacy
+ * capacity/fuel/status factors. Every helper is pure: the API route attaches
+ * the raw data as `_`-prefixed attributes on each candidate row, and the
+ * scorer turns them into points and reason strings. Nothing here queries a
+ * database or reads the clock.
  */
+
+/** Proximity only ranks drivers for IMMEDIATE dispatch. Future-dated pickups get no bonus. */
+export function isProximityRelevant(pickupDatetime, now = new Date(), windowHrs = 3) {
+  if (!pickupDatetime) return false;
+  const t = new Date(pickupDatetime).getTime();
+  const n = new Date(now).getTime();
+  if (!Number.isFinite(t) || !Number.isFinite(n)) return false;
+  return t <= n + windowHrs * 60 * 60 * 1000;
+}
+
+/**
+ * Fuel efficiency heuristic (km/L) inferred from seating capacity and fuel type.
+ * Shared by the scoring and the payload so "estimated fuel" means one number.
+ */
+export function estimateEfficiency(vehicle) {
+  const seats = Number(vehicle?.seating_capacity) || 4;
+  let kmPerLiter;
+  if (seats <= 5) kmPerLiter = 12;
+  else if (seats <= 8) kmPerLiter = 9;
+  else if (seats <= 15) kmPerLiter = 7;
+  else kmPerLiter = 5;
+  return /diesel/i.test(vehicle?.fuel_type || "") ? kmPerLiter * 1.15 : kmPerLiter;
+}
+
+function kmLabel(distanceKm) {
+  return Number(distanceKm).toFixed(1);
+}
+
+/** Nearest driver. Absolute points; the caller decides when it applies. */
+export function scoreProximity(distanceKm) {
+  if (distanceKm === null || distanceKm === undefined) return { points: 0, reason: null };
+  if (distanceKm <= 2) return { points: 12, reason: `Closest to pickup (${kmLabel(distanceKm)} km)` };
+  if (distanceKm <= 5) return { points: 8, reason: `Near pickup (${kmLabel(distanceKm)} km)` };
+  if (distanceKm <= 10) return { points: 4, reason: `${kmLabel(distanceKm)} km from pickup` };
+  return { points: 0, reason: null };
+}
+
+/** Least fuel consumption for THIS trip. Absolute points; caller scales by weight. */
+export function scoreFuelEconomy(estLiters) {
+  if (estLiters === null || estLiters === undefined) return { points: 0, reason: null };
+  if (estLiters <= 2) return { points: 15, reason: `Most fuel-efficient for this trip (~${estLiters} L)` };
+  if (estLiters <= 4) return { points: 8, reason: `Fuel-efficient for this trip (~${estLiters} L)` };
+  if (estLiters <= 7) return { points: 3, reason: `~${estLiters} L fuel for this trip` };
+  return { points: 0, reason: null };
+}
+
+/**
+ * Smallest schedule gap. Returns a 0..1 utilization gain; the caller scales by
+ * its weight budget (vehicles and drivers carry different weights).
+ */
+export function scheduleGapGain(load) {
+  if (load === null || load === undefined) return 0;
+  const n = Number(load) || 0;
+  if (n <= 0) return 1;
+  if (n === 1) return 0.6;
+  if (n === 2) return 0.25;
+  return 0;
+}
+
+/**
+ * Lowest maintenance risk, as a signed gain from -1.5 (overdue/critical) to 1
+ * (low). Callers multiply by their weight budget. Unknown risk is a neutral 0.5
+ * midpoint — never claimed healthy without a schedule.
+ */
+export function maintenanceRiskGain(risk) {
+  if (!risk) return 0.5;
+  switch (risk) {
+    case RISK.LOW:
+      return 1;
+    case RISK.MEDIUM:
+      return 0.5;
+    case RISK.HIGH:
+      return 0;
+    case RISK.CRITICAL:
+    case RISK.OVERDUE:
+      return -1.5;
+    default:
+      return 0.5;
+  }
+}
 
 // 1. Reservation Vehicle Scoring
 export function scoreReservationVehicles(vehicles = [], passengerCount = 1) {
   return vehicles
     .filter((v) => (v.seating_capacity || 4) >= passengerCount)
     .map((v) => {
-      let score = 50;
+      let score = 30;
       const reasons = [];
 
       // Capacity fit
       if (v.seating_capacity >= passengerCount && v.seating_capacity <= passengerCount + 4) {
-        score += 25;
+        score += 20;
         reasons.push(`Ideal seating capacity (${v.seating_capacity} seats)`);
       } else if (v.seating_capacity > passengerCount + 4) {
-        score += 10;
+        score += 8;
         reasons.push(`Ample extra seating (${v.seating_capacity} seats)`);
       }
 
-      // Fuel level
+      // Fuel level (readiness — kept for future reservations too)
       if ((v.fuel_level || 0) >= 70) {
-        score += 15;
+        score += 8;
         reasons.push(`High fuel level (${v.fuel_level}%)`);
       } else if ((v.fuel_level || 0) >= 40) {
-        score += 5;
+        score += 3;
         reasons.push(`Adequate fuel (${v.fuel_level}%)`);
       }
 
-      // Status & Mileage
+      // Status
       if (v.vehicle_status === "Available") {
-        score += 10;
+        score += 5;
         reasons.push("Currently available");
+      }
+
+      // Least fuel consumption (this trip)
+      const fuel = scoreFuelEconomy(v._est_fuel_liters);
+      score += fuel.points;
+      if (fuel.reason) reasons.push(fuel.reason);
+
+      // Smallest schedule gap
+      const gap = scheduleGapGain(v._schedule_load) * 10;
+      score += gap;
+      if (v._schedule_load !== undefined && v._schedule_load !== null) {
+        const load = Number(v._schedule_load) || 0;
+        reasons.push(
+          load <= 0 ? "No schedule conflicts in this window" : `${load} dispatch(es) scheduled in this window`
+        );
+      }
+
+      // Lowest maintenance risk — only when a schedule is actually set.
+      // An unscheduled vehicle is not known-healthy, so it scores neutral.
+      const pm = v._maintenance;
+      if (pm && pm.basis !== null && pm.basis !== undefined) {
+        score += maintenanceRiskGain(pm.risk) * 10;
+        const due = pm.effectiveDays !== null && pm.effectiveDays !== undefined ? ` (due in ~${pm.effectiveDays} day(s))` : "";
+        reasons.push(`Service risk: ${pm.risk}${due}`);
       }
 
       return {
         vehicle: v,
-        score: Math.min(score, 100),
-        confidence: (Math.min(score, 100) / 100).toFixed(2),
+        score: Math.min(Math.max(score, 0), 100),
+        confidence: (Math.min(Math.max(score, 0), 100) / 100).toFixed(2),
         reasons,
       };
     })
@@ -58,25 +169,24 @@ export function scoreDispatchDrivers(drivers = []) {
   const now = Date.now();
 
   return drivers.map((d) => {
-    let score = 50;
+    let score = 30;
     const reasons = [];
 
     // PRIMARY: Guest rating (customer_rating AVG from completed trips, 1–5 scale).
-    // Worth up to 35 points — most important signal for guest experience.
     const guestRating = Number(d.avg_guest_rating);
     const tripCount   = Number(d.total_completed_trips) || 0;
     if (!Number.isNaN(guestRating) && guestRating > 0 && tripCount > 0) {
       if (guestRating >= 4.5) {
-        score += 35;
+        score += 25;
         reasons.push(`Outstanding guest rating: ${guestRating.toFixed(1)}/5 across ${tripCount} trips`);
       } else if (guestRating >= 4.0) {
-        score += 25;
+        score += 18;
         reasons.push(`High guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
       } else if (guestRating >= 3.0) {
-        score += 10;
+        score += 8;
         reasons.push(`Average guest rating: ${guestRating.toFixed(1)}/5 (${tripCount} trips)`);
       } else {
-        score -= 10;
+        score -= 8;
         reasons.push(`Low guest rating: ${guestRating.toFixed(1)}/5 — monitor performance`);
       }
     } else if (tripCount === 0) {
@@ -85,17 +195,16 @@ export function scoreDispatchDrivers(drivers = []) {
     }
 
     // SECONDARY: Smooth driving score (system-tracked, 0–100).
-    // Worth up to 20 points.
     const drivingScore = Number(d.avg_driving_score);
     if (!Number.isNaN(drivingScore) && drivingScore > 0) {
       if (drivingScore >= 85) {
-        score += 20;
+        score += 15;
         reasons.push(`Excellent driving score: ${drivingScore.toFixed(0)}/100`);
       } else if (drivingScore >= 70) {
-        score += 10;
+        score += 8;
         reasons.push(`Good driving score: ${drivingScore.toFixed(0)}/100`);
       } else if (drivingScore < 50) {
-        score -= 10;
+        score -= 8;
         reasons.push(`Low driving score: ${drivingScore.toFixed(0)}/100`);
       }
     }
@@ -104,18 +213,35 @@ export function scoreDispatchDrivers(drivers = []) {
     if (d.license_expiry) {
       const daysToExpiry = Math.round((new Date(d.license_expiry).getTime() - now) / dayMs);
       if (daysToExpiry > 90) {
-        score += 10;
+        score += 8;
         reasons.push("License valid long-term");
       } else if (daysToExpiry <= 30) {
-        score -= 20;
+        score -= 15;
         reasons.push("License expiring soon — renewal recommended");
       }
     }
 
     // Status
     if (d.driver_status === "Available") {
-      score += 5;
+      score += 4;
       reasons.push("Ready for dispatch");
+    }
+
+    // Nearest driver — only for IMMEDIATE dispatch windows (time-gated).
+    if (d._proximity_relevant !== false) {
+      const prox = scoreProximity(d._pickup_distance_km);
+      score += prox.points;
+      if (prox.reason) reasons.push(prox.reason);
+    }
+
+    // Smallest schedule gap
+    const gap = scheduleGapGain(d._schedule_load) * 8;
+    score += gap;
+    if (d._schedule_load !== undefined && d._schedule_load !== null) {
+      const load = Number(d._schedule_load) || 0;
+      reasons.push(
+        load <= 0 ? "No schedule conflicts in this window" : `${load} dispatch(es) scheduled in this window`
+      );
     }
 
     return {

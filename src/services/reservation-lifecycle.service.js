@@ -3,6 +3,7 @@ import { canTransitionReservation, transitionPath } from "@/lib/scheduling/reser
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { emitTransportStatus } from "@/services/outbound.service";
+import { recomputeDerivedPriority } from "@/services/priority.service";
 
 // Reservation lifecycle writer — the ONE place fleet_status changes.
 //
@@ -109,9 +110,44 @@ export async function advanceReservation({
 
   const from = before.fleet_status;
 
-  // Already there: treat as success so retries and double-clicks are harmless.
+  // Already at the target status. This is the REASSIGNMENT path: a retry or
+  // double-click where nothing changed is a harmless no-op, but a genuine swap
+  // passes a `patch` (new vehicle_id/driver_id) that MUST still land. Apply the
+  // patch if present, otherwise return the unchanged row.
   if (from === toStatus) {
-    return { ok: true, request: before, hops: [] };
+    const patchable = Object.entries(patch).filter(
+      ([key, value]) => PATCHABLE.has(key) && value !== undefined
+    );
+    if (patchable.length === 0) {
+      return { ok: true, request: before, hops: [] };
+    }
+
+    const columns = [];
+    const values = [];
+    let idx = 1;
+    for (const [key, value] of patchable) {
+      columns.push(`${key} = $${idx++}`);
+      values.push(value !== null && typeof value === "object" ? JSON.stringify(value) : value);
+    }
+    values.push(requestId);
+    const { rows } = await query(
+      `UPDATE transportation_requests SET ${columns.join(", ")} WHERE request_id = $${idx} RETURNING *`,
+      values
+    );
+    if (!rows[0]) return { ok: false, status: 404, error: "Transportation request not found" };
+
+    if (eventType) {
+      await recordReservationEvent({
+        requestId,
+        eventType,
+        fromStatus: before.fleet_status,
+        toStatus,
+        session,
+        description: description || `Reassigned resources on ${toStatus} request.`,
+        metadata,
+      });
+    }
+    return { ok: true, request: rows[0], hops: [] };
   }
 
   const path = transitionPath(from, toStatus);
@@ -168,6 +204,14 @@ export async function advanceReservation({
       description: isFinal ? description : `Status moved to ${next}.`,
       metadata: isFinal ? metadata : null,
     });
+  }
+
+  // Keep derived_priority in sync with the new status + time (best-effort; a
+  // recompute failure must never roll back the transition itself).
+  try {
+    await recomputeDerivedPriority([current]);
+  } catch (e) {
+    console.warn("derived_priority recompute failed after transition:", e?.message || e);
   }
 
   if (notifyBooking) {

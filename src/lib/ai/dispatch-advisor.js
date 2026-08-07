@@ -1,4 +1,5 @@
-import { scoreReservationVehicles, scoreDispatchDrivers } from "@/lib/ai/rule-engine";
+import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
+import { buildFleetPairRecommendations } from "@/lib/ai/pair-scoring";
 import { estimateTrip, estimateFuel } from "@/lib/geo/distance";
 
 // AI dispatch advisor — builds the Phase 14 recommendation payload.
@@ -20,21 +21,6 @@ function daysUntil(value) {
   const t = new Date(value).getTime();
   if (!Number.isFinite(t)) return null;
   return Math.round((t - Date.now()) / DAY_MS);
-}
-
-/**
- * Fuel efficiency (km/L) inferred from seating capacity and fuel type.
- * The schema carries no per-vehicle efficiency figure, so this heuristic stands
- * in — bigger vehicles burn more, diesel drivetrains stretch a litre further.
- */
-function estimateEfficiency(vehicle) {
-  const seats = Number(vehicle?.seating_capacity) || 4;
-  let kmPerLiter;
-  if (seats <= 5) kmPerLiter = 12;
-  else if (seats <= 8) kmPerLiter = 9;
-  else if (seats <= 15) kmPerLiter = 7;
-  else kmPerLiter = 5;
-  return /diesel/i.test(vehicle?.fuel_type || "") ? kmPerLiter * 1.15 : kmPerLiter;
 }
 
 /** Driver display name from the joined employees row, with id fallback. */
@@ -147,6 +133,16 @@ function toVehicleCandidate(scored, request, trip) {
     reasons: scored.reasons,
     estimated_fuel_liters: fuel.liters,
     estimated_fuel_percent_of_tank: fuel.percentOfTank,
+    schedule_load: vehicle._schedule_load ?? null,
+    availability: availabilityLabel(vehicle.vehicle_status, vehicle._schedule_load),
+    maintenance: vehicle._maintenance
+      ? {
+          score: vehicle._maintenance.score,
+          risk: vehicle._maintenance.risk,
+          next_service_date: vehicle._maintenance.next_service_date ?? null,
+          basis: vehicle._maintenance.basis ?? null,
+        }
+      : null,
     detected_risks: vehicleRisks(vehicle, request),
   };
 }
@@ -168,7 +164,66 @@ function toDriverCandidate(scored) {
     score: scored.score,
     confidence: Number(scored.confidence),
     reasons: scored.reasons,
+    distance_from_pickup_km: driver._pickup_distance_km ?? null,
+    estimated_arrival_minutes:
+      driver._pickup_distance_km != null ? Math.max(1, Math.round((driver._pickup_distance_km / 25) * 60)) : null,
+    proximity_relevant: driver._proximity_relevant ?? false,
+    schedule_load: driver._schedule_load ?? null,
+    availability: availabilityLabel(driver.driver_status, driver._schedule_load),
     detected_risks: driverRisks(driver),
+  };
+}
+
+/**
+ * One-line readiness label for a vehicle or driver: "Available", or how busy
+ * they are in the pickup window. Backs the availability chip in the panel.
+ */
+function availabilityLabel(status, scheduleLoad) {
+  const load = Number(scheduleLoad);
+  if (Number.isFinite(load) && load > 0) {
+    return { free: false, label: `${load} dispatch(es) in this window` };
+  }
+  if (status && status !== "Available") {
+    return { free: false, label: `Status: ${status}` };
+  }
+  return { free: true, label: "Available" };
+}
+
+/**
+ * Shape one fleet-pair recommendation into the advisor payload.
+ *
+ * The vehicle/driver halves keep the enriched detail (risks, fuel burn, reasons)
+ * the panel renders, but the SCORE, confidence and reasons come from the pair —
+ * the two halves are never scored independently anymore.
+ */
+function toPairCandidate(pair, request, trip) {
+  const vehicleCandidate = toVehicleCandidate(
+    { vehicle: pair.vehicle, score: pair.score, confidence: pair.confidence, reasons: pair.reasons },
+    request,
+    trip
+  );
+  const driverCandidate = toDriverCandidate({
+    driver: pair.driver,
+    score: pair.score,
+    confidence: pair.confidence,
+    reasons: pair.reasons,
+  });
+
+  return {
+    vehicle: vehicleCandidate,
+    driver: driverCandidate,
+    vehicle_id: pair.vehicle.vehicle_id,
+    driver_id: pair.driver.driver_id,
+    designated_driver_id: pair.designated?.driver_id ?? null,
+    is_designated: pair.is_designated,
+    reason_type: pair.reason_type,
+    replacement_reason: pair.replacement_reason ?? null,
+    score: pair.score,
+    confidence: Number(pair.confidence),
+    reasons: pair.reasons,
+    checklist: pair.checklist ?? [],
+    estimated_pickup_minutes: pair.estimated_pickup_minutes,
+    distance_km: pair.distance_km,
   };
 }
 
@@ -176,30 +231,51 @@ function toDriverCandidate(scored) {
  * Build the full dispatch recommendation for a request.
  *
  * Pure and synchronous: callers fetch the candidate pools (so they control the
- * availability window and RBAC scope), then pass them in. Returns a payload
- * safe to cache in transportation_requests.ai_*_recommendation.
+ * availability window and RBAC scope) and pass them in, along with the active
+ * custodial pairings. Returns a payload safe to cache.
+ *
+ * The DECISION is the fleet pair (vehicle + designated driver as one unit).
+ * `vehicle`/`driver` sub-blocks remain for the LLM rationale prompt and any
+ * legacy consumer, but they now carry the pair's score rather than an
+ * independent score.
  *
  * @param {object} params
- * @param {object} params.request   transportation_requests row
- * @param {object[]} params.vehicles candidate vehicles (already availability-filtered)
- * @param {object[]} params.drivers  candidate drivers
+ * @param {object} params.request       transportation_requests row
+ * @param {object[]} params.vehicles    candidate vehicles (already availability-filtered)
+ * @param {object[]} params.drivers     candidate drivers
+ * @param {Array} [params.activePairs]  active custodial pairs (assigned_until IS NULL)
+ * @param {Date} [params.now]           fixed clock for tests
  * @returns {{
  *   generated_at: string,
  *   trip: object,
- *   vehicle: { recommended: object|null, alternate: object|null, considered: number },
- *   driver: { recommended: object|null, alternate: object|null, considered: number },
- *   narration: null
+ *   pair: { recommended: object|null, alternate: object|null, considered: number },
+ *   vehicle: object, driver: object, narration: null
  * }}
  */
-export function buildDispatchRecommendation({ request, vehicles = [], drivers = [] }) {
+export function buildDispatchRecommendation({
+  request,
+  vehicles = [],
+  drivers = [],
+  activePairs = [],
+  now = new Date(),
+}) {
   const passengers = Number(request?.passenger_count) || 1;
   const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
 
-  // scoreReservationVehicles drops anything that can't seat the party, so an
-  // empty result after a non-empty pool means "nothing fits", not "no fleet".
+  // Pair engine ranks complete vehicle+driver pairs; designated match dominates.
+  const { recommended, alternate } = buildFleetPairRecommendations({
+    request,
+    vehicles,
+    drivers,
+    activePairs,
+    trip,
+    now,
+  });
+
+  // Legacy independent scores, retained ONLY for backward compatibility of the
+  // `vehicle`/`driver` payload shape. The recommended pair is the decision.
   const scoredVehicles = scoreReservationVehicles(vehicles, passengers);
   const scoredDrivers = scoreDispatchDrivers(drivers);
-
   const vehicleCandidates = scoredVehicles.map((s) => toVehicleCandidate(s, request, trip));
   const driverCandidates = scoredDrivers.map(toDriverCandidate);
 
@@ -212,6 +288,11 @@ export function buildDispatchRecommendation({ request, vehicles = [], drivers = 
       estimate_basis: trip.basis,
       passenger_count: passengers,
     },
+    pair: {
+      recommended: recommended ? toPairCandidate(recommended, request, trip) : null,
+      alternate: alternate ? toPairCandidate(alternate, request, trip) : null,
+      considered: recommended ? 1 : 0,
+    },
     vehicle: {
       recommended: vehicleCandidates[0] ?? null,
       alternate: vehicleCandidates[1] ?? null,
@@ -223,7 +304,6 @@ export function buildDispatchRecommendation({ request, vehicles = [], drivers = 
       considered: drivers.length,
     },
     // Optional LLM narration is attached by the API route when AI mode is on.
-    // Null here keeps the payload shape stable when it isn't.
     narration: null,
   };
 }
