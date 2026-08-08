@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { FileText } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -10,9 +10,10 @@ export default function NotificationTemplatesPage() {
   useRequireRole(["admin", "system_admin"]);
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="System"
+      <HeroHeader
+        icon={FileText}
         title="Email Templates"
+        badge="System"
         description="Manage notification and email templates."
       />
       <Card className="border-0 shadow-sm">

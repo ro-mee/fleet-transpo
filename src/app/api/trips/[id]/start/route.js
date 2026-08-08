@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
@@ -59,25 +59,35 @@ export async function PUT(req, { params }) {
     });
     if (!odo.ok) return err(odo.error, 400);
 
-    const { rows } = await query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 RETURNING *`, [rawOdometer, id]);
+    // The trip row, its vehicle mileage and the dispatch are authoritative —
+    // permanent facts that cannot be re-derived later, so they commit (or roll
+    // back) together. The derived statuses run after COMMIT, best-effort.
+    const { rows } = await withTransaction(async (tx) => {
+      const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 RETURNING *`, [rawOdometer, id]);
+      if (!r.rows[0]) throw new AuthError("Trip not found", 404);
+      const txWrites = [];
+      // Feed the odometer back into the vehicle. GREATEST is a second guard
+      // beyond the validation above: a late-arriving low reading from a retried
+      // request must never regress mileage, because that defers every
+      // mileage-based service due-date on the vehicle.
+      if (trip?.vehicle_id && r.rows[0]?.start_odometer !== null) {
+        txWrites.push(tx.query(
+          `UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), $1), updated_at = NOW() WHERE vehicle_id = $2`,
+          [r.rows[0].start_odometer, trip.vehicle_id]
+        ));
+      }
+      if (trip?.dispatch_id) {
+        txWrites.push(tx.query(`UPDATE dispatchschedules SET status = 'In Progress' WHERE dispatch_id = $1`, [trip.dispatch_id]));
+      }
+      await Promise.all(txWrites);
+      return r;
+    });
     if (!rows[0]) return err("Trip not found", 404);
+    // Derived statuses — recomputed on demand, self-heal on the next sync.
     const p = [];
-    // Feed the odometer back into the vehicle. GREATEST is a second guard
-    // beyond the validation above: a late-arriving low reading from a retried
-    // request must never regress mileage, because that defers every
-    // mileage-based service due-date on the vehicle.
-    if (trip?.vehicle_id && rows[0]?.start_odometer !== null) {
-      p.push(query(
-        `UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), $1), updated_at = NOW() WHERE vehicle_id = $2`,
-        [rows[0].start_odometer, trip.vehicle_id]
-      ));
-    }
     if (trip?.vehicle_id) p.push(syncVehicleStatus(trip.vehicle_id));
     if (trip?.driver_id) p.push(syncDriverStatus(trip.driver_id));
-    if (trip?.dispatch_id) {
-      p.push(query(`UPDATE dispatchschedules SET status = 'In Progress' WHERE dispatch_id = $1`, [trip.dispatch_id]));
-      p.push(syncDispatchReservation(trip.dispatch_id));
-    }
+    if (trip?.dispatch_id) p.push(syncDispatchReservation(trip.dispatch_id));
     await Promise.all(p);
 
     // A flagged reading is accepted — an implausible jump is not proof of an

@@ -121,7 +121,7 @@ export default function FleetVehiclesPage() {
                 </div>
               </div>
               <div>
-                <div className="text-3xl font-black text-foreground font-data">{isLoading ? "..." : card.value}</div>
+                <div className="text-3xl font-medium text-foreground font-data">{isLoading ? "..." : card.value}</div>
                 <p className={cn("text-[11px] font-medium mt-1", {
                   "text-primary": card.tone === "primary",
                   "text-success": card.tone === "success",

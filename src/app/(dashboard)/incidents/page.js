@@ -14,6 +14,7 @@ import { DataTable } from "@/components/tables/data-table";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 
 const SEVERITY_VARIANT = {
   Minor: "info",
@@ -134,47 +135,12 @@ export default function IncidentsPage() {
         description="Driver-reported incidents across the fleet. Read-only audit log."
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Incidents</span>
-            <div className="p-2 rounded-2xl bg-primary/10 text-primary border border-primary/20"><AlertTriangle className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{isLoading ? "-" : incidents.length}</div>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Open</span>
-            <div className="p-2 rounded-2xl bg-warning/10 text-warning border border-warning/20"><AlertCircle className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{isLoading ? "-" : counts.Open}</div>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Critical / Major</span>
-            <div className="p-2 rounded-2xl bg-danger/10 text-danger border border-danger/20"><Wrench className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{isLoading ? "-" : counts.Critical + counts.Major}</div>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 select-none">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Breakdowns</span>
-            <div className="p-2 rounded-2xl bg-info/10 text-info border border-info/20"><Truck className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{isLoading ? "-" : incidents.filter((i) => /breakdown|mechanical|engine/i.test(i.incident_type || "")).length}</div>
-          </div>
-        </div>
-      </div>
+      <StatGrid cols={4}>
+        <StatCard icon={AlertTriangle} label="Total Incidents" value={isLoading ? "-" : incidents.length} tone="primary" />
+        <StatCard icon={AlertCircle} label="Open" value={isLoading ? "-" : counts.Open} tone="warning" />
+        <StatCard icon={Wrench} label="Critical / Major" value={isLoading ? "-" : counts.Critical + counts.Major} tone="danger" />
+        <StatCard icon={Truck} label="Breakdowns" value={isLoading ? "-" : incidents.filter((i) => /breakdown|mechanical|engine/i.test(i.incident_type || "")).length} tone="info" />
+      </StatGrid>
 
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">

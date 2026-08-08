@@ -5,10 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
 import { getAiLogs } from "@/services/ai.service";
-import { formatDate, formatCurrency } from "@/lib/utils";
-import { Activity, Download, CheckCircle2, XCircle, Clock, Zap, ArrowLeft } from "lucide-react";
+import { formatDate, cn } from "@/lib/utils";
+import { Activity, Download, CheckCircle2, Clock, Zap, ArrowLeft } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 import Link from "next/link";
@@ -33,7 +34,7 @@ export default function AiLogsPage() {
       key: "feature_used",
       label: "Feature Used",
       render: (val) => (
-        <Badge variant="outline" className="text-[11px] font-medium">
+        <Badge variant="outline" className="text-[11px] font-bold rounded-full px-2.5 py-0.5">
           {val || "General AI"}
         </Badge>
       ),
@@ -43,8 +44,8 @@ export default function AiLogsPage() {
       label: "Provider / Model",
       render: (_, row) => (
         <div>
-          <p className="font-semibold text-foreground text-xs">{row.provider_name || "Rule-Based"}</p>
-          <p className="text-[11px] text-foreground-secondary font-mono">{row.model_name || "Deterministic Engine"}</p>
+          <p className="font-extrabold text-foreground text-xs">{row.provider_name || "Rule-Based"}</p>
+          <p className="text-[11px] text-foreground-secondary font-data mt-0.5">{row.model_name || "Deterministic Engine"}</p>
         </div>
       ),
     },
@@ -52,8 +53,8 @@ export default function AiLogsPage() {
       key: "tokens",
       label: "Tokens Used",
       render: (_, row) => (
-        <div className="text-xs font-mono">
-          <span>{row.total_tokens || 0} pts</span>
+        <div className="text-xs font-data">
+          <span className="font-bold">{row.total_tokens || 0} pts</span>
           <span className="text-[10px] text-foreground-muted block">({row.prompt_tokens || 0} in / {row.completion_tokens || 0} out)</span>
         </div>
       ),
@@ -62,7 +63,7 @@ export default function AiLogsPage() {
       key: "duration_ms",
       label: "Response Time",
       render: (val) => (
-        <span className="text-xs font-mono">{val ? `${val} ms` : "<10 ms"}</span>
+        <span className="text-xs font-data font-bold">{val ? `${val} ms` : "<10 ms"}</span>
       ),
     },
     {
@@ -71,7 +72,7 @@ export default function AiLogsPage() {
       render: (val) => {
         const isSuccess = (val || "Success").toLowerCase() === "success";
         return (
-          <Badge variant={isSuccess ? "success" : "danger"} className="text-[10px]">
+          <Badge variant={isSuccess ? "success" : "danger"} className="text-[10px] rounded-full px-2.5 py-0.5 font-bold">
             {isSuccess ? "Success" : "Error"}
           </Badge>
         );
@@ -80,7 +81,7 @@ export default function AiLogsPage() {
     {
       key: "error_message",
       label: "Error / Notes",
-      render: (val) => val ? <span className="text-xs text-danger font-mono truncate block max-w-xs">{val}</span> : <span className="text-xs text-foreground-muted">—</span>,
+      render: (val) => val ? <span className="text-xs text-danger font-data truncate block max-w-xs">{val}</span> : <span className="text-xs text-foreground-muted">—</span>,
     },
   ];
 
@@ -89,99 +90,102 @@ export default function AiLogsPage() {
   const avgDuration = logs.length ? Math.round(logs.reduce((sum, l) => sum + (l.duration_ms || 0), 0) / logs.length) : 0;
 
   return (
-    <div className="space-y-6">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/settings/ai">
-            <Button variant="ghost" size="icon">
-              <ArrowLeft className="w-5 h-5" />
+    <div className="space-y-6 pb-12 w-full select-none">
+      {/* ── HERO HEADER BAR ── */}
+      <HeroHeader
+        icon={Activity}
+        title="AI &amp; Automation Telemetry Logs"
+        badge="Intelligence Logs"
+        description="Audit log of all LLM and Rule-Based engine requests, token usage, and response latency."
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href="/settings/ai">
+              <Button variant="outline" size="sm" className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}>
+                <ArrowLeft className="w-3.5 h-3.5 mr-1.5" />
+                Back to Provider Settings
+              </Button>
+            </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                exportToCSV(logs, "ai-request-logs", [
+                  { label: "Timestamp", key: "created_at" },
+                  { label: "Feature", key: "feature_used" },
+                  { label: "Provider", key: "provider_name" },
+                  { label: "Model", key: "model_name" },
+                  { label: "Total Tokens", key: "total_tokens" },
+                  { label: "Duration (ms)", key: "duration_ms" },
+                  { label: "Status", key: "status" },
+                  { label: "Error Message", key: "error_message" },
+                ])
+              }
+              className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}
+            >
+              <Download className="w-3.5 h-3.5 mr-2" />
+              Export CSV Logs
             </Button>
-          </Link>
+          </div>
+        }
+      />
+
+      {/* ── SUMMARY KPI CARDS ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total AI Requests</span>
+            <div className="p-2 rounded-2xl bg-primary/10 text-primary border border-primary/20">
+              <Activity className="w-4 h-4" />
+            </div>
+          </div>
           <div>
-            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-              <Activity className="w-6 h-6 text-primary" /> AI Request Execution Logs
-            </h1>
-            <p className="text-foreground-secondary mt-1">
-              Audit log of all LLM and Rule-Based engine requests, token usage, and execution latency
-            </p>
+            <div className="text-3xl font-black text-foreground font-data">{logs.length}</div>
+            <p className="text-[11px] text-primary font-medium mt-1">Processed AI queries</p>
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          className="h-10"
-          onClick={() =>
-            exportToCSV(logs, "ai-request-logs", [
-              { label: "Timestamp", key: "created_at" },
-              { label: "Feature", key: "feature_used" },
-              { label: "Provider", key: "provider_name" },
-              { label: "Model", key: "model_name" },
-              { label: "Total Tokens", key: "total_tokens" },
-              { label: "Duration (ms)", key: "duration_ms" },
-              { label: "Status", key: "status" },
-              { label: "Error Message", key: "error_message" },
-            ])
-          }
-        >
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV Logs
-        </Button>
+        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-success/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Successful Executions</span>
+            <div className="p-2 rounded-2xl bg-success/10 text-success border border-success/20">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{successCount}</div>
+            <p className="text-[11px] text-success font-semibold mt-1">Successful completions</p>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-info/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Tokens Consumed</span>
+            <div className="p-2 rounded-2xl bg-info/10 text-info border border-info/20">
+              <Zap className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{totalTokens.toLocaleString()}</div>
+            <p className="text-[11px] text-info font-semibold mt-1">Total model tokens</p>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-warning/50 transition-all">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Avg Latency</span>
+            <div className="p-2 rounded-2xl bg-warning/10 text-warning border border-warning/20">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div>
+            <div className="text-3xl font-black text-foreground font-data">{avgDuration} ms</div>
+            <p className="text-[11px] text-warning font-semibold mt-1 font-data">Average response duration</p>
+          </div>
+        </div>
       </div>
 
-      {/* ── Summary Cards ── */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-foreground">{logs.length}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Total AI Requests</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-primary/10">
-              <Activity className="w-5 h-5 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-success">{successCount}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Successful Executions</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-success/10">
-              <CheckCircle2 className="w-5 h-5 text-success" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-info font-mono">{totalTokens.toLocaleString()}</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Total Tokens Consumed</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-info/10">
-              <Zap className="w-5 h-5 text-info" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div>
-              <p className="text-2xl font-bold text-warning font-mono">{avgDuration} ms</p>
-              <p className="text-xs text-foreground-secondary mt-0.5">Average Response Time</p>
-            </div>
-            <div className="p-2.5 rounded-xl bg-warning/10">
-              <Clock className="w-5 h-5 text-warning" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ── Table Card ── */}
-      <Card className="border-0 shadow-sm">
+      {/* ── TABLE CONTAINER CARD ── */}
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
         <CardContent className="p-0">
           <DataTable
             columns={columns}

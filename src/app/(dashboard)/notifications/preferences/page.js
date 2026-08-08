@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { cn } from "@/lib/utils";
 import { Bell, Mail, Smartphone, CheckCircle2 } from "lucide-react";
 
 const channelOptions = [
@@ -64,12 +65,13 @@ export default function NotificationPreferencesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="System"
+      <HeroHeader
+        icon={Bell}
         title="Notification Preferences"
+        badge="System"
         description="Configure how and when you receive notifications."
         actions={
-          <Button onClick={handleSave} disabled={saving} className="h-10">
+          <Button onClick={handleSave} disabled={saving} className={cn("h-10", heroButtonPrimaryClass)}>
             {saved ? (
               <><CheckCircle2 className="w-4 h-4 mr-2" /> Saved</>
             ) : (

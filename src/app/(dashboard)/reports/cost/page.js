@@ -6,10 +6,11 @@ import { getFleetCostReport } from "@/services/report.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Wallet, Fuel, Wrench, TrendingDown } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { formatCurrency } from "@/lib/utils";
 
 export default function FleetCostPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
@@ -23,15 +24,20 @@ export default function FleetCostPage() {
   const totals = data?.totals || { fuel_cost: 0, maintenance_cost: 0, total_cost: 0, distance: 0, cost_per_km: 0 };
 
   const kpis = [
-    { label: "Total Cost", value: `$${Number(totals.total_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: Wallet, tone: "primary" },
-    { label: "Fuel Cost", value: `$${Number(totals.fuel_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: Fuel, tone: "warning" },
-    { label: "Maintenance Cost", value: `$${Number(totals.maintenance_cost || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, icon: Wrench, tone: "danger" },
-    { label: "Cost / km", value: `$${Number(totals.cost_per_km || 0).toFixed(2)}`, icon: TrendingDown, tone: "success" },
+    { label: "Total Cost", value: formatCurrency(totals.total_cost || 0), icon: Wallet, tone: "primary" },
+    { label: "Fuel Cost", value: formatCurrency(totals.fuel_cost || 0), icon: Fuel, tone: "warning" },
+    { label: "Maintenance Cost", value: formatCurrency(totals.maintenance_cost || 0), icon: Wrench, tone: "danger" },
+    { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown, tone: "success" },
   ];
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Fleet Cost Dashboard" description="Fuel, maintenance and operating cost per vehicle and per kilometer." />
+      <HeroHeader
+        icon={Wallet}
+        title="Fleet Cost Dashboard"
+        badge="Reports"
+        description="Fuel, maintenance and operating cost per vehicle and per kilometer."
+      />
 
       {isLoading ? (
         <StatsGridSkeleton count={4} gridClass="md:grid-cols-2 lg:grid-cols-4" />
@@ -81,11 +87,11 @@ export default function FleetCostPage() {
                         </Link>
                         <div className="text-xs text-foreground-muted">{d.vehicle || "—"}</div>
                       </td>
-                      <td className="px-5 py-3 text-foreground">${Number(d.fuel_cost).toFixed(2)}</td>
-                      <td className="px-5 py-3 text-foreground">${Number(d.maintenance_cost).toFixed(2)}</td>
-                      <td className="px-5 py-3 font-medium text-foreground">${Number(d.total_cost).toFixed(2)}</td>
+                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.fuel_cost)}</td>
+                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.maintenance_cost)}</td>
+                      <td className="px-5 py-3 font-medium text-foreground">{formatCurrency(d.total_cost)}</td>
                       <td className="px-5 py-3 text-foreground">{Number(d.distance).toLocaleString()}</td>
-                      <td className="px-5 py-3 text-foreground">${Number(d.cost_per_km).toFixed(2)}</td>
+                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.cost_per_km)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { format, isSameMonth } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TimeGrid, MonthGrid } from "@/components/dispatch/calendar-grids";
@@ -160,12 +160,13 @@ export default function DispatchCalendarPage() {
   const step = (dir) => setAnchor((a) => shiftAnchor(effectiveView, a, dir));
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
+      <HeroHeader
+        icon={CalendarDays}
         title="Dispatch Calendar"
+        badge="Operations"
         description="Committed trips beside the maintenance, leave, and downtime that constrain them."
         actions={
-          <Button variant="outline" asChild>
+          <Button variant="outline" className={heroButtonOutlineClass} asChild>
             <Link href="/dispatch">
               <LayoutGrid className="w-4 h-4 mr-2" />
               Board

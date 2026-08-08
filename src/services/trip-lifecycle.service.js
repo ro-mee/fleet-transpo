@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
 import { writeAudit } from "@/lib/audit";
@@ -85,39 +85,55 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   // measured from a NULL start_time is a number with nothing behind it, and a
   // dimension with no data should stay absent rather than read as zero.
   // GREATEST(0, ...) absorbs clock skew between the two timestamps.
-  const { rows } = await query(
-    `UPDATE trips
-        SET trip_status = 'Completed',
-            end_time = NOW(),
-            end_odometer = $1,
-            distance = COALESCE($2, distance),
-            actual_duration = CASE
-              WHEN start_time IS NOT NULL
-                THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (NOW() - start_time)) / 60))::int
-              ELSE actual_duration
-            END
-      WHERE trip_id = $3
-      RETURNING *`,
-    [rawEndOdometer, dist, tripId]
-  );
+  //
+  // The trip, its vehicle mileage and its dispatch are the AUTHORITATIVE rows
+  // of this transition — permanent facts that cannot be re-derived later. They
+  // must commit or roll back together, or a crash between them would leave a
+  // trip marked Completed with a stale vehicle mileage and an in-flight
+  // dispatch. The derived statuses (vehicle/driver availability, booking
+  // request) are recomputed on demand and run after COMMIT, best-effort.
+  const { rows } = await withTransaction(async (tx) => {
+    const r = await tx.query(
+      `UPDATE trips
+          SET trip_status = 'Completed',
+              end_time = NOW(),
+              end_odometer = $1,
+              distance = COALESCE($2, distance),
+              actual_duration = CASE
+                WHEN start_time IS NOT NULL
+                  THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (NOW() - start_time)) / 60))::int
+                ELSE actual_duration
+              END
+        WHERE trip_id = $3
+        RETURNING *`,
+      [rawEndOdometer, dist, tripId]
+    );
+    if (!r.rows[0]) throw new AuthError("Trip not found", 404);
+    const txWrites = [];
+    // Feed the odometer back into the vehicle. GREATEST is a second guard
+    // beyond the validation above: a late-arriving low reading from a retried
+    // request must never regress mileage, because that defers every
+    // mileage-based service due-date on the vehicle.
+    if (before[0]?.vehicle_id && r.rows[0]?.end_odometer !== null) {
+      txWrites.push(tx.query(
+        `UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), $1), updated_at = NOW() WHERE vehicle_id = $2`,
+        [r.rows[0].end_odometer, before[0].vehicle_id]
+      ));
+    }
+    if (before[0]?.dispatch_id) {
+      txWrites.push(tx.query(`UPDATE dispatchschedules SET status = 'Completed' WHERE dispatch_id = $1`, [before[0].dispatch_id]));
+    }
+    await Promise.all(txWrites);
+    return r;
+  });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
+
+  // Derived statuses — recomputed on demand, so a failure here self-heals on
+  // the next sync. Deliberately outside the transaction above.
   const p = [];
-  // Feed the odometer back into the vehicle. GREATEST is a second guard
-  // beyond the validation above: a late-arriving low reading from a retried
-  // request must never regress mileage, because that defers every
-  // mileage-based service due-date on the vehicle.
-  if (before[0]?.vehicle_id && rows[0]?.end_odometer !== null) {
-    p.push(query(
-      `UPDATE vehicles SET mileage = GREATEST(COALESCE(mileage, 0), $1), updated_at = NOW() WHERE vehicle_id = $2`,
-      [rows[0].end_odometer, before[0].vehicle_id]
-    ));
-  }
   if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
   if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
-  if (before[0]?.dispatch_id) {
-    p.push(query(`UPDATE dispatchschedules SET status = 'Completed' WHERE dispatch_id = $1`, [before[0].dispatch_id]));
-    p.push(syncDispatchReservation(before[0].dispatch_id));
-  }
+  if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));
   await Promise.all(p);
   await writeAudit(null, session, { action: "update", resource: "trips", resourceId: tripId, oldValues: { trip_status: before[0].trip_status }, newValues: { trip_status: "Completed" } });
 
@@ -192,19 +208,26 @@ export async function cancelTrip(tripId, session, { reason = null } = {}) {
     throw new AuthError(`Trip is already ${before[0].trip_status} and cannot be cancelled.`, 409);
   }
 
-  const { rows } = await query(
-    `UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE trip_id = $1 RETURNING *`,
-    [tripId]
-  );
+  const { rows } = await withTransaction(async (tx) => {
+    const r = await tx.query(
+      `UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE trip_id = $1 RETURNING *`,
+      [tripId]
+    );
+    if (!r.rows[0]) throw new AuthError("Trip not found", 404);
+    // The dispatch flip is authoritative too — nothing recomputes it from the
+    // cancelled trip afterward, so it must commit with the trip or not at all.
+    if (before[0]?.dispatch_id) {
+      await tx.query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [before[0].dispatch_id]);
+    }
+    return r;
+  });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
 
-  // Best-effort cascade: the trip row is already written, so a failure here
+  // Best-effort cascade: the trip row is already committed, so a failure here
   // is logged and swallowed rather than rolled back — cancellation stands.
+  // These are derived statuses, recomputed on demand, so they self-heal.
   try {
     const p = [];
-    if (before[0]?.dispatch_id) {
-      p.push(query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [before[0].dispatch_id]));
-    }
     if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
     if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
     if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));
@@ -263,10 +286,17 @@ export async function syncBusyTrip(tripId, session) {
   );
   if (!before[0]) throw new AuthError("Trip not found", 404);
 
+  // The dispatch flip is an authoritative row — nothing recomputes it from the
+  // started trip — so it commits on its own client; the trip row itself is
+  // written by the caller. Derived vehicle/driver/reservation statuses are
+  // recomputed on demand and stay best-effort outside this transaction.
+  await withTransaction(async (tx) => {
+    if (before[0]?.dispatch_id) {
+      await tx.query(`UPDATE dispatchschedules SET status = 'In Progress' WHERE dispatch_id = $1`, [before[0].dispatch_id]);
+    }
+  });
+
   const p = [];
-  if (before[0]?.dispatch_id) {
-    p.push(query(`UPDATE dispatchschedules SET status = 'In Progress' WHERE dispatch_id = $1`, [before[0].dispatch_id]));
-  }
   if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
   if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
   if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));

@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { DatePicker } from "@/components/ui/date-picker";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import {
   Car,
   ShieldCheck,
@@ -33,11 +34,11 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function UvvrpBoardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState("");
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["uvvrp-board", date],
-    queryFn: () => getUvvrpBoard({ date }),
+    queryFn: () => getUvvrpBoard(date ? { date } : {}),
   });
 
   const restrictedToday = useMemo(() => data?.restrictedToday || [], [data]);
@@ -49,7 +50,7 @@ export default function UvvrpBoardPage() {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="space-y-6 pb-12 w-full">
+    <div className="space-y-6 pb-12 w-full select-none">
       {/* ── TOP HERO HEADER & CONTROL BAR ── */}
       <HeroHeader
         icon={ShieldCheck}
@@ -62,7 +63,7 @@ export default function UvvrpBoardPage() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold", heroButtonOutlineClass)}
+            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}
           >
             <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isFetching && "animate-spin")} />
             Sync Real-Time
@@ -74,95 +75,33 @@ export default function UvvrpBoardPage() {
       {isLoading ? (
         <StatsGridSkeleton count={4} gridClass="grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* KPI 1: Policy Status */}
-          <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Policy Status</span>
-              <div className="p-2 rounded-xl bg-success/10 text-success">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-2xl font-black text-foreground">Active</span>
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-success"></span>
-                </span>
-              </div>
-              <p className="text-[11px] text-foreground-muted mt-1 font-medium">UVVRP Rule Enforcement Enabled</p>
-            </div>
-          </div>
-
-          {/* KPI 2: Restricted Vehicles */}
-          <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Restricted Vehicles</span>
-              <div className="p-2 rounded-xl bg-warning/10 text-warning">
-                <Car className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground font-data">
-                {restrictedToday.filter((v) => !v.exempt).length}
-              </div>
-              <p className="text-[11px] text-warning font-semibold mt-1">Restricted on {date}</p>
-            </div>
-          </div>
-
-          {/* KPI 3: Active Exemptions */}
-          <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Active Exemptions</span>
-              <div className="p-2 rounded-xl bg-info/10 text-info">
-                <CheckCircle2 className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground font-data">
-                {exemptions.length}
-              </div>
-              <p className="text-[11px] text-info font-medium mt-1">Pre-approved fleet passes</p>
-            </div>
-          </div>
-
-          {/* KPI 4: Coding Violations */}
-          <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Coding Violations</span>
-              <div className="p-2 rounded-xl bg-danger/10 text-danger">
-                <AlertTriangle className="w-4 h-4" />
-              </div>
-            </div>
-            <div>
-              <div className="text-2xl font-black text-foreground font-data">
-                {violations.length}
-              </div>
-              <p className="text-[11px] text-danger font-semibold mt-1">{dispatchesAffected.length} dispatches flagged</p>
-            </div>
-          </div>
-        </div>
+        <StatGrid cols={4}>
+          <StatCard icon={ShieldCheck} label="Policy Status" value="Active" trend="UVVRP Rule Enforcement Enabled" tone="success" />
+          <StatCard icon={Car} label="Restricted Vehicles" value={restrictedToday.filter((v) => !v.exempt).length} trend={`Restricted on ${date || todayStr}`} tone="warning" />
+          <StatCard icon={CheckCircle2} label="Active Exemptions" value={exemptions.length} trend="Pre-approved fleet passes" tone="info" />
+          <StatCard icon={AlertTriangle} label="Coding Violations" value={violations.length} trend={`${dispatchesAffected.length} dispatches flagged`} tone="danger" />
+        </StatGrid>
       )}
 
       {/* ── MAIN 3-COLUMN PANELS GRID ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* PANEL 1: Restricted Vehicles (4 Cols) */}
-        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col">
+        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col bg-surface">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
             <div className="flex items-center justify-between gap-2">
-              <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
                 <Car className="w-4 h-4 text-warning" /> Restricted Vehicles
               </CardTitle>
 
-              {/* Custom DatePicker */}
-              <div className="w-[180px]">
+              {/* Custom DatePicker without floating label */}
+              <div className="w-[160px]">
                 <DatePicker
                   id="uvvrp-date"
-                  label="Target Date"
+                  label={null}
                   value={date}
-                  onChange={(val) => val && setDate(val)}
-                  className="py-1 min-h-[38px] text-xs"
+                  onChange={(val) => setDate(val || "")}
+                  placeholder="Select Date..."
+                  className="py-1 min-h-[36px] text-xs font-medium"
                 />
               </div>
             </div>
@@ -181,9 +120,9 @@ export default function UvvrpBoardPage() {
                 <div className="w-12 h-12 rounded-2xl bg-success/15 text-success border border-success/20 flex items-center justify-center mx-auto mb-3 shadow-xs">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-extrabold text-foreground">No Vehicles Restricted</h4>
+                <h4 className="text-sm font-semibold text-foreground">No Vehicles Restricted</h4>
                 <p className="text-xs text-foreground-muted mt-1 max-w-[260px] mx-auto">
-                  All active fleet vehicles are eligible for dispatch on <span className="font-bold text-foreground">{date}</span>.
+                  All active fleet vehicles are eligible for dispatch on <span className="font-semibold text-foreground">{date || todayStr}</span>.
                 </p>
               </div>
             ) : (
@@ -191,13 +130,13 @@ export default function UvvrpBoardPage() {
                 {restrictedToday.map((v) => (
                   <div key={v.vehicle_id} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-hover/50 transition-colors">
                     <div>
-                      <p className="text-sm font-bold text-foreground font-data">{v.plate_number}</p>
-                      <p className="text-xs text-foreground-muted capitalize">{v.vehicle_name || v.vehicle_status || "Active"}</p>
+                      <p className="text-sm font-semibold text-foreground font-data">{v.plate_number}</p>
+                      <p className="text-xs text-foreground-muted capitalize font-normal">{v.vehicle_name || v.vehicle_status || "Active"}</p>
                     </div>
                     {v.exempt ? (
-                      <Badge variant="success" className="text-[11px] font-bold px-2.5 py-0.5 rounded-full">Exempt Pass</Badge>
+                      <Badge variant="success" className="text-[11px] font-medium px-2.5 py-0.5 rounded-full">Exempt Pass</Badge>
                     ) : (
-                      <Badge variant="danger" className="text-[11px] font-bold px-2.5 py-0.5 rounded-full">Coding Restricted</Badge>
+                      <Badge variant="danger" className="text-[11px] font-medium px-2.5 py-0.5 rounded-full">Coding Restricted</Badge>
                     )}
                   </div>
                 ))}
@@ -205,15 +144,15 @@ export default function UvvrpBoardPage() {
             )}
 
             <div className="p-3 bg-muted/20 border-t border-border/60 text-xs text-foreground-muted text-center font-medium">
-              Selected Target: <span className="font-bold text-foreground">{date}</span>
+              Selected Target: <span className="font-semibold text-foreground font-data">{date || todayStr}</span>
             </div>
           </CardContent>
         </Card>
 
         {/* PANEL 2: 7-Day Restriction Schedule (4 Cols) */}
-        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col">
+        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col bg-surface">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
               <Calendar className="w-4 h-4 text-primary" /> 7-Day Restriction Schedule
             </CardTitle>
           </CardHeader>
@@ -242,11 +181,11 @@ export default function UvvrpBoardPage() {
                         )} />
                         <div>
                           <div className="flex items-center gap-1.5">
-                            <p className={cn("text-xs font-extrabold", isToday ? "text-primary" : "text-foreground")}>
+                            <p className={cn("text-xs font-semibold", isToday ? "text-primary" : "text-foreground")}>
                               {u.weekday}
                             </p>
                             {isToday && (
-                              <span className="bg-primary text-white dark:text-slate-950 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              <span className="bg-primary text-white dark:text-slate-950 text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
                                 Today
                               </span>
                             )}
@@ -257,12 +196,12 @@ export default function UvvrpBoardPage() {
 
                       <div className="text-right">
                         <span className={cn(
-                          "text-xs block font-extrabold",
+                          "text-xs block font-semibold",
                           hasCoding ? "text-warning" : "text-foreground-muted"
                         )}>
                           {hasCoding ? `Ends ${u.digits.join(", ")}` : "No Coding"}
                         </span>
-                        <span className="text-[11px] text-foreground-muted block font-medium">
+                        <span className="text-[11px] text-foreground-muted block font-normal">
                           {u.restrictedCount} vehicle{u.restrictedCount === 1 ? "" : "s"}
                         </span>
                       </div>
@@ -275,9 +214,9 @@ export default function UvvrpBoardPage() {
         </Card>
 
         {/* PANEL 3: Approved Exemptions (4 Cols) */}
-        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col">
+        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col bg-surface">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+            <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
               <ShieldCheck className="w-4 h-4 text-info" /> Approved Exemptions
             </CardTitle>
           </CardHeader>
@@ -288,7 +227,7 @@ export default function UvvrpBoardPage() {
                 <div className="w-12 h-12 rounded-2xl bg-info/15 text-info border border-info/20 flex items-center justify-center mx-auto mb-3 shadow-xs">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-extrabold text-foreground">No Active Exemptions</h4>
+                <h4 className="text-sm font-semibold text-foreground">No Active Exemptions</h4>
                 <p className="text-xs text-foreground-muted mt-1 max-w-[260px] mx-auto">
                   Pre-approved fleet passes and special coding exemptions will appear here.
                 </p>
@@ -298,10 +237,10 @@ export default function UvvrpBoardPage() {
                 {exemptions.map((ex) => (
                   <div key={ex.exemption_id} className="flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-hover/50 transition-colors">
                     <div>
-                      <p className="text-sm font-bold text-foreground font-data">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
-                      <p className="text-xs text-foreground-muted capitalize">{ex.category || "Official Exemption Pass"}</p>
+                      <p className="text-sm font-semibold text-foreground font-data">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
+                      <p className="text-xs text-foreground-muted capitalize font-normal">{ex.category || "Official Exemption Pass"}</p>
                     </div>
-                    <Badge variant="success" className="text-[11px] font-bold px-2.5 py-0.5 rounded-full">Active Pass</Badge>
+                    <Badge variant="success" className="text-[11px] font-medium px-2.5 py-0.5 rounded-full">Active Pass</Badge>
                   </div>
                 ))}
               </div>
@@ -311,17 +250,17 @@ export default function UvvrpBoardPage() {
       </div>
 
       {/* ── AUDIT HISTORY TABLE ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex-row items-center justify-between">
           <div>
-            <CardTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
               <AlertTriangle className="w-4 h-4 text-danger" /> Coding Violation &amp; Override Audit History
             </CardTitle>
             <CardDescription className="text-xs mt-0.5">
               Historical record of dispatch attempts blocked or authorized during restriction windows.
             </CardDescription>
           </div>
-          <Badge variant="outline" className="text-xs font-bold rounded-full px-3 py-1">
+          <Badge variant="outline" className="text-xs font-semibold rounded-full px-3 py-1">
             {dispatchesAffected.length} Flagged Events
           </Badge>
         </CardHeader>
@@ -333,26 +272,26 @@ export default function UvvrpBoardPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-xs font-bold uppercase tracking-wider text-foreground-muted bg-surface/50">
-                    <th className="px-5 py-3 font-bold">Vehicle Plate</th>
-                    <th className="px-5 py-3 font-bold">Weekday</th>
-                    <th className="px-5 py-3 font-bold">Plate Digit</th>
-                    <th className="px-5 py-3 font-bold">Scheduled Departure</th>
-                    <th className="px-5 py-3 font-bold">Action Taken</th>
-                    <th className="px-5 py-3 font-bold">Authorized By</th>
+                  <tr className="border-b border-border/60 text-left text-xs font-medium uppercase tracking-wider text-foreground-muted bg-surface/50">
+                    <th className="px-5 py-3 font-medium">Vehicle Plate</th>
+                    <th className="px-5 py-3 font-medium">Weekday</th>
+                    <th className="px-5 py-3 font-medium">Plate Digit</th>
+                    <th className="px-5 py-3 font-medium">Scheduled Departure</th>
+                    <th className="px-5 py-3 font-medium">Action Taken</th>
+                    <th className="px-5 py-3 font-medium">Authorized By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
                   {violations.map((v) => (
                     <tr key={v.violation_id} className="hover:bg-hover/50 transition-colors align-middle">
-                      <td className="px-5 py-3.5 font-bold text-foreground font-data">{v.plate_number || `Vehicle #${v.vehicle_id}`}</td>
-                      <td className="px-5 py-3.5 text-foreground font-semibold">{v.weekday || "—"}</td>
+                      <td className="px-5 py-3.5 font-semibold text-foreground font-data">{v.plate_number || `Vehicle #${v.vehicle_id}`}</td>
+                      <td className="px-5 py-3.5 text-foreground font-medium">{v.weekday || "—"}</td>
                       <td className="px-5 py-3.5">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-hover border border-border text-xs font-extrabold text-foreground font-data">
+                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-hover border border-border/60 text-xs font-semibold text-foreground font-data">
                           {v.plate_digit ?? "—"}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-xs text-foreground-secondary font-data font-semibold">
+                      <td className="px-5 py-3.5 text-xs text-foreground-secondary font-data font-medium">
                         {v.scheduled_departure ? new Date(v.scheduled_departure).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
                       </td>
                       <td className="px-5 py-3.5">
@@ -360,7 +299,7 @@ export default function UvvrpBoardPage() {
                       </td>
                       <td className="px-5 py-3.5 text-xs">
                         {v.decided_by_user ? (
-                          <span className="font-semibold text-foreground flex items-center gap-1.5">
+                          <span className="font-medium text-foreground flex items-center gap-1.5">
                             <UserCheck className="w-3.5 h-3.5 text-primary" />
                             {v.decided_by_user.first_name} {v.decided_by_user.last_name}
                           </span>

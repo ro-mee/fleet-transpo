@@ -39,6 +39,8 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 const aiProviderSchema = {
@@ -285,94 +287,92 @@ export default function AiSettingsPage() {
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
   return (
-    <div className="space-y-6">
-      {/* ── Page Header ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Brain className="w-6 h-6 text-primary" /> AI Provider & Engine Management
-          </h1>
-          <p className="text-foreground-secondary mt-1">
-            Configure LLM engines (OpenAI, Gemini, Custom), system prompts, and rule-based fallback behavior
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/settings/ai/logs">
-            <Button variant="outline" className="h-10">
-              <Activity className="w-4 h-4 mr-2 text-primary" />
-              View Request Logs
+    <div className="space-y-6 pb-12 w-full select-none">
+      {/* ── HERO HEADER BAR ── */}
+      <HeroHeader
+        icon={Brain}
+        title="AI Provider & Engine Management"
+        badge="Intelligence Core"
+        description="Configure LLM engines (OpenAI, Gemini, Custom), system prompts, and rule-based fallback behavior."
+        actions={
+          <div className="flex items-center gap-2.5">
+            <Link href="/settings/ai/logs">
+              <Button size="sm" className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}>
+                <Activity className="w-3.5 h-3.5 mr-2" />
+                View Request Logs
+              </Button>
+            </Link>
+            <Button size="sm" onClick={openNewDialog} className={cn("rounded-2xl h-10 px-4 text-xs font-bold cursor-pointer", heroButtonPrimaryClass)}>
+              <Plus className="w-3.5 h-3.5 mr-2" />
+              Add Provider
             </Button>
-          </Link>
-          <Button className="h-10" onClick={openNewDialog}>
-            <Plus className="w-4 h-4 mr-2" />
-            Add Provider
-          </Button>
-        </div>
-      </div>
+          </div>
+        }
+      />
 
-      {/* ── Rule-Based Engine Banner ── */}
-      <Card className="border border-primary/20 bg-primary/5 shadow-sm">
-        <CardContent className="p-4 flex items-center justify-between">
+      {/* ── RULE-BASED ENGINE BANNER ── */}
+      <Card className="border border-primary/20 bg-primary/5 shadow-xs rounded-3xl p-2">
+        <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-primary/10">
-              <Zap className="w-5 h-5 text-primary" />
+            <div className="p-3 rounded-2xl bg-primary/10 text-primary border border-primary/20 shrink-0">
+              <Zap className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
-                Deterministic Rule-Based Engine <Badge variant="success" className="text-[11px]">Always Active</Badge>
+              <h3 className="text-sm font-black text-foreground flex items-center gap-2">
+                Deterministic Rule-Based Engine <Badge variant="success" className="text-[10px] font-bold rounded-full px-2.5">Always Active</Badge>
               </h3>
-              <p className="text-xs text-foreground-secondary mt-0.5">
+              <p className="text-xs text-foreground-secondary font-medium mt-0.5">
                 Calculates vehicle utilization, predictive maintenance risk scores, and driver dispatch matching offline with 0 API key costs.
               </p>
             </div>
           </div>
-          <Badge variant="outline" className="text-xs">Zero Cost • 100% Uptime</Badge>
+          <Badge variant="outline" className="text-xs font-bold rounded-full px-3 py-1 shrink-0">Zero Cost • 100% Uptime</Badge>
         </CardContent>
       </Card>
 
       {/* ── Configured Providers Grid ── */}
       <div className="space-y-4">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-foreground-secondary">
-          Configured LLM Providers
+        <h2 className="text-xs font-black uppercase tracking-wider text-foreground-secondary flex items-center gap-2">
+          <Brain className="w-4 h-4 text-primary" /> Configured LLM Providers
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {providers.map((p) => (
-            <Card key={p.provider_id} className={`border-0 shadow-sm transition-all ${p.is_default ? "ring-2 ring-primary" : ""}`}>
+            <Card key={p.provider_id} className={`border border-border/80 bg-surface shadow-xs rounded-3xl transition-all hover:border-primary/50 ${p.is_default ? "ring-2 ring-primary border-primary/40" : ""}`}>
               <CardContent className="p-5 flex flex-col justify-between h-full space-y-4">
                 <div>
                   <div className="flex items-start justify-between">
                     <div>
-                      <h3 className="font-semibold text-foreground text-base flex items-center gap-1.5">
+                      <h3 className="font-extrabold text-foreground text-base flex items-center gap-1.5">
                         {p.display_name}
                       </h3>
-                      <p className="text-xs text-foreground-secondary font-mono mt-0.5">{p.model_name}</p>
+                      <p className="text-xs text-foreground-secondary font-data mt-0.5">{p.model_name}</p>
                     </div>
                     <div className="flex items-center gap-1">
                       {p.is_default && (
-                        <Badge variant="default" className="text-[11px]">Default</Badge>
+                        <Badge variant="default" className="text-[10px] font-extrabold rounded-full px-2">Default</Badge>
                       )}
-                      <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[11px]">
+                      <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[10px] font-extrabold rounded-full px-2">
                         {p.is_enabled ? "Enabled" : "Disabled"}
                       </Badge>
                     </div>
                   </div>
 
                   <div className="mt-3 space-y-1.5 text-xs text-foreground-muted">
-                    <p className="truncate flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-primary" /> {p.base_url || "Default Endpoint"}
+                    <p className="truncate flex items-center gap-1.5 font-medium">
+                      <Globe className="w-3.5 h-3.5 text-primary shrink-0" /> {p.base_url || "Default Endpoint"}
                     </p>
-                    <p className="flex items-center gap-1.5">
-                      <Key className="w-3.5 h-3.5 text-primary" /> {p.api_key_masked || "No API Key Set"}
+                    <p className="flex items-center gap-1.5 font-data">
+                      <Key className="w-3.5 h-3.5 text-primary shrink-0" /> {p.api_key_masked || "No API Key Set"}
                     </p>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-border flex items-center justify-between">
+                <div className="pt-3 border-t border-border/60 flex items-center justify-between">
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-8 text-xs flex items-center gap-1"
+                    className="h-8 text-xs font-bold rounded-xl flex items-center gap-1 cursor-pointer"
                     onClick={() => handleTestConnection(p)}
                     disabled={testingId === p.provider_id}
                   >
@@ -386,7 +386,7 @@ export default function AiSettingsPage() {
 
                   <div className="flex items-center gap-1">
                     <Tooltip content="Edit Provider">
-                      <Button variant="ghost" size="icon" className="w-8 h-8" onClick={() => openEditDialog(p)}>
+                      <Button variant="ghost" size="icon" className="w-8 h-8 rounded-xl cursor-pointer" onClick={() => openEditDialog(p)}>
                         <Pencil className="w-3.5 h-3.5" />
                       </Button>
                     </Tooltip>
@@ -394,7 +394,7 @@ export default function AiSettingsPage() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="w-8 h-8 text-danger hover:text-danger hover:bg-danger/10"
+                        className="w-8 h-8 rounded-xl text-danger hover:text-danger hover:bg-danger/10 cursor-pointer"
                         onClick={() => deleteMutation.mutate(p.provider_id)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -407,11 +407,11 @@ export default function AiSettingsPage() {
           ))}
 
           {!isLoading && providers.length === 0 && (
-            <Card className="border-0 shadow-sm col-span-full">
-              <CardContent className="py-10 text-center text-foreground-muted">
-                <Brain className="w-10 h-10 mx-auto mb-2 opacity-40 text-primary" />
-                <p className="text-base font-semibold text-foreground">No LLM Providers Configured</p>
-                <p className="text-xs mt-1 max-w-md mx-auto">
+            <Card className="border-0 shadow-xs rounded-3xl bg-surface col-span-full">
+              <CardContent className="py-12 text-center text-foreground-muted">
+                <Brain className="w-12 h-12 mx-auto mb-3 opacity-40 text-primary" />
+                <p className="text-base font-bold text-foreground">No LLM Providers Configured</p>
+                <p className="text-xs mt-1.5 max-w-md mx-auto leading-relaxed">
                   The system is currently running in <b>Deterministic Rule-Based Mode</b>. Add an AI provider (OpenAI, Gemini, Groq, DeepSeek) to enable natural-language intelligence summaries.
                 </p>
               </CardContent>
@@ -421,19 +421,19 @@ export default function AiSettingsPage() {
       </div>
 
       {/* ── System Instructions & Prompt Management ── */}
-      <Card className="border-0 shadow-sm">
-        <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+      <Card className="border-0 shadow-xs rounded-3xl bg-surface overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <FileText className="w-4 h-4 text-primary" /> System Instructions & Prompt Template
+            <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+              <FileText className="w-4 h-4 text-primary" /> System Instructions &amp; Prompt Template
             </CardTitle>
             <p className="text-xs text-foreground-secondary mt-0.5">
-              Loaded dynamically from <code className="text-primary font-mono font-bold">resources/ai/instructions.md</code>
+              Loaded dynamically from <code className="text-primary font-data font-bold bg-primary/10 px-1.5 py-0.5 rounded-md">resources/ai/instructions.md</code>
             </p>
           </div>
-          <Badge variant="outline" className="text-xs font-mono">v1.0.0 Active</Badge>
+          <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5">v1.0.0 Active</Badge>
         </CardHeader>
-        <CardContent className="p-4">
+        <CardContent className="p-5">
           {instructions?.content ? (
             <pre className="text-xs text-foreground-secondary leading-relaxed whitespace-pre-wrap font-sans max-h-80 overflow-y-auto">
               {instructions.content}
@@ -447,11 +447,11 @@ export default function AiSettingsPage() {
       </Card>
 
       {/* ── Debug Console ── */}
-      <Card className="border-0 shadow-sm border border-warning/30">
-        <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
+      <Card className="border border-warning/30 shadow-xs rounded-3xl bg-surface overflow-hidden">
+        <CardHeader className="pb-3 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Bug className="w-4 h-4 text-warning" /> AI Debug Console
+            <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+              <Bug className="w-4 h-4 text-warning" /> AI Debug Console &amp; Diagnostics
             </CardTitle>
             <p className="text-xs text-foreground-secondary mt-0.5">
               Verify LLM provider connectivity and insight generation

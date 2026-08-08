@@ -1,12 +1,13 @@
-import { Geist, Geist_Mono, IBM_Plex_Mono } from "next/font/google";
+import { Inter, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "@/components/providers";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800"],
 });
 
 const geistMono = Geist_Mono({
@@ -14,8 +15,8 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const ibmPlexMono = IBM_Plex_Mono({
-  variable: "--font-ibm-plex-mono",
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
   weight: ["400", "500", "600"],
   subsets: ["latin"],
 });
@@ -41,7 +42,7 @@ export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${ibmPlexMono.variable}`}
+      className={`${inter.variable} ${geistMono.variable} ${jetbrainsMono.variable}`}
       suppressHydrationWarning
     >
       <head>

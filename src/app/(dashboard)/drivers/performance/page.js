@@ -11,6 +11,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 
 export default function DriverPerformancePage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
@@ -142,32 +143,11 @@ export default function DriverPerformancePage() {
       />
 
       {/* ── KPI Stat Cards Grid ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {kpis.map((k) => {
-          const Icon = k.icon;
-          return (
-            <div
-              key={k.label}
-              className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 select-none"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">{k.label}</span>
-                <div className="p-2 rounded-2xl bg-primary/10 text-primary border border-primary/20">
-                  <Icon className="w-4 h-4" />
-                </div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data">
-                  {isLoading ? "..." : k.value}
-                </div>
-                <p className="text-[11px] font-semibold text-primary mt-1">
-                  {k.trend}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <StatGrid cols={4}>
+        {kpis.map((k) => (
+          <StatCard key={k.label} icon={k.icon} label={k.label} value={isLoading ? "..." : k.value} trend={k.trend} tone={k.tone} />
+        ))}
+      </StatGrid>
 
       {/* ── Driver Rankings DataTable Card ── */}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">

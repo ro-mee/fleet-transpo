@@ -1,23 +1,57 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { getFinancialSummary, getDriverPerformanceReport, getFleetUtilizationReport, getFuelConsumptionReport, getFleetCostReport } from "@/services/report.service";
 import { getAiInsights } from "@/services/ai.service";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route } from "lucide-react";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { formatCurrency, getInitials, cn } from "@/lib/utils";
+import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route, Truck, Sparkles, Brain, Award, ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 
-const money = (n) => `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+const money = (n) => formatCurrency(n || 0);
+const ITEMS_PER_PAGE = 5;
+
+function formatShortPlate(plate) {
+  if (!plate) return "—";
+  if (plate.startsWith("HARN-VS-") && plate.length > 15) {
+    const parts = plate.split("-");
+    const lastPart = parts[parts.length - 1];
+    const shortCode = lastPart.length > 3 ? lastPart.slice(-3) : lastPart;
+    return `HARN-VS-${shortCode}`;
+  }
+  if (plate.startsWith("HARN-CC-") && plate.length > 15) {
+    const parts = plate.split("-");
+    const lastPart = parts[parts.length - 1];
+    const shortCode = lastPart.length > 3 ? lastPart.slice(-3) : lastPart;
+    return `HARN-CC-${shortCode}`;
+  }
+  return plate;
+}
+
+function formatName(name) {
+  if (!name) return "Unknown Driver";
+  return name
+    .toLowerCase()
+    .split(" ")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 export default function ExecutiveKpiPage() {
   useRequireRole(["admin", "management"]);
+
+  const [utilPage, setUtilPage] = useState(1);
+  const [driverPage, setDriverPage] = useState(1);
+  const [insightPage, setInsightPage] = useState(1);
 
   const { data: fin = {}, isLoading: finLoading } = useQuery({ queryKey: ["exec-financial"], queryFn: () => getFinancialSummary() });
   const { data: util = {}, isLoading: utilLoading } = useQuery({ queryKey: ["exec-utilization"], queryFn: () => getFleetUtilizationReport() });
@@ -34,120 +68,275 @@ export default function ExecutiveKpiPage() {
 
   const loading = finLoading || utilLoading || perfLoading || fuelLoading || costLoading;
   const utilVehicles = util.byVehicle || [];
-  const topDrivers = (perf.details || []).slice(0, 5);
+  const topDrivers = perf.details || [];
+
+  // Pagination slicing
+  const paginatedUtil = useMemo(() => {
+    const start = (utilPage - 1) * ITEMS_PER_PAGE;
+    return utilVehicles.slice(start, start + ITEMS_PER_PAGE);
+  }, [utilVehicles, utilPage]);
+  const maxUtilPages = Math.ceil(utilVehicles.length / ITEMS_PER_PAGE) || 1;
+
+  const paginatedDrivers = useMemo(() => {
+    const start = (driverPage - 1) * ITEMS_PER_PAGE;
+    return topDrivers.slice(start, start + ITEMS_PER_PAGE);
+  }, [topDrivers, driverPage]);
+  const maxDriverPages = Math.ceil(topDrivers.length / ITEMS_PER_PAGE) || 1;
+
+  const paginatedInsights = useMemo(() => {
+    const start = (insightPage - 1) * ITEMS_PER_PAGE;
+    return insights.slice(start, start + ITEMS_PER_PAGE);
+  }, [insights, insightPage]);
+  const maxInsightPages = Math.ceil(insights.length / ITEMS_PER_PAGE) || 1;
 
   const kpis = [
-    { label: "Fleet Utilization", value: `${util.utilization ?? 0}%`, icon: Gauge, tone: "success", href: "/analytics" },
+    { label: "Fleet Utilization", value: `${Number(util.utilization) || 0}%`, icon: Gauge, tone: "success", href: "/analytics" },
     { label: "Total Cost", value: money(fin.totalCost ?? cost.totals?.total_cost), icon: Wallet, tone: "primary", href: "/reports/cost" },
-    { label: "Cost / km", value: `$${Number(fin.costPerKm ?? cost.totals?.cost_per_km ?? 0).toFixed(2)}`, icon: TrendingUp, tone: "success", href: "/reports/cost" },
+    { label: "Cost / km", value: formatCurrency(fin.costPerKm ?? cost.totals?.cost_per_km ?? 0), icon: TrendingUp, tone: "success", href: "/reports/cost" },
     { label: "Fuel Cost", value: money(fuel.totalCost), icon: Fuel, tone: "warning", href: "/fuel/analytics" },
     { label: "Maintenance Cost", value: money(fin.maintCost), icon: Wrench, tone: "danger", href: "/reports" },
     { label: "Total Trips", value: util.totalTrips ?? 0, icon: Send, tone: "info", href: "/trips" },
-    { label: "Total Distance (km)", value: Number(util.totalDistance ?? 0).toLocaleString(), icon: Route, tone: "primary", href: "/tracking/history" },
+    { label: "Total Distance (km)", value: (Number(util.totalDistance) || 0).toLocaleString(), icon: Route, tone: "primary", href: "/tracking/history" },
     { label: "Avg Driver Score", value: perf.avgScore ?? 0, icon: Users, tone: "info", href: "/drivers/performance" },
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-12 w-full select-none">
       <HeroHeader
         icon={Gauge}
         title="Executive KPI Center"
         badge="Management"
-        description="High-level operational and financial KPIs for leadership. Read-only."
+        description="High-level operational and financial KPIs for leadership. Real-time overview."
       />
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <StatGrid cols={4} className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => {
-          const Icon = k.icon;
           return (
-            <Link key={k.label} href={k.href || "#"}>
-              <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs hover:shadow-sm hover:border-primary/40 transition-all flex flex-col justify-between space-y-3 h-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{k.label}</span>
-                  <div className={cn("p-2 rounded-xl", {
-                    "bg-primary/10 text-primary": k.tone === "primary",
-                    "bg-success/10 text-success": k.tone === "success",
-                    "bg-warning/10 text-warning": k.tone === "warning",
-                    "bg-info/10 text-info": k.tone === "info",
-                    "bg-danger/10 text-danger": k.tone === "danger"
-                  })}>
-                    <Icon className="w-4 h-4" />
-                  </div>
-                </div>
-                <div>
-                  <div className="text-3xl font-black text-foreground font-data">{loading ? "..." : k.value}</div>
-                </div>
-              </div>
+            <Link key={k.label} href={k.href || "#"} className="block rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+              <StatCard icon={k.icon} label={k.label} value={loading ? "..." : k.value} tone={k.tone} interactive />
             </Link>
           );
         })}
-      </div>
+      </StatGrid>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">Fleet Utilization by Vehicle</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {utilVehicles.length ? (
-              <div className="divide-y divide-border">
-                {utilVehicles.map((v) => (
-                  <div key={v.plate} className="flex items-center justify-between gap-3 px-5 py-3">
-                    <span className="text-sm font-bold text-foreground truncate">{v.plate}</span>
-                    <span className="text-sm text-foreground-muted font-medium">{v.trips} trips · {Number(v.distance).toLocaleString()} km</span>
-                  </div>
-                ))}
+        {/* PANEL 1: Fleet Utilization by Vehicle */}
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
+          <div>
+            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                  <Truck className="w-4 h-4 text-primary" /> Fleet Utilization by Vehicle
+                </CardTitle>
+                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2 py-0.5">
+                  {utilVehicles.length} Total
+                </Badge>
               </div>
-            ) : (
-              <EmptyState icon={Route} title="No trip data" description="Utilization appears once trips are recorded." className="py-10" />
-            )}
-          </CardContent>
+            </CardHeader>
+            <CardContent className="p-0">
+              {paginatedUtil.length ? (
+                <div className="divide-y divide-border/60">
+                  {paginatedUtil.map((v) => (
+                    <div key={v.plate} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="p-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 shrink-0">
+                          <Truck className="w-3.5 h-3.5" />
+                        </div>
+                        <span className="text-xs font-semibold text-foreground font-data truncate">{formatShortPlate(v.plate)}</span>
+                      </div>
+                      <span className="text-[11px] text-foreground-secondary font-medium font-data shrink-0 bg-muted/30 px-2 py-0.5 rounded-xl border border-border/60">
+                        {v.trips} trips · {Number(v.distance || 0).toLocaleString()} km
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={Route} title="No trip data" description="Utilization appears once trips are recorded." className="py-12" />
+              )}
+            </CardContent>
+          </div>
+
+          {/* Clean Pagination Footer */}
+          {utilVehicles.length > 0 && (
+            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground-muted font-data">
+                Page <span className="text-foreground font-semibold">{utilPage}</span> of {maxUtilPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setUtilPage((p) => Math.max(1, p - 1))}
+                  disabled={utilPage === 1}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setUtilPage((p) => Math.min(maxUtilPages, p + 1))}
+                  disabled={utilPage >= maxUtilPages}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </CardFooter>
+          )}
         </Card>
 
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">Top Drivers</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {topDrivers.length ? (
-              <div className="divide-y divide-border">
-                {topDrivers.map((d) => (
-                  <div key={d.driver_id} className="flex items-center justify-between gap-3 px-5 py-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-foreground truncate">{d.name}</p>
-                      <p className="text-xs text-foreground-muted font-medium">{d.total_trips} trips · on-time {(d.on_time_rate * 100).toFixed(0)}%</p>
-                    </div>
-                    <StatusBadge severity={d.performance_score >= 70 ? "high" : d.performance_score >= 40 ? "medium" : "low"} className="flex-shrink-0" />
-                  </div>
-                ))}
+        {/* PANEL 2: Top Drivers */}
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
+          <div>
+            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                  <Award className="w-4 h-4 text-warning" /> Top Performing Drivers
+                </CardTitle>
+                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2 py-0.5">
+                  {topDrivers.length} Roster
+                </Badge>
               </div>
-            ) : (
-              <EmptyState icon={Users} title="No driver data" description="Driver performance appears once trips are completed." className="py-10" />
-            )}
-          </CardContent>
+            </CardHeader>
+            <CardContent className="p-0">
+              {paginatedDrivers.length ? (
+                <div className="divide-y divide-border/60">
+                  {paginatedDrivers.map((d, index) => {
+                    const formattedName = formatName(d.name);
+                    return (
+                      <div key={d.driver_id || index} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <Avatar className="h-8 w-8 shrink-0 border border-border/60">
+                            <AvatarFallback className="bg-warning/10 text-warning font-bold text-xs">
+                              {getInitials(formattedName)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-foreground truncate">{formattedName}</p>
+                            <p className="text-[11px] text-foreground-muted font-medium font-data mt-0.5">
+                              {d.total_trips} trips · On-Time {(d.on_time_rate * 100).toFixed(0)}%
+                            </p>
+                          </div>
+                        </div>
+                        <StatusBadge severity={d.performance_score >= 70 ? "high" : d.performance_score >= 40 ? "medium" : "low"} className="shrink-0" />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <EmptyState icon={Users} title="No driver data" description="Driver performance appears once trips are completed." className="py-12" />
+              )}
+            </CardContent>
+          </div>
+
+          {/* Clean Pagination Footer */}
+          {topDrivers.length > 0 && (
+            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground-muted font-data">
+                Page <span className="text-foreground font-semibold">{driverPage}</span> of {maxDriverPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
+                  disabled={driverPage === 1}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setDriverPage((p) => Math.min(maxDriverPages, p + 1))}
+                  disabled={driverPage >= maxDriverPages}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
+              </div>
+            </CardFooter>
+          )}
         </Card>
 
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2">AI Strategic Insights</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {insights.length ? (
-              <div className="divide-y divide-border">
-                {insights.slice(0, 4).map((ins, i) => (
-                  <Link key={ins.insight_id || i} href="/ai/insights" className="block px-5 py-3 hover:bg-hover transition-colors">
-                    <div className="flex items-center gap-2 mb-1">
-                      <StatusBadge severity={(ins.severity || ins.impact || "low").toLowerCase()} className="text-[11px]" />
-                      <span className="text-xs text-foreground-muted font-medium">{ins.category || "General"}</span>
+        {/* PANEL 3: AI Strategic Insights */}
+        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
+          <div>
+            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                  <div className="p-1 rounded-lg bg-primary/10 text-primary border border-primary/20">
+                    <Brain className="w-3.5 h-3.5" />
+                  </div>
+                  AI Strategic Insights
+                </CardTitle>
+                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2.5 py-0.5 bg-surface border-border/80">
+                  {insights.length} Active
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="p-3.5 space-y-2.5">
+              {paginatedInsights.length ? (
+                paginatedInsights.map((ins, i) => (
+                  <Link
+                    key={ins.insight_id || i}
+                    href="/ai/insights"
+                    className="group p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-hover/80 hover:border-primary/30 transition-all flex items-start justify-between gap-3 cursor-pointer"
+                  >
+                    <div className="space-y-1.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge severity={(ins.severity || ins.impact || "low").toLowerCase()} className="text-[10px] px-2 py-0.5 rounded-md font-bold" />
+                        <span className="text-[11px] text-foreground-secondary font-medium tracking-wide">{ins.category || "General"}</span>
+                      </div>
+                      <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors leading-snug">
+                        {ins.title}
+                      </p>
+                      {(ins.recommendation || ins.description || ins.details) && (
+                        <p className="text-[11px] text-foreground-muted line-clamp-1 font-normal">
+                          {ins.recommendation || ins.description || ins.details}
+                        </p>
+                      )}
                     </div>
-                    <p className="text-sm font-bold text-foreground truncate">{ins.title}</p>
+                    <div className="p-1.5 rounded-xl bg-surface border border-border/60 group-hover:border-primary/40 group-hover:bg-primary/10 group-hover:text-primary transition-all shrink-0 mt-0.5">
+                      <ArrowUpRight className="w-3.5 h-3.5 text-foreground-muted group-hover:text-primary transition-colors" />
+                    </div>
                   </Link>
-                ))}
+                ))
+              ) : (
+                <EmptyState icon={TrendingUp} title="No insights" description="AI insights will appear here as they're generated." className="py-12" />
+              )}
+            </CardContent>
+          </div>
+
+          {/* Clean Pagination Footer */}
+          {insights.length > 0 && (
+            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
+              <span className="text-xs font-medium text-foreground-muted font-data">
+                Page <span className="text-foreground font-semibold">{insightPage}</span> of {maxInsightPages}
+              </span>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setInsightPage((p) => Math.max(1, p - 1))}
+                  disabled={insightPage === 1}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-xs"
+                  onClick={() => setInsightPage((p) => Math.min(maxInsightPages, p + 1))}
+                  disabled={insightPage >= maxInsightPages}
+                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </Button>
               </div>
-            ) : (
-              <EmptyState icon={TrendingUp} title="No insights" description="AI insights will appear here as they're generated." className="py-10" />
-            )}
-          </CardContent>
+            </CardFooter>
+          )}
         </Card>
       </div>
     </div>

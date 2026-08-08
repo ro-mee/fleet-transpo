@@ -56,11 +56,11 @@ function PolicyForm({ policy, queryClient }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3">
-        <Label className="w-32 font-bold text-xs">Policy State</Label>
+        <Label className="w-32 font-semibold text-xs">Policy State</Label>
         <select
           value={form.enabled ? "yes" : "no"}
           onChange={(e) => setForm({ ...form, enabled: e.target.value === "yes" })}
-          className="h-9 rounded-3xl border border-border/80 bg-surface px-3 text-xs font-semibold"
+          className="h-9 rounded-3xl border border-border/80 bg-surface px-3 text-xs font-medium"
         >
           <option value="yes">Enabled</option>
           <option value="no">Disabled</option>
@@ -68,9 +68,9 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Label className="w-32 font-bold text-xs">Location Preset</Label>
+        <Label className="w-32 font-semibold text-xs">Location Preset</Label>
         <Select value={form.location || "custom"} onValueChange={applyPreset}>
-          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue /></SelectTrigger>
           <SelectContent>
             {Object.keys(UVVRP_PRESETS).map((p) => (
               <SelectItem key={p} value={p}>{p}</SelectItem>
@@ -81,9 +81,9 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Label className="w-32 font-bold text-xs">On Violation</Label>
+        <Label className="w-32 font-semibold text-xs">On Violation</Label>
         <Select value={form.response} onValueChange={(v) => setForm({ ...form, response: v })}>
-          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue /></SelectTrigger>
+          <SelectTrigger className="flex-1 h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue /></SelectTrigger>
           <SelectContent>
             <SelectItem value="block">Block dispatch</SelectItem>
             <SelectItem value="warn">Warning only</SelectItem>
@@ -93,11 +93,11 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div>
-        <Label className="block mb-2 text-xs font-bold text-foreground">Restricted Plate Digits (per weekday)</Label>
+        <Label className="block mb-2 text-xs font-semibold text-foreground">Restricted Plate Digits (per weekday)</Label>
         <div className="space-y-2 p-3 rounded-2xl bg-muted/20 border border-border/60">
           {WEEKDAYS.map((wd) => (
             <div key={wd} className="flex items-center gap-2">
-              <span className="w-24 text-xs font-bold text-foreground-secondary">{wd}</span>
+              <span className="w-24 text-xs font-semibold text-foreground-secondary">{wd}</span>
               <div className="flex flex-wrap gap-1">
                 {DIGITS.map((d) => {
                   const on = (form.weekdayRestrictions?.[wd] || []).includes(d);
@@ -107,8 +107,8 @@ function PolicyForm({ policy, queryClient }) {
                       type="button"
                       onClick={() => toggleDigit(wd, d)}
                       className={cn(
-                        "h-7 w-7 rounded-lg text-xs font-black transition-all cursor-pointer font-data",
-                        on ? "bg-danger text-white shadow-xs" : "bg-surface border border-border/60 text-foreground-muted hover:border-danger/40 hover:text-danger"
+                        "h-7 w-7 rounded-lg text-xs font-medium transition-all cursor-pointer font-data",
+                        on ? "bg-danger text-white shadow-2xs" : "bg-surface border border-border/60 text-foreground-muted hover:border-danger/40 hover:text-danger"
                       )}
                     >
                       {d}
@@ -122,16 +122,16 @@ function PolicyForm({ policy, queryClient }) {
       </div>
 
       <div>
-        <Label className="block mb-2 text-xs font-bold text-foreground">Exemption Categories (comma separated)</Label>
+        <Label className="block mb-2 text-xs font-semibold text-foreground">Exemption Categories (comma separated)</Label>
         <Input
           value={(form.exemptionCategories || []).join(", ")}
           onChange={(e) => setForm({ ...form, exemptionCategories: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
           placeholder="Emergency Vehicles, Government Vehicles, ..."
-          className="h-10 rounded-3xl border border-border/80 text-xs"
+          className="h-10 rounded-3xl border border-border/80 text-xs font-medium"
         />
       </div>
 
-      <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending} className="rounded-xl font-bold">
+      <Button onClick={() => saveMutation.mutate(form)} disabled={saveMutation.isPending} className="rounded-xl font-semibold">
         {saveMutation.isPending ? "Saving…" : "Save Policy"}
       </Button>
     </div>
@@ -148,151 +148,159 @@ export default function NumberCodingSettingsPage() {
   });
 
   const { data: vehicles = [] } = useQuery({ queryKey: ["vehicles"], queryFn: () => getVehicles() });
-  const { data: exemptions = [] } = useQuery({ queryKey: ["uvvrp-exemptions"], queryFn: getUvvrpExemptions });
-  const { data: pending = [] } = useQuery({
-    queryKey: ["uvvrp-pending"],
-    queryFn: () => getUvvrpViolations({ status: "pending_approval" }),
+
+  const { data: exemptions = [] } = useQuery({
+    queryKey: ["uvvrp-exemptions"],
+    queryFn: () => getUvvrpExemptions({ activeOnly: false }),
   });
 
-  const [exForm, setExForm] = useState({ vehicle_id: "", category: "", reason: "", expires_on: "" });
+  const { data: violations = [] } = useQuery({
+    queryKey: ["uvvrp-violations"],
+    queryFn: () => getUvvrpViolations({ pendingOnly: true }),
+  });
+
+  const [exForm, setExForm] = useState({ vehicle_id: "", category: "Government Pass", expires_on: "" });
 
   const addExemption = useMutation({
     mutationFn: createUvvrpExemption,
     onSuccess: () => {
+      toast.success("Exemption pass added.");
       queryClient.invalidateQueries({ queryKey: ["uvvrp-exemptions"] });
-      setExForm({ vehicle_id: "", category: "", reason: "", expires_on: "" });
-      toast.success("Exemption added.");
+      setExForm({ vehicle_id: "", category: "Government Pass", expires_on: "" });
     },
-    onError: (e) => toast.error(e.message || "Could not add exemption."),
+    onError: (e) => toast.error(e.message || "Failed to add exemption."),
   });
 
   const toggleExemption = useMutation({
-    mutationFn: ({ id, active }) => setUvvrpExemptionActive(id, { active }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["uvvrp-exemptions"] }),
+    mutationFn: ({ id, active }) => setUvvrpExemptionActive(id, active),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["uvvrp-exemptions"] });
+    },
   });
 
   const decide = useMutation({
-    mutationFn: ({ id, approve }) => decideUvvrpViolation(id, { approve, reason: "Resolved from settings" }),
+    mutationFn: ({ id, approve }) => decideUvvrpViolation(id, { approve }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["uvvrp-pending"] });
-      toast.success("Coding approval decision recorded.");
+      toast.success("Decision updated.");
+      queryClient.invalidateQueries({ queryKey: ["uvvrp-violations"] });
     },
-    onError: (e) => toast.error(e.message || "Could not record decision."),
   });
 
   return (
-    <div className="space-y-6">
-      {/* ── Hero Header ── */}
+    <div className="space-y-6 pb-12 w-full select-none">
+      {/* ── HERO HEADER BAR ── */}
       <HeroHeader
-        icon={Hash}
+        icon={ShieldCheck}
         title="Number Coding (UVVRP) Settings"
-        badge="Compliance"
-        description="Configure the plate-coding policy, travel restrictions, and manage vehicle exemptions."
+        badge="Rules & Exemptions"
+        description="Configure Metro Manila Unified Vehicle Volume Reduction Program rules, exemption passes, and pending violation decisions."
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* PANEL 1: Global Policy Rules */}
+        <Card className="lg:col-span-6 border-0 shadow-xs rounded-3xl bg-surface">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
-              <ShieldCheck className="h-4 w-4 text-primary" /> Active Policy Configuration
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Hash className="w-4 h-4 text-primary" /> Daily Rule Matrix
             </CardTitle>
           </CardHeader>
-          <CardContent className="pt-5">
+          <CardContent className="p-5">
             {isLoading ? (
-              <p className="text-xs font-semibold text-foreground-muted">Loading policy…</p>
-            ) : (
-              <PolicyForm key={policy?.updated_at || "policy"} policy={policy} queryClient={queryClient} />
-            )}
+              <p className="text-xs font-medium text-foreground-muted">Loading policy…</p>
+            ) : policy ? (
+              <PolicyForm policy={policy} queryClient={queryClient} />
+            ) : null}
           </CardContent>
         </Card>
 
-        <div className="space-y-6">
-          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-            <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-              <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
-                <Car className="h-4 w-4 text-primary" /> Vehicle Exemptions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-5 space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                <Select value={exForm.vehicle_id ? String(exForm.vehicle_id) : undefined} onValueChange={(v) => setExForm({ ...exForm, vehicle_id: v })}>
-                  <SelectTrigger className="h-9 rounded-3xl border-border/80 text-xs font-semibold"><SelectValue placeholder="Vehicle" /></SelectTrigger>
-                  <SelectContent>
-                    {vehicles.map((v) => (
-                      <SelectItem key={v.vehicle_id} value={String(v.vehicle_id)}>{v.plate_number}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input value={exForm.category} onChange={(e) => setExForm({ ...exForm, category: e.target.value })} placeholder="Category (e.g. Hotel Shuttle)" className="h-9 rounded-3xl border-border/80 text-xs" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input value={exForm.reason} onChange={(e) => setExForm({ ...exForm, reason: e.target.value })} placeholder="Reason (optional)" className="h-9 rounded-3xl border-border/80 text-xs" />
-                <Input type="date" value={exForm.expires_on} onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })} className="h-9 rounded-3xl border-border/80 text-xs font-data" />
-              </div>
+        {/* PANEL 2: Vehicle Exemptions */}
+        <Card className="lg:col-span-6 border-0 shadow-xs rounded-3xl bg-surface">
+          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+              <ShieldCheck className="w-4 h-4 text-success" /> Vehicle Exemption Passes
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select value={exForm.vehicle_id} onValueChange={(v) => setExForm({ ...exForm, vehicle_id: v })}>
+                <SelectTrigger className="h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue placeholder="Vehicle" /></SelectTrigger>
+                <SelectContent>
+                  {vehicles.map((vh) => (
+                    <SelectItem key={vh.vehicle_id} value={String(vh.vehicle_id)}>
+                      {vh.plate_number} — {vh.make || ""} {vh.model || ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Input
+                type="date"
+                value={exForm.expires_on}
+                onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })}
+                className="h-9 rounded-3xl border-border/80 text-xs font-data font-medium"
+              />
               <Button
-                onClick={() => addExemption.mutate({ ...exForm, vehicle_id: Number(exForm.vehicle_id), expires_on: exForm.expires_on || null })}
-                disabled={addExemption.isPending || !exForm.vehicle_id || !exForm.category}
-                className="rounded-xl font-bold h-9 text-xs"
+                onClick={() => addExemption.mutate({ vehicle_id: Number(exForm.vehicle_id), category: exForm.category, expires_on: exForm.expires_on || null })}
+                disabled={!exForm.vehicle_id || addExemption.isPending}
+                className="rounded-xl font-semibold h-9 text-xs"
               >
-                {addExemption.isPending ? "Adding…" : "Add Exemption"}
+                Add Pass
               </Button>
+            </div>
 
-              {exemptions.length ? (
-                <div className="divide-y divide-border/50 pt-2">
-                  {exemptions.map((ex) => (
-                    <div key={ex.exemption_id} className="flex items-center justify-between gap-3 py-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-foreground font-data truncate">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
-                        <p className="text-[11px] text-foreground-muted truncate mt-0.5">
-                          {ex.category}{ex.expires_on ? ` · until ${ex.expires_on.slice(0, 10)}` : ""}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => toggleExemption.mutate({ id: ex.exemption_id, active: !ex.active })}
-                        className="text-xs font-bold text-primary hover:underline cursor-pointer"
-                      >
-                        {ex.active ? "Revoke" : "Reactivate"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            <div className="divide-y divide-border/60 max-h-80 overflow-y-auto">
+              {exemptions.length === 0 ? (
+                <EmptyState icon={ShieldCheck} title="No exemptions registered" description="Exemption passes bypass daily UVVRP rules." className="py-8" />
               ) : (
-                <EmptyState icon={Car} title="No exemptions" description="Add exempt vehicles above." className="py-8" />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-            <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-              <CardTitle className="flex items-center gap-2 text-sm font-extrabold text-foreground">
-                <Clock className="h-4 w-4 text-warning" /> Pending Coding Approvals
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {pending.length === 0 ? (
-                <EmptyState icon={Clock} title="Nothing pending" description="Approval-required coding violations will appear here." className="py-8" />
-              ) : (
-                <div className="divide-y divide-border/50">
-                  {pending.map((v) => (
-                    <div key={v.violation_id} className="flex items-center justify-between gap-3 px-5 py-3.5">
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold font-data text-foreground truncate">{v.plate_number || `Vehicle #${v.vehicle_id}`}</p>
-                        <p className="text-[11px] text-foreground-muted truncate mt-0.5">
-                          {v.weekday} · ends {v.plate_digit} · {v.scheduled_departure ? new Date(v.scheduled_departure).toLocaleString() : ""}
-                        </p>
-                      </div>
-                      <div className="flex gap-2 flex-shrink-0">
-                        <Button size="xs" variant="success" className="rounded-xl font-bold" onClick={() => decide.mutate({ id: v.violation_id, approve: true })}>Approve</Button>
-                        <Button size="xs" variant="danger" className="rounded-xl font-bold" onClick={() => decide.mutate({ id: v.violation_id, approve: false })}>Deny</Button>
-                      </div>
+                exemptions.map((ex) => (
+                  <div key={ex.exemption_id} className="py-2.5 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-medium text-foreground font-data truncate">{ex.plate_number || `Vehicle #${ex.vehicle_id}`}</p>
+                      <p className="text-[11px] text-foreground-muted">{ex.category || "Pass"} {ex.expires_on ? `(Exp: ${ex.expires_on})` : ""}</p>
                     </div>
-                  ))}
-                </div>
+                    <button
+                      onClick={() => toggleExemption.mutate({ id: ex.exemption_id, active: !ex.is_active })}
+                      className="text-xs font-medium text-primary hover:underline cursor-pointer"
+                    >
+                      {ex.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                  </div>
+                ))
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
+
+      {/* PANEL 3: Pending Violations */}
+      <Card className="border-0 shadow-xs rounded-3xl bg-surface">
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+          <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <ShieldAlert className="w-4 h-4 text-warning" /> Pending Coding Decisions
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="p-5">
+          {violations.length === 0 ? (
+            <EmptyState icon={CheckCircle2} title="No pending violation decisions" description="Dispatches requiring manual override will appear here." className="py-8" />
+          ) : (
+            <div className="divide-y divide-border/60">
+              {violations.map((v) => (
+                <div key={v.violation_id} className="py-3 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs font-medium font-data text-foreground truncate">{v.plate_number || `Vehicle #${v.vehicle_id}`}</p>
+                    <p className="text-[11px] text-foreground-muted">
+                      {v.weekday} restriction (Digit {v.plate_digit}) — Dispatched for {v.scheduled_departure ? new Date(v.scheduled_departure).toLocaleString() : "today"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="xs" variant="success" className="rounded-xl font-medium" onClick={() => decide.mutate({ id: v.violation_id, approve: true })}>Approve</Button>
+                    <Button size="xs" variant="danger" className="rounded-xl font-medium" onClick={() => decide.mutate({ id: v.violation_id, approve: false })}>Deny</Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

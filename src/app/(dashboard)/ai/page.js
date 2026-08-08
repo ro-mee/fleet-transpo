@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getAiRecommendations, getAiInsights, getPredictiveMaintenance } from "@/services/ai.service";
 import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatDate } from "@/lib/utils";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import {
   Brain,
   Lightbulb,
@@ -92,63 +93,12 @@ export default function AiDashboardPage() {
       />
 
       {/* ── EXECUTIVE KPI STAT CARDS ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Active Insights */}
-        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Active Insights</span>
-            <div className="p-2 rounded-xl bg-primary/10 text-primary">
-              <Lightbulb className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{insights.length}</div>
-            <p className="text-[11px] text-primary font-medium mt-1">Across all telemetry modules</p>
-          </div>
-        </div>
-
-        {/* KPI 2: Critical Alerts */}
-        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Critical Alerts</span>
-            <div className="p-2 rounded-xl bg-danger/10 text-danger">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{critical}</div>
-            <p className="text-[11px] text-danger font-semibold mt-1">Requires immediate attention</p>
-          </div>
-        </div>
-
-        {/* KPI 3: Maintenance Alerts */}
-        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Maintenance Alerts</span>
-            <div className="p-2 rounded-xl bg-warning/10 text-warning">
-              <Wrench className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{overdueMaint}</div>
-            <p className="text-[11px] text-warning font-semibold mt-1">Due or approaching service</p>
-          </div>
-        </div>
-
-        {/* KPI 4: Recommendations */}
-        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Recommendations</span>
-            <div className="p-2 rounded-xl bg-success/10 text-success">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{recommendations.length}</div>
-            <p className="text-[11px] text-success font-medium mt-1">Actionable fleet suggestions</p>
-          </div>
-        </div>
-      </div>
+      <StatGrid cols={4}>
+        <StatCard icon={Lightbulb} label="Active Insights" value={insights.length} trend="Across all telemetry modules" tone="primary" />
+        <StatCard icon={AlertTriangle} label="Critical Alerts" value={critical} trend="Requires immediate attention" tone="danger" />
+        <StatCard icon={Wrench} label="Maintenance Alerts" value={overdueMaint} trend="Due or approaching service" tone="warning" />
+        <StatCard icon={TrendingUp} label="Recommendations" value={recommendations.length} trend="Actionable fleet suggestions" tone="success" />
+      </StatGrid>
 
       {/* ── SECTION 1: AI INSIGHTS GRID ── */}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">

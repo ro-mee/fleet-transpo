@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -23,9 +23,10 @@ export default function DriverVehiclePage() {
   return (
     <DriverConsentGate>
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="My Work"
+        <HeroHeader
+          icon={CarFront}
           title="My Vehicle"
+          badge="My Work"
           description="The vehicle assigned to you and its latest inspection status."
         />
 

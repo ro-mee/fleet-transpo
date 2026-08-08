@@ -26,9 +26,11 @@
   --color-info: #3b82f6;
   --color-info-bg: var(--info-bg);
 
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-mono: var(--font-geist-mono);
-  --font-data: var(--font-ibm-plex-mono);
+  /* Keep operational values in the same Inter family as the rest of the UI.
+     Hierarchy comes from weight and size, not a competing monospace face. */
+  --font-data: var(--font-inter), system-ui, sans-serif;
 
   --radius-sm: 4px;
   --radius-md: 6px;
@@ -40,19 +42,19 @@
 }
 
 :root {
-  --bg: #f8f8f8;
+  --bg: #f3f3f3;
   --sf: #ffffff;
-  --br: #e6e6e6;
-  --fg: #161616;
-  --fg-secondary: #6b7280;
-  --fg-muted: #9ca3af;
-  --primary: #161616;
-  --primary-bg: #f1f1f3;
-  --hv: #f2f2f2;
+  --br: #d1d5db;
+  --fg: #111827;
+  --fg-secondary: #4b5563;
+  --fg-muted: #6b7280;
+  --primary: #111827;
+  --primary-bg: #e5e7eb;
+  --hv: #f3f4f6;
   --sb: #ffffff;
-  --sb-hv: #f2f2f2;
-  --sb-active: #161616;
-  --sb-br: #e6e6e6;
+  --sb-hv: #f3f4f6;
+  --sb-active: #111827;
+  --sb-br: #d1d5db;
   --success-bg: #ecfdf5;
   --warning-bg: #fffbeb;
   --danger-bg: #fef2f2;
@@ -95,27 +97,72 @@ body {
   font-family: var(--font-data), var(--font-mono), monospace;
 }
 
+.kpi-stat-card {
+  will-change: transform;
+  transition:
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 280ms ease,
+    border-color 200ms ease;
+}
+
+.kpi-stat-card:hover {
+  transform: translateY(-1px) !important;
+  box-shadow: var(--shadow-sm) !important;
+}
+
+.kpi-stat-card--interactive:hover {
+  transform: translateY(-3px) scale(1.004) !important;
+  box-shadow: 0 10px 22px -12px rgb(17 24 39 / 0.32) !important;
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--br)) !important;
+}
+
+.kpi-stat-card--interactive:active {
+  transform: translateY(-1px) scale(0.995) !important;
+  transition-duration: 110ms;
+}
+
+/* Legacy dashboard KPI cards predate StatCard but share this card structure.
+   Keep their hover motion aligned until each one is migrated. */
+:where(
+  [class*="rounded-3xl"][class*="shadow-xs"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card),
+  [class*="rounded-3xl"][class*="transition-all"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card)
+) {
+  transition-property: transform, box-shadow, border-color;
+  transition-duration: 300ms;
+  transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+:where(
+  [class*="rounded-3xl"][class*="shadow-xs"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card),
+  [class*="rounded-3xl"][class*="transition-all"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card)
+):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+:where(
+  [class*="rounded-3xl"][class*="cursor-pointer"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card)
+):hover {
+  transform: translateY(-3px) scale(1.004);
+  box-shadow: 0 10px 22px -12px rgb(17 24 39 / 0.32);
+}
+
+:where(
+  [class*="rounded-3xl"][class*="cursor-pointer"][class*="flex-col"][class*="justify-between"]:not(.kpi-stat-card)
+):active {
+  transform: translateY(-1px) scale(0.995);
+  transition-duration: 110ms;
+}
+
 .scrollbar-thin::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
+  display: none;
+  width: 0px;
+  height: 0px;
 }
 
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--fg-muted);
-  border-radius: var(--radius-full, 9999px);
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: var(--fg-secondary);
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.scrollbar-thin {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 @keyframes fadeOut {
@@ -127,6 +174,15 @@ body {
    Skeleton has the motion-reduce: variant, but some loaders use a bare
    animate-pulse class directly; the global rule covers every consumer. */
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
   .animate-pulse {
     animation: none !important;
   }

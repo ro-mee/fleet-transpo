@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/tables/data-table";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { toast } from "@/components/ui/toast";
 import { getFuelRecords, createFuelRecord } from "@/services/fuel.service";
@@ -100,9 +100,10 @@ export default function DriverFuelPage() {
   return (
     <DriverConsentGate>
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="My Work"
+        <HeroHeader
+          icon={Fuel}
           title="Fuel Logs"
+          badge="My Work"
           description="Your fuel records and verification status."
         />
 

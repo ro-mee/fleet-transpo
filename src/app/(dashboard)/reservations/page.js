@@ -31,6 +31,7 @@ import {
   Users,
 } from "lucide-react";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 
 // Phase 17 — the reservation list, repointed to transportation_requests.
 //
@@ -338,47 +339,11 @@ export default function ReservationsPage() {
       />
 
       {/* ── KPI Filter Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {statCards.map((card) => {
-          const Icon = card.icon;
-          return (
-            <button
-              key={card.label}
-              type="button"
-              onClick={card.onClick}
-              className={cn(
-                "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-                card.active
-                  ? "border-primary bg-primary/10 shadow-xs"
-                  : "border-border/80 bg-surface hover:border-primary/40"
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{card.label}</span>
-                <div className={cn("p-2 rounded-xl", {
-                  "bg-primary/10 text-primary": card.tone === "primary",
-                  "bg-success/10 text-success": card.tone === "success",
-                  "bg-warning/10 text-warning": card.tone === "warning",
-                  "bg-info/10 text-info": card.tone === "info",
-                  "bg-danger/10 text-danger": card.tone === "danger",
-                })}>
-                  <Icon className="w-4 h-4" />
-                </div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data">{card.value}</div>
-                <p className={cn("text-[11px] font-medium mt-1", {
-                  "text-primary": card.tone === "primary",
-                  "text-success": card.tone === "success",
-                  "text-warning": card.tone === "warning",
-                  "text-info": card.tone === "info",
-                  "text-danger": card.tone === "danger",
-                })}>{card.trend}</p>
-              </div>
-            </button>
-          );
-        })}
-      </div>
+      <StatGrid cols={4}>
+        {statCards.map((card) => (
+          <StatCard key={card.label} {...card} />
+        ))}
+      </StatGrid>
 
       {/* ── Table ── */}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">

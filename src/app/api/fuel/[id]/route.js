@@ -2,6 +2,7 @@ import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
+import { writeAudit } from "@/lib/audit";
 
 export async function GET(req, { params }) {
   try {
@@ -124,6 +125,26 @@ export async function PUT(req, { params }) {
     );
 
     if (!rows.length) return err("Fuel record not found or already deleted", 404);
+
+    // Compliance audit: record who approved/rejected and why. Best-effort by
+    // design — writeAudit never throws, so a failed audit can't block the
+    // status change itself.
+    const newStatus = rows[0].status;
+    if (body.status && newStatus !== prev && ["Approved", "Rejected"].includes(newStatus)) {
+      await writeAudit(req, session, {
+        action: "update",
+        resource: "fuelrecords",
+        resourceId: rows[0].fuel_record_id,
+        oldValues: { status: prev, rejection_reason: before[0].rejection_reason ?? null },
+        newValues: {
+          status: newStatus,
+          rejection_reason: rows[0].rejection_reason ?? null,
+          approved_by: rows[0].approved_by ?? null,
+          approved_at: rows[0].approved_at ?? null,
+        },
+      });
+    }
+
     return ok(rows[0]);
   } catch (e) { return handleError(e); }
 }

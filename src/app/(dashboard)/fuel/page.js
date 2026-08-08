@@ -198,7 +198,7 @@ export default function FuelPage() {
       key: "amount",
       label: "Total Amount",
       sortable: true,
-      render: (val) => <span className="font-data font-black text-xs text-foreground">{val ? formatCurrency(val) : "—"}</span>,
+      render: (val) => <span className="font-data font-medium text-xs text-foreground">{val ? formatCurrency(val) : "—"}</span>,
     },
     {
       key: "status",
@@ -369,7 +369,7 @@ export default function FuelPage() {
             <div className="p-2 rounded-xl bg-primary/10 text-primary"><Fuel className="w-4 h-4" /></div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{records.length}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{records.length}</div>
             <p className="text-[11px] text-primary font-medium mt-1">All fuel logs</p>
           </div>
         </button>
@@ -387,7 +387,7 @@ export default function FuelPage() {
             <div className="p-2 rounded-xl bg-warning/10 text-warning"><Clock className="w-4 h-4" /></div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{pendingCount}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{pendingCount}</div>
             <p className="text-[11px] text-warning font-medium mt-1">Needs review</p>
           </div>
         </button>
@@ -405,7 +405,7 @@ export default function FuelPage() {
             <div className="p-2 rounded-xl bg-success/10 text-success"><CheckCircle2 className="w-4 h-4" /></div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{formatCurrency(totalCost)}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{formatCurrency(totalCost)}</div>
             <p className="text-[11px] text-success font-medium mt-1">Total cleared</p>
           </div>
         </button>
@@ -423,7 +423,7 @@ export default function FuelPage() {
             <div className="p-2 rounded-xl bg-danger/10 text-danger"><XCircle className="w-4 h-4" /></div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{rejectedCount}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{rejectedCount}</div>
             <p className="text-[11px] text-danger font-medium mt-1">Flagged logs</p>
           </div>
         </button>

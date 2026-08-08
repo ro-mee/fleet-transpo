@@ -36,7 +36,7 @@ const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
   {
     label: "Overview",
     items: [
-      { href: "/dashboard", label: homeLabel, icon: homeIcon },
+      { href: home, label: homeLabel, icon: homeIcon },
     ],
   },
 ];
@@ -232,22 +232,25 @@ export const WORKS = {
     name: "Executive Center",
     tagline: "Performance, reporting and strategic insight.",
     accent: "neutral",
-    home: "/dashboard",
+    home: "/executive",
     nav: [
-      ...overview("/dashboard", "Executive Dashboard", LayoutDashboard),
+      ...overview("/executive", "Executive Overview", Gauge),
       {
-        label: "Insights & Reports",
+        label: "Performance & Finance",
         items: [
-          { href: "/executive", label: "Executive KPI Center", icon: LayoutDashboard },
-          { href: "/reports", label: "Reports & Analytics Hub", icon: BarChart3 },
+          { href: "/analytics", label: "Analytics Dashboard", icon: BarChart3 },
+          { href: "/reports", label: "Reports Hub", icon: BarChart3 },
+          { href: "/reports/cost", label: "Financial Overview", icon: BarChart3 },
+          { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/drivers/performance", label: "Driver Performance", icon: Gauge },
         ],
       },
       {
-        label: "Monitoring",
+        label: "Strategic Monitoring",
         items: [
+          { href: "/ai/insights", label: "AI Insights", icon: Brain },
           { href: "/tracking/history", label: "Operational Review", icon: ClipboardList },
-          { href: "/fleet/availability", label: "Fleet Availability", icon: Truck },
-          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
+          { href: "/reservations", label: "Reservations Register", icon: CalendarCheck },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],

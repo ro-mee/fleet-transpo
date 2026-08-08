@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -104,9 +104,10 @@ export default function DriverTripsPage() {
   return (
     <DriverConsentGate>
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="My Work"
+        <HeroHeader
+          icon={Route}
           title="My Trips"
+          badge="My Work"
           description="Trips assigned to you, newest first."
         />
 

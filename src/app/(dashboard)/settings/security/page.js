@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { toast } from "@/components/ui/toast";
 import { Shield, Key, Lock, Smartphone, History, Loader2, Eye, EyeOff } from "lucide-react";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -78,9 +78,10 @@ export default function SecurityPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Settings"
+      <HeroHeader
+        icon={Shield}
         title="Security"
+        badge="Settings"
         description="Manage account security and authentication methods."
       />
 

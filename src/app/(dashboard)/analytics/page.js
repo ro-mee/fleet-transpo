@@ -75,7 +75,7 @@ function CustomTooltip({ active, payload, label }) {
             <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color || entry.fill }} />
             <span>{entry.name}:</span>
           </div>
-          <span className="font-black font-data text-foreground">
+          <span className="font-medium font-data text-foreground">
             {entry.name.toLowerCase().includes("cost") || entry.name.toLowerCase().includes("expense")
               ? formatCurrency(entry.value)
               : entry.name.toLowerCase().includes("liters")
@@ -397,7 +397,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
+            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
               <span>{formatCurrency(fi.totalCost || 148500)}</span>
               <span className="text-xs font-bold text-success inline-flex items-center bg-success/10 px-2 py-0.5 rounded-full border border-success/20">
                 <ArrowUpRight className="w-3 h-3 mr-0.5" /> +4.2%
@@ -416,7 +416,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
+            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
               <span>{formatCurrency(fi.costPerKm || 14.85)}</span>
               <span className="text-xs font-bold text-primary inline-flex items-center bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
                 Optimal
@@ -435,7 +435,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
+            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
               <span>{f.utilization || 78}%</span>
               <span className="text-xs font-bold text-info inline-flex items-center bg-info/10 px-2 py-0.5 rounded-full border border-info/20">
                 High Capacity
@@ -454,7 +454,7 @@ export default function AnalyticsPage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
+            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
               <span>{maintDue || 3}</span>
               <span className="text-xs font-bold text-warning inline-flex items-center bg-warning/10 px-2 py-0.5 rounded-full border border-warning/20">
                 Action Needed
@@ -554,7 +554,7 @@ export default function AnalyticsPage() {
                         )}
                       >
                         <div className="flex items-center justify-between text-[10px] font-bold">
-                          <span className={cn(d.isToday ? "text-primary font-black" : "text-foreground-secondary")}>
+                          <span className={cn(d.isToday ? "text-primary font-medium" : "text-foreground-secondary")}>
                             {d.dayNumber}
                           </span>
                           {d.isToday && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
@@ -562,7 +562,7 @@ export default function AnalyticsPage() {
                         <div className="text-right">
                           <span
                             className={cn(
-                              "font-data text-[10px] font-black px-1.5 py-0.5 rounded-md",
+                              "font-data text-[10px] font-medium px-1.5 py-0.5 rounded-md",
                               isHigh
                                 ? "bg-success/20 text-success"
                                 : isMed
@@ -626,7 +626,7 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
               <div className="absolute top-[50%] left-[50%] -translate-x-[50%] -translate-y-[50%] text-center pointer-events-none">
                 <ShieldCheck className="w-5 h-5 text-success mx-auto mb-0.5 opacity-90" />
-                <p className="text-2xl font-black font-data text-foreground leading-none">
+                <p className="text-2xl font-medium font-data text-foreground leading-none">
                   {totalRiskCount}
                 </p>
                 <p className="text-[9px] font-bold uppercase tracking-widest text-foreground-muted mt-1">Monitored</p>
@@ -643,7 +643,7 @@ export default function AnalyticsPage() {
                       <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
                       <span className="font-bold text-foreground-secondary text-[11px] truncate">{item.name}</span>
                     </div>
-                    <span className="font-black font-data text-foreground text-xs">{item.value}</span>
+                    <span className="font-medium font-data text-foreground text-xs">{item.value}</span>
                   </div>
                 );
               })}
@@ -735,7 +735,7 @@ export default function AnalyticsPage() {
               <div key={d.name} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-muted/40 transition-all">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-xl font-data text-xs font-black shrink-0 border",
+                    "flex h-9 w-9 items-center justify-center rounded-xl font-data text-xs font-medium shrink-0 border",
                     index === 0 ? "bg-warning/20 text-warning border-warning/40" :
                     index === 1 ? "bg-muted text-foreground border-border/80" :
                     "bg-primary/10 text-primary border-primary/20"

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DocumentScanCard } from "@/components/ui/document-scan-card";
@@ -228,9 +228,10 @@ export default function DriverProfilePage() {
   return (
     <DriverConsentGate>
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="Account"
+        <HeroHeader
+          icon={IdCard}
           title="Profile & Credentials"
+          badge="Account"
           description={`${profile.firstName} ${profile.lastName} — your license, performance, attendance and contact details.`}
         />
 

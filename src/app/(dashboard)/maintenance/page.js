@@ -236,7 +236,7 @@ export default function MaintenancePage() {
       columnHelper.accessor("cost", {
         header: "Cost",
         cell: (info) => (
-          <span className="font-data text-xs font-black text-foreground">{formatCurrency(info.getValue() || 0)}</span>
+          <span className="font-data text-xs font-medium text-foreground">{formatCurrency(info.getValue() || 0)}</span>
         ),
       }),
       columnHelper.accessor("service_provider", {
@@ -329,7 +329,7 @@ export default function MaintenancePage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{stats.total}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{stats.total}</div>
             <p className="text-[11px] text-primary font-medium mt-1">Logged service records</p>
           </div>
         </div>
@@ -342,7 +342,7 @@ export default function MaintenancePage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{stats.scheduled}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{stats.scheduled}</div>
             <p className="text-[11px] text-info font-medium mt-1">Pending maintenance dates</p>
           </div>
         </div>
@@ -355,7 +355,7 @@ export default function MaintenancePage() {
             </div>
           </div>
           <div>
-            <div className="text-3xl font-black text-foreground font-data">{stats.inProgress}</div>
+            <div className="text-3xl font-medium text-foreground font-data">{stats.inProgress}</div>
             <p className="text-[11px] text-warning font-semibold mt-1">Currently in shop</p>
           </div>
         </div>
@@ -368,7 +368,7 @@ export default function MaintenancePage() {
             </div>
           </div>
           <div>
-            <div className="text-2xl font-black text-foreground font-data">{formatCurrency(stats.totalCost)}</div>
+            <div className="text-2xl font-medium text-foreground font-data">{formatCurrency(stats.totalCost)}</div>
             <p className="text-[11px] text-success font-semibold mt-1">Cumulative maintenance cost</p>
           </div>
         </div>

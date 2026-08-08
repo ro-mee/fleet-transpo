@@ -11,12 +11,12 @@ export default function DashboardPage() {
   const role = employee?.roles?.role_name;
 
   useEffect(() => {
-    if (role === "driver") {
-      router.replace("/driver");
+    if (role === "driver" || role === "management") {
+      router.replace(role === "driver" ? "/driver" : "/executive");
     }
   }, [role, router]);
 
-  if (loading || role === "driver") return null;
+  if (loading || role === "driver" || role === "management") return null;
 
   return <RoleDashboard role={role} employee={employee} />;
 }

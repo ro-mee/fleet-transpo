@@ -291,7 +291,7 @@ export default function DriversPage() {
                     <Icon className="w-4 h-4" />
                   </div>
                 </div>
-                <div className="text-3xl font-black text-foreground font-data">{card.value}</div>
+                <div className="text-3xl font-medium text-foreground font-data">{card.value}</div>
               </button>
             );
           })}

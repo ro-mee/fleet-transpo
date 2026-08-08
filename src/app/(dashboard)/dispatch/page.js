@@ -31,6 +31,7 @@ import { startTrip, completeTrip } from "@/services/trip.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import {
   CalendarDays,
   CheckCircle2,
@@ -316,45 +317,11 @@ export default function DispatchPage() {
       />
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <StatGrid cols={4}>
         {stats.map((s) => {
-          const Icon = s.icon;
-          const isActive = s.active;
-          const activeStyle = s.tone === 'primary' ? 'border-primary bg-primary/10 shadow-xs'
-                            : s.tone === 'warning' ? 'border-warning bg-warning/10 shadow-xs'
-                            : s.tone === 'success' ? 'border-success bg-success/10 shadow-xs'
-                            : 'border-border bg-muted shadow-xs';
-          const iconStyle = s.tone === 'primary' ? 'bg-primary/10 text-primary'
-                          : s.tone === 'warning' ? 'bg-warning/10 text-warning'
-                          : s.tone === 'success' ? 'bg-success/10 text-success'
-                          : 'bg-muted text-foreground-secondary';
-          const textStyle = s.tone === 'primary' ? 'text-primary'
-                          : s.tone === 'warning' ? 'text-warning'
-                          : s.tone === 'success' ? 'text-success'
-                          : 'text-foreground-secondary';
-
-          return (
-            <button
-              key={s.label}
-              type="button"
-              onClick={s.onClick}
-              className={cn(
-                "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-                isActive ? activeStyle : "border-border/80 bg-surface hover:border-primary/40"
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{s.label}</span>
-                <div className={cn("p-2 rounded-xl", iconStyle)}><Icon className="w-4 h-4" /></div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data">{s.value}</div>
-                <p className={cn("text-[11px] font-medium mt-1", textStyle)}>{s.trend}</p>
-              </div>
-            </button>
-          );
+          return <StatCard key={s.label} {...s} />;
         })}
-      </div>
+      </StatGrid>
 
       {/* Lane selector + search. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

@@ -27,6 +27,7 @@ import {
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn } from "@/lib/utils";
 import { HeroHeader } from "@/components/ui/hero-header";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 
 function predictionTone(prediction) {
   if (isUnscheduled(prediction)) return "secondary";
@@ -67,122 +68,13 @@ export default function PredictiveMaintenancePage() {
       />
 
       {/* ── KPI STAT FILTER CARDS ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        {/* KPI 1: Overdue */}
-        <button
-          type="button"
-          onClick={() => setRiskFilter((r) => (r === "overdue" ? "all" : "overdue"))}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-2 cursor-pointer select-none",
-            riskFilter === "overdue"
-              ? "border-danger bg-danger/10 shadow-xs"
-              : "border-border/80 bg-surface hover:border-danger/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Overdue</span>
-            <div className="p-1.5 rounded-xl bg-danger/15 text-danger">
-              <AlertTriangle className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-danger font-data">{summary.overdue}</div>
-            <p className="text-[10px] text-danger font-semibold mt-0.5">Service window passed</p>
-          </div>
-        </button>
-
-        {/* KPI 2: Critical */}
-        <button
-          type="button"
-          onClick={() => setRiskFilter((r) => (r === "critical" ? "all" : "critical"))}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-2 cursor-pointer select-none",
-            riskFilter === "critical"
-              ? "border-danger bg-danger/10 shadow-xs"
-              : "border-border/80 bg-surface hover:border-danger/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Critical (7d)</span>
-            <div className="p-1.5 rounded-xl bg-danger/15 text-danger">
-              <CalendarDays className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-danger font-data">{summary.critical}</div>
-            <p className="text-[10px] text-danger font-semibold mt-0.5">Due within a week</p>
-          </div>
-        </button>
-
-        {/* KPI 3: High */}
-        <button
-          type="button"
-          onClick={() => setRiskFilter((r) => (r === "high" ? "all" : "high"))}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-2 cursor-pointer select-none",
-            riskFilter === "high"
-              ? "border-warning bg-warning/10 shadow-xs"
-              : "border-border/80 bg-surface hover:border-warning/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">High (30d)</span>
-            <div className="p-1.5 rounded-xl bg-warning/15 text-warning">
-              <Activity className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-warning font-data">{summary.high}</div>
-            <p className="text-[10px] text-warning font-semibold mt-0.5">Due within 30 days</p>
-          </div>
-        </button>
-
-        {/* KPI 4: Healthy */}
-        <button
-          type="button"
-          onClick={() => setRiskFilter((r) => (r === "low" ? "all" : "low"))}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-2 cursor-pointer select-none",
-            riskFilter === "low"
-              ? "border-success bg-success/10 shadow-xs"
-              : "border-border/80 bg-surface hover:border-success/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Healthy</span>
-            <div className="p-1.5 rounded-xl bg-success/15 text-success">
-              <CheckCircle2 className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-success font-data">{healthyCount}</div>
-            <p className="text-[10px] text-success font-semibold mt-0.5">More than 90 days out</p>
-          </div>
-        </button>
-
-        {/* KPI 5: No Schedule */}
-        <button
-          type="button"
-          onClick={() => setRiskFilter((r) => (r === "unscheduled" ? "all" : "unscheduled"))}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-2 cursor-pointer select-none",
-            riskFilter === "unscheduled"
-              ? "border-primary bg-primary/10 shadow-xs"
-              : "border-border/80 bg-surface hover:border-primary/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">No Schedule</span>
-            <div className="p-1.5 rounded-xl bg-hover text-foreground-muted">
-              <HelpCircle className="w-4 h-4" />
-            </div>
-          </div>
-          <div>
-            <div className="text-2xl font-black text-foreground font-data">{summary.unscheduled}</div>
-            <p className="text-[10px] text-foreground-muted font-medium mt-0.5">Needs date/mileage</p>
-          </div>
-        </button>
-      </div>
+      <StatGrid cols={5} className="gap-3">
+        <StatCard icon={AlertTriangle} label="Overdue" value={summary.overdue} trend="Service window passed" tone="danger" active={riskFilter === "overdue"} onClick={() => setRiskFilter((r) => (r === "overdue" ? "all" : "overdue"))} />
+        <StatCard icon={CalendarDays} label="Critical (7d)" value={summary.critical} trend="Due within a week" tone="danger" active={riskFilter === "critical"} onClick={() => setRiskFilter((r) => (r === "critical" ? "all" : "critical"))} />
+        <StatCard icon={Activity} label="High (30d)" value={summary.high} trend="Due within 30 days" tone="warning" active={riskFilter === "high"} onClick={() => setRiskFilter((r) => (r === "high" ? "all" : "high"))} />
+        <StatCard icon={CheckCircle2} label="Healthy" value={healthyCount} trend="More than 90 days out" tone="success" active={riskFilter === "low"} onClick={() => setRiskFilter((r) => (r === "low" ? "all" : "low"))} />
+        <StatCard icon={HelpCircle} label="No Schedule" value={summary.unscheduled} trend="Needs date/mileage" tone="neutral" active={riskFilter === "unscheduled"} onClick={() => setRiskFilter((r) => (r === "unscheduled" ? "all" : "unscheduled"))} />
+      </StatGrid>
 
       {/* ── PREDICTIONS LIST CARD ── */}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">

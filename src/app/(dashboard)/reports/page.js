@@ -18,6 +18,7 @@ import { getPredictiveMaintenance } from "@/services/ai.service";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { exportToCSV } from "@/lib/export";
 import {
   AreaChart,
@@ -453,61 +454,11 @@ export default function ReportsPage() {
       {/* ── TAB 1: FLEET UTILIZATION ── */}
       {selectedReport === "fleet" && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Utilization Rate</span>
-                <div className="p-2 rounded-2xl bg-success/10 text-success border border-success/20">
-                  <BarChart3 className="w-4 h-4" />
-                </div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
-                  <span>{String(Number(fleetReport?.utilization) || 82)}%</span>
-                  <span className="text-xs font-bold text-success inline-flex items-center bg-success/10 px-2 py-0.5 rounded-full border border-success/20">
-                    Optimal
-                  </span>
-                </div>
-                <p className="text-[11px] text-success font-semibold mt-1.5">Active fleet utilization capacity</p>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Trips Executed</span>
-                <div className="p-2 rounded-2xl bg-primary/10 text-primary border border-primary/20">
-                  <Truck className="w-4 h-4" />
-                </div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
-                  <span>{fleetReport?.totalTrips || 142}</span>
-                  <span className="text-xs font-bold text-primary inline-flex items-center bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                    <ArrowUpRight className="w-3 h-3 mr-0.5" /> +12.4%
-                  </span>
-                </div>
-                <p className="text-[11px] text-primary font-medium mt-1">Completed transport dispatches</p>
-              </div>
-            </div>
-
-            <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Fleet Distance</span>
-                <div className="p-2 rounded-2xl bg-info/10 text-info border border-info/20">
-                  <TrendingUp className="w-4 h-4" />
-                </div>
-              </div>
-              <div>
-                <div className="text-3xl font-black text-foreground font-data flex items-center justify-between">
-                  <span>{formatDistance(fleetReport?.totalDistance || 10450)}</span>
-                  <span className="text-xs font-bold text-info inline-flex items-center bg-info/10 px-2 py-0.5 rounded-full border border-info/20">
-                    Log Verified
-                  </span>
-                </div>
-                <p className="text-[11px] text-info font-medium mt-1">Logged kilometer distance</p>
-              </div>
-            </div>
-          </div>
+          <StatGrid cols={3}>
+            <StatCard icon={BarChart3} label="Utilization Rate" value={`${String(Number(fleetReport?.utilization) || 82)}%`} valueNote="Optimal" trend="Active fleet utilization capacity" tone="success" />
+            <StatCard icon={Truck} label="Total Trips Executed" value={fleetReport?.totalTrips || 142} valueNote="+12.4%" trend="Completed transport dispatches" tone="primary" />
+            <StatCard icon={TrendingUp} label="Total Fleet Distance" value={formatDistance(fleetReport?.totalDistance || 10450)} valueNote="Log Verified" trend="Logged kilometer distance" tone="info" />
+          </StatGrid>
 
           {/* DUAL Y-AXIS CHART with Formatted Short Plate Names */}
           <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">

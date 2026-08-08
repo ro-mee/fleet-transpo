@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "@/components/ui/toast";
@@ -44,9 +44,10 @@ export default function DriverIncidentsPage() {
   return (
     <DriverConsentGate>
       <div className="space-y-6">
-        <PageHeader
-          eyebrow="My Work"
+        <HeroHeader
+          icon={AlertTriangle}
           title="Incident Reporting"
+          badge="My Work"
           description="Report an incident and track the reports you have submitted."
         />
 

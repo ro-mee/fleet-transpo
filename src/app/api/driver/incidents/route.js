@@ -2,11 +2,11 @@ import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { getAdminClient } from "@/lib/db";
+import { shouldGroundVehicle, BREAKDOWN_RE, SEVERE_SEVERITIES } from "@/lib/driver/grounding";
 
 // A breakdown-type incident triggers automation (see POST): the vehicle is set
 // to Under Maintenance and dispatchers are notified, so it stops receiving
 // future assignments.
-const BREAKDOWN_RE = /breakdown|mechanical|engine|flat tire|battery|electrical|overheat/i;
 
 async function resolveDriverId(employeeId) {
   const { rows } = await query(
@@ -82,10 +82,13 @@ export async function POST(req) {
        incidentDate, body.description, body.location || null, severity]
     );
 
-    // Breakdown automation: a breakdown report takes the vehicle out of service
-    // and alerts dispatchers. Best-effort — a sync hiccup must not fail the
-    // report that was just recorded.
-    if (rows[0]?.vehicle_id && BREAKDOWN_RE.test(String(body.incident_type || ""))) {
+    // Grounding automation: a breakdown-type report OR a Major/Critical severity
+    // incident takes the vehicle out of service and alerts dispatchers.
+    // Best-effort — a sync hiccup must not fail the report that was just
+    // recorded.
+    const isBreakdown = BREAKDOWN_RE.test(String(body.incident_type || ""));
+    const isSevere = SEVERE_SEVERITIES.has(severity);
+    if (shouldGroundVehicle({ incidentType: body.incident_type, severity, vehicleId: rows[0]?.vehicle_id })) {
       try {
         const supabase = getAdminClient();
         await supabase
@@ -105,17 +108,18 @@ export async function POST(req) {
           .eq("vehicle_id", rows[0].vehicle_id)
           .maybeSingle();
 
+        const why = isBreakdown ? "breakdown" : `${severity} incident`;
         const rows2 = (dispatchers || []).map((emp) => ({
           employee_id: emp.employee_id,
-          title: "Vehicle Breakdown Reported",
-          message: `Vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} reported breakdown and set to Under Maintenance (incident #${rows[0].incident_id}).`,
+          title: "Vehicle Taken Out of Service",
+          message: `Vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} reported ${why} and set to Under Maintenance (incident #${rows[0].incident_id}).`,
           type: "Alert",
           reference_type: "incident",
           reference_id: rows[0].incident_id,
         }));
         if (rows2.length) await supabase.from("notifications").insert(rows2);
       } catch (e) {
-        console.warn("breakdown automation failed:", e?.message || e);
+        console.warn("grounding automation failed:", e?.message || e);
       }
     }
 

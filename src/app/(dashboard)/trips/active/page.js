@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getActiveTrips } from "@/services/trip.service";
@@ -24,12 +24,13 @@ export default function ActiveTripsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Operations"
+      <HeroHeader
+        icon={Route}
         title="Active Trips"
+        badge="Operations"
         description={`${activeTrips.length} trip${activeTrips.length === 1 ? "" : "s"} currently in progress — updated every 15 seconds.`}
         actions={
-          <Button variant="outline" size="sm" onClick={() => router.push("/tracking/live-map")}>
+          <Button variant="outline" size="sm" onClick={() => router.push("/tracking/live-map")} className={heroButtonOutlineClass}>
             <MapPin className="w-4 h-4 mr-2" />
             Live Map
           </Button>

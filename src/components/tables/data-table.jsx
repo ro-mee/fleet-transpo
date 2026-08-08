@@ -140,7 +140,7 @@ export function DataTable({
           <TableSkeleton />
         </div>
       ) : (
-        <div className="relative overflow-x-auto scrollbar-thin">
+        <div className="relative overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <table className="w-full min-w-[1000px] border-collapse">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (

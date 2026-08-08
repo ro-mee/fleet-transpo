@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { PageHeader } from "@/components/ui/page-header";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { MapPin, Route as RouteIcon, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
@@ -23,9 +23,10 @@ const modules = [
 export default function TrackingPage() {
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Tracking"
+      <HeroHeader
+        icon={MapPin}
         title="GPS Tracking"
+        badge="Tracking"
         description="Real-time vehicle location and trip tracking."
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-4xl">
