@@ -126,7 +126,7 @@ export const DASHBOARD_CONFIGS = {
     quickActions: [
       { label: "Assign Vehicle", href: "/dispatch", icon: Send },
       { label: "Request Queue", href: "/reservations/queue", icon: Inbox },
-      { label: "Active Trips", href: "/trips/active", icon: Navigation },
+      { label: "Trips Hub", href: "/trips", icon: Navigation },
       { label: "Live Map", href: "/tracking/live-map", icon: MapPin },
     ],
     sections: [

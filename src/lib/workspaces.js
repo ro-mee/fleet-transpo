@@ -179,7 +179,6 @@ export const WORKS = {
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
           { href: "/dispatch", label: "Dispatch Board", icon: Send },
           { href: "/dispatch/calendar", label: "Dispatch Calendar", icon: CalendarCheck },
-          { href: "/trips/active", label: "Active Trips", icon: ClipboardList },
           { href: "/trips", label: "Trips", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },

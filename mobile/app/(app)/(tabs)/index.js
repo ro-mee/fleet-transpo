@@ -15,6 +15,7 @@ import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { ACTIONS, canAction } from "../../../lib/rbac";
 import { useTripTracking } from "../../../lib/tracking";
+import TripMap from "../../../components/map";
 import {
   getActiveStatuses,
   getTone,
@@ -310,30 +311,73 @@ function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
   const nextStatus = useNextStatus(trip.trip_status);
 
   return (
-    <Card tone={tone}>
-      <View style={ui.rowBetween}>
-        <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Active trip</Text>
-        <StatusPill label={trip.trip_status} tone={tone} />
-      </View>
-
-      <RouteLine origin={trip.origin} destination={trip.destination} />
-
-      <View style={styles.plateRow}>
-        <Plate plate={trip.plate_number} size="lg" />
-        <ScheduledBlock time={trip.start_time} />
-      </View>
-
-      <TrackingRow tracking={tracking} />
-
-      {canManage && nextStatus ? (
-        <Button
-          label={nextStatus.label}
-          onPress={() => onAdvance(nextStatus)}
-          loading={busy}
-          style={{ marginTop: space.sm }}
+    <View style={{ marginBottom: space.lg }}>
+      {/* Expanded Hero Navigation Map */}
+      <View style={{ borderRadius: 28, overflow: "hidden", elevation: 4 }}>
+        <TripMap
+          origin={
+            trip.origin_latitude != null && trip.origin_longitude != null
+              ? { latitude: trip.origin_latitude, longitude: trip.origin_longitude }
+              : null
+          }
+          destination={
+            trip.destination_latitude != null && trip.destination_longitude != null
+              ? { latitude: trip.destination_latitude, longitude: trip.destination_longitude }
+              : null
+          }
+          live={tracking?.latestFix}
+          originName={trip.origin}
+          destinationName={trip.destination}
+          plateNumber={trip.plate_number}
+          height={320}
+          borderRadius={28}
         />
-      ) : null}
-    </Card>
+      </View>
+
+      {/* Floating Driver Navigation Bottom Sheet Card */}
+      <Card
+        tone={tone}
+        style={{
+          marginTop: -28,
+          borderRadius: 24,
+          padding: 16,
+          backgroundColor: colors.surface,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+          elevation: 6,
+          borderWidth: 1,
+          borderColor: colors.outlineVariant || "rgba(0,0,0,0.08)",
+        }}
+      >
+        <View style={ui.rowBetween}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
+            <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Active Trip #{trip.trip_id}</Text>
+          </View>
+          <StatusPill label={trip.trip_status} tone={tone} />
+        </View>
+
+        <RouteLine origin={trip.origin} destination={trip.destination} />
+
+        <View style={styles.plateRow}>
+          <Plate plate={trip.plate_number} size="lg" />
+          <ScheduledBlock time={trip.start_time} />
+        </View>
+
+        <TrackingRow tracking={tracking} />
+
+        {canManage && nextStatus ? (
+          <Button
+            label={nextStatus.label}
+            onPress={() => onAdvance(nextStatus)}
+            loading={busy}
+            style={{ marginTop: space.sm, borderRadius: 16, height: 48 }}
+          />
+        ) : null}
+      </Card>
+    </View>
   );
 }
 

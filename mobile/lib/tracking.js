@@ -18,6 +18,7 @@ export function useTripTracking(tripId) {
   const [posting, setPosting] = useState(false);
   const [lastSentAt, setLastSentAt] = useState(null);
   const [error, setError] = useState(null);
+  const [latestFix, setLatestFix] = useState(null);
 
   // Held in a ref so the interval callback always sees the latest fix without
   // being torn down and recreated on every position update.
@@ -26,6 +27,7 @@ export function useTripTracking(tripId) {
   useEffect(() => {
     if (!tripId) {
       setPosting(false);
+      setLatestFix(null);
       return;
     }
 
@@ -52,6 +54,12 @@ export function useTripTracking(tripId) {
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
         (loc) => {
           latest.current = loc;
+          if (!cancelled) {
+            setLatestFix({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            });
+          }
         }
       );
 
@@ -87,8 +95,9 @@ export function useTripTracking(tripId) {
       if (interval) clearInterval(interval);
       if (subscription) subscription.remove();
       setPosting(false);
+      setLatestFix(null);
     };
   }, [tripId]);
 
-  return { posting, lastSentAt, error };
+  return { posting, lastSentAt, error, latestFix };
 }

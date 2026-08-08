@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
 import { formatTime, formatDuration } from "@/lib/utils";
-import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin, TriangleAlert } from "lucide-react";
+import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin, TriangleAlert, Navigation } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 
@@ -286,9 +286,9 @@ export default function TripsPage() {
               <Download className="w-4 h-4 mr-2" />
               Export
             </Button>
-            <Button variant="outline" size="sm" className={cn(heroButtonOutlineClass)} onClick={() => router.push("/trips/active")}>
-              <Play className="w-4 h-4 mr-2" />
-              Active Trips ({activeTrips.length})
+            <Button variant="outline" size="sm" className={cn(heroButtonOutlineClass)} onClick={() => router.push("/tracking/live-map")}>
+              <Navigation className="w-4 h-4 mr-2" />
+              Live GPS Map ({activeTrips.length})
             </Button>
           </>
         }

@@ -41,7 +41,20 @@ export const TRIPS_SELECT = `
     )
   END AS drivers,
   row_to_json(ds.*) AS dispatchschedules,
-  row_to_json(r.*)  AS routes,
+  CASE WHEN r.route_id IS NULL THEN NULL ELSE
+    json_build_object(
+      'route_id',              r.route_id,
+      'route_name',            r.route_name,
+      'origin',                r.origin,
+      'destination',           r.destination,
+      'estimated_distance',    r.estimated_distance,
+      'estimated_duration',    r.estimated_duration,
+      'origin_latitude',       ol.latitude,
+      'origin_longitude',      ol.longitude,
+      'destination_latitude',  dl.latitude,
+      'destination_longitude', dl.longitude
+    )
+  END AS routes,
   CASE WHEN tr.request_id IS NULL THEN NULL ELSE
     json_build_object(
       'request_id',         tr.request_id,
@@ -68,6 +81,8 @@ export const TRIPS_JOINS = `
   LEFT JOIN employees de ON d.employee_id = de.employee_id
   LEFT JOIN dispatchschedules ds ON t.dispatch_id = ds.dispatch_id
   LEFT JOIN routes r     ON t.route_id = r.route_id
+  LEFT JOIN locations ol ON r.origin_location_id = ol.location_id
+  LEFT JOIN locations dl ON r.destination_location_id = dl.location_id
   LEFT JOIN transportation_requests tr
     ON ds.request_id = tr.request_id AND tr.deleted_at IS NULL
 `;

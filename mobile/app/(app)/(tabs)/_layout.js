@@ -37,6 +37,16 @@ function BellGlyph({ active, color }) {
   );
 }
 
+function MapGlyph({ active, color }) {
+  return (
+    <View style={glyph.ring}>
+      <View style={[glyph.clockFace, { borderColor: color, borderRadius: 5 }]}>
+        <View style={[glyph.clockHand, { backgroundColor: color, left: 6, top: 3, width: 2, height: 6 }]} />
+      </View>
+    </View>
+  );
+}
+
 function UserGlyph({ active, color }) {
   return (
     <View style={glyph.ring}>
@@ -64,9 +74,7 @@ function TabItem({ label, active, color, glyph, badge }) {
 }
 
 /**
- * MD3 bottom navigation for the driver app. Home, History, Alerts, and Profile
- * are the persistent destinations; fuel, incidents, inspection, and consent are
- * pushed as stack screens from within the signed-in group.
+ * MD3 bottom navigation for the driver app with Live Map, Home, History, Alerts, and Profile.
  */
 export default function TabsLayout() {
   const { colors } = useTheme();
@@ -96,6 +104,15 @@ export default function TabsLayout() {
           title: "Home",
           tabBarLabel: ({ focused, color }) => (
             <TabItem label="Home" active={focused} color={focused ? active : idle} glyph={<HomeGlyph active={focused} color={focused ? active : idle} />} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="map"
+        options={{
+          title: "Live Map",
+          tabBarLabel: ({ focused, color }) => (
+            <TabItem label="Live Map" active={focused} color={focused ? active : idle} glyph={<MapGlyph active={focused} color={focused ? active : idle} />} />
           ),
         }}
       />
