@@ -245,7 +245,7 @@ export default function FuelReport() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   plateRow: { paddingVertical: space.xs },
   calculation: {
     flexDirection: "row",

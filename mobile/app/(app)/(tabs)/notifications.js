@@ -129,7 +129,7 @@ export default function Notifications() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
   header: {
     flexDirection: "row",

@@ -213,8 +213,12 @@ export function StatusPill({ label, tone = "neutral" }) {
   );
 }
 
-/** MD3 outlined text field with focus state. */
-export function Field({ label, error, required = false, ...inputProps }) {
+/**
+ * MD3 outlined text field with focus state. An optional `right` accessory is
+ * rendered inside the same bordered box as the input (e.g. a show-password
+ * toggle), so it always sits within the field at any width.
+ */
+export function Field({ label, error, required = false, right, ...inputProps }) {
   const { colors } = useTheme();
   const [focused, setFocused] = useState(false);
   return (
@@ -223,21 +227,25 @@ export function Field({ label, error, required = false, ...inputProps }) {
         {label}
         {required ? " *" : ""}
       </Text>
-      <TextInput
+      <View
         style={[
-          styles.input,
+          styles.inputBox,
           {
             borderColor: error ? colors.error : focused ? colors.primary : colors.outlineVariant,
             backgroundColor: colors.surface,
-            color: colors.onSurface,
           },
         ]}
-        placeholderTextColor={colors.onSurfaceVariant}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        accessibilityLabel={label}
-        {...inputProps}
-      />
+      >
+        <TextInput
+          style={[styles.input, { color: colors.onSurface }]}
+          placeholderTextColor={colors.onSurfaceVariant}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          accessibilityLabel={label}
+          {...inputProps}
+        />
+        {right ? <View style={styles.inputAdornment}>{right}</View> : null}
+      </View>
       {error ? <Text style={[styles.fieldError, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
@@ -441,6 +449,14 @@ export const styles = StyleSheet.create({
   chipDot: { width: 6, height: 6, borderRadius: 3 },
   chipText: { fontFamily: fonts.bodyMedium, fontSize: 13 },
   field: { gap: space.xs, marginBottom: space.base },
+  inputBox: {
+    minHeight: 56,
+    borderWidth: 1.5,
+    borderRadius: radius.control,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  inputAdornment: { marginRight: space.sm },
   label: {
     fontFamily: fonts.data,
     fontSize: 11,
@@ -449,11 +465,9 @@ export const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   input: {
-    minHeight: 52,
-    borderWidth: 1.5,
-    borderRadius: radius.control,
+    flex: 1,
+    minHeight: 53,
     paddingHorizontal: space.base,
-    paddingVertical: space.base,
     fontSize: 16,
     fontFamily: fonts.body,
   },

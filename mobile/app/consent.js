@@ -141,7 +141,7 @@ export default function ConsentScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   policyCard: { gap: space.base },
   versionLine: {
     fontFamily: fonts.data,

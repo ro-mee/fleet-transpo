@@ -136,7 +136,7 @@ function useTripTone(status) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
   tripId: { fontFamily: fonts.dataSemiBold, fontSize: 14 },
   route: { fontFamily: fonts.body, fontSize: 15 },

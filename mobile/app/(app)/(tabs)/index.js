@@ -48,7 +48,7 @@ import { Plate } from "../../../components/plate";
 export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const { colors } = useTheme();
 
   const [trips, setTrips] = useState([]);
@@ -299,8 +299,6 @@ export default function Home() {
                 />
               </View>
             </View>
-
-            <Button label="Sign out" variant="outline" onPress={signOut} />
           </>
         )}
       </ScrollView>
@@ -606,7 +604,7 @@ function greeting() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
   greeting: { gap: space.xs, marginBottom: space.xs },
   dateLine: {
