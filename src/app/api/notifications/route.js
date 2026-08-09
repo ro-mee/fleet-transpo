@@ -4,7 +4,14 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req);
+    const session = await requireAuth(req, [
+      "system_admin",
+      "admin",
+      "fleet_manager",
+      "dispatcher",
+      "management",
+      "driver",
+    ]);
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT * FROM notifications`;
     const params = []; let idx = 1;

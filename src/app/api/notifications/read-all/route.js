@@ -3,7 +3,14 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req);
+    const session = await requireAuth(req, [
+      "system_admin",
+      "admin",
+      "fleet_manager",
+      "dispatcher",
+      "management",
+      "driver",
+    ]);
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
     if (own == null) return ok({ read: false });
     // employee_id is int, user_id is uuid — scope on whichever identity is
