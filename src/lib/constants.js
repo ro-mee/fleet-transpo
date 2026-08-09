@@ -125,6 +125,7 @@ export const RESERVATION_EVENT = {
 };
 
 export const DISPATCH_STATUS = {
+  PENDING_REASSIGNMENT: "Pending Reassignment",
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",

@@ -104,6 +104,28 @@ export async function GET(req) {
       console.warn("attendance lookup skipped:", e);
     }
 
+    // Assigned (paired) vehicle — the active custodial pairing (migration 017),
+    // assigned_until IS NULL = currently assigned. This is the car the driver is
+    // responsible for, independent of any one trip; it is what the driver's own
+    // profile shows so they know which car to expect.
+    let assignedVehicle = null;
+    try {
+      const { rows: av } = await query(
+        `SELECT a.assignment_id, a.assigned_from,
+                v.vehicle_id, v.plate_number, v.model, v.vehicle_status,
+                v.seating_capacity, v.vehicle_name
+           FROM driver_vehicle_assignments a
+           JOIN vehicles v ON v.vehicle_id = a.vehicle_id AND v.deleted_at IS NULL
+          WHERE a.driver_id = $1 AND a.assigned_until IS NULL
+          ORDER BY a.assigned_from DESC
+          LIMIT 1`,
+        [driver.driver_id]
+      );
+      assignedVehicle = av[0] ?? null;
+    } catch (e) {
+      console.warn("driver assigned-vehicle lookup skipped:", e);
+    }
+
     // Consent status for the current privacy policy. The driver_consents table
     // is a planned migration (database-normalization); until it exists, the
     // read falls back to "not accepted" so the gate stays on.
@@ -141,6 +163,17 @@ export async function GET(req) {
       performance,
       trips,
       attendance,
+      assignedVehicle: assignedVehicle
+        ? {
+            vehicleId: assignedVehicle.vehicle_id,
+            plateNumber: assignedVehicle.plate_number,
+            model: assignedVehicle.model,
+            name: assignedVehicle.vehicle_name,
+            vehicleStatus: assignedVehicle.vehicle_status,
+            seatingCapacity: assignedVehicle.seating_capacity,
+            assignedFrom: assignedVehicle.assigned_from,
+          }
+        : null,
       consent: {
         acceptedVersion: latest?.policy_version ?? null,
         acceptedAt: latest?.accepted_at ?? null,

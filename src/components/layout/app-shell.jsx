@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { getWorkspace } from "@/lib/workspaces";
+import { useQuery } from "@tanstack/react-query";
+import { getAllIncidents } from "@/services/driver.service";
 import {
   ChevronLeft,
   ChevronRight,
@@ -52,6 +54,14 @@ export function Sidebar({ collapsed, setCollapsed }) {
   const visibleGroups = filterNav(workspace.nav || []);
   const homeHref = workspace.home;
   const chip = accentChip[workspace.accent] || accentChip.neutral;
+
+  const { data: pendingIncidents = [] } = useQuery({
+    queryKey: ["pending-incidents"],
+    queryFn: () => getAllIncidents({ status: "Pending", limit: 10 }),
+    enabled: !!userRole && userRole !== "driver",
+    refetchInterval: 30000,
+  });
+  const pendingCount = pendingIncidents.length;
 
   const allHrefs = useMemo(() => {
     const hrefs = [];
@@ -126,6 +136,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
                       collapsed={collapsed}
                       userRole={userRole}
                       allHrefs={allHrefs}
+                      pendingCount={pendingCount}
                     />
                   );
                 }
@@ -150,6 +161,14 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     )}
                     <item.icon className="h-4 w-4 flex-shrink-0" />
                     {!collapsed && <span>{item.label}</span>}
+                    {item.href === "/incidents" && pendingCount > 0 && (
+                      <span className={cn(
+                        "rounded-full bg-danger",
+                        collapsed ? "absolute top-1 right-1 h-2 w-2" : "ml-auto flex h-5 w-5 items-center justify-center text-[10px] font-bold text-white"
+                      )}>
+                        {!collapsed && pendingCount}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -209,7 +228,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
   );
 }
 
-function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
+function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCount }) {
   const [expanded, setExpanded] = useState(
     pathname.startsWith(item.href) && item.href !== "/dashboard"
   );
@@ -231,6 +250,9 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
           <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none" />
         )}
         <item.icon className="h-4 w-4" />
+        {item.href === "/incidents" && pendingCount > 0 && (
+          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-danger" />
+        )}
       </Link>
     );
   }
@@ -255,6 +277,11 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
         )}
         <item.icon className="h-4 w-4 flex-shrink-0" />
         <span className="flex-1 text-left">{item.label}</span>
+        {item.href === "/incidents" && pendingCount > 0 && (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white">
+            {pendingCount}
+          </span>
+        )}
         <ChevronDown className={cn(
           "h-3.5 w-3.5 text-foreground-muted transition-transform",
           expanded && "rotate-180"
@@ -283,7 +310,14 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs }) {
                 {isChildActive && (
                   <span className="absolute left-0 top-1 bottom-1 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
                 )}
-                {child.label}
+                <span className="flex items-center justify-between">
+                  <span>{child.label}</span>
+                  {child.href === "/incidents" && pendingCount > 0 && (
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[9px] font-bold text-white">
+                      {pendingCount}
+                    </span>
+                  )}
+                </span>
               </Link>
             );
           })}

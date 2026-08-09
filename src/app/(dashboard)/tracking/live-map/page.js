@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { getActiveTrips, getLatestLocations } from "@/services/trip.service";
+import { getAllIncidents } from "@/services/driver.service";
 import { apiFetch } from "@/lib/api/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,12 @@ export default function LiveMapPage() {
     queryKey: ["latest-locations"],
     queryFn: () => getLatestLocations(),
     refetchInterval: 15000,
+  });
+
+  const { data: incidents = [] } = useQuery({
+    queryKey: ["all-incidents"],
+    queryFn: () => getAllIncidents({ limit: 200 }),
+    refetchInterval: 60000,
   });
 
   // Pick selected active trip or default to first active trip
@@ -152,6 +159,7 @@ export default function LiveMapPage() {
                   routeTravelMin={routeData?.travelTimeMin ?? null}
                   instructions={routeData?.instructions ?? []}
                   showNavigationPanel={true}
+                  incidents={incidents}
                   traffic
                 />
               )}

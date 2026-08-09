@@ -83,6 +83,7 @@ export default function Profile() {
   const consent = profile?.consent;
   const license = profile?.license;
   const perf = profile?.performance;
+  const vehicle = profile?.assignedVehicle;
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
@@ -119,6 +120,40 @@ export default function Profile() {
                   <Text style={[styles.identityMeta, { color: colors.onSurfaceVariant }]}>{profile.email}</Text>
                 </View>
               </View>
+            </Card>
+
+            <Card>
+              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Assigned Vehicle</Text>
+              {vehicle ? (
+                <>
+                  <Detail
+                    label="Plate number"
+                    value={vehicle.plateNumber ?? "—"}
+                    mono
+                  />
+                  <Detail
+                    label="Vehicle"
+                    value={[vehicle.name, vehicle.model].filter(Boolean).join(" · ") || "—"}
+                  />
+                  {vehicle.seatingCapacity ? (
+                    <Detail label="Seats" value={String(vehicle.seatingCapacity)} />
+                  ) : null}
+                  {vehicle.assignedFrom ? (
+                    <Detail
+                      label="Assigned since"
+                      value={new Date(vehicle.assignedFrom).toLocaleDateString()}
+                    />
+                  ) : null}
+                  {vehicle.vehicleStatus ? (
+                    <Detail label="Status" value={vehicle.vehicleStatus} />
+                  ) : null}
+                </>
+              ) : (
+                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
+                  No vehicle is currently assigned to you. Dispatchers will assign a
+                  vehicle when a trip is scheduled.
+                </Text>
+              )}
             </Card>
 
             <Card>

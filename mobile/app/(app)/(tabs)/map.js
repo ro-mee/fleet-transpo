@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -7,6 +7,8 @@ import {
   ScrollView,
   Linking,
   Dimensions,
+  Modal,
+  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -32,9 +34,14 @@ export default function FullMapTab() {
   const [activeStatuses, setActiveStatuses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [actingOn, setActingOn] = useState(null);
+  const [error, setError] = useState(null);
+  const [completingTrip, setCompletingTrip] = useState(null);
+  const [odometerInput, setOdometerInput] = useState("");
+  const [odometerError, setOdometerError] = useState(null);
 
   const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
   const tracking = useTripTracking(activeTrip?.trip_id ?? null);
+  const nextAction = useNextStatus(activeTrip?.trip_status);
 
   const load = useCallback(async () => {
     try {
@@ -75,15 +82,45 @@ export default function FullMapTab() {
   const advanceTrip = async (trip, next) => {
     setActingOn(trip.trip_id);
     try {
-      await api.put(`/api/mobile/driver/trips/${trip.trip_id}/status`, {
+      await api.put(`/api/trips/${trip.trip_id}/status`, {
         status: next.status,
+        end_odometer: next.endOdometer,
       });
+      setError(null);
       await load();
     } catch (e) {
       console.warn("Status update error:", e);
+      setError(e.message || "Could not update the trip status.");
     } finally {
       setActingOn(null);
     }
+  };
+
+  // Completing a trip is the one step a driver cannot walk back, and it stops
+  // location sharing, so it is confirmed. End-odometer is captured here and
+  // sent to the server, which validates it (src/lib/vehicles/odometer.js).
+  // The action itself comes from the server's nextStatus reference data, so
+  // this button always matches the driver state machine.
+  const handleAction = (trip) => {
+    if (!nextAction) return;
+    if (nextAction.status !== "Completed") {
+      advanceTrip(trip, nextAction);
+      return;
+    }
+    setOdometerInput("");
+    setOdometerError(null);
+    setCompletingTrip(trip);
+  };
+
+  const confirmComplete = () => {
+    const value = Number(odometerInput);
+    if (!odometerInput.trim() || !Number.isFinite(value) || value < 0) {
+      setOdometerError("Enter the ending odometer (km).");
+      return;
+    }
+    const trip = completingTrip;
+    setCompletingTrip(null);
+    advanceTrip(trip, { status: "Completed", endOdometer: value });
   };
 
   const liveFix = tracking?.latestFix && Number.isFinite(Number(tracking.latestFix.latitude)) && Number.isFinite(Number(tracking.latestFix.longitude))
@@ -176,12 +213,20 @@ export default function FullMapTab() {
           </View>
 
           {/* Action Button */}
-          <Button
-            label={activeTrip.trip_status === "Assigned" ? "Start Trip" : activeTrip.trip_status === "Trip Started" ? "Arrive at Destination" : "Complete Trip"}
-            loading={actingOn === activeTrip.trip_id}
-            onPress={() => advanceTrip(activeTrip, { status: activeTrip.trip_status === "Assigned" ? "Trip Started" : "Completed" })}
-            style={styles.primaryActionButton}
-          />
+          {nextAction && (
+            <Button
+              label={nextAction.label}
+              loading={actingOn === activeTrip.trip_id}
+              onPress={() => handleAction(activeTrip)}
+              style={styles.primaryActionButton}
+            />
+          )}
+
+          {error && (
+            <Text style={[styles.errorText, { color: colors.error }]} numberOfLines={2}>
+              {error}
+            </Text>
+          )}
         </View>
       ) : (
         <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 80, backgroundColor: colors.surface }]}>
@@ -194,8 +239,75 @@ export default function FullMapTab() {
           </Text>
         </View>
       )}
+
+      {/* Odometer capture modal — cross-platform replacement for the iOS-only
+          Alert.prompt. Completing a trip is terminal, so it is confirmed. */}
+      <Modal
+        visible={!!completingTrip}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCompletingTrip(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
+              Complete this trip?
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: colors.onSurfaceVariant }]}>
+              Enter the ending odometer (km), then confirm. This closes the trip
+              and stops location sharing.
+            </Text>
+            <TextInput
+              value={odometerInput}
+              onChangeText={setOdometerInput}
+              keyboardType="decimal-pad"
+              autoFocus
+              placeholder="e.g. 45230"
+              placeholderTextColor={colors.onSurfaceVariant}
+              style={[
+                styles.modalInput,
+                { color: colors.onSurface, borderColor: colors.outlineVariant, backgroundColor: colors.background },
+              ]}
+            />
+            {odometerError && (
+              <Text style={[styles.errorText, { color: colors.error }]}>{odometerError}</Text>
+            )}
+            <View style={styles.modalActions}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && styles.controlBtnPressed]}
+                onPress={() => setCompletingTrip(null)}
+              >
+                <Text style={[styles.modalCancelText, { color: colors.onSurfaceVariant }]}>Not yet</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.modalConfirmBtn, pressed && styles.controlBtnPressed]}
+                onPress={confirmComplete}
+                disabled={actingOn === completingTrip?.trip_id}
+              >
+                <Text style={styles.modalConfirmText}>Complete trip</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
+}
+
+/** Loads the next driver action for a status from the server reference data. */
+function useNextStatus(status) {
+  const [next, setNext] = useState(null);
+  useEffect(() => {
+    let active = true;
+    getNextStatus(status).then((n) => {
+      if (active) setNext(n);
+    });
+    return () => {
+      active = false;
+    };
+  }, [status]);
+  return next;
 }
 
 const styles = StyleSheet.create({
@@ -334,5 +446,86 @@ const styles = StyleSheet.create({
   primaryActionButton: {
     height: 52,
     borderRadius: 20,
+  },
+  errorText: {
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    fontWeight: "500",
+    lineHeight: 18,
+    marginTop: 6,
+    marginBottom: 14,
+  },
+  modalInput: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(0, 0, 0, 0.05)",
+  },
+  modalCancelText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modalConfirmBtn: {
+    flex: 1.4,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#2563EB",
+  },
+  modalConfirmText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
   },
 });

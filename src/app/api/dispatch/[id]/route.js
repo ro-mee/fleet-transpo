@@ -134,7 +134,7 @@ export async function PUT(req, { params }) {
     }
 
     const { rows: before } = await query(
-      `SELECT vehicle_id, driver_id, scheduled_departure, scheduled_arrival FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
+      `SELECT vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
       [id]
     );
 
@@ -146,6 +146,15 @@ export async function PUT(req, { params }) {
         values.push(body[key]);
       }
     }
+
+    // Auto-transition from Pending Reassignment back to Scheduled if reassigning vehicle or driver
+    if (before[0]?.status === "Pending Reassignment" && body.status === undefined) {
+      if (body.vehicle_id !== undefined || body.driver_id !== undefined) {
+        columns.push("status");
+        values.push("Scheduled");
+      }
+    }
+
     if (columns.length === 0) return err("No updatable fields provided", 400);
 
     // Validate the effective final state of the dispatch — body value where

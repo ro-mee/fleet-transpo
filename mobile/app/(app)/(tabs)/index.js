@@ -8,6 +8,8 @@ import {
   Text,
   View,
   Pressable,
+  Modal,
+  TextInput,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -55,6 +57,9 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [actingOn, setActingOn] = useState(null);
+  const [completingTrip, setCompletingTrip] = useState(null);
+  const [odometerInput, setOdometerInput] = useState("");
+  const [odometerError, setOdometerError] = useState(null);
 
   const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
   const pendingTrips = trips.filter(
@@ -172,25 +177,23 @@ export default function Home() {
         updateStatus(trip, next.status);
         return;
       }
-      let odometer = "";
-      Alert.prompt(
-        "Complete this trip?",
-        "Enter the ending odometer (km), then confirm. This closes the trip and stops location sharing.",
-        [
-          { text: "Not yet", style: "cancel" },
-          {
-            text: "Complete trip",
-            onPress: (value) =>
-              updateStatus(trip, next.status, { end_odometer: Number(value) }),
-          },
-        ],
-        "plain-text",
-        odometer,
-        "decimal-pad"
-      );
+      setOdometerInput("");
+      setOdometerError(null);
+      setCompletingTrip(trip);
     },
     [updateStatus]
   );
+
+  const confirmComplete = useCallback(() => {
+    const value = Number(odometerInput);
+    if (!odometerInput.trim() || !Number.isFinite(value) || value < 0) {
+      setOdometerError("Enter the ending odometer (km).");
+      return;
+    }
+    const trip = completingTrip;
+    setCompletingTrip(null);
+    updateStatus(trip, "Completed", { end_odometer: value });
+  }, [odometerInput, completingTrip, updateStatus]);
 
   const driverName = user?.firstName ?? user?.first_name ?? "";
   const firstName = driverName.split(" ")[0];
@@ -301,6 +304,58 @@ export default function Home() {
           </>
         )}
       </ScrollView>
+
+      {/* Odometer capture modal — cross-platform replacement for the iOS-only
+          Alert.prompt. Completing a trip is terminal, so it is confirmed. */}
+      <Modal
+        visible={!!completingTrip}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCompletingTrip(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
+              Complete this trip?
+            </Text>
+            <Text style={[styles.modalSubtitle, { color: colors.onSurfaceVariant }]}>
+              Enter the ending odometer (km), then confirm. This closes the trip
+              and stops location sharing.
+            </Text>
+            <TextInput
+              value={odometerInput}
+              onChangeText={setOdometerInput}
+              keyboardType="decimal-pad"
+              autoFocus
+              placeholder="e.g. 45230"
+              placeholderTextColor={colors.onSurfaceVariant}
+              style={[
+                styles.modalInput,
+                { color: colors.onSurface, borderColor: colors.outlineVariant, backgroundColor: colors.background },
+              ]}
+            />
+            {odometerError && (
+              <Text style={[styles.errorText, { color: colors.error }]}>{odometerError}</Text>
+            )}
+            <View style={styles.modalActions}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && styles.pressed]}
+                onPress={() => setCompletingTrip(null)}
+              >
+                <Text style={[styles.modalCancelText, { color: colors.onSurfaceVariant }]}>Not yet</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.modalConfirmBtn, pressed && styles.pressed]}
+                onPress={confirmComplete}
+                disabled={actingOn === completingTrip?.trip_id}
+              >
+                <Text style={styles.modalConfirmText}>Complete trip</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -628,4 +683,87 @@ const styles = StyleSheet.create({
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   buttonRow: { flexDirection: "row", gap: space.sm, marginTop: space.sm },
   flex: { flex: 1 },
+  pressed: { opacity: 0.8 },
+  errorText: {
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 8,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 24,
+    padding: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  modalHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontFamily: fonts.displayBold,
+    fontSize: 17,
+    lineHeight: 24,
+  },
+  modalSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+    marginBottom: 14,
+  },
+  modalInput: {
+    borderWidth: 1.5,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "rgba(0, 0, 0, 0.05)",
+  },
+  modalCancelText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modalConfirmBtn: {
+    flex: 1.4,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 14,
+    backgroundColor: "#2563EB",
+  },
+  modalConfirmText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
 });

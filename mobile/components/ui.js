@@ -174,7 +174,7 @@ export function Button({ label, onPress, variant = "primary", loading, disabled,
 }
 
 /** MD3 assist chip (selectable). */
-export function Chip({ label, selected, onPress, disabled }) {
+export function Chip({ label, selected, onPress, disabled, style }) {
   const { colors } = useTheme();
   return (
     <Pressable

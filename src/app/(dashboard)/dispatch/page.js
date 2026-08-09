@@ -35,6 +35,8 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import {
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Inbox,
   PlayCircle,
@@ -44,6 +46,9 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
+
+const PAGINATED_LANES = new Set(["completed", "cancelled"]);
+const PAGE_SIZE = 4;
 
 // Phase 13 — the dispatch board.
 //
@@ -57,6 +62,7 @@ import {
 const REFETCH_MS = 30_000;
 
 const LANES = [
+  { id: "pendingReassignment", status: D.PENDING_REASSIGNMENT, label: "Pending Reassignment", icon: Inbox, tone: "danger" },
   { id: "scheduled", status: D.SCHEDULED, label: "Scheduled", icon: Clock, tone: "info" },
   { id: "inProgress", status: D.IN_PROGRESS, label: "In Progress", icon: PlayCircle, tone: "warning" },
   { id: "completed", status: D.COMPLETED, label: "Completed", icon: CheckCircle2, tone: "success" },
@@ -64,6 +70,7 @@ const LANES = [
 ];
 
 const LANE_EMPTY = {
+  pendingReassignment: "No dispatches pending reassignment.",
   scheduled: "Nothing scheduled. Approved requests appear here once dispatched from the queue.",
   inProgress: "Nothing in motion right now.",
   completed: "No completed dispatches yet.",
@@ -108,10 +115,15 @@ export default function DispatchPage() {
 
   const [lane, setLane] = useState("scheduled");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null); // { dispatch, mode }
   const [odometer, setOdometer] = useState(null); // { dispatch, mode: start|complete }
   const [cancelling, setCancelling] = useState(null);
   const [busyId, setBusyId] = useState(null);
+
+  // Reset page whenever the active lane or search term changes
+  const switchLane = (id) => { setLane(id); setPage(1); };
+  const changeSearch = (val) => { setSearch(val); setPage(1); };
 
   // Resolved once and passed down so the card stays presentational. Each verb
   // matches the role list its endpoint enforces (scripts/verify-rbac.mjs asserts
@@ -209,11 +221,13 @@ export default function DispatchPage() {
     mutationFn: ({ dispatch, patch }) => updateDispatch(dispatch.dispatch_id, patch),
     onSuccess: (_res, { patch }) => {
       toast.success(
-        patch.vehicle_id
-          ? "Vehicle reassigned"
-          : patch.driver_id
-            ? "Driver reassigned"
-            : "Notes saved"
+        patch.vehicle_id && patch.driver_id
+          ? "Dispatch reassigned"
+          : patch.vehicle_id
+            ? "Vehicle reassigned"
+            : patch.driver_id
+              ? "Driver reassigned"
+              : "Notes saved"
       );
       setEditing(null);
       invalidate();
@@ -223,6 +237,7 @@ export default function DispatchPage() {
 
   const counts = useMemo(
     () => ({
+      pendingReassignment: groups?.pendingReassignment?.length || 0,
       scheduled: groups?.scheduled?.length || 0,
       inProgress: groups?.inProgress?.length || 0,
       completed: groups?.completed?.length || 0,
@@ -231,13 +246,29 @@ export default function DispatchPage() {
     [groups]
   );
 
-  const items = useMemo(
+  const allItems = useMemo(
     () => (groups?.[lane] || []).filter((d) => matches(d, search)),
     [groups, lane, search]
   );
 
+  const isPaginated = PAGINATED_LANES.has(lane);
+  const totalPages = isPaginated ? Math.max(1, Math.ceil(allItems.length / PAGE_SIZE)) : 1;
+  const safePage = Math.min(page, totalPages);
+  const items = isPaginated
+    ? allItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    : allItems;
+
   const stats = useMemo(
     () => [
+      {
+        label: "Pending Reassignment",
+        value: counts.pendingReassignment,
+        icon: Inbox,
+        tone: "danger",
+        trend: "needs urgent action",
+        active: lane === "pendingReassignment",
+        onClick: () => switchLane("pendingReassignment"),
+      },
       {
         label: "Scheduled",
         value: counts.scheduled,
@@ -245,7 +276,7 @@ export default function DispatchPage() {
         tone: "primary",
         trend: "awaiting departure",
         active: lane === "scheduled",
-        onClick: () => setLane("scheduled"),
+        onClick: () => switchLane("scheduled"),
       },
       {
         label: "In Progress",
@@ -254,7 +285,7 @@ export default function DispatchPage() {
         tone: "warning",
         trend: "on the road",
         active: lane === "inProgress",
-        onClick: () => setLane("inProgress"),
+        onClick: () => switchLane("inProgress"),
       },
       {
         label: "Completed",
@@ -263,7 +294,7 @@ export default function DispatchPage() {
         tone: "success",
         trend: "closed out",
         active: lane === "completed",
-        onClick: () => setLane("completed"),
+        onClick: () => switchLane("completed"),
       },
       {
         label: "Cancelled",
@@ -272,7 +303,7 @@ export default function DispatchPage() {
         tone: "secondary",
         trend: "stood down",
         active: lane === "cancelled",
-        onClick: () => setLane("cancelled"),
+        onClick: () => switchLane("cancelled"),
       },
     ],
     [counts, lane]
@@ -317,7 +348,7 @@ export default function DispatchPage() {
       />
 
       {/* KPI Cards */}
-      <StatGrid cols={4}>
+      <StatGrid cols={5}>
         {stats.map((s) => {
           return <StatCard key={s.label} {...s} />;
         })}
@@ -335,7 +366,7 @@ export default function DispatchPage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setLane(l.id)}
+                onClick={() => switchLane(l.id)}
                 className={cn(
                   'flex items-center gap-2 px-4 h-9 rounded-full text-xs font-bold border transition-all cursor-pointer',
                   active
@@ -356,7 +387,7 @@ export default function DispatchPage() {
             className="border-0 bg-transparent focus-visible:ring-0 px-0 h-9"
             placeholder="Dispatch, guest, plate, driver, route…"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => changeSearch(e.target.value)}
             aria-label="Search dispatches"
           />
         </div>
@@ -423,6 +454,58 @@ export default function DispatchPage() {
                 />
               ))}
             </div>
+
+            {/* Pagination footer — only for Completed / Cancelled lanes */}
+            {isPaginated && totalPages > 1 && (
+              <div className="flex items-center justify-between border-t border-border/50 pt-4 mt-2">
+                <span className="text-xs text-foreground-muted font-medium">
+                  Showing{" "}
+                  <span className="font-bold text-foreground">
+                    {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, allItems.length)}
+                  </span>{" "}
+                  of <span className="font-bold text-foreground">{allItems.length}</span>
+                </span>
+
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 rounded-full"
+                    disabled={safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p)}
+                      className={cn(
+                        "h-8 w-8 rounded-full text-xs font-bold border transition-all cursor-pointer flex items-center justify-center",
+                        p === safePage
+                          ? "bg-primary text-white border-primary shadow-sm"
+                          : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/60 hover:text-foreground"
+                      )}
+                    >
+                      {p}
+                    </button>
+                  ))}
+
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="h-8 w-8 rounded-full"
+                    disabled={safePage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    aria-label="Next page"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

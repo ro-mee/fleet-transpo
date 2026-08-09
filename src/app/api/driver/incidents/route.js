@@ -8,14 +8,16 @@ import { shouldGroundVehicle, BREAKDOWN_RE, SEVERE_SEVERITIES } from "@/lib/driv
 // to Under Maintenance and dispatchers are notified, so it stops receiving
 // future assignments.
 
-async function resolveDriverId(employeeId) {
+async function resolveDriver(employeeId) {
   const { rows } = await query(
-    `SELECT d.driver_id FROM employees e
+    `SELECT d.driver_id, 
+            (SELECT vehicle_id FROM driver_vehicle_assignments a WHERE a.driver_id = d.driver_id AND a.assigned_until IS NULL LIMIT 1) as assigned_vehicle_id
+       FROM employees e
        JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
       WHERE e.employee_id = $1 AND e.deleted_at IS NULL LIMIT 1`,
     [employeeId]
   );
-  return rows[0]?.driver_id || null;
+  return rows[0] || null;
 }
 
 /**
@@ -25,19 +27,19 @@ async function resolveDriverId(employeeId) {
 export async function GET(req) {
   try {
     const session = await requireDriver(req);
-    const driverId = await resolveDriverId(session.user.employeeId);
-    if (!driverId) return err("No driver record is linked to this account", 403);
+    const driver = await resolveDriver(session.user.employeeId);
+    if (!driver) return err("No driver record is linked to this account", 403);
 
     const { rows } = await query(
       `SELECT i.incident_id, i.vehicle_id, i.trip_id, i.incident_type, i.incident_date,
-              i.description, i.location, i.severity, i.status, i.actions_taken,
-              i.created_at, v.plate_number
+              i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
+              i.actions_taken, i.created_at, v.plate_number
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
-        WHERE i.driver_id = $1
+         WHERE i.driver_id = $1
         ORDER BY i.incident_date DESC, i.created_at DESC
         LIMIT 50`,
-      [driverId]
+      [driver.driver_id]
     );
     return ok(rows || []);
   } catch (e) { return handleError(e); }
@@ -51,8 +53,8 @@ export async function GET(req) {
 export async function POST(req) {
   try {
     const session = await requireDriver(req);
-    const driverId = await resolveDriverId(session.user.employeeId);
-    if (!driverId) return err("No driver record is linked to this account", 403);
+    const driver = await resolveDriver(session.user.employeeId);
+    if (!driver) return err("No driver record is linked to this account", 403);
 
     const body = await parseBody(req);
     const errors = validateBody(body, {
@@ -63,6 +65,8 @@ export async function POST(req) {
       incident_date: { label: "Incident date" },
       vehicle_id: { type: "id", label: "Vehicle" },
       trip_id: { type: "id", label: "Trip" },
+      assistance_needed: { label: "Assistance needed" },
+      expense_amount: { type: "positiveNumber", label: "Expense amount" }
     });
     if (!isValidObject(errors)) return errValidation(errors);
 
@@ -71,15 +75,24 @@ export async function POST(req) {
       : "Minor";
     const incidentDate = body.incident_date ? new Date(body.incident_date) : new Date();
 
+    // Coordinates are optional: a driver who denied location permission still
+    // reports. Range-guard against malformed clients.
+    const hasCoords = Number.isFinite(body.latitude) && Number.isFinite(body.longitude);
+    const latitude = hasCoords ? body.latitude : null;
+    const longitude = hasCoords ? body.longitude : null;
+    if (hasCoords && (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)) {
+      return errValidation({ coordinates: "Coordinates are out of range" });
+    }
+
     const { rows } = await query(
       `INSERT INTO driverincidents
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
-          description, location, severity)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          description, location, latitude, longitude, severity, assistance_needed, expense_amount)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING incident_id, incident_type, incident_date, description, location,
-                 severity, status, created_at, vehicle_id`,
-      [driverId, body.vehicle_id || null, body.trip_id || null, body.incident_type,
-       incidentDate, body.description, body.location || null, severity]
+                 latitude, longitude, severity, status, created_at, vehicle_id, assistance_needed, expense_amount`,
+      [driver.driver_id, body.vehicle_id || driver.assigned_vehicle_id || null, body.trip_id || null, body.incident_type,
+       incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null]
     );
 
     // Grounding automation: a breakdown-type report OR a Major/Critical severity
@@ -108,7 +121,7 @@ export async function POST(req) {
           .eq("vehicle_id", rows[0].vehicle_id)
           .maybeSingle();
 
-        const why = isBreakdown ? "breakdown" : `${severity} incident`;
+        const why = "incident report";
         const rows2 = (dispatchers || []).map((emp) => ({
           employee_id: emp.employee_id,
           title: "Vehicle Taken Out of Service",
@@ -118,6 +131,59 @@ export async function POST(req) {
           reference_id: rows[0].incident_id,
         }));
         if (rows2.length) await supabase.from("notifications").insert(rows2);
+
+        const interval = (severity === "Major" || severity === "Critical") ? "48 hours" : "2 hours";
+
+        // Check for active dispatches currently assigned to this vehicle within the safety window
+        const activeDispatches = await query(
+          `SELECT ds.dispatch_id, ds.dispatch_number, r.guest_name
+             FROM dispatchschedules ds
+             LEFT JOIN vehiclereservations r ON r.reservation_id = ds.reservation_id
+            WHERE ds.vehicle_id = $1 
+              AND ds.status IN ('Scheduled', 'In Progress') 
+              AND ds.deleted_at IS NULL
+              AND (ds.status = 'In Progress' OR ds.scheduled_departure <= NOW() + $2::interval)`,
+          [rows[0].vehicle_id, interval]
+        );
+
+        if (activeDispatches?.rows?.length > 0) {
+          for (const ds of activeDispatches.rows) {
+            // 1. Cancel active trips for this dispatch
+            await query(
+              `UPDATE trips 
+                  SET trip_status = 'Cancelled', updated_at = NOW()
+                WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`,
+              [ds.dispatch_id]
+            );
+
+            // 2. Unassign vehicle/driver and reset dispatch to Pending Reassignment
+            await query(
+              `UPDATE dispatchschedules
+                  SET vehicle_id = NULL, driver_id = NULL, status = 'Pending Reassignment', updated_at = NOW()
+                WHERE dispatch_id = $1`,
+              [ds.dispatch_id]
+            );
+
+            // 3. Create specialized urgent notification for dispatchers
+            const guestName = ds.guest_name || "Unknown Guest";
+            const urgentRows = (dispatchers || []).map((emp) => ({
+              employee_id: emp.employee_id,
+              title: "🚨 URGENT: Active Dispatch Interrupted",
+              message: `Vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} had an incident while assigned to guest ${guestName} (Dispatch #${ds.dispatch_number}). Vehicle has been unassigned. Reassign immediately!`,
+              type: "Alert",
+              reference_type: "dispatch",
+              reference_id: ds.dispatch_id,
+            }));
+            
+            for (const notif of urgentRows) {
+              await query(
+                `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+                 VALUES ($1, $2, $3, $4, $5, $6)`,
+                [notif.employee_id, notif.title, notif.message, notif.type, notif.reference_type, notif.reference_id]
+              );
+            }
+          }
+        }
       } catch (e) {
         console.warn("grounding automation failed:", e?.message || e);
       }

@@ -18,7 +18,5 @@ export const SEVERE_SEVERITIES = new Set(["Major", "Critical"]);
  */
 export function shouldGroundVehicle({ incidentType, severity, vehicleId }) {
   if (!vehicleId) return false;
-  const isBreakdown = BREAKDOWN_RE.test(String(incidentType || ""));
-  const isSevere = SEVERE_SEVERITIES.has(severity);
-  return isBreakdown || isSevere;
+  return true;
 }

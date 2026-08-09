@@ -82,18 +82,14 @@ export async function GET(req) {
         LIMIT 1
       ) lat ON TRUE
       WHERE ds.deleted_at IS NULL
-      ORDER BY
-        CASE ds.priority
-          WHEN 'Urgent' THEN 1
-          WHEN 'High'   THEN 2
-          WHEN 'Medium' THEN 3
-          WHEN 'Low'    THEN 4
-          ELSE 5
-        END,
-        ds.scheduled_departure ASC
+      -- Order by nearest departure first (soonest, including already-overdue, at
+      -- the top). The board's urgency is how close a trip is to leaving — the
+      -- manual dispatch priority field does not drive lane ordering.
+      ORDER BY ds.scheduled_departure ASC NULLS LAST
     `);
 
     return ok({
+      pendingReassignment: rows.filter((d) => d.status === "Pending Reassignment"),
       scheduled:  rows.filter((d) => d.status === "Scheduled"),
       inProgress: rows.filter((d) => d.status === "In Progress"),
       completed:  rows.filter((d) => d.status === "Completed"),

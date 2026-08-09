@@ -23,7 +23,7 @@ import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
 import { formatDateTime } from "@/lib/utils";
-import { Send, Info, Car, UserCheck } from "lucide-react";
+import { Send, Info, Car, UserCheck, CheckCircle2 } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
 
 // Name off either shape: /api/drivers nests the person under `employees`,
@@ -256,6 +256,17 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
   const offeredVehicleIds = new Set(allOptions.map((o) => o.vehicleId));
   const hiddenCount = vehicles.filter((v) => !offeredVehicleIds.has(v.vehicle_id)).length;
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const filteredOptions = allOptions.filter((o) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    const plate = (o.plateNumber || o.plate || "").toLowerCase();
+    const model = (o.model || "").toLowerCase();
+    const driver = (o.driverName || "").toLowerCase();
+    return plate.includes(q) || model.includes(q) || driver.includes(q);
+  });
+
   const submit = (force) => {
     const [v, d] = selection.split(":");
     onSubmit?.({
@@ -267,50 +278,122 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
   };
 
   const blocking = conflictError?.data?.conflicts || [];
+  const loading = loadingVehicles || loadingDrivers || loadingPairings;
 
   return (
     <>
-      <DialogHeader>
-        <DialogTitle>Assign Resources</DialogTitle>
-        <DialogDescription>
+      <DialogHeader className="border-b border-border/40 px-6 pb-4">
+        <DialogTitle className="text-base font-bold">Assign Resources</DialogTitle>
+        <DialogDescription className="text-xs mt-0.5">
           {`${request.reservation_number || `REQ-${request.request_id}`} · pickup ${formatDateTime(request.pickup_datetime)}`}
         </DialogDescription>
       </DialogHeader>
 
       <div className="space-y-4 px-6 pt-4">
-        <FloatingField
-          label="Vehicle & Driver Assignment"
-          icon={Car}
-          hint={requiredClass ? `${requiredClass} only — the class this request was booked as.` : undefined}
-        >
-          <select
-            value={selection}
-            onChange={(e) => setSelection(e.target.value)}
-            className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-          >
-            <option value="">{loadingVehicles || loadingDrivers ? "Loading available vehicles..." : "-- Select Vehicle & Driver Pair --"}</option>
-            {allOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </FloatingField>
+        <div className="flex items-center justify-between">
+          <label className="text-xs font-bold uppercase tracking-wider text-foreground-secondary">
+            Vehicle &amp; Driver Assignment
+          </label>
+          {requiredClass && (
+            <Badge variant="outline" className="text-[11px] font-semibold text-primary">
+              {requiredClass} only
+            </Badge>
+          )}
+        </div>
+
+        {allOptions.length > 3 && (
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-foreground-muted" />
+            <input
+              type="text"
+              placeholder="Search by plate, model, or driver..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 text-xs h-9 bg-surface/80 border border-border/80 rounded-xl focus:border-primary focus:outline-hidden"
+            />
+          </div>
+        )}
+
+        <div className="max-h-[250px] space-y-2 overflow-y-auto pr-1">
+          {loading ? (
+            <div className="flex h-24 w-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20 text-xs font-medium text-foreground-muted">
+              Loading available vehicles...
+            </div>
+          ) : filteredOptions.length === 0 ? (
+            <div className="flex h-24 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20 p-4 text-center">
+              <p className="text-xs font-semibold text-foreground">No available pairs found</p>
+              <p className="text-[11px] text-foreground-muted mt-0.5">
+                Try clearing your search query or check driver schedules.
+              </p>
+            </div>
+          ) : (
+            filteredOptions.map((o) => {
+              const isSelected = selection === o.value;
+              const plateText = o.plateNumber || o.plate || "Vehicle";
+              return (
+                <button
+                  key={o.value}
+                  type="button"
+                  onClick={() => setSelection(o.value)}
+                  className={`w-full text-left p-3 rounded-2xl border transition-all duration-200 flex items-center justify-between group ${
+                    isSelected
+                      ? "border-primary bg-primary/10 ring-2 ring-primary/20 shadow-xs"
+                      : "border-border/60 bg-surface/60 hover:bg-hover hover:border-border"
+                  }`}
+                >
+                  <div className="space-y-1 min-w-0 pr-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center rounded-lg border border-border/80 bg-surface px-2.5 py-0.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+                        {plateText}
+                      </span>
+                      {o.model && (
+                        <span className="text-xs font-bold text-foreground truncate max-w-[160px]">
+                          {o.model}
+                        </span>
+                      )}
+                      {o.seats && (
+                        <span className="text-[10px] font-semibold text-foreground-muted bg-muted/60 px-2 py-0.5 rounded-full">
+                          {o.seats} seats
+                        </span>
+                      )}
+                      {o.isPinned && (
+                        <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                          Current Assignment
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-foreground-secondary pt-0.5">
+                      <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+                      <span className="font-semibold truncate">{o.driverName || "Assigned Driver"}</span>
+                    </div>
+                  </div>
+                  <div className="shrink-0 pl-2">
+                    {isSelected ? (
+                      <CheckCircle2 className="w-5 h-5 text-primary" />
+                    ) : (
+                      <div className="w-5 h-5 rounded-full border border-border/80 group-hover:border-primary/50 transition-colors" />
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
 
         {selectedOpt?.isPinned && (
-          <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <div className="rounded-2xl border border-warning/30 bg-warning/5 p-3">
             <div className="flex items-start gap-2">
               <Info className="mt-0.5 w-4 h-4 shrink-0 text-warning" aria-hidden="true" />
-              <p className="min-w-0 text-sm text-foreground-secondary">
+              <p className="min-w-0 text-xs text-foreground-secondary leading-relaxed">
                 {selectedOpt.tooSmall
-                  ? `${selectedOpt.plate} seats too few for ${passengers} passengers, so it isn't in the list above. Saving this will be refused — pick a larger vehicle.`
+                  ? `${selectedOpt.plate} seats too few for ${passengers} passengers. Pick a larger vehicle.`
                   : selectedOpt.wrongCategory
-                    ? `${selectedOpt.plate} isn't a ${requiredClass} vehicle, so it isn't in the list above. The existing assignment is kept as it is.`
+                    ? `${selectedOpt.plate} isn't a ${requiredClass} vehicle. The existing assignment is kept.`
                     : selectedOpt.isRealPairing
-                      ? `${selectedOpt.driverName} is off duty, so this pairing isn't in the list above. The existing assignment is kept as it is.`
+                      ? `${selectedOpt.driverName} is off duty.`
                       : selectedOpt.driverId
-                        ? `${selectedOpt.plate} and ${selectedOpt.driverName} are not a permanent pairing. This assignment is kept as it is.`
-                        : `${selectedOpt.plate} has no driver assigned. Assign one on the vehicle's page, or keep this as a vehicle-only assignment.`}
+                        ? `${selectedOpt.plate} and ${selectedOpt.driverName} are not a permanent pairing.`
+                        : `${selectedOpt.plate} has no driver assigned.`}
               </p>
             </div>
           </div>
@@ -319,7 +402,7 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
         <ConflictBlock conflicts={blocking} />
       </div>
 
-      <DialogFooter>
+      <DialogFooter className="px-6 py-4 border-t border-border/40">
         <Button variant="outline" onClick={() => onClose?.()}>
           Cancel
         </Button>
@@ -328,8 +411,8 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
             Override &amp; Assign
           </Button>
         )}
-        <Button disabled={isPending || !selection} onClick={() => submit(false)}>
-          <Send className="w-4 h-4 mr-2" />
+        <Button disabled={isPending || !selection} onClick={() => submit(false)} className="gap-2">
+          <Send className="w-4 h-4" />
           {isPending ? "Assigning…" : "Assign"}
         </Button>
       </DialogFooter>

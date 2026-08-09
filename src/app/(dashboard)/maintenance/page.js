@@ -454,7 +454,7 @@ export default function MaintenancePage() {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <FloatingField label="Vehicle" icon={Wrench} required error={fieldError("vehicle_id")}>
+                <FloatingField label="Vehicle" icon={Wrench} required error={fieldError("vehicle_id").error}>
                   <select
                     id="vehicle_id"
                     value={formData.vehicle_id}
@@ -491,8 +491,8 @@ export default function MaintenancePage() {
                     value={formData.maintenance_date}
                     onChange={(val) => setFormData({ ...formData, maintenance_date: val })}
                   />
-                  {fieldError("maintenance_date") && (
-                    <p className="text-xs text-danger font-semibold mt-1">{fieldError("maintenance_date")}</p>
+                  {fieldError("maintenance_date").error && (
+                    <p className="text-xs text-danger font-semibold mt-1">{fieldError("maintenance_date").error}</p>
                   )}
                 </div>
 
@@ -505,7 +505,7 @@ export default function MaintenancePage() {
                   />
                 </div>
 
-                <FloatingField label="Cost (₱)" icon={DollarSign} error={fieldError("cost")}>
+                <FloatingField label="Cost (₱)" icon={DollarSign} error={fieldError("cost").error}>
                   <input
                     id="cost"
                     type="number"
@@ -517,7 +517,7 @@ export default function MaintenancePage() {
                   />
                 </FloatingField>
 
-                <FloatingField label="Mileage at Service (km)" icon={Activity} error={fieldError("mileage_at_service")}>
+                <FloatingField label="Mileage at Service (km)" icon={Activity} error={fieldError("mileage_at_service").error}>
                   <input
                     id="mileage_at_service"
                     type="number"

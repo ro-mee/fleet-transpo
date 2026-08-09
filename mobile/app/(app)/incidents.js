@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as Location from "expo-location";
 import { api } from "../../lib/api";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, space } from "../../lib/theme";
@@ -22,8 +23,10 @@ import {
   styles as ui,
 } from "../../components/ui";
 import { BrandBar } from "../../components/logo";
+import TripMap from "../../components/map";
 
 const SEVERITIES = ["Minor", "Moderate", "Major", "Critical"];
+const ASSISTANCE_OPTIONS = ["Tow", "Ambulance", "Police", "Mechanic"];
 
 function severityTone(severity) {
   switch (severity) {
@@ -54,7 +57,63 @@ export default function Incidents() {
   const [severity, setSeverity] = useState("Minor");
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
+  const [assistance, setAssistance] = useState([]);
+  const [expenseAmount, setExpenseAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const toggleAssistance = (item) => {
+    setAssistance((prev) =>
+      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
+    );
+  };
+
+  // GPS auto-capture. The server accepts incidents without coordinates when
+  // permission is denied, so a failed fix never blocks a report.
+  const [fix, setFix] = useState(null);
+  const [locError, setLocError] = useState(null);
+
+  const captureFix = useCallback(async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        setLocError("Location permission off — report will not include coordinates.");
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      setFix({
+        latitude: pos.coords.latitude,
+        longitude: pos.coords.longitude,
+      });
+      setLocError(null);
+
+      try {
+        const [address] = await Location.reverseGeocodeAsync(pos.coords);
+        if (address) {
+          const parts = [];
+          if (address.street) parts.push(`${address.streetNumber ? address.streetNumber + " " : ""}${address.street}`);
+          else if (address.name) parts.push(address.name);
+          
+          if (address.city) parts.push(address.city);
+          else if (address.subregion) parts.push(address.subregion);
+          
+          if (parts.length > 0) {
+            setLocation(parts.join(", "));
+          }
+        }
+      } catch (e) {
+        // non-fatal, user can still type location manually
+      }
+    } catch (e) {
+      setLocError("Could not read your location — reporting without coordinates.");
+    }
+  }, []);
+
+  // Pre-fetch a fix on mount so the submit path is fast.
+  useEffect(() => {
+    captureFix();
+  }, [captureFix]);
 
   const load = useCallback(async () => {
     try {
@@ -80,12 +139,28 @@ export default function Incidents() {
     setError(null);
     setSubmitting(true);
     try {
+      // Best-effort live fix at submit time; the mount-time fix covers the
+      // common case, this covers long-dwell forms.
+      let coords = fix;
+      if (!coords) {
+        try {
+          const pos = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+        } catch {
+          coords = null;
+        }
+      }
       await api.post("/api/driver/incidents", {
         incident_type: type.trim(),
         severity,
         description: description.trim(),
         location: location.trim() || undefined,
+        assistance_needed: assistance.length > 0 ? assistance : undefined,
         incident_date: new Date().toISOString(),
+        ...(expenseAmount.trim() ? { expense_amount: parseFloat(expenseAmount) } : {}),
+        ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
       });
       Alert.alert("Report submitted", "Your dispatcher has been notified.", [
         { text: "Done" },
@@ -93,13 +168,17 @@ export default function Incidents() {
       setType("");
       setDescription("");
       setLocation("");
+      setAssistance([]);
+      setExpenseAmount("");
+      setFix(null);
+      setLocError(null);
       await load();
     } catch (e) {
       setError(e.message || "Could not submit the report.");
     } finally {
       setSubmitting(false);
     }
-  }, [type, severity, description, location, load]);
+  }, [type, severity, description, location, fix, load]);
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
@@ -136,6 +215,26 @@ export default function Incidents() {
               />
             ))}
           </View>
+          <Text style={[styles.label, { color: colors.onSurfaceVariant, marginTop: space.sm }]}>Assistance Needed (Optional)</Text>
+          <View style={styles.severityRow}>
+            {ASSISTANCE_OPTIONS.map((item) => (
+              <Chip
+                key={item}
+                label={item}
+                selected={assistance.includes(item)}
+                onPress={() => toggleAssistance(item)}
+                disabled={submitting}
+              />
+            ))}
+          </View>
+          <Field
+            label="Out-of-Pocket Expense (₱) - Optional"
+            value={expenseAmount}
+            onChangeText={setExpenseAmount}
+            placeholder="e.g. 500"
+            keyboardType="numeric"
+            editable={!submitting}
+          />
           <Field
             label="Description"
             required
@@ -152,6 +251,23 @@ export default function Incidents() {
             placeholder="Where?"
             editable={!submitting}
           />
+          {fix && (
+            <View style={styles.mapPreview}>
+              <TripMap
+                origin={{ latitude: fix.latitude, longitude: fix.longitude }}
+                destination={null}
+                live={fix}
+                height={140}
+                showControls={false}
+              />
+              <Text style={[styles.label, { color: colors.onSurfaceVariant, marginTop: space.xs }]}>
+                Current location captured — will be attached to this report
+              </Text>
+            </View>
+          )}
+          {locError && (
+            <Text style={[styles.locError, { color: colors.warning }]}>{locError}</Text>
+          )}
           <Button
             label={submitting ? "Submitting…" : "Submit report"}
             onPress={submit}
@@ -211,4 +327,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   meta: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, marginTop: space.xs },
+  mapPreview: { marginBottom: space.base },
+  locError: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: space.base,
+  },
 });

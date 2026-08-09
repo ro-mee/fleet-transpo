@@ -132,6 +132,7 @@ export default function LiveLocationsMap({
   destinationName = "",
   instructions = [],
   showNavigationPanel = false,
+  incidents = [],
 }) {
   const [trafficOn, setTrafficOn] = useState(traffic);
   const [legendOn, setLegendOn] = useState(true);
@@ -201,6 +202,26 @@ export default function LiveLocationsMap({
     }
     return valid;
   }, [valid, routePts]);
+
+  const validIncidents = useMemo(
+    () =>
+      (incidents || []).filter(
+        (inc) => inc && inc.latitude != null && inc.longitude != null
+      ),
+    [incidents]
+  );
+
+  const incidentIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: "fleet-marker",
+        html: `<div class="fleet-incident-pin"><span class="fleet-incident-pulse"></span><span class="fleet-incident-dot"></span></div>`,
+        iconSize: [26, 26],
+        iconAnchor: [13, 13],
+        tooltipAnchor: [0, -14],
+      }),
+    []
+  );
 
   const openGoogleStreetView = (lat, lng) => {
     const url = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${lat},${lng}`;
@@ -315,6 +336,72 @@ export default function LiveLocationsMap({
           );
         })}
 
+        {validIncidents.map((inc) => {
+          const lat = Number(inc.latitude);
+          const lng = Number(inc.longitude);
+          const type = inc.incident_type || "Incident";
+          const severity = inc.severity || "medium";
+          const severityColor =
+            severity === "high"
+              ? "#ef4444"
+              : severity === "low"
+              ? "#f59e0b"
+              : "#f97316";
+          const ts = inc.created_at
+            ? new Date(inc.created_at).toLocaleString(undefined, {
+                month: "short",
+                day: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "";
+          return (
+            <Marker
+              key={`incident-${inc.id || lat + "," + lng}`}
+              position={[lat, lng]}
+              icon={incidentIcon}
+              zIndexOffset={1000}
+            >
+              <Popup className="fleet-popup">
+                <div className="p-1 space-y-2 text-foreground font-sans min-w-[200px]">
+                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                    <span className="font-bold text-sm capitalize">{type}</span>
+                    <span
+                      className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full text-white"
+                      style={{ backgroundColor: severityColor }}
+                    >
+                      {severity.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-xs text-foreground-secondary font-medium">
+                    {inc.description && (
+                      <p className="leading-relaxed">{inc.description}</p>
+                    )}
+                    <p className="flex items-center gap-1.5 font-data">
+                      <Compass className="w-3.5 h-3.5 text-danger" />
+                      {lat.toFixed(4)}, {lng.toFixed(4)}
+                    </p>
+                    {ts && (
+                      <p className="text-[11px] text-foreground-muted font-data">
+                        Reported {ts}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </Popup>
+              <Tooltip className="fleet-tooltip">
+                <div className="font-semibold text-xs capitalize flex items-center gap-1.5">
+                  <span
+                    className="w-2 h-2 rounded-full animate-pulse shrink-0"
+                    style={{ backgroundColor: severityColor }}
+                  />
+                  {type} {severity === "high" ? "· High" : ""}
+                </div>
+              </Tooltip>
+            </Marker>
+          );
+        })}
+
         <MapControls
           trafficOn={trafficOn}
           onTraffic={() => setTrafficOn((v) => !v)}
@@ -407,6 +494,23 @@ export default function LiveLocationsMap({
             </div>
           )}
 
+          {validIncidents.length > 0 && (
+            <div className="border-t border-border/60 pt-2">
+              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                Incidents ({validIncidents.length})
+              </p>
+              <ul className="space-y-1 text-xs font-medium text-foreground-secondary">
+                <li className="flex items-center gap-2">
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
+                  </span>
+                  <span>Reported Incident</span>
+                </li>
+              </ul>
+            </div>
+          )}
+
           {trafficOn && (
             <div className="border-t border-border/60 pt-2">
               <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
@@ -446,6 +550,32 @@ export default function LiveLocationsMap({
           box-shadow: 0 4px 10px rgb(0 0 0 / 0.35);
         }
         .fleet-pin span { transform: rotate(45deg); color: #fff; font-size: 14px; }
+        .fleet-incident-pin {
+          position: relative;
+          width: 26px; height: 26px;
+          display: flex; align-items: center; justify-content: center;
+        }
+        .fleet-incident-dot {
+          width: 15px; height: 15px;
+          border-radius: 50%;
+          background: #ef4444;
+          border: 2.5px solid #ffffff;
+          box-shadow: 0 2px 8px rgb(239 68 68 / 0.6);
+          z-index: 2;
+        }
+        .fleet-incident-pulse {
+          position: absolute;
+          width: 15px; height: 15px;
+          border-radius: 50%;
+          background: rgb(239 68 68 / 0.5);
+          animation: fleet-incident-blink 1.4s ease-out infinite;
+          z-index: 1;
+        }
+        @keyframes fleet-incident-blink {
+          0% { transform: scale(1); opacity: 0.9; }
+          70% { transform: scale(2.6); opacity: 0; }
+          100% { transform: scale(2.6); opacity: 0; }
+        }
         .fleet-tooltip { border: 1px solid var(--br); border-radius: 12px; box-shadow: var(--shadow-sm); font-family: var(--font-sans); }
         .leaflet-popup-content-wrapper { border-radius: 20px; border: 1px solid var(--br); background: var(--sf); box-shadow: var(--shadow-lg); }
         .leaflet-popup-tip { background: var(--sf); }

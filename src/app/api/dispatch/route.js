@@ -6,6 +6,7 @@ import { writeAudit } from "@/lib/audit";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
 import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
+import { validatePairAvailability } from "@/services/recommendation.service";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 
@@ -134,6 +135,27 @@ export async function POST(req) {
     }
 
     const k = Object.keys(body), v = Object.values(body);
+    // Designated-driver enforcement: a pair that departs from the vehicle's
+    // active custodian (migration 017) is refused unless that custodian is
+    // provably unavailable. This is the same guard the assign endpoint applies —
+    // a driver must not be dispatched in a different car than the one they are
+    // assigned to. No force path here: a dispatcher who needs a substitution
+    // reassigns the pairing or edits the dispatch afterward.
+    if (body.vehicle_id && body.driver_id) {
+      const pairCheck = await validatePairAvailability({
+        request: { pickup_datetime: body.scheduled_departure ?? null },
+        vehicleId: body.vehicle_id,
+        driverId: body.driver_id,
+        now: body.scheduled_departure ? new Date(body.scheduled_departure) : new Date(),
+      });
+      if (!pairCheck.ok) {
+        return err(
+          `${pairCheck.conflict.message} Assign the designated driver, or release the pairing first.`,
+          409
+        );
+      }
+    }
+
     // Block double-booking: reject if this vehicle or driver already has an
     // overlapping active dispatch in the requested departure/arrival window.
     if ((body.vehicle_id || body.driver_id) && body.scheduled_departure) {

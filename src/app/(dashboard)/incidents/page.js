@@ -3,10 +3,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { getAllIncidents } from "@/services/driver.service";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye } from "lucide-react";
+import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { HeroHeader } from "@/components/ui/hero-header";
@@ -15,6 +16,22 @@ import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { CheckCircle2 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { updateIncident } from "@/services/driver.service";
+import { apiFetch } from "@/lib/api/client";
+
+const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full w-full items-center justify-center bg-muted/40 text-xs font-semibold text-foreground-muted">
+      Loading map…
+    </div>
+  ),
+});
 
 const SEVERITY_VARIANT = {
   Minor: "info",
@@ -26,13 +43,67 @@ const SEVERITY_VARIANT = {
 export default function IncidentsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
   const router = useRouter();
+  const queryClient = useQueryClient();
+
+  const [resolveModal, setResolveModal] = useState({ open: false, incident: null });
+  const [actionsTaken, setActionsTaken] = useState("");
 
   const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["all-incidents"],
     queryFn: () => getAllIncidents({ limit: 200 }),
   });
 
+  const resolveMutation = useMutation({
+    mutationFn: ({ id, payload }) => updateIncident(id, payload),
+    onSuccess: () => {
+      toast.success("Incident resolved successfully");
+      queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-incidents"] }); // clear sidebar badge
+      setResolveModal({ open: false, incident: null });
+      setActionsTaken("");
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to resolve incident");
+    },
+  });
+
+  const sendToMaintenanceMutation = useMutation({
+    mutationFn: async (row) => {
+      // 1. Create the Maintenance Record
+      await apiFetch("/api/vehicle-maintenance", {
+        method: "POST",
+        body: {
+          vehicle_id: row.vehicle_id,
+          maintenance_date: new Date().toISOString().split("T")[0],
+          maintenance_type: "Emergency Repair",
+          description: `Emergency repair generated from Incident #${row.incident_id}: ${row.description || ""}`,
+          cost: row.expense_amount ? parseFloat(row.expense_amount) : 0,
+          status: "In Progress",
+          priority: "High",
+          remarks: `Incident Type: ${row.incident_type || "Unknown"}`
+        }
+      });
+      // 2. Mark the Incident as Resolved
+      await updateIncident(row.incident_id, {
+        status: "Resolved",
+        actions_taken: "Sent to vehicle maintenance team for emergency repairs."
+      });
+    },
+    onSuccess: () => {
+      toast.success("Incident resolved and sent to Maintenance successfully!");
+      queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["pending-incidents"] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to send to maintenance");
+    }
+  });
+
   const incidents = useMemo(() => [...(data || [])], [data]);
+
+  const activeIncidents = useMemo(() => {
+    return incidents.filter((i) => (i.status || "").toLowerCase() !== "resolved");
+  }, [incidents]);
 
   const counts = useMemo(() => {
     const c = { Critical: 0, Major: 0, Moderate: 0, Minor: 0, Open: 0 };
@@ -59,6 +130,11 @@ export default function IncidentsPage() {
           )}
           {row.description && (
             <p className="text-xs text-foreground-secondary mt-1 line-clamp-2 max-w-[300px]">{row.description}</p>
+          )}
+          {row.expense_amount && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-danger bg-danger/10 border border-danger/20 rounded px-1.5 py-0.5 mt-1.5 uppercase">
+              ₱{Number(row.expense_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} Expense
+            </span>
           )}
         </div>
       ),
@@ -87,12 +163,16 @@ export default function IncidentsPage() {
       },
     },
     {
-      key: "vehicle_id",
+      key: "vehicle",
       label: "Vehicle",
-      render: (val) =>
-        val ? (
+      render: (_, row) =>
+        row.plate_number ? (
           <span className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
-            #{val}
+            {row.plate_number}
+          </span>
+        ) : row.vehicle_id ? (
+          <span className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
+            #{row.vehicle_id}
           </span>
         ) : (
           <span className="text-xs text-foreground-muted font-medium">—</span>
@@ -109,12 +189,12 @@ export default function IncidentsPage() {
       ),
     },
     {
-      key: "reported_at",
+      key: "incident_date",
       label: "Date",
       sortable: true,
       render: (val) => (
         <span className="font-data font-bold text-xs text-foreground">
-          {val ? new Date(val).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+          {val ? new Date(val).toLocaleString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
         </span>
       ),
     },
@@ -123,6 +203,48 @@ export default function IncidentsPage() {
       label: "Status",
       sortable: true,
       render: (val) => <StatusBadge status={val || "Open"} entity="incident" className="rounded-full px-3 py-1 text-xs font-bold" />,
+    },
+    {
+      key: "actions",
+      label: "",
+      render: (_, row) => {
+        if ((row.status || "").toLowerCase() === "pending" || (row.status || "").toLowerCase() === "open") {
+          return (
+            <div className="flex justify-end gap-2">
+              {row.vehicle_id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs font-semibold text-danger border-danger/30 hover:bg-danger/5 hover:text-danger hover:border-danger"
+                  onClick={() => {
+                    if (confirm(`Send vehicle to maintenance? This will also mark the incident as resolved.`)) {
+                      sendToMaintenanceMutation.mutate(row);
+                    }
+                  }}
+                  disabled={sendToMaintenanceMutation.isPending}
+                >
+                  <Wrench className="w-3.5 h-3.5" />
+                  {sendToMaintenanceMutation.isPending ? "Sending..." : "Send to Maintenance"}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs font-semibold hover:text-primary hover:border-primary"
+                onClick={() => {
+                  setActionsTaken("");
+                  setResolveModal({ open: true, incident: row });
+                }}
+                disabled={sendToMaintenanceMutation.isPending}
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Resolve
+              </Button>
+            </div>
+          );
+        }
+        return null;
+      },
     },
   ];
 
@@ -144,10 +266,31 @@ export default function IncidentsPage() {
 
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
+          <div className="flex items-center justify-between border-b border-border/60 px-6 py-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-danger/10 text-danger">
+                <MapIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Active Incident Map</p>
+                <p className="text-xs text-foreground-muted font-medium">
+                  {activeIncidents.filter((i) => i && i.latitude != null && i.longitude != null).length} active incidents plotted with GPS coordinates
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="h-[340px] w-full">
+            <IncidentMap incidents={activeIncidents} />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardContent className="p-0">
           <DataTable
             columns={columns}
             data={incidents}
-            pageSize={10}
+            pageSize={5}
             title="All Incidents Registry"
             description="Driver-reported incidents across the fleet."
             icon={AlertTriangle}
@@ -159,6 +302,50 @@ export default function IncidentsPage() {
           />
         </CardContent>
       </Card>
+
+      <Dialog open={resolveModal.open} onOpenChange={(open) => !open && setResolveModal({ open: false, incident: null })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Resolve Incident</DialogTitle>
+            <DialogDescription>
+              Marking this incident as resolved will clear it from the pending alerts. Please document any actions taken.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="p-6 pt-2">
+            <p className="text-sm font-medium text-foreground mb-2">Actions Taken</p>
+            <textarea
+              value={actionsTaken}
+              onChange={(e) => setActionsTaken(e.target.value)}
+              placeholder="e.g., Sent mechanic, Dispatched tow truck, Verified safe to drive..."
+              className="w-full min-h-[100px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setResolveModal({ open: false, incident: null })}
+              disabled={resolveMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (resolveModal.incident) {
+                  resolveMutation.mutate({
+                    id: resolveModal.incident.incident_id,
+                    payload: { status: "Resolved", actions_taken: actionsTaken }
+                  });
+                }
+              }}
+              disabled={resolveMutation.isPending}
+              className="gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              {resolveMutation.isPending ? "Resolving..." : "Mark as Resolved"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -18,10 +18,13 @@ import {
   Eye,
   FileText,
   MapPin,
+  Minus,
   PlayCircle,
   Radio,
   Route as RouteIcon,
   Shuffle,
+  TrendingDown,
+  TrendingUp,
   Users,
   XCircle,
 } from "lucide-react";
@@ -53,37 +56,128 @@ function driverName(driver) {
   return name || `Driver #${driver.driver_id}`;
 }
 
-function Field({ icon: Icon, label, children, className, mono }) {
+function Field({ icon: Icon, label, children, className, highlight }) {
+  const isBlank = !children || children === "—";
   return (
-    <div className={cn("min-w-0", className)}>
-      <p className="text-xs text-foreground-muted">{label}</p>
-      <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-        {Icon && (
-          <Icon className="w-3.5 h-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />
-        )}
-        <span
-          className={cn(
-            "truncate text-sm text-foreground-secondary",
-            mono && "font-data text-xs"
-          )}
-        >
+    <div
+      className={cn(
+        "rounded-2xl border p-2.5 min-w-0 flex flex-col justify-between transition-colors",
+        isBlank
+          ? "border-border/30 bg-muted/15"
+          : highlight
+          ? "border-primary/30 bg-primary/5 hover:bg-primary/10"
+          : "border-border/50 bg-hover/40 hover:bg-hover/80",
+        className
+      )}
+    >
+      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted flex items-center gap-1">
+        {Icon && <Icon className="w-3 h-3 text-primary/70 shrink-0" aria-hidden="true" />}
+        <span className="truncate">{label}</span>
+      </p>
+      <div className="mt-1 flex items-center gap-1.5 min-w-0">
+        <span className={cn("truncate text-xs font-bold text-foreground", isBlank && "text-foreground-muted font-normal")}>
           {children ?? "—"}
         </span>
       </div>
     </div>
   );
 }
-/**
- * The 17 fields, in the order a dispatcher reads them:
- *   1 dispatch number   2 dispatch status   3 priority
- *   4 reservation no.   5 guest             6 request lifecycle status
- *   7 pickup            8 dropoff
- *   9 scheduled departure  10 scheduled arrival
- *  11 actual departure    12 actual arrival
- *  13 vehicle          14 driver           15 passengers
- *  16 service type     17 estimated distance / duration
- * plus the trip progress bar, route, and notes.
- */
+
+// Paired timing row: shows Scheduled vs Actual for one leg (departure or arrival)
+// and computes an on-time delta badge automatically.
+const LEG_STYLE = {
+  Dep: {
+    bg: "bg-blue-500/15 border-blue-500/30",
+    text: "text-blue-500",
+    icon: "text-blue-400",
+    border: "border-blue-500/25",
+  },
+  Arr: {
+    bg: "bg-emerald-500/15 border-emerald-500/30",
+    text: "text-emerald-500",
+    icon: "text-emerald-400",
+    border: "border-emerald-500/25",
+  },
+};
+
+function TripTimingRow({ leg, scheduledIcon: SIcon, actualIcon: AIcon, scheduled, actual }) {
+  // Compute delta in minutes (actual - scheduled, positive = late)
+  let deltaLabel = null;
+  let deltaStyle = null;
+  let DeltaIcon = null;
+
+  if (scheduled && actual) {
+    const diff = Math.round((new Date(actual) - new Date(scheduled)) / 60000);
+    if (Math.abs(diff) <= 3) {
+      deltaLabel = "On time";
+      deltaStyle = "bg-success/10 text-success border-success/30";
+      DeltaIcon = Minus;
+    } else if (diff < 0) {
+      deltaLabel = `${Math.abs(diff)}m early`;
+      deltaStyle = "bg-primary/10 text-primary border-primary/30";
+      DeltaIcon = TrendingUp;
+    } else {
+      deltaLabel = `${diff}m late`;
+      deltaStyle = "bg-danger/10 text-danger border-danger/30";
+      DeltaIcon = TrendingDown;
+    }
+  }
+
+  const style = LEG_STYLE[leg] || LEG_STYLE.Dep;
+  const scheduledFmt = scheduled ? formatDateTime(scheduled) : null;
+  const actualFmt = actual ? formatTime(actual) : null;
+
+  return (
+    <div className={cn("flex items-stretch gap-0 rounded-2xl border overflow-hidden text-xs", style.border, "bg-hover/20")}>
+      {/* Left: colored leg strip */}
+      <div className={cn("flex items-center justify-center px-2.5 py-2 border-r shrink-0", style.bg, style.border)}>
+        <span
+          className={cn("text-[10px] font-black uppercase tracking-widest", style.text)}
+          style={{ writingMode: "vertical-lr", transform: "rotate(180deg)" }}
+        >
+          {leg}
+        </span>
+      </div>
+
+      {/* Middle-left: Scheduled */}
+      <div className="flex-1 px-3 py-2 min-w-0 border-r border-border/30">
+        <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
+          {SIcon && <SIcon className={cn("w-3 h-3 shrink-0", style.icon)} />}
+          Scheduled
+        </p>
+        <p className={cn("font-bold truncate text-xs", scheduledFmt ? "text-foreground" : "text-foreground-muted font-normal")}>
+          {scheduledFmt ?? "—"}
+        </p>
+      </div>
+
+      {/* Middle-right: Actual */}
+      <div className="flex-1 px-3 py-2 min-w-0">
+        <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
+          {AIcon && <AIcon className={cn("w-3 h-3 shrink-0", style.icon)} />}
+          Actual
+        </p>
+        <p className={cn("font-bold truncate text-xs", actualFmt ? "text-foreground" : "text-foreground-muted font-normal")}>
+          {actualFmt ?? "—"}
+        </p>
+      </div>
+
+      {/* Right: Delta badge */}
+      <div className="flex items-center justify-center px-2.5 py-2 shrink-0">
+        {deltaLabel ? (
+          <span className={cn("inline-flex items-center gap-1 border rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap", deltaStyle)}>
+            {DeltaIcon && <DeltaIcon className="w-2.5 h-2.5" />}
+            {deltaLabel}
+          </span>
+        ) : (
+          <span className="inline-flex items-center border border-border/40 rounded-full px-2 py-0.5 text-[10px] text-foreground-muted bg-muted/20">
+            Pending
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function DispatchCard({
   dispatch,
   permissions = {},
@@ -104,100 +198,113 @@ export function DispatchCard({
   const progress = tripProgress(ds);
   const priority = ds.priority || request?.priority;
 
-  // Locations live on the request; a dispatch created without one falls back to
-  // its route's endpoints so the card is never blank about where it is going.
   const pickup = request?.pickup_location || route?.origin;
   const dropoff = request?.dropoff_location || route?.destination;
 
   const distanceKm = num(ds.estimated_distance) ?? num(request?.estimated_distance) ?? num(route?.estimated_distance);
   const durationMin = num(ds.estimated_duration) ?? num(request?.estimated_duration);
 
+  const isPendingReassignment = ds.status === D.PENDING_REASSIGNMENT;
   const isScheduled = ds.status === D.SCHEDULED;
   const isInProgress = ds.status === D.IN_PROGRESS;
-  const isOpen = isScheduled || isInProgress;
+  const isOpen = isScheduled || isInProgress || isPendingReassignment;
+  const isCompleted = ds.status === D.COMPLETED;
 
-  // Actions are offered only when they are BOTH applicable to this state and
-  // permitted for this user. Each verb matches the role list its endpoint
-  // enforces — the button being hidden is a convenience, not the boundary.
-  // Start and Complete act on the TRIP, not the dispatch row: only the trip
-  // endpoints advance the originating request and write its timeline. So both
-  // need a trip to exist. ensureTripForDispatch() creates one as soon as a
-  // dispatch has both a vehicle and a driver, which is also exactly when it is
-  // startable — so in practice "fully assigned" and "has a trip" coincide, and
-  // the two conditions are checked separately only so the card can say which
-  // one is missing.
   const fullyAssigned = Boolean(ds.vehicle_id && ds.driver_id);
   const hasTrip = Boolean(trip?.trip_id);
   const canStart = isScheduled && permissions.tripsUpdate && fullyAssigned && hasTrip;
   const canComplete = isInProgress && permissions.tripsUpdate && hasTrip;
   const canCancelDispatch = isOpen && permissions.dispatchUpdate;
-  const canReassign = isOpen && permissions.dispatchUpdate;
-  const canNotes = permissions.dispatchUpdate;
+  const canAssign = (isPendingReassignment || isScheduled) && permissions.dispatchUpdate;
+  const canNotes = permissions.dispatchUpdate && !isCompleted;
+
+  const guestName = request?.guest_name || "Unnamed guest";
+  const driverNameStr = driverName(driver);
 
   return (
     <Card
       className={cn(
-        "border-l-4 p-4 transition-shadow hover:shadow-sm",
+        "rounded-3xl border border-border/80 bg-surface/95 p-5 shadow-sm hover:shadow-xl transition-all duration-300 backdrop-blur-xl hover:border-primary/40 border-l-4",
         progress.overdue ? TONE_RAIL.danger : PRIORITY_RAIL[priority] || "border-l-border"
       )}
     >
-      {/* 1–3 · identity, dispatch status, priority */}
+      {/* 1 · Top Header: Guest Name Spotlight + Status Badges */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Link
-              href={`/dispatch/${ds.dispatch_id}`}
-              className="font-data text-sm font-medium text-foreground hover:underline"
-            >
-              {ds.dispatch_number || `DSP-${ds.dispatch_id}`}
-            </Link>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-base font-bold text-foreground tracking-tight truncate">
+              {guestName}
+            </h3>
             {priority && <StatusBadge status={priority} entity="priority" />}
           </div>
 
-          {/* 4–5 · the request this dispatch fulfils, and whose trip it is */}
-          <p className="mt-0.5 truncate text-sm text-foreground-secondary">
-            {request ? (
-              <>
-                {request.guest_name || "Unnamed guest"}
-                {request.reservation_number && (
-                  <span className="font-data text-xs text-foreground-muted">
-                    {" "}
-                    · {request.reservation_number}
-                  </span>
-                )}
-              </>
-            ) : (
-              <span className="text-foreground-muted">No linked request</span>
+          <div className="mt-0.5 flex items-center gap-2 text-xs text-foreground-muted font-medium">
+            <Link
+              href={`/dispatch/${ds.dispatch_id}`}
+              className="font-data font-bold text-foreground hover:text-primary transition-colors"
+            >
+              {ds.dispatch_number || `DSP-${ds.dispatch_id}`}
+            </Link>
+            {request?.reservation_number && (
+              <span className="font-data">· {request.reservation_number}</span>
             )}
-          </p>
+          </div>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 flex-wrap justify-end">
           <StatusBadge status={ds.status} entity="dispatch" />
-          {/* 6 · the request's own lifecycle status, which can lag the dispatch */}
-          {request?.fleet_status && (
+          {request?.fleet_status && request.fleet_status !== ds.status && (
             <StatusBadge status={request.fleet_status} entity="reservation" />
           )}
         </div>
       </div>
 
-      {/* 7–8 · route */}
-      <div className="mt-3 flex items-center gap-2 rounded-lg bg-hover/50 px-3 py-2 text-sm">
-        <MapPin className="w-3.5 h-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />
-        <span className="truncate text-foreground-secondary">{pickup || "—"}</span>
+      {/* 2 · Origin -> Destination Route Pill */}
+      <div className="mt-3.5 flex items-center gap-2 rounded-2xl border border-border/60 bg-hover/40 px-3.5 py-2.5 text-xs shadow-2xs">
+        <MapPin className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden="true" />
+        <span className="font-semibold text-foreground truncate max-w-[45%]">{pickup || "—"}</span>
         <ArrowRight className="w-3.5 h-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />
-        <span className="truncate text-foreground-secondary">{dropoff || "—"}</span>
+        <span className="font-semibold text-foreground truncate max-w-[45%]">{dropoff || "—"}</span>
       </div>
 
-      {/* Trip progress. Rendered as text when there is no honest denominator. */}
-      <div className="mt-3">
+      {/* 3 · Custodial Assignment Banner (Vehicle + Driver Spotlight) */}
+      <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-surface px-3 py-2 text-xs">
+          <CarFront className="w-4 h-4 text-primary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
+            {vehicle ? (
+              <p className="font-bold text-foreground truncate">
+                <span className="font-data text-xs">{vehicle.plate_number}</span>
+                {vehicle.model && <span className="font-normal text-foreground-secondary ml-1">· {vehicle.model}</span>}
+              </p>
+            ) : (
+              <p className="text-xs font-semibold text-amber-500">Unassigned</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-surface px-3 py-2 text-xs">
+          <Users className="w-4 h-4 text-primary shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
+            {driverNameStr ? (
+              <p className="font-bold text-foreground truncate">{driverNameStr}</p>
+            ) : (
+              <p className="text-xs font-semibold text-amber-500">Unassigned</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* 4 · Trip Progress */}
+      <div className="mt-3.5">
         {progress.pct === null ? (
-          <p className="flex items-center gap-1.5 text-xs text-foreground-muted">
-            <Radio className="w-3.5 h-3.5 text-primary" aria-hidden="true" />
-            {progress.label}
+          <div className="flex items-center gap-1.5 text-xs text-foreground-muted font-medium bg-muted/20 px-3 py-1.5 rounded-xl border border-border/30">
+            <Radio className="w-3.5 h-3.5 text-primary animate-pulse shrink-0" aria-hidden="true" />
+            <span className="font-bold text-foreground">{progress.label}</span>
             {progress.elapsedMin != null && ` · ${formatDuration(progress.elapsedMin)} elapsed`}
-            <span className="text-foreground-muted">· no ETA on file</span>
-          </p>
+          </div>
         ) : (
           <ProgressBar
             value={progress.pct}
@@ -208,50 +315,49 @@ export function DispatchCard({
         )}
       </div>
 
-      {/* 9–17 · the operational detail */}
-      <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
-        <Field icon={CalendarClock} label="Scheduled departure">
-          {ds.scheduled_departure ? formatDateTime(ds.scheduled_departure) : null}
-        </Field>
-        <Field icon={Clock} label="Scheduled arrival">
-          {ds.scheduled_arrival ? formatDateTime(ds.scheduled_arrival) : null}
-        </Field>
-        <Field icon={PlayCircle} label="Actual departure">
-          {ds.actual_departure
-            ? formatTime(ds.actual_departure)
-            : trip?.start_time
-              ? formatTime(trip.start_time)
-              : null}
-        </Field>
-        <Field icon={CheckCircle2} label="Actual arrival">
-          {ds.actual_arrival
-            ? formatTime(ds.actual_arrival)
-            : trip?.end_time
-              ? formatTime(trip.end_time)
-              : null}
-        </Field>
-        <Field icon={CarFront} label="Vehicle">
-          {vehicle
-            ? `${vehicle.plate_number}${vehicle.model ? ` · ${vehicle.model}` : ""}`
-            : null}
-        </Field>
-        <Field icon={Users} label="Driver">
-          {driverName(driver)}
-        </Field>
-        <Field label="Passengers">{request?.passenger_count ?? null}</Field>
-        <Field label="Service">
-          {request?.service_name || request?.requested_vehicle_type || null}
-        </Field>
-        <Field icon={RouteIcon} label="Estimate">
-          {distanceKm != null || durationMin != null
-            ? [
-                distanceKm != null ? formatDistance(distanceKm) : null,
-                durationMin != null ? formatDuration(durationMin) : null,
-              ]
-                .filter(Boolean)
-                .join(" · ")
-            : null}
-        </Field>
+      {/* 5 · Paired Timing Rows — Scheduled vs Actual per leg */}
+      <div className="mt-3.5 space-y-1.5">
+        <TripTimingRow
+          leg="Dep"
+          scheduledIcon={CalendarClock}
+          actualIcon={PlayCircle}
+          scheduled={ds.scheduled_departure || null}
+          actual={ds.actual_departure || trip?.start_time || null}
+        />
+        <TripTimingRow
+          leg="Arr"
+          scheduledIcon={Clock}
+          actualIcon={CheckCircle2}
+          scheduled={ds.scheduled_arrival || null}
+          actual={ds.actual_arrival || trip?.end_time || null}
+        />
+      </div>
+
+      {/* 6 · Inline Metadata Chips (Passengers, Service, Estimate) */}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+        {request?.passenger_count && (
+          <span className="inline-flex items-center gap-1 bg-hover/60 border border-border/50 text-foreground-secondary px-2.5 py-1 rounded-full text-[11px] font-semibold">
+            <Users className="w-3 h-3 text-foreground-muted" />
+            {request.passenger_count} passengers
+          </span>
+        )}
+        {(request?.service_name || request?.requested_vehicle_type) && (
+          <span className="inline-flex items-center gap-1 bg-hover/60 border border-border/50 text-foreground-secondary px-2.5 py-1 rounded-full text-[11px] font-semibold">
+            <CarFront className="w-3 h-3 text-foreground-muted" />
+            {request.service_name || request.requested_vehicle_type}
+          </span>
+        )}
+        {(distanceKm != null || durationMin != null) && (
+          <span className="inline-flex items-center gap-1 bg-hover/60 border border-border/50 text-foreground-secondary px-2.5 py-1 rounded-full text-[11px] font-semibold">
+            <RouteIcon className="w-3 h-3 text-foreground-muted" />
+            {[
+              distanceKm != null ? formatDistance(distanceKm) : null,
+              durationMin != null ? formatDuration(durationMin) : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        )}
       </div>
 
       {(route?.route_name || ds.notes || request?.special_requests) && (
@@ -288,14 +394,14 @@ export function DispatchCard({
         </Button>
 
         {/* 2 · View originating request */}
-        {request && permissions.reservationsRead && (
+        {!isCompleted && request && permissions.reservationsRead && (
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/reservations/${request.request_id}`}>Request</Link>
           </Button>
         )}
 
         {/* 3 · View the trip record */}
-        {trip && permissions.tripsRead && (
+        {!isCompleted && trip && permissions.tripsRead && (
           <Button variant="ghost" size="sm" asChild>
             <Link href={`/trips?trip=${trip.trip_id}`}>Trip</Link>
           </Button>
@@ -312,7 +418,7 @@ export function DispatchCard({
         )}
 
         {/* 5 · View the planned route */}
-        {route && permissions.routesRead && (
+        {!isCompleted && route && permissions.routesRead && (
           <Button variant="ghost" size="sm" asChild>
             <Link href="/routes">Route</Link>
           </Button>
@@ -326,28 +432,20 @@ export function DispatchCard({
           </Button>
         )}
 
-        {/* 7–8 · Reassign vehicle / driver — one dialog, prefilled to the side clicked */}
-        {canReassign && (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isBusy}
-              onClick={() => onReassign?.(ds, "vehicle")}
-            >
-              <Shuffle className="w-3.5 h-3.5 mr-1" />
-              Vehicle
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={isBusy}
-              onClick={() => onReassign?.(ds, "driver")}
-            >
-              <Shuffle className="w-3.5 h-3.5 mr-1" />
-              Driver
-            </Button>
-          </>
+        {/* 7 · Assign / reassign vehicle + driver together, as one choice */}
+        {canAssign && (
+          <Button
+            variant={isPendingReassignment ? "default" : "outline"}
+            size="sm"
+            disabled={isBusy}
+            onClick={() => onReassign?.(ds, "assign")}
+            className={cn(
+              isPendingReassignment && "bg-danger hover:bg-danger/90 text-white font-bold shadow-xs animate-pulse"
+            )}
+          >
+            <Shuffle className="w-3.5 h-3.5 mr-1" />
+            {isPendingReassignment ? "Reassign Now" : fullyAssigned ? "Reassign" : "Assign"}
+          </Button>
         )}
 
         {/* 9 · Cancel */}

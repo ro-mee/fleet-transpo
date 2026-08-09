@@ -31,10 +31,20 @@ const columnHelper = createColumnHelper();
 export function FleetTable({ filters = {} }) {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { data: vehicles = [], isLoading } = useQuery({
-    queryKey: ["vehicles", filters],
-    queryFn: () => getVehicles(filters),
+  const { data: allVehicles = [], isLoading } = useQuery({
+    queryKey: ["vehicles"],
+    queryFn: () => getVehicles(),
   });
+
+  const vehicles = useMemo(() => {
+    return allVehicles.filter((v) => {
+      // status filter
+      if (filters.status && v.vehicle_status !== filters.status) {
+        return false;
+      }
+      return true;
+    });
+  }, [allVehicles, filters]);
 
   const { data: uvvrpPolicy } = useQuery({
     queryKey: ["uvvrp-policy"],

@@ -11,9 +11,9 @@ export function DialogTrigger({ children, ...props }) {
 export function DialogContent({ children, className = "", ...props }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="dialog-overlay fixed inset-0 bg-black/40 backdrop-blur-sm z-40" />
+      <DialogPrimitive.Overlay className="dialog-overlay fixed inset-0 bg-black/60 backdrop-blur-md z-40 transition-all duration-200 animate-in fade-in" />
       <DialogPrimitive.Content
-        className={`dialog-content fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-surface rounded-xl shadow-lg border border-border p-0 z-50 max-h-[85vh] overflow-y-auto min-w-[320px] ${className}`}
+        className={`dialog-content fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-surface/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-border/80 p-0 z-50 max-h-[85vh] overflow-y-auto min-w-[320px] transition-all duration-200 animate-in zoom-in-95 ${className}`}
         {...props}
       >
         {children}
