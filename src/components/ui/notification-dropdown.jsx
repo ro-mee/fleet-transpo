@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { getNotificationHref } from "@/lib/notifications/target";
+import { notificationCategory, severityBadge } from "@/lib/notifications/presentation";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -148,6 +149,8 @@ export function NotificationDropdown() {
           ) : (
             recent.map((notif) => {
               const Icon = typeIcons[notif.type] || Info;
+              const category = notificationCategory(notif.reference_type);
+              const severity = severityBadge(notif.severity);
               const isUnread = !notif.is_read;
 
               return (
@@ -177,6 +180,20 @@ export function NotificationDropdown() {
                     <span className="text-[10px] text-foreground-muted block pt-0.5">
                       {notif.sent_at ? formatDate(notif.sent_at) : ""}
                     </span>
+                    {(category || severity) && (
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        {category?.label && (
+                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", category.chipClass)}>
+                            {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
+                          </span>
+                        )}
+                        {severity && (
+                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", severity.chipClass)}>
+                            {severity.label}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

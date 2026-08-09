@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { getNotificationHref } from "@/lib/notifications/target";
+import { notificationCategory, severityBadge } from "@/lib/notifications/presentation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -146,6 +147,8 @@ export default function NotificationsPage() {
             <div className="divide-y divide-border">
               {uniqueNotifications.map((notif) => {
                 const Icon = typeIcons[notif.type] || Info;
+                const category = notificationCategory(notif.reference_type);
+                const severity = severityBadge(notif.severity);
                 const isUnread = !notif.is_read;
 
                 return (
@@ -170,10 +173,15 @@ export default function NotificationsPage() {
                       {notif.message && (
                         <p className="text-xs text-foreground-secondary">{notif.message}</p>
                       )}
-                      <div className="flex items-center gap-3 mt-1.5 text-[11px] text-foreground-muted">
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-foreground-muted">
+                        {category?.label && (
+                          <Badge className={cn("text-[11px]", category.chipClass)}>
+                            {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
+                          </Badge>
+                        )}
+                        {severity && <Badge className={cn("text-[11px]", severity.chipClass)}>{severity.label}</Badge>}
                         <Badge variant={typeVariant[notif.type] || "secondary"} className="text-[11px]">{notif.type}</Badge>
                         <span>{notif.sent_at ? formatDate(notif.sent_at) : ""}</span>
-                        {notif.reference_type && <span>{notif.reference_type} #{notif.reference_id}</span>}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

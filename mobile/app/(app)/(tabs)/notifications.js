@@ -6,6 +6,7 @@ import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, space } from "../../../lib/theme";
 import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
+import { mobileNotificationMeta } from "../../../lib/notifications/presentation";
 import {
   Button,
   Card,
@@ -13,6 +14,7 @@ import {
   ErrorNotice,
   ScreenTitle,
   SkeletonCard,
+  StatusPill,
 } from "../../../components/ui";
 import { BrandBar } from "../../../components/logo";
 
@@ -129,6 +131,20 @@ export default function Notifications() {
                   {!n.is_read ? <View style={[styles.dot, { backgroundColor: colors.info }]} /> : null}
                 </View>
                 <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>{n.message}</Text>
+                {(() => {
+                  const meta = mobileNotificationMeta(n);
+                  const chips = [
+                    meta.category ? { label: meta.category.label + (meta.referenceId ? ` #${meta.referenceId}` : ""), tone: meta.category.tone } : null,
+                    meta.severity ? { label: meta.severity.label, tone: meta.severity.tone } : null,
+                  ].filter(Boolean);
+                  return chips.length ? (
+                    <View style={styles.chipRow}>
+                      {chips.map((c) => (
+                        <StatusPill key={c.label} label={c.label} tone={c.tone} />
+                      ))}
+                    </View>
+                  ) : null;
+                })()}
                 {n.sent_at ? (
                   <Text style={[styles.time, { color: colors.onSurfaceVariant }]}>{new Date(n.sent_at).toLocaleString()}</Text>
                 ) : null}
@@ -155,5 +171,6 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.bodySemiBold, fontSize: 15, flex: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   message: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
   time: { fontFamily: fonts.data, fontSize: 11, marginTop: space.xs },
 });
