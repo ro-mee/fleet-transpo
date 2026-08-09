@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, space } from "../../../lib/theme";
+import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
 import {
   Button,
   Card,
@@ -16,11 +18,14 @@ import { BrandBar } from "../../../components/logo";
 
 /**
  * In-app notifications feed (GET /api/notifications, self-scoped). Tapping an
- * unread notification marks it read. Push notifications are a separate,
- * later workstream — this is the in-app inbox.
+ * unread notification marks it read and, when the row references an entity the
+ * driver can act on, deep-links to the relevant tab (new dispatches land on
+ * Home). Push notifications are a separate, later workstream — this is the
+ * in-app inbox.
  */
 export default function Notifications() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { colors } = useTheme();
 
   const [items, setItems] = useState([]);
@@ -62,6 +67,15 @@ export default function Notifications() {
       // Non-blocking; the row stays unread.
     }
   }, []);
+
+  const open = useCallback(
+    (n) => {
+      markRead(n.notification_id);
+      const target = mobileNotificationTarget(n);
+      if (target) router.push(target);
+    },
+    [markRead, router]
+  );
 
   const markAllRead = useCallback(async () => {
     try {
@@ -106,7 +120,7 @@ export default function Notifications() {
           items.map((n) => (
             <Pressable
               key={n.notification_id}
-              onPress={() => markRead(n.notification_id)}
+              onPress={() => open(n)}
               accessibilityRole="button"
             >
               <Card tone={!n.is_read ? "info" : null}>

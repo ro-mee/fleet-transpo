@@ -2,7 +2,7 @@ import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { getAdminClient } from "@/lib/db";
-import { shouldGroundVehicle, BREAKDOWN_RE, SEVERE_SEVERITIES } from "@/lib/driver/grounding";
+import { shouldGroundVehicle } from "@/lib/driver/grounding";
 
 // A breakdown-type incident triggers automation (see POST): the vehicle is set
 // to Under Maintenance and dispatchers are notified, so it stops receiving
@@ -10,7 +10,7 @@ import { shouldGroundVehicle, BREAKDOWN_RE, SEVERE_SEVERITIES } from "@/lib/driv
 
 async function resolveDriver(employeeId) {
   const { rows } = await query(
-    `SELECT d.driver_id, 
+    `SELECT d.driver_id, e.first_name, e.last_name,
             (SELECT vehicle_id FROM driver_vehicle_assignments a WHERE a.driver_id = d.driver_id AND a.assigned_until IS NULL LIMIT 1) as assigned_vehicle_id
        FROM employees e
        JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
@@ -95,13 +95,27 @@ export async function POST(req) {
        incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null]
     );
 
+    const incident = rows[0];
+
+    // The reporting driver always gets an acknowledgement — best-effort, so a
+    // notification hiccup can never fail the report that was just recorded.
+    try {
+      await query(
+        `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [session.user.employeeId, "Incident Report Under Review",
+         `Your incident report (#${incident.incident_id}) was copied and is under review.`,
+         "Info", "incident", incident.incident_id]
+      );
+    } catch (e) {
+      console.warn("incident driver notification failed:", e?.message || e);
+    }
+
     // Grounding automation: a breakdown-type report OR a Major/Critical severity
-    // incident takes the vehicle out of service and alerts dispatchers.
+    // incident takes the vehicle out of service and alerts staff.
     // Best-effort — a sync hiccup must not fail the report that was just
     // recorded.
-    const isBreakdown = BREAKDOWN_RE.test(String(body.incident_type || ""));
-    const isSevere = SEVERE_SEVERITIES.has(severity);
-    if (shouldGroundVehicle({ incidentType: body.incident_type, severity, vehicleId: rows[0]?.vehicle_id })) {
+    if (shouldGroundVehicle({ incidentType: body.incident_type, severity, vehicleId: incident?.vehicle_id })) {
       try {
         const supabase = getAdminClient();
         await supabase
@@ -121,11 +135,10 @@ export async function POST(req) {
           .eq("vehicle_id", rows[0].vehicle_id)
           .maybeSingle();
 
-        const why = "incident report";
         const rows2 = (dispatchers || []).map((emp) => ({
           employee_id: emp.employee_id,
           title: "Vehicle Taken Out of Service",
-          message: `Vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} reported ${why} and set to Under Maintenance (incident #${rows[0].incident_id}).`,
+          message: `Driver reported incident #${rows[0].incident_id} — vehicle ${vehicle?.plate_number || `#${rows[0].vehicle_id}`} taken out of service.`,
           type: "Alert",
           reference_type: "incident",
           reference_id: rows[0].incident_id,
@@ -186,6 +199,30 @@ export async function POST(req) {
         }
       } catch (e) {
         console.warn("grounding automation failed:", e?.message || e);
+      }
+    } else {
+      // Oversight alert to staff who track incident reports. Sent only when
+      // grounding doesn't already notify them (a grounded report delivers the
+      // "Vehicle Taken Out of Service" alert instead), so each report yields
+      // exactly one incident notification per recipient.
+      try {
+        const { rows: overseers } = await query(
+          `SELECT e.employee_id
+             FROM employees e
+            WHERE e.role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin', 'fleet_manager', 'admin'))
+              AND e.deleted_at IS NULL`
+        );
+        for (const emp of overseers) {
+          await query(
+            `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [emp.employee_id, "Incident Report Submitted",
+             `Driver ${driver.first_name || ""} ${driver.last_name || ""} reported ${incident.incident_type} (Severity: ${severity}). View in Incidents.`,
+             "Alert", "incident", incident.incident_id]
+          );
+        }
+      } catch (e) {
+        console.warn("incident oversight notification failed:", e?.message || e);
       }
     }
 

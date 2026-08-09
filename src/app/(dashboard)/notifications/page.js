@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { getNotificationHref } from "@/lib/notifications/target";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,7 +56,10 @@ const typeBg = {
 };
 
 export default function NotificationsPage() {
+  const router = useRouter();
   const queryClient = useQueryClient();
+  const { employee } = useAuth();
+  const role = employee?.roles?.role_name;
   const [filter, setFilter] = useState("all");
 
   const { data: notifications = [] } = useQuery({
@@ -98,6 +104,12 @@ export default function NotificationsPage() {
     });
   }, [notifications]);
 
+  const openNotification = (notif) => {
+    if (!notif.is_read) markReadMutation.mutate(notif.notification_id);
+    const href = getNotificationHref(notif, role);
+    if (href) router.push(href);
+  };
+
   const unread = uniqueNotifications.filter((n) => !n.is_read).length;
 
   return (
@@ -139,7 +151,11 @@ export default function NotificationsPage() {
                 return (
                   <div
                     key={notif.notification_id}
-                    className={`flex items-start gap-4 px-5 py-4 transition-colors hover:bg-hover ${isUnread ? "bg-primary/[0.02]" : ""}`}
+                    onClick={() => openNotification(notif)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNotification(notif); } }}
+                    className={`flex items-start gap-4 px-5 py-4 transition-colors cursor-pointer hover:bg-hover ${isUnread ? "bg-primary/[0.02]" : ""}`}
                   >
                     <div className={`p-2 rounded-xl ${typeBg[notif.type] || "bg-muted"} mt-0.5`}>
                       <Icon className="w-4 h-4" />
@@ -162,11 +178,11 @@ export default function NotificationsPage() {
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">
                       {isUnread && (
-                        <Button variant="ghost" size="icon" className="w-7 h-7" onClick={() => markReadMutation.mutate(notif.notification_id)}>
+                        <Button variant="ghost" size="icon" className="w-7 h-7" onClick={(e) => { e.stopPropagation(); markReadMutation.mutate(notif.notification_id); }}>
                           <CheckCheck className="w-3.5 h-3.5 text-foreground-muted" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="w-7 h-7 text-danger/60 hover:text-danger" onClick={() => deleteMutation.mutate(notif.notification_id)}>
+                      <Button variant="ghost" size="icon" className="w-7 h-7 text-danger/60 hover:text-danger" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(notif.notification_id); }}>
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>

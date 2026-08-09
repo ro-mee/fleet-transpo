@@ -183,6 +183,45 @@ export const NOTIFICATION_CHANNELS = {
   PUSH: "push",
 };
 
+// Notification events the system actually produces (DB triggers + incident
+// handling). The preferences screen and /api/notifications/preferences both
+// validate against this list. Channel defaults are what a fresh user gets for
+// each event before they customize.
+export const NOTIFICATION_EVENTS = {
+  reservation_approved: {
+    label: "Reservation Approved",
+    defaults: { in_app: true, email: true, push: true },
+  },
+  dispatch_created: {
+    label: "Dispatch Created",
+    defaults: { in_app: true, email: true, push: true },
+  },
+  trip_completed: {
+    label: "Trip Completed",
+    defaults: { in_app: true, email: false, push: false },
+  },
+  maintenance_due: {
+    label: "Maintenance Due",
+    defaults: { in_app: true, email: true, push: true },
+  },
+  document_expiring: {
+    label: "Document Expiring",
+    defaults: { in_app: true, email: true, push: false },
+  },
+  registration_overdue: {
+    label: "Registration Overdue",
+    defaults: { in_app: true, email: true, push: true },
+  },
+  license_expired: {
+    label: "License Expired",
+    defaults: { in_app: true, email: true, push: true },
+  },
+  incident_urgent: {
+    label: "Urgent Incident",
+    defaults: { in_app: true, email: true, push: true },
+  },
+};
+
 export const SERVICE_TYPES = {
   AIRPORT_TRANSFER: "Airport Transfer",
   CITY_TOUR: "City Tour",
