@@ -10,6 +10,7 @@ import {
   Pressable,
   Modal,
   TextInput,
+  Linking,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -299,6 +300,20 @@ export default function Home() {
                   style={styles.flex}
                 />
               </View>
+              <Button
+                label="Emergency Call (Dispatch)"
+                variant="secondary"
+                onPress={() => {
+                  const phone = process.env.EXPO_PUBLIC_DISPATCHER_PHONE;
+                  if (!phone) {
+                    Alert.alert("SOS Not Configured", "The dispatcher phone number is not set. Please contact IT.");
+                    return;
+                  }
+                  Linking.openURL(`tel:${phone}`).catch(() => 
+                    Alert.alert("Error", "Could not open the phone dialer.")
+                  );
+                }}
+              />
             </View>
           </>
         )}
