@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -56,6 +57,9 @@ export default function FuelReport() {
   const [amount, setAmount] = useState("");
   const [odometer, setOdometer] = useState("");
   const [fuelType, setFuelType] = useState("Diesel");
+  const [receiptImage, setReceiptImage] = useState(null);
+  const [receiptUrl, setReceiptUrl] = useState(null);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -72,12 +76,64 @@ export default function FuelReport() {
     })();
   }, []);
 
-  const trip = profile?.activeTrip ?? null;
+  const trip = profile?.activeTrip ?? profile?.recentTrip ?? null;
 
   const pricePerLiter =
     Number(liters) > 0 && Number(amount) > 0
       ? (Number(amount) / Number(liters)).toFixed(2)
       : "—";
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission needed", "Camera permission is required to scan receipts.");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setReceiptImage(asset.uri);
+      await uploadAndScanReceipt(asset);
+    }
+  };
+
+  const uploadAndScanReceipt = async (asset) => {
+    setScanning(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("receipt", {
+        uri: asset.uri,
+        name: "receipt.jpg",
+        type: "image/jpeg",
+      });
+      const token = await import("../../lib/storage").then((m) => m.getAccessToken());
+      const res = await fetch(`${process.env.EXPO_PUBLIC_API_URL}/api/mobile/fuel/scan`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error(`Scan failed (${res.status})`);
+      const data = await res.json();
+      
+      setReceiptUrl(data.receipt_url);
+      if (data.extracted_data) {
+        if (data.extracted_data.station_name) setStation(data.extracted_data.station_name);
+        if (data.extracted_data.liters) setLiters(String(data.extracted_data.liters));
+        if (data.extracted_data.amount) setAmount(String(data.extracted_data.amount));
+      }
+    } catch (e) {
+      setError(e.message || "Failed to scan receipt. Please enter details manually.");
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const onSubmit = useCallback(async () => {
     if (!station.trim() || !liters || !amount || !odometer) {
@@ -103,6 +159,7 @@ export default function FuelReport() {
         trip_id: trip.trip_id,
         // fuel_date is a DATE column; send date-only.
         fuel_date: new Date().toISOString().slice(0, 10),
+        receipt_url: receiptUrl,
         // "Pending" is what the web review screen filters on. Anything else
         // would be invisible to the reviewer.
         status: "Pending",
@@ -117,7 +174,7 @@ export default function FuelReport() {
     } finally {
       setSubmitting(false);
     }
-  }, [station, liters, amount, odometer, fuelType, trip, router]);
+  }, [station, liters, amount, odometer, fuelType, trip, receiptUrl, router]);
 
   return (
     <KeyboardAvoidingView
@@ -145,12 +202,12 @@ export default function FuelReport() {
           />
         ) : !trip?.vehicle_id ? (
           // Without an active trip there is no vehicle to attribute fuel to.
-          <EmptyState
-            title="No active trip"
-            message="Fuel is reported against the vehicle on your current trip. Start a trip first, then come back."
+            <EmptyState
+            title="No vehicle assigned"
+            message="Fuel is reported against the vehicle on your trips. You must have at least one assigned trip on record."
             action={
               <Button
-                label="Back to trips"
+                label="Back to home"
                 variant="secondary"
                 onPress={() => router.back()}
               />
@@ -169,8 +226,23 @@ export default function FuelReport() {
                 mono
               />
               <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
-                Taken from your active trip.
+                {profile?.activeTrip ? "Taken from your active trip." : "Taken from your most recent trip."}
               </Text>
+            </Card>
+
+            <Card>
+              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Receipt scan</Text>
+              {receiptImage && (
+                <View style={styles.imagePreview}>
+                  <Text style={[ui.bodyText, { color: colors.primary, paddingBottom: space.sm }]}>✓ Receipt captured</Text>
+                </View>
+              )}
+              <Button
+                label={scanning ? "Scanning..." : receiptImage ? "Retake photo" : "Scan fuel receipt"}
+                onPress={takePhoto}
+                loading={scanning}
+                variant={receiptImage ? "secondary" : "primary"}
+              />
             </Card>
 
             <Card>
@@ -247,6 +319,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   plateRow: { paddingVertical: space.xs },
+  imagePreview: { marginBottom: space.sm },
   calculation: {
     flexDirection: "row",
     justifyContent: "space-between",

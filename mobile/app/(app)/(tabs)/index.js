@@ -200,23 +200,25 @@ export default function Home() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar right={<Avatar initials={initialsOf(user)} />} />
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: insets.bottom + space.xxl },
+          { paddingBottom: insets.bottom + space.xxl, paddingTop: Math.max(insets.top, space.xl) },
         ]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
         }
       >
-        <View style={styles.greeting}>
-          <Text style={[styles.dateLine, { color: colors.onSurfaceVariant }]}>
-            {formatDate(new Date())}
-          </Text>
-          <Text style={[styles.greetingTitle, { color: colors.onBackground }]}>
-            {greeting()} {firstName ? `, ${firstName}` : ""}
-          </Text>
+        <View style={styles.greetingRow}>
+          <View style={styles.greeting}>
+            <Text style={[styles.dateLine, { color: colors.onSurfaceVariant }]}>
+              {formatDate(new Date())}
+            </Text>
+            <Text style={[styles.greetingTitle, { color: colors.onBackground }]}>
+              {greeting()}{firstName ? `, ${firstName}` : ""}
+            </Text>
+          </View>
+          <Avatar initials={initialsOf(user)} />
         </View>
 
         <ErrorNotice message={error} onRetry={onRefresh} />
@@ -262,16 +264,15 @@ export default function Home() {
               )}
             </View>
 
-            {/* Fuel is reported against the active trip's vehicle, so the action
-                is only offered when there is one — and only to a session that
-                holds the report_fuel action. */}
-            {activeTrip && canReportFuel ? (
+            {/* Fuel is reported against the active trip's vehicle, or falls back to
+                their most recent trip. Offered to any session with the report_fuel action. */}
+            {canReportFuel ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Fuel</Text>
                 <Card>
                   <Text style={ui.bodyText}>
                     Report a fuel purchase for{" "}
-                    {activeTrip.plate_number ?? "your current vehicle"}.
+                    {activeTrip?.plate_number ?? "your assigned vehicle"}.
                   </Text>
                   <Button
                     label="Add fuel report"
@@ -606,7 +607,13 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
-  greeting: { gap: space.xs, marginBottom: space.xs },
+  greetingRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: space.xs,
+  },
+  greeting: { gap: space.xs },
   dateLine: {
     fontFamily: fonts.data,
     fontSize: 12,

@@ -194,7 +194,7 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 ### 4.5 AI layer (optional LLM + rule engine)
 - **Rule engine** (`lib/ai/rule-engine.js`) is the deterministic baseline (recommendations, insights, predictive maintenance).
 - **LLM** (`lib/ai/llm-adapter.js`) adds natural-language summaries/narrations — failure-tolerant, time-budgeted (25 s), falls back to rule output.
-- `ai_providers` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (tesseract OCR → regex → optional LLM) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
+- `aiproviders` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (tesseract OCR → regex → optional LLM) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
 
 ### 4.6 Cross-origin (mobile web) — middleware + config CORS
 The Expo web/device build runs on a different origin than the Next server, so
@@ -294,7 +294,7 @@ over the NextAuth cookie (see 4.2).
 | `service_types`, `booking_channels`, `integration_log` | integration | |
 | `locations` | reference | named places |
 | `mobile_refresh_tokens` | mobile auth | hashed, revocable, no RLS |
-| `transportation_requests` | queue | 9-state `fleet_status`, `external_booking_id` UNIQUE, AI rec cols |
+| `transportation_requests` | queue | 9-state `fleet_status`, `external_booking_id` UNIQUE, AI rec cols, `is_vip`/`is_emergency`/`derived_priority` (026) |
 | `reservation_events` | timeline | append-only |
 | **`driver_consents`** | ★ privacy | `driver_id`, `policy_version`, `accepted_at/via`, `ip_address`; append-only; index `(driver_id, accepted_at DESC)` |
 | `driver_vehicle_assignments` | drivers | interval history + 2 partial UNIQUE active-pairing indexes |
@@ -380,7 +380,7 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips`, `mobile/driver/trips/[id]/accept|gps`, `mobile/fuel`.
 
 ### Client service layer (`src/services/`)
-Thin `apiFetch` wrappers per domain: `auth, driver, vehicle, trip, reservation, reservation-lifecycle, reservation-events, dispatch, driver-assignment, fuel, transport, report, notification, route, location, settings, status, integration, outbound, maintenance-schedule, ai`. Server-only business-logic services (e.g. `reservation-lifecycle`, `trip-lifecycle`, `status`, `outbound`) are imported by route handlers.
+Thin `apiFetch` wrappers per domain: `auth, driver, vehicle, trip, reservation, reservation-lifecycle, reservation-events, dispatch, dispatch-settings, driver-assignment, fuel, transport, report, notification, route, location, settings, status, integration, outbound, maintenance-schedule, search, priority, recommendation, uvvrp, audit, system, ai`. Server-only business-logic services (e.g. `reservation-lifecycle`, `trip-lifecycle`, `status`, `outbound`, `uvvrp`) are imported by route handlers.
 
 ---
 
@@ -441,6 +441,23 @@ board at `/uvvrp` (ops roles). New endpoints `settings/uvvrp`, `uvvrp`,
 `uvvrp/exemptions[/[id]]`, `uvvrp/violations[/[id]/decide]`; tables
 `uvvrp_exemptions`, `uvvrp_violations` (migration 025).
 
+### 7.3 Incident reporting & vehicle grounding
+
+Drivers report incidents (type, severity `Minor/Moderate/Major/Critical`, GPS
+coords, assistance, expense) via `/api/driver/incidents` (web portal + mobile).
+The staff registry `/incidents` is **read + resolve only** (PATCH status/
+`actions_taken`; "Send to Maintenance" creates an Emergency Repair record).
+Automation on a driver POST (`src/lib/driver/grounding.js`):
+1. Acknowledges the reporter (Info notification).
+2. If `shouldGroundVehicle` → sets the vehicle **Under Maintenance**, alerts
+   dispatcher/staff, and if the vehicle has an active dispatch inside a 48 h
+   (Major/Critical) or 2 h window, cancels its trips, unassigns the pair, resets
+   the dispatch to **Pending Reassignment**, and sends URGENT interruption alerts.
+3. Otherwise notifies overseers of the report.
+> ⚠️ Gotcha: `shouldGroundVehicle` is currently a **stub** — it returns `true`
+> whenever a `vehicleId` is present, ignoring the breakdown-regex/severity inputs
+> the route comments describe. Intended rule in `grounding.js`, actual = always ground.
+
 ### Web sessions (NextAuth)
 - Credentials provider; bcrypt vs `employees.password_hash`; **IP rate limit 5/min**; JWT session strategy (`NEXTAUTH_SECRET`); role/employeeId/name embedded in token. Login redirects drivers → `/driver`, others → `/dashboard`.
 - Registration is **admin-only**; public signup redirects to login.
@@ -452,67 +469,110 @@ board at `/uvvrp` (ops roles). New endpoints `settings/uvvrp`, `uvvrp`,
 
 ## 8. Mobile App (`mobile/`)
 
-Driver-only Expo app (guest experience not implemented).
+Driver-only Expo app (guest experience not implemented). **5-tab MD3 UI** over a
+guard stack; no native map SDK (TomTom static images), no push (in-app inbox).
 
-### Screens
-- `app/_layout.js` — fonts + `AuthProvider`.
-- `app/login.js` — sign in (real or **demo driver** mode). Demo = fully client-side mock (`mock-driver-access-token` short-circuits `apiFetch` into `handleDriverMock()`).
-- `app/(app)/_layout.js` — **guard:** `isDriverSession(user)` else → `/login`; accepted consent version == `CURRENT_PRIVACY_POLICY_VERSION` else → `/consent`.
-- `app/(app)/index.js` — driver home: trip list (active vs pending), accept/decline, single "advance" button (Start → En Route → Arrived → Complete via `getNextStatus()`), GPS tracking toggle, fuel entry link, sign out.
-- `app/(app)/fuel-report.js` — fuel submission; vehicle/trip **derived server-side** from `profile.activeTrip` (never user-entered).
-- `app/(app)/consent.js` ★ — privacy policy gate; loads policy via `/api/driver/me`; on accept posts `/api/driver/me/consent` (`via: "mobile"`) then stores accepted version locally.
+### Route tree
+```
+app/_layout.js            fonts + AuthProvider + ThemeProvider + ErrorBoundary (Stack, headerShown:false)
+app/login.js              interactive sign-in (email/password, show/hide toggle)
+app/consent.js            privacy-policy consent gate (public)
+app/(app)/_layout.js      guard: isDriverSession + accepted consent version else → /login or /consent
+app/(app)/(tabs)/         bottom tab bar:
+  index.js                Home — active vs pending trips, accept/decline, single “advance” button
+                          (Start → En Route → Arrived → Complete), odometer modal, GPS toggle, tools
+  map.js                  Live Map — full-screen trip map + bottom-sheet nav card, Google Maps deep link
+  history.js              Completed/Cancelled trip list (status-pill tinted)
+  notifications.js        Alerts inbox (in-app only) — mark read / read-all; tap deep-links per role map
+  profile.js              ★ driver profile — identity, assigned vehicle, performance, license, consent
+                          status, phone edit, **Sign out** (moved here from Home)
+app/(app)/fuel-report.js  fuel entry; vehicle/trip derived server-side from profile.activeTrip
+app/(app)/incidents.js    report incident (type/severity/desc/assistance/expense; GPS auto-capture via
+                          expo-location + reverse geocode, forward-fail if no permission) + own list
+app/(app)/inspection.js   read-only latest vehicle inspection (GET /api/driver/vehicle-inspection)
+```
 
 ### lib/
-- `api.js` — `BASE_URL = EXPO_PUBLIC_API_URL`; `apiFetch` attaches Bearer; single-flight refresh on 401; demo mock.
-- `auth.js` — AuthContext (login/demo/login/session restore).
-- `consent.js` ★ — `CURRENT_PRIVACY_POLICY_VERSION = 1` (kept in lockstep with web), SecureStore gate.
-- `rbac.js` — driver actions (`read_trips`, `manage_trip`, `report_location`, `report_fuel`), JWT role decode (client-only; server enforces).
+- `api.js` — `BASE_URL = EXPO_PUBLIC_API_URL`; Bearer attach; single-flight refresh on 401; 15 s timeout + one retry. **No demo/mock layer** (removed).
+- `auth.js` — AuthContext (login/signOut/session restore); `signOut` posts `/api/mobile/auth/logout`, clears SecureStore.
+- `rbac.js` — `ACTIONS` (`manage_trip`, `report_location`, `report_fuel`), JWT role decode (client-only; server enforces).
 - `tracking.js` — `useTripTracking`: foreground GPS, posts every 30 s to `/api/mobile/driver/trips/{id}/gps`.
-- `storage.js` (SecureStore), `theme.js` (design tokens, `tripStatusTone`).
-- `components/` — `ui.js`, `logo.js`, `plate.js`.
+- `tripRef.js` — cached `GET /api/mobile/driver/ref`: status buckets, `getNextStatus()`, tones (server owns the machine).
+- `consent.js` — `CURRENT_PRIVACY_POLICY_VERSION = 1` in lockstep with web; SecureStore/localStorage gate.
+- `storage.js` (SecureStore, localStorage on web), `theme.js` + `theme-context.js` (MD3 tokens, light/dark), `notifications/{presentation,navigation}.js`.
+- `components/` — `ui.js` (MD3 primitives), `map.js` (**TomTom static-image** map inside an RN `Image`; PanResponder pan/zoom, live-position overlay, Google Maps "directions" deep link), `plate.js`, `logo.js`, `error-boundary.js`.
+
+### Backend integration / CORS
+- Talks to the Next API over plain JSON fetch; `EXPO_PUBLIC_API_URL` → LAN IP of the dev server. Referer-free, cookie-less: auth is `Authorization: Bearer` (the same `mobile_refresh_tokens` flow as §7).
+- Cross-origin is enabled by `src/middleware.js` + `next.config.mjs` CORS headers (`Access-Control-Allow-Origin: *`, no credentials), so the Expo **web** build (different origin) and device/Expo Go builds work against the same API.
 
 ### Security rule
 Only `EXPO_PUBLIC_*` config is allowed; the **server derives driver/vehicle/role from the token** — the mobile app never sends its own `driver_id`/`vehicle_id`/role.
 
 ---
 
-## 9. ★ Current Update: Driver Privacy Consent + Driver Portal
+## 9. ★ Current Update: Smart Queue & Dispatch, Incidents, Notification Direction, Mobile Tabs
 
-This is the most recent feature (merged from the `5794427` feature branch). It makes driver data collection GDPR/DPA-aware and gives drivers a self-service portal.
+The current feature wave (post-driver-consent) makes dispatch **priority-driven and
+pair-scored**, adds **incident management** end-to-end, points **notifications at the
+right surface**, and turns the mobile app into a **5-tab driver workspace**.
 
-### 9.1 Consent policy (shared, versioned)
-- `src/lib/consent/policies.js` — `CURRENT_PRIVACY_POLICY_VERSION = 1` and the full `PRIVACY_POLICY` text ("Driver Data Privacy & Terms", effective 2026-08-05, 5 sections). Pure data so **web, mobile, and API read identical text** — no drift. Bump the version on any wording change → every driver must re-consent.
+### 9.1 Smart Transportation Queue (priority engine)
+- Explicit inputs `transportation_requests.is_vip` / `is_emergency` (set at intake
+  or via `PATCH .../[id]/flags`, migration 026) feed a **deterministic priority
+  engine** (`src/lib/scheduling/priority.js`). It writes a cached `derived_priority`
+  (`Overdue → Critical → High → Medium → Normal → Future`) that the queue groups and
+  orders on (`queue-grouping.js`); never human-set (CHECK in migration 026).
+  Thresholds live in `system_settings.dispatch_policy` (`src/lib/dispatch-policy.js`),
+  configurable at `/settings/dispatch` (system_admin/admin).
 
-### 9.2 Durable audit record
-- Table `driver_consents` (migration 017a): append-only event log — `driver_id` (FK CASCADE), `policy_version`, `accepted_at`, `accepted_via` (`web`|`mobile`), `ip_address`. Index `(driver_id, accepted_at DESC)` for the latest-acceptance gate. RLS mirrors the driver-self-scoping pattern but is inert (app-layer auth).
-- **No UPDATE/DELETE** — a mistaken acceptance is superseded by a new one, never corrected in place.
+### 9.2 AI fleet-pair snapshots
+- `src/lib/ai/pair-scoring.js` + `dispatch-advisor.js` recommend a **vehicle+driver
+  pair** (designated-driver match dominates; a provably-unavailable custodian is the
+  only legit substitute). Recommendations persist as immutable snapshots
+  (`recommendation_snapshots`, migration 027) with a 60-min TTL, an `is_consumed`
+  flag (flipped on assign), and a hard **designated-driver rule** at assign
+  (`recommendation.service.js`). The saved-recommendation card surfaces stale
+  snapshots as expired with regeneration.
 
-### 9.3 Server API
-- `GET /api/driver/me` (`requireDriver`) — profile + `consent: { acceptedVersion, acceptedAt, acceptedVia, requiredVersion, accepted, policy }` (lookup `.catch()`-guarded so a missing table keeps the gate on). Also returns `editableFields`, `visibleSections` from `src/lib/consent/driver-visibility.js`, and `license.{frontScanImageUrl, backScanImageUrl, canUploadFront, canUploadBack, reuploadWindowDays}` for the scan upload UI.
-- `PATCH /api/driver/me` — only `phone`, `face_image_url`, `license_image_url`, `license_back_image_url` (403 otherwise); the scan columns additionally require the per-side `canUpdateLicenseScan` gate (no scan on file yet, or within 30 days of expiry) and are validated as base64 data URLs.
-- `POST /api/driver/license-scan` (`requireDriver`) — body `{ side, file_url }`; runs Tesseract OCR + the shared license regex parsers; returns `{ ok, extracted_data, confidence_scores, validation_issues }` and persists nothing. `ok` mirrors the staff route's key-fields check (`license_number || last_name` front; `emergency_contact_name || emergency_contact_phone` back).
-- `POST /api/driver/me/consent` (`requireDriver`) — body `{ policy_version, accepted: true, via }`; rejects stale version with **409**; inserts audit row with client IP; responds with updated consent.
-- `PUT /api/drivers/[id]/account` — **enable/set driver login**: forces driver role, bcrypt-hashes a new password if supplied, **revokes all mobile refresh tokens** on credential change.
-- `POST /api/drivers/link` — finalize a driver profile for an orphaned driver-role employee.
+### 9.3 Incidents (driver → staff → maintenance)
+- Drivers report incidents with severity + GPS (web portal `/driver/incidents`,
+  mobile `/incidents`). Staff see a **read-only registry** (`/incidents`) with an
+  active-incident TomTom map, filters, and only two write controls: **Resolve**
+  (`PATCH /api/incidents/[id]` → `Resolved` + `actions_taken`) and **Send to
+  Maintenance** (creates an Emergency Repair record). A driver POST runs the grounding
+  automation in `src/lib/driver/grounding.js` — acknowledge, then ground the vehicle +
+  interrupt active dispatches, or just notify overseers (§7.3).
 
-### 9.4 Web driver portal
-- `/driver` page (`src/app/(dashboard)/driver/page.js`) — logged-in driver's home: profile, consent gate (`needsConsent` → checkbox → `acceptDriverConsent({ policyVersion, via: "web" })`), assigned vehicle.
+### 9.4 Notification direction & preferences
+- Rows carry `reference_type` / `reference_id` / `severity` / `link`; all surfaces
+  (web feed, driver inbox, admin pages) render shared category/severity chips
+  (`src/lib/notifications/presentation.js`). Tap targets resolve **per-role**
+  (`src/lib/notifications/target.js`) — staff or driver routes, guarded by
+  `getRequiredRolesForPath` so a tap never loops through a redirect.
+- Per-user toggles persist in `notification_preferences` (migration 030b) and drive
+  the `/notifications/preferences` grid (event × channel, in-app non-disableable);
+  email/push channels are accepted but delivery ships later.
 
-### 9.5 Mobile consent gate
-- `app/(app)/_layout.js` re-reads the locally accepted version on every focus; mismatch → `<Redirect href="/consent" />` before any personal-data screen renders.
-- `consent.js` loads policy from the server (same source as web), posts acceptance (`via: "mobile"`), stores the accepted version locally; demo driver consents locally only.
-- Server is authoritative — the local SecureStore copy only avoids re-prompting returning drivers.
+### 9.5 Mobile tabs + TomTom map
+- The mobile app is now `(app)/(tabs)/`: Home · Live Map · History · Alerts ·
+  Profile (§8). Sign-out moved to Profile; login is interactive (demo mode removed).
+  The map is TomTom **static images** (no RN/Leaflet native module) so it runs in
+  Expo Go and on the web target; routing on web/server uses the `/api/tomtom/route`
+  proxy.
 
-### 9.6 Drivers module changes that shipped with it
-- Drivers list supports `includeUnlinked=1` (unlinked driver-role employees flagged `requires_completion` for the "finalize" flow) and embeds `account.has_password` for the "Login enabled / No login" badge.
-- Driver detail page now has the **Enable Login / Set Password** dialog (`syncDriverAccount`).
-- New-driver form keeps the optional login password.
-- Settings → Add User excludes the **Driver** role (`ACCOUNT_ROLES`); drivers are created via the Drivers section.
-- Shared `TRIPS_SELECT/TRIPS_JOINS` module (`src/lib/api/trips-query.js`) consolidates trip queries.
-- Migration 018b dropped 6 dead columns (`roles.permissions`, `routes.waypoints`, `trips.route_data`, `vehiclemaintenance.inspection_*`/`severity`); 021 added driver personal-detail columns for license OCR auto-fill.
-
-### 9.7 Data flow recap (who, where, when)
-Driver opens web or mobile → not yet consented → gate blocks personal data → driver accepts current policy version → `POST /api/driver/me/consent` writes `driver_consents` (append-only, IP captured) → subsequent `GET /api/driver/me` reports `accepted: true` → both surfaces unlock. Policy bump → `requiredVersion` increases → gates re-engage.
+### 9.6 Prior wave (still in effect): driver consent + portal
+The consent/portal work (merged from `5794427`) remains live and is condensed here.
+Versioned privacy policy (`CURRENT_PRIVACY_POLICY_VERSION = 1` in
+`src/lib/consent/policies.js`) gates both web (`/driver`) and mobile (`(app)/_layout.js`)
+personal-data screens; acceptance is append-only in `driver_consents` (migration 017a,
+IP + via captured, no UPDATE/DELETE) via `POST /api/driver/me/consent` (409 on stale
+version). The driver self-service portal spans `/driver` + subpages
+(profile/license-scan, trips, incidents, vehicle, fuel) — `GET/PATCH /api/driver/me`
+(whitelisted fields + per-side `canUpdateLicenseScan` 30-day gate),
+`POST /api/driver/license-scan` (OCR, no persistence), `GET /api/driver/trips`,
+`GET /api/driver/vehicle-inspection` (table restored by migration 028), and admin
+controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
 
 ---
 
@@ -520,8 +580,14 @@ Driver opens web or mobile → not yet consented → gate blocks personal data �
 
 - **RLS is inert** — do not rely on it; the API `requireAuth` is the security boundary. `has_role()` in SQL references a dropped function (`get_current_employee_role`) and would error if ever executed — confirming it never runs.
 - **Migration tooling:** the `supabase` CLI is broken in this repo (`.env` line 8 orphaned token); apply migrations via a small Node script using `pg` + real `DATABASE_URL` wrapped in `BEGIN; … COMMIT;`, then verify via `information_schema`.
-- **`notifications/read-all`** marks every notification read globally (no scope guard) — the one endpoint where scoping looks weak.
-- **No middleware** — route protection is via root `layout.js` → `DashboardLayout` → `RouteGuard` (client) + per-route API checks.
+- **Middleware is CORS-only, no auth.** `src/middleware.js` + `next.config.mjs` answer `OPTIONS` for `/api/*`; real protection stays per-route `requireAuth`/`requireDriver`. Because the CORS header is `*` (no cookies allowed), mobile auth must use `Authorization: Bearer`.
+- **Notification scoping is now self-scoped:** `GET /api/notifications`, `[id]/read`,
+  and `read-all` all restrict to the caller (ops roles may pass `?employee_id=` on the
+  GET); `notifications/[id]` DELETE allows staff to delete any row, others only their own.
+- **`shouldGroundVehicle` is a stub** (see §7.3): always grounds when a `vehicleId` is
+  present, ignoring the breakdown-regex/severity gating the comments describe.
+- **Mobile demo-driver mode was removed** — login is interactive only; `EXPO_PUBLIC_ENABLE_DEMO` is orphaned config in `mobile/.env`.
+- Route protection is via root `layout.js` → `DashboardLayout` → `RouteGuard` (client) + per-route API checks.
 - A driver hitting `/dashboard` directly would render it (UI-only exposure; data APIs still enforce roles).
 - Mobile status-advance uses the **web** route `PUT /api/trips/{id}/status` (not `/mobile/` prefix).
-- Not implemented (documented scope limits): background location, push notifications, offline sync, guest mode, receipt OCR, mobile profile screen.
+- Not implemented (documented scope limits): background location, **push** notifications (email/push channels are stored in `notification_preferences` but delivery does not ship yet), offline sync, guest mode, receipt OCR.
