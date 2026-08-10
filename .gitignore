@@ -42,3 +42,4 @@ next-env.d.ts
 .opencode/skills/
 .claude/skills/
 .expo/
+.agents/skills
