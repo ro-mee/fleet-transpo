@@ -78,7 +78,7 @@ function AvailabilityChip({ availability }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold",
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
         availability.free ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
       )}
     >
@@ -185,7 +185,7 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, expanded }) {
           <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
             <CarFront className="w-3.5 h-3.5 text-primary shrink-0" /> Assigned Vehicle
             {pick === PICK.ALTERNATE && (
-              <Badge variant="secondary" className="text-[9px] py-0 px-1">Alternate</Badge>
+              <Badge variant="secondary" className="text-[11px] py-0 px-1">Alternate</Badge>
             )}
           </span>
           <p className="font-bold text-foreground text-sm truncate">{vehicleTitle}</p>
@@ -207,7 +207,7 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, expanded }) {
           <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
             <UserCheck className="w-3.5 h-3.5 text-info shrink-0" /> Designated Driver
             {chosen?.is_designated === false && (
-              <Badge variant="secondary" className="text-[9px] py-0 px-1">Substitute</Badge>
+              <Badge variant="secondary" className="text-[11px] py-0 px-1">Substitute</Badge>
             )}
           </span>
           <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
@@ -339,6 +339,17 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
     enabled: requestId != null && !dismissed,
     staleTime: 60_000,
   });
+
+  // LLM narration — slow, nullable, streams in behind the scored result only
+  // once the user opens the full explanation. Never changes the pick.
+  const { data: narrated, isFetching: isNarrating } = useQuery({
+    queryKey: ["reservation-recommendation", requestId, "narrated"],
+    queryFn: () => getRecommendation(requestId, { narrate: true }),
+    enabled: requestId != null && !dismissed && expanded,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const narration = narrated?.narration;
 
   const chosen = pick === PICK.ALTERNATE ? rec?.pair?.alternate : rec?.pair?.recommended;
   const vehicle = chosen?.vehicle ?? null;
@@ -477,10 +488,27 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
               expanded={expanded}
             />
 
-            {expanded && rec?.narration && (
-              <p className="rounded-lg border border-info/30 bg-info/5 p-3 text-sm text-foreground-secondary">
-                {rec.narration}
-              </p>
+            {expanded && (
+              <div className="rounded-lg border border-info/30 bg-info/5 p-3 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-3.5 h-3.5 text-info shrink-0" aria-hidden="true" />
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-info">
+                    AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
+                  </span>
+                </div>
+                {isNarrating ? (
+                  <p className="text-sm text-foreground-muted flex items-center gap-1.5">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    Writing rationale…
+                  </p>
+                ) : narration ? (
+                  <p className="text-sm leading-relaxed text-foreground-secondary">{narration.text}</p>
+                ) : (
+                  <p className="text-sm leading-relaxed text-foreground-muted">
+                    Live rationale unavailable — the AI provider did not respond in time.
+                  </p>
+                )}
+              </div>
             )}
 
             <ConflictBlock conflicts={blocking} />

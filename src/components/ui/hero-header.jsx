@@ -66,7 +66,7 @@ export function HeroHeader({
           <div className="flex items-center gap-2.5 flex-wrap">
             <h1
               className={cn(
-                "text-xl font-extrabold tracking-tight transition-colors",
+                "text-2xl font-bold tracking-tight transition-colors",
                 isDark ? "text-slate-900" : "text-white"
               )}
             >

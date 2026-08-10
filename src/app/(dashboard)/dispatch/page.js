@@ -119,6 +119,7 @@ export default function DispatchPage() {
   const [editing, setEditing] = useState(null); // { dispatch, mode }
   const [odometer, setOdometer] = useState(null); // { dispatch, mode: start|complete }
   const [cancelling, setCancelling] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
   const [busyId, setBusyId] = useState(null);
 
   // Reset page whenever the active lane or search term changes
@@ -206,11 +207,12 @@ export default function DispatchPage() {
   // Cancelling stands the dispatch down without touching a trip, so it is the
   // one verb that still moves the dispatch row directly.
   const cancelMutation = useMutation({
-    mutationFn: ({ dispatch }) => updateDispatchStatus(dispatch.dispatch_id, D.CANCELLED),
+    mutationFn: ({ dispatch, reason }) => updateDispatchStatus(dispatch.dispatch_id, D.CANCELLED, reason),
     onMutate: ({ dispatch }) => setBusyId(dispatch.dispatch_id),
     onSuccess: () => {
       toast.success("Dispatch cancelled");
       setCancelling(null);
+      setCancelReason("");
       invalidate();
     },
     onError: (e) => toast.error(e.message || "Failed to cancel the dispatch"),
@@ -526,7 +528,7 @@ export default function DispatchPage() {
         onSubmit={(payload) => tripMutation.mutate(payload)}
       />
 
-      <Dialog open={!!cancelling} onOpenChange={(open) => !open && setCancelling(null)}>
+      <Dialog open={!!cancelling} onOpenChange={(open) => { if (!open) { setCancelling(null); setCancelReason(""); } }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Cancel this dispatch?</DialogTitle>
@@ -536,16 +538,29 @@ export default function DispatchPage() {
                 : ""}
             </DialogDescription>
           </DialogHeader>
+          <div className="px-6">
+            <label htmlFor="cancel-reason" className="text-xs font-semibold text-foreground-secondary">
+              Reason for cancellation <span className="text-danger">*</span>
+            </label>
+            <textarea
+              id="cancel-reason"
+              rows={3}
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="e.g. Vehicle unavailable, driver not required, request withdrawn…"
+              className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+            />
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCancelling(null)}>
+            <Button variant="outline" onClick={() => { setCancelling(null); setCancelReason(""); }}>
               Keep it
             </Button>
             <Button
               variant="destructive"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelling && cancelMutation.mutate({ dispatch: cancelling })}
+              disabled={cancelMutation.isPending || cancelReason.trim().length === 0}
+              onClick={() => cancelling && cancelMutation.mutate({ dispatch: cancelling, reason: cancelReason.trim() })}
             >
-              Cancel Dispatch
+              {cancelMutation.isPending ? "Cancelling…" : "Cancel Dispatch"}
             </Button>
           </DialogFooter>
         </DialogContent>

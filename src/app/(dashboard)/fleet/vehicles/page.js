@@ -25,6 +25,7 @@ export default function FleetVehiclesPage() {
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => getVehicles(),
+    refetchInterval: 30_000,
   });
 
   const { data: uvvrpPolicy } = useQuery({ queryKey: ["uvvrp-policy"], queryFn: getUvvrpPolicy });

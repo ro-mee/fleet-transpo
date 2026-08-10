@@ -223,6 +223,15 @@ export default function UnifiedQueuePage() {
     return "primary";
   };
 
+  const TONE_MAP = {
+    primary:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   icon: 'bg-slate-500/15 text-slate-500',   dot: 'bg-slate-500',   text: 'text-slate-600 dark:text-slate-400' },
+    success:   { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'bg-emerald-500/15 text-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+    warning:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   icon: 'bg-amber-500/15 text-amber-500',   dot: 'bg-amber-500',   text: 'text-amber-600 dark:text-amber-400' },
+    danger:    { bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: 'bg-red-500/15 text-red-500',       dot: 'bg-red-500',     text: 'text-red-600 dark:text-red-400' },
+    info:      { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: 'bg-blue-500/15 text-blue-500',     dot: 'bg-blue-500',    text: 'text-blue-600 dark:text-blue-400' },
+    secondary: { bg: 'bg-zinc-500/10',    border: 'border-zinc-500/30',    icon: 'bg-zinc-500/15 text-zinc-500',     dot: 'bg-zinc-500',    text: 'text-zinc-600 dark:text-zinc-400' },
+  };
+
   return (
     <div className="space-y-6">
       {/* ── Hero Header ── */}
@@ -240,71 +249,93 @@ export default function UnifiedQueuePage() {
       />
 
       {/* ── KPI Stat Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <button
-          type="button"
-          onClick={() => setTab("today")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            tab === "today" ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Today</span>
-            <div className="p-2 rounded-xl bg-primary/10 text-primary"><Inbox className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{counts.today}</div>
-            <p className="text-[11px] text-primary font-medium mt-1">awaiting action</p>
-          </div>
-        </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {(() => {
+          const t = TONE_MAP.primary;
+          return (
+            <button
+              type="button"
+              onClick={() => setTab("today")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                tab === "today"
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Today</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Inbox className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.today}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setTab("upcoming")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            tab === "upcoming" ? "border-info bg-info/10 shadow-xs" : "border-border/80 bg-surface hover:border-info/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Upcoming</span>
-            <div className="p-2 rounded-xl bg-info/10 text-info"><CalendarClock className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{counts.upcoming}</div>
-            <p className="text-[11px] text-info font-medium mt-1">later</p>
-          </div>
-        </button>
+        {(() => {
+          const t = TONE_MAP.info;
+          return (
+            <button
+              type="button"
+              onClick={() => setTab("upcoming")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                tab === "upcoming"
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-info/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Upcoming</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><CalendarClock className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.upcoming}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setTab("inProgress")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            tab === "inProgress" ? "border-warning bg-warning/10 shadow-xs" : "border-border/80 bg-surface hover:border-warning/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">In Progress</span>
-            <div className="p-2 rounded-xl bg-warning/10 text-warning"><PlayCircle className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{counts.inProgress}</div>
-            <p className="text-[11px] text-warning font-medium mt-1">on the road</p>
-          </div>
-        </button>
+        {(() => {
+          const t = TONE_MAP.warning;
+          return (
+            <button
+              type="button"
+              onClick={() => setTab("inProgress")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                tab === "inProgress"
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-warning/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">In Progress</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><PlayCircle className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.inProgress}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <div className="p-4 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Active Total</span>
-            <div className="p-2 rounded-xl bg-primary/10 text-primary"><TriangleAlert className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-black text-foreground font-data">{activeCount}</div>
-            <p className="text-[11px] text-primary font-medium mt-1">across all tabs</p>
-          </div>
-        </div>
+        {(() => {
+          const t = TONE_MAP.primary;
+          return (
+            <div className="relative p-4 rounded-3xl border-2 border-border/60 bg-surface text-left flex flex-col justify-between gap-3 select-none overflow-hidden">
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Active Total</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><TriangleAlert className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{activeCount}</div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Filters & Search Row ── */}

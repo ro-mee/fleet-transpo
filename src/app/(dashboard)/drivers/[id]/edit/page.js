@@ -466,6 +466,7 @@ export default function EditDriverPage() {
                     <DatePicker
                       id="license_expiry"
                       label="License Expiration Date"
+                      disablePast={true}
                       value={form.watch("license_expiry")}
                       onChange={(val) => form.setValue("license_expiry", val)}
                     />

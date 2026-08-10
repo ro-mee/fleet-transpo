@@ -51,6 +51,7 @@ export default function IncidentsPage() {
   const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["all-incidents"],
     queryFn: () => getAllIncidents({ limit: 200 }),
+    refetchInterval: 30_000,
   });
 
   const resolveMutation = useMutation({

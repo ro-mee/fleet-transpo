@@ -78,6 +78,7 @@ export default function ReservationsPage() {
   } = useQuery({
     queryKey: ["transport-requests", "list"],
     queryFn: () => getTransportRequests(),
+    refetchInterval: 30_000,
   });
 
   const columns = useMemo(

@@ -98,44 +98,101 @@ export function DateTimePicker({
   };
 
   const handleSelectDay = (dayNum) => {
-    const newSelected = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
-    commitDateTime(newSelected, hour, minute, period);
+    const candidate = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
+    // Block past dates (before today at midnight)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    if (candidate < todayStart) return;
+    commitDateTime(candidate, hour, minute, period);
   };
 
-  // Time Steppers
+  // Time Steppers & Typing Handlers
   const incrementHour = () => {
-    const nextH = hour === 12 ? 1 : hour + 1;
+    const currentH = typeof hour === "number" ? hour : 12;
+    const nextH = currentH === 12 ? 1 : currentH + 1;
     setHour(nextH);
-    commitDateTime(selectedDate, nextH, minute, period);
+    commitDateTime(selectedDate, nextH, typeof minute === "number" ? minute : 0, period);
   };
   const decrementHour = () => {
-    const nextH = hour === 1 ? 12 : hour - 1;
+    const currentH = typeof hour === "number" ? hour : 12;
+    const nextH = currentH === 1 ? 12 : currentH - 1;
     setHour(nextH);
-    commitDateTime(selectedDate, nextH, minute, period);
+    commitDateTime(selectedDate, nextH, typeof minute === "number" ? minute : 0, period);
   };
 
   const incrementMinute = () => {
-    const nextM = (minute + 5) % 60;
+    const currentM = typeof minute === "number" ? minute : 0;
+    const nextM = (currentM + 5) % 60;
     setMinute(nextM);
-    commitDateTime(selectedDate, hour, nextM, period);
+    commitDateTime(selectedDate, typeof hour === "number" ? hour : 12, nextM, period);
   };
   const decrementMinute = () => {
-    const nextM = (minute - 5 + 60) % 60;
+    const currentM = typeof minute === "number" ? minute : 0;
+    const nextM = (currentM - 5 + 60) % 60;
     setMinute(nextM);
-    commitDateTime(selectedDate, hour, nextM, period);
+    commitDateTime(selectedDate, typeof hour === "number" ? hour : 12, nextM, period);
+  };
+
+  const handleHourChange = (e) => {
+    const raw = e.target.value.replace(/\D/g, "");
+    if (raw === "") {
+      setHour("");
+      return;
+    }
+    let val = parseInt(raw, 10);
+    if (isNaN(val)) return;
+    if (val > 12) val = 12;
+    setHour(val);
+    if (val >= 1 && val <= 12) {
+      commitDateTime(selectedDate, val, typeof minute === "number" ? minute : 0, period);
+    }
+  };
+
+  const handleHourBlur = () => {
+    let finalH = typeof hour === "number" && hour >= 1 ? hour : 12;
+    if (finalH > 12) finalH = 12;
+    setHour(finalH);
+    commitDateTime(selectedDate, finalH, typeof minute === "number" ? minute : 0, period);
+  };
+
+  const handleMinuteChange = (e) => {
+    const raw = e.target.value.replace(/\D/g, "");
+    if (raw === "") {
+      setMinute("");
+      return;
+    }
+    let val = parseInt(raw, 10);
+    if (isNaN(val)) return;
+    if (val > 59) val = 59;
+    setMinute(val);
+    commitDateTime(selectedDate, typeof hour === "number" ? hour : 12, val, period);
+  };
+
+  const handleMinuteBlur = () => {
+    let finalM = typeof minute === "number" && minute >= 0 ? minute : 0;
+    if (finalM > 59) finalM = 59;
+    setMinute(finalM);
+    commitDateTime(selectedDate, typeof hour === "number" ? hour : 12, finalM, period);
   };
 
   const togglePeriod = () => {
     const nextP = period === "AM" ? "PM" : "AM";
     setPeriod(nextP);
-    commitDateTime(selectedDate, hour, minute, nextP);
+    commitDateTime(selectedDate, typeof hour === "number" ? hour : 12, typeof minute === "number" ? minute : 0, nextP);
   };
 
   // Quick Action Buttons
   const handleToday = () => {
-    const today = new Date();
-    setViewDate(today);
-    commitDateTime(today, hour, minute, period);
+    const now = new Date();
+    setViewDate(now);
+    const h = now.getHours() % 12;
+    const currentH = h === 0 ? 12 : h;
+    const currentM = now.getMinutes();
+    const currentP = now.getHours() >= 12 ? "PM" : "AM";
+    setHour(currentH);
+    setMinute(currentM);
+    setPeriod(currentP);
+    commitDateTime(now, currentH, currentM, currentP);
   };
 
   const handleNow = () => {
@@ -149,6 +206,15 @@ export function DateTimePicker({
     setMinute(currentM);
     setPeriod(currentP);
     commitDateTime(now, currentH, currentM, currentP);
+  };
+
+  const handleClear = () => {
+    setSelectedDate(null);
+    setViewDate(new Date());
+    setHour(9);
+    setMinute(0);
+    setPeriod("AM");
+    onChange?.("");
   };
 
   // Days Grid Generation
@@ -248,7 +314,7 @@ export function DateTimePicker({
                   className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
                 >
                   {MONTHS.map((m, idx) => (
-                    <option key={m} value={idx}>
+                    <option key={m} value={idx} className="bg-surface text-foreground">
                       {m}
                     </option>
                   ))}
@@ -260,7 +326,7 @@ export function DateTimePicker({
                   className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
                 >
                   {yearOptions.map((y) => (
-                    <option key={y} value={y}>
+                    <option key={y} value={y} className="bg-surface text-foreground">
                       {y}
                     </option>
                   ))}
@@ -307,18 +373,27 @@ export function DateTimePicker({
                   new Date().getMonth() === viewDate.getMonth() &&
                   new Date().getFullYear() === viewDate.getFullYear();
 
+                // Past-date check
+                const dayDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+                const todayMidnight = new Date();
+                todayMidnight.setHours(0, 0, 0, 0);
+                const isPast = dayDate < todayMidnight;
+
                 return (
                   <button
                     key={`curr-${d}`}
                     type="button"
                     onClick={() => handleSelectDay(d)}
+                    disabled={isPast}
                     className={cn(
-                      "h-8 w-8 rounded-xl flex items-center justify-center font-bold transition-all mx-auto cursor-pointer",
-                      isSelected
-                        ? "bg-primary text-white dark:text-slate-950 shadow-md scale-105"
+                      "h-8 w-8 rounded-xl flex items-center justify-center font-bold transition-all mx-auto",
+                      isPast
+                        ? "text-foreground-muted/30 cursor-not-allowed"
+                        : isSelected
+                        ? "bg-primary text-white dark:text-slate-950 shadow-md scale-105 cursor-pointer"
                         : isToday
-                        ? "border border-primary text-primary hover:bg-primary/10"
-                        : "text-foreground hover:bg-hover hover:text-primary"
+                        ? "border border-primary text-primary hover:bg-primary/10 cursor-pointer"
+                        : "text-foreground hover:bg-hover hover:text-primary cursor-pointer"
                     )}
                   >
                     {d}
@@ -346,7 +421,7 @@ export function DateTimePicker({
               <div className="grid grid-cols-3 gap-2 text-center items-center">
                 {/* Hour */}
                 <div className="flex flex-col items-center space-y-1">
-                  <span className="text-[10px] font-semibold text-foreground-muted uppercase">Hour</span>
+                  <span className="text-[11px] font-semibold text-foreground-muted uppercase">Hour</span>
                   <Button
                     type="button"
                     variant="ghost"
@@ -356,9 +431,14 @@ export function DateTimePicker({
                   >
                     <ChevronUp className="w-4 h-4" />
                   </Button>
-                  <div className="w-11 h-9 rounded-xl border border-border bg-background flex items-center justify-center text-xs font-extrabold text-foreground shadow-2xs font-data">
-                    {String(hour).padStart(2, "0")}
-                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={hour === "" ? "" : String(hour).padStart(2, "0")}
+                    onChange={handleHourChange}
+                    onBlur={handleHourBlur}
+                    className="w-11 h-9 rounded-xl border border-border bg-background text-center text-xs font-extrabold text-foreground shadow-2xs font-data focus:outline-hidden focus:ring-2 focus:ring-primary/50"
+                  />
                   <Button
                     type="button"
                     variant="ghost"
@@ -372,7 +452,7 @@ export function DateTimePicker({
 
                 {/* Minute */}
                 <div className="flex flex-col items-center space-y-1">
-                  <span className="text-[10px] font-semibold text-foreground-muted uppercase">Minute</span>
+                  <span className="text-[11px] font-semibold text-foreground-muted uppercase">Minute</span>
                   <Button
                     type="button"
                     variant="ghost"
@@ -382,9 +462,14 @@ export function DateTimePicker({
                   >
                     <ChevronUp className="w-4 h-4" />
                   </Button>
-                  <div className="w-11 h-9 rounded-xl border border-border bg-background flex items-center justify-center text-xs font-extrabold text-foreground shadow-2xs font-data">
-                    {String(minute).padStart(2, "0")}
-                  </div>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={minute === "" ? "" : String(minute).padStart(2, "0")}
+                    onChange={handleMinuteChange}
+                    onBlur={handleMinuteBlur}
+                    className="w-11 h-9 rounded-xl border border-border bg-background text-center text-xs font-extrabold text-foreground shadow-2xs font-data focus:outline-hidden focus:ring-2 focus:ring-primary/50"
+                  />
                   <Button
                     type="button"
                     variant="ghost"
@@ -398,7 +483,7 @@ export function DateTimePicker({
 
                 {/* AM / PM */}
                 <div className="flex flex-col items-center space-y-1">
-                  <span className="text-[10px] font-semibold text-foreground-muted uppercase">AM / PM</span>
+                  <span className="text-[11px] font-semibold text-foreground-muted uppercase">AM / PM</span>
                   <Button
                     type="button"
                     variant="ghost"
@@ -430,7 +515,7 @@ export function DateTimePicker({
 
             {/* Bottom Quick Action Buttons & Done CTA */}
             <div className="space-y-2 pt-2 border-t border-border/60">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <Button
                   type="button"
                   variant="outline"
@@ -448,6 +533,15 @@ export function DateTimePicker({
                   className="rounded-xl text-xs font-semibold h-8"
                 >
                   Now
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleClear}
+                  className="rounded-xl text-xs font-semibold h-8 text-danger hover:text-danger hover:border-danger/40"
+                >
+                  Clear
                 </Button>
               </div>
 

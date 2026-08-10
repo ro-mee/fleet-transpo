@@ -37,8 +37,8 @@ export async function PUT(req, { params }) {
     }
 
     const { rows } = await query(
-      `UPDATE dispatchschedules SET status = $1 WHERE dispatch_id = $2 RETURNING *`,
-      [next, id]
+      `UPDATE dispatchschedules SET status = $1, cancel_reason = $2 WHERE dispatch_id = $3 RETURNING *`,
+      [next, next === "Cancelled" ? (body.reason?.trim() || null) : null, id]
     );
     if (!rows[0]) return err("Dispatch not found", 404);
 

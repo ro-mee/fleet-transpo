@@ -8,12 +8,20 @@ export async function POST(req) {
 
     let url = base_url || "https://api.openai.com/v1";
     if (url.endsWith("/")) url = url.slice(0, -1);
+
+    // A masked key (••••) means the user is editing an existing provider and has
+    // not retyped a new one. We do not have the real key client-side, so an
+    // unauthenticated /models request would only return a confusing 401.
+    if (!api_key || api_key.startsWith("••••")) {
+      return err("Re-enter the API key to fetch models from the provider", 400);
+    }
+
     const modelsUrl = `${url}/models`;
 
-    const headers = { "Content-Type": "application/json" };
-    if (api_key && !api_key.startsWith("••••")) {
-      headers["Authorization"] = `Bearer ${api_key}`;
-    }
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${api_key}`,
+    };
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 7000);

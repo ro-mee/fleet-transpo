@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getAiInsights, dismissAiInsight } from "@/services/ai.service";
-import { Lightbulb, AlertTriangle, Clock, X, RefreshCw, Sparkles, Radar, CheckCircle2, ShieldAlert, Bot, Activity, Zap, ShieldCheck } from "lucide-react";
+import { Lightbulb, AlertTriangle, Clock, X, RefreshCw, Sparkles, Radar, ShieldAlert, Bot, Activity, Zap, ShieldCheck } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn } from "@/lib/utils";
@@ -42,9 +42,7 @@ export default function AiInsightsPage() {
     ? insightsData.insights
     : [];
 
-  const nlSummary =
-    insightsData?.natural_language_summary ||
-    "Fleet operational health is currently optimal. 85% of registered assets are active or available for guest transfers with zero critical safety breakdowns detected in the past 24 hours.";
+  const nlSummary = insightsData?.natural_language_summary || null;
 
   const counts = {
     high: insights.filter((i) => normalizeSeverity(i) === "high" || normalizeSeverity(i) === "critical").length,
@@ -114,14 +112,17 @@ export default function AiInsightsPage() {
               </div>
 
               <div className="p-4 rounded-2xl bg-muted/30 border border-border/60">
-                <p className="text-sm leading-relaxed text-foreground font-medium">{nlSummary}</p>
+                {nlSummary ? (
+                  <p className="text-sm leading-relaxed text-foreground font-medium">{nlSummary}</p>
+                ) : (
+                  <p className="text-sm leading-relaxed text-foreground-muted">
+                    AI summary unavailable — the LLM provider did not respond. The insights below are
+                    rule-based scoring.
+                  </p>
+                )}
               </div>
 
               <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-foreground">
-                <div className="px-3 py-1.5 rounded-xl bg-success/10 text-success border border-success/20 shadow-2xs flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>85% Fleet Available</span>
-                </div>
                 <div className="px-3 py-1.5 rounded-xl bg-info/10 text-info border border-info/20 shadow-2xs flex items-center gap-1.5">
                   <Zap className="w-3.5 h-3.5" />
                   <span>Telemetry Synced</span>

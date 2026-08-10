@@ -1,4 +1,4 @@
-import { Inter, Geist_Mono, JetBrains_Mono } from "next/font/google";
+import { Inter, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import { Providers } from "@/components/providers";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -12,12 +12,6 @@ const inter = Inter({
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  weight: ["400", "500", "600"],
   subsets: ["latin"],
 });
 
@@ -42,7 +36,7 @@ export default function RootLayout({ children }) {
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${geistMono.variable} ${jetbrainsMono.variable}`}
+      className={`${inter.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <head>

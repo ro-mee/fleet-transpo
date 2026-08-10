@@ -31,6 +31,6 @@ export async function updateDispatch(id, dispatch) {
   return apiFetch(`/api/dispatch/${id}`, { method: "PUT", body: dispatch });
 }
 
-export async function updateDispatchStatus(id, status) {
-  return apiFetch(`/api/dispatch/${id}/status`, { method: "PUT", body: { status } });
+export async function updateDispatchStatus(id, status, reason) {
+  return apiFetch(`/api/dispatch/${id}/status`, { method: "PUT", body: { status, reason } });
 }

@@ -172,7 +172,7 @@ export function LaneGrid({ mode, day, events, conflicts, vehicles = [], drivers 
             {HOURS.filter((h) => h % 3 === 0).map((h) => (
               <span
                 key={h}
-                className="absolute top-1 text-[10px] tabular-nums text-foreground-muted"
+                className="absolute top-1 text-[11px] tabular-nums text-foreground-muted"
                 style={{ left: `${(h / 24) * 100}%` }}
               >
                 {format(new Date(2000, 0, 1, h), "HH:mm")}

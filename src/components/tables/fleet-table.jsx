@@ -139,7 +139,7 @@ export function FleetTable({ filters = {} }) {
             <div className="flex items-center gap-2">
               <CalendarClock className={overdue ? "h-3.5 w-3.5 text-danger" : "h-3.5 w-3.5 text-foreground-muted"} />
               <span className={overdue ? "font-medium text-danger text-xs font-data" : "text-xs font-medium text-foreground-secondary font-data"}>{formatDate(expiry)}</span>
-              {overdue && <Badge variant="danger" className="ml-1.5 text-[10px] rounded-full">Overdue</Badge>}
+              {overdue && <Badge variant="danger" className="ml-1.5 text-[11px] rounded-full">Overdue</Badge>}
             </div>
           );
         },

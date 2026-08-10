@@ -98,7 +98,7 @@ export function TimeGrid({ days, events, conflicts, laneLabel }) {
             className="grid border-b border-border bg-hover/30"
             style={{ gridTemplateColumns: `4rem repeat(${days.length}, minmax(0, 1fr))` }}
           >
-            <div className="px-2 py-1.5 text-[10px] font-medium text-foreground-muted">
+            <div className="px-2 py-1.5 text-[11px] font-medium text-foreground-muted">
               All day
             </div>
             {allDayByDay.map(({ day, events: dayEvents }) => (
@@ -126,7 +126,7 @@ export function TimeGrid({ days, events, conflicts, laneLabel }) {
             {HOURS.map((h) => (
               <div
                 key={h}
-                className="absolute right-2 -translate-y-1/2 text-[10px] tabular-nums text-foreground-muted"
+                className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-foreground-muted"
                 style={{ top: (h / 24) * 100 + "%" }}
               >
                 {h === 0 ? "" : format(new Date(2000, 0, 1, h), "HH:mm")}
@@ -228,7 +228,7 @@ export function MonthGrid({ days, events, conflicts, anchor, onPickDay }) {
                   {format(day, "d")}
                 </span>
                 {conflicted > 0 && (
-                  <span className="rounded bg-danger/15 px-1 text-[10px] font-semibold text-danger">
+                  <span className="rounded bg-danger/15 px-1 text-[11px] font-semibold text-danger">
                     {conflicted}
                   </span>
                 )}
@@ -244,7 +244,7 @@ export function MonthGrid({ days, events, conflicts, anchor, onPickDay }) {
                   />
                 ))}
                 {dayEvents.length > shown.length && (
-                  <span className="block px-1 text-[10px] text-foreground-muted">
+                  <span className="block px-1 text-[11px] text-foreground-muted">
                     +{dayEvents.length - shown.length} more
                   </span>
                 )}

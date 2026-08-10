@@ -40,7 +40,7 @@ export function StatCard({
       {...props}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-foreground-secondary truncate" title={label}>{label}</span>
+        <span className="text-xs font-semibold text-foreground-secondary" title={label}>{label}</span>
         {Icon && (
           <span className={cn("flex h-9 w-9 items-center justify-center rounded-2xl shrink-0 transition-colors", t.chip)}>
             <Icon className="w-4 h-4" />
@@ -54,12 +54,6 @@ export function StatCard({
           </p>
           {valueNote && <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold leading-none", t.trend)}>{valueNote}</span>}
         </div>
-        {trend && (
-          <span className={cn("mt-2 inline-flex max-w-full items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium leading-none", t.trend)}>
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-80" aria-hidden="true" />
-            <span className="truncate">{trend}</span>
-          </span>
-        )}
       </div>
     </Component>
   );

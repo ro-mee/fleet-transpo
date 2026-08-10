@@ -525,6 +525,7 @@ export default function VehicleFormPage({ params }) {
                     <DatePicker
                       id="insurance_expiry"
                       label="Insurance Policy Expiry"
+                      disablePast={true}
                       value={form.watch("insurance_expiry")}
                       onChange={(val) => form.setValue("insurance_expiry", val)}
                     />

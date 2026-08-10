@@ -91,13 +91,13 @@ function TimelineEntry({ event, isLast }) {
           </p>
           {event.from_status && event.to_status && event.from_status !== event.to_status && (
             <div className="inline-flex items-center gap-1 bg-muted/40 p-1 rounded-lg border border-border/50">
-              <StatusBadge status={event.from_status} entity="reservation" className="text-[10px] py-0 px-2 h-5 font-semibold" />
+              <StatusBadge status={event.from_status} entity="reservation" className="text-[11px] py-0 px-2 h-5 font-semibold" />
               <span className="text-foreground-muted text-xs font-bold px-0.5">→</span>
-              <StatusBadge status={event.to_status} entity="reservation" className="text-[10px] py-0 px-2 h-5 font-semibold" />
+              <StatusBadge status={event.to_status} entity="reservation" className="text-[11px] py-0 px-2 h-5 font-semibold" />
             </div>
           )}
           {forced && (
-            <Badge variant="danger" className="gap-1 text-[10px] py-0">
+            <Badge variant="danger" className="gap-1 text-[11px] py-0">
               <TriangleAlert className="w-3 h-3" aria-hidden="true" />
               Override
             </Badge>

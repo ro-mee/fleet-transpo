@@ -101,6 +101,7 @@ export default function DispatchDetailPage() {
   const [odometer, setOdometer] = useState(null); // { dispatch, mode }
   const [editing, setEditing] = useState(null); // { dispatch, mode }
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const {
     data: dispatch,
@@ -156,10 +157,11 @@ export default function DispatchDetailPage() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: () => updateDispatchStatus(dispatchId, D.CANCELLED),
+    mutationFn: () => updateDispatchStatus(dispatchId, D.CANCELLED, cancelReason.trim() || null),
     onSuccess: () => {
       toast.success("Dispatch cancelled");
       setConfirmCancel(false);
+      setCancelReason("");
       invalidate();
     },
     onError: (e) => toast.error(e.message || "Failed to cancel the dispatch"),
@@ -486,7 +488,7 @@ export default function DispatchDetailPage() {
       />
 
       {confirmCancel && (
-        <Dialog open onOpenChange={(open) => !open && setConfirmCancel(false)}>
+        <Dialog open onOpenChange={(open) => { if (!open) { setConfirmCancel(false); setCancelReason(""); } }}>
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Cancel this dispatch?</DialogTitle>
@@ -495,13 +497,26 @@ export default function DispatchDetailPage() {
                 and the originating request goes back to needing a dispatch.
               </DialogDescription>
             </DialogHeader>
+            <div className="px-6">
+              <label htmlFor="cancel-reason" className="text-xs font-semibold text-foreground-secondary">
+                Reason for cancellation <span className="text-danger">*</span>
+              </label>
+              <textarea
+                id="cancel-reason"
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="e.g. Vehicle unavailable, driver not required, request withdrawn…"
+                className="mt-1.5 w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1"
+              />
+            </div>
             <DialogFooter>
-              <Button variant="outline" onClick={() => setConfirmCancel(false)}>
+              <Button variant="outline" onClick={() => { setConfirmCancel(false); setCancelReason(""); }}>
                 Keep it
               </Button>
               <Button
                 variant="destructive"
-                disabled={cancelMutation.isPending}
+                disabled={cancelMutation.isPending || cancelReason.trim().length === 0}
                 onClick={() => cancelMutation.mutate()}
               >
                 {cancelMutation.isPending ? "Cancelling…" : "Cancel dispatch"}

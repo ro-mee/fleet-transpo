@@ -19,6 +19,7 @@ export function DatePicker({
   placeholder = "Select Date...",
   id,
   disabled = false,
+  disablePast = false,
   className,
 }) {
   const [open, setOpen] = React.useState(false);
@@ -77,8 +78,13 @@ export function DatePicker({
   };
 
   const handleSelectDay = (dayNum) => {
-    const newSelected = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
-    commitDate(newSelected);
+    const candidate = new Date(viewDate.getFullYear(), viewDate.getMonth(), dayNum);
+    if (disablePast) {
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      if (candidate < todayStart) return;
+    }
+    commitDate(candidate);
     setOpen(false);
   };
 
@@ -189,7 +195,7 @@ export function DatePicker({
                 className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
               >
                 {MONTHS.map((m, idx) => (
-                  <option key={m} value={idx}>
+                  <option key={m} value={idx} className="bg-surface text-foreground">
                     {m}
                   </option>
                 ))}
@@ -201,7 +207,7 @@ export function DatePicker({
                 className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
               >
                 {yearOptions.map((y) => (
-                  <option key={y} value={y}>
+                  <option key={y} value={y} className="bg-surface text-foreground">
                     {y}
                   </option>
                 ))}
@@ -248,18 +254,27 @@ export function DatePicker({
                 new Date().getMonth() === viewDate.getMonth() &&
                 new Date().getFullYear() === viewDate.getFullYear();
 
+              // Past-date check
+              const dayDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
+              const todayMidnight = new Date();
+              todayMidnight.setHours(0, 0, 0, 0);
+              const isPast = disablePast && dayDate < todayMidnight;
+
               return (
                 <button
                   key={`curr-${d}`}
                   type="button"
                   onClick={() => handleSelectDay(d)}
+                  disabled={isPast}
                   className={cn(
-                    "h-8 w-8 rounded-xl flex items-center justify-center font-bold transition-all mx-auto cursor-pointer",
-                    isSelected
-                      ? "bg-primary text-white dark:text-slate-950 scale-105"
+                    "h-8 w-8 rounded-xl flex items-center justify-center font-bold transition-all mx-auto",
+                    isPast
+                      ? "text-foreground-muted/30 cursor-not-allowed"
+                      : isSelected
+                      ? "bg-primary text-white dark:text-slate-950 scale-105 cursor-pointer"
                       : isToday
-                      ? "border border-primary text-primary hover:bg-primary/10"
-                      : "text-foreground hover:bg-hover hover:text-primary"
+                      ? "border border-primary text-primary hover:bg-primary/10 cursor-pointer"
+                      : "text-foreground hover:bg-hover hover:text-primary cursor-pointer"
                   )}
                 >
                   {d}

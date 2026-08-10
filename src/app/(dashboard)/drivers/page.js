@@ -56,6 +56,7 @@ export default function DriversPage() {
         search: search ? search : undefined,
       }),
     placeholderData: (prev) => prev,
+    refetchInterval: 30_000,
   });
 
   const { data: stats } = useQuery({

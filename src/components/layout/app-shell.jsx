@@ -164,7 +164,7 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     {item.href === "/incidents" && pendingCount > 0 && (
                       <span className={cn(
                         "rounded-full bg-danger",
-                        collapsed ? "absolute top-1 right-1 h-2 w-2" : "ml-auto flex h-5 w-5 items-center justify-center text-[10px] font-bold text-white"
+                        collapsed ? "absolute top-1 right-1 h-2 w-2" : "ml-auto flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
                       )}>
                         {!collapsed && pendingCount}
                       </span>
@@ -278,7 +278,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
         <item.icon className="h-4 w-4 flex-shrink-0" />
         <span className="flex-1 text-left">{item.label}</span>
         {item.href === "/incidents" && pendingCount > 0 && (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white">
             {pendingCount}
           </span>
         )}
@@ -313,7 +313,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
                 <span className="flex items-center justify-between">
                   <span>{child.label}</span>
                   {child.href === "/incidents" && pendingCount > 0 && (
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[9px] font-bold text-white">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white">
                       {pendingCount}
                     </span>
                   )}

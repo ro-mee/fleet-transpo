@@ -36,10 +36,28 @@
   --radius-md: 6px;
   --radius-lg: 8px;
 
+  /* Named radii — the app's de-facto system. Use these over raw rounded-2xl/3xl. */
+  --radius-control: 12px; /* inputs, selects, buttons */
+  --radius-card: 16px;    /* cards, dialogs, panels */
+
   --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.03);
   --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.04);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.05);
 }
+
+/*
+ * Type scale — the canonical set. Prefer these before reaching for arbitrary
+ * text-[..px] utilities.
+ *   caption   11px  (micro-labels, eyebrows, table meta)   — text-[11px]
+ *   label     12px  (badges, chips, tab labels)            — text-xs
+ *   body      14px  (default UI text, inputs)              — text-sm
+ *   lead      16px  (paragraph lead, stats)                — text-base
+ *   section   18px  (sub-section titles)                   — text-lg
+ *   title     22px  (page title, single H1 per page)       — text-[22px]
+ *
+ * Hierarchy is communicated by weight (medium/semibold/bold) + size, never by
+ * a competing typeface — the entire UI is Inter.
+ */
 
 :root {
   --bg: #f3f3f3;

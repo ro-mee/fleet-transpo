@@ -204,19 +204,19 @@ export function ReviewDialog({
       <div className="p-3 space-y-2">
         <p className="text-[11px] text-foreground-secondary leading-relaxed">{_detail}</p>
         <div className="flex items-start gap-1.5 bg-warning/10 rounded-lg p-2">
-          <span className="text-[10px] font-bold text-warning uppercase tracking-wider shrink-0 mt-0.5">Action:</span>
+          <span className="text-[11px] font-bold text-warning uppercase tracking-wider shrink-0 mt-0.5">Action:</span>
           <p className="text-[11px] text-foreground font-medium leading-relaxed">{_fix}</p>
         </div>
         <div className="flex items-center gap-3 pt-0.5">
-          <span className="flex items-center gap-1 text-[10px] text-foreground-muted">
+          <span className="flex items-center gap-1 text-[11px] text-foreground-muted">
             <CarFront className="w-3 h-3" />
             {vehicleCount} vehicle{vehicleCount !== 1 ? "s" : ""} available
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-foreground-muted">
+          <span className="flex items-center gap-1 text-[11px] text-foreground-muted">
             <UserCheck className="w-3 h-3" />
             {driverCount} driver{driverCount !== 1 ? "s" : ""} on duty
           </span>
-          <span className="flex items-center gap-1 text-[10px] text-foreground-muted">
+          <span className="flex items-center gap-1 text-[11px] text-foreground-muted">
             <Users className="w-3 h-3" />
             {passengers} passenger{passengers !== 1 ? "s" : ""} needed
           </span>
@@ -335,7 +335,7 @@ export function ReviewDialog({
                         <span className="text-primary/60 font-normal">· {pairCount - 1} more eligible</span>
                       )}
                     </div>
-                    <Badge variant="primary" className="text-[10px] font-bold shrink-0">
+                    <Badge variant="primary" className="text-[11px] font-bold shrink-0">
                       {pairScore != null ? `${pairScore}% Match` : "Ready"}
                     </Badge>
                   </div>
@@ -355,10 +355,10 @@ export function ReviewDialog({
                   <div className="grid grid-cols-2 divide-x divide-primary/15">
                     {/* Vehicle side */}
                     <div className="p-3 space-y-1">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-muted">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
                         <CarFront className="w-3 h-3 text-primary" />
                         <span>Vehicle</span>
-                        <Badge variant="success" className="text-[9px] py-0 px-1 ml-auto font-semibold">
+                        <Badge variant="success" className="text-[11px] py-0 px-1 ml-auto font-semibold">
                           {vehicleCount > 0 ? `${vehicleCount} Avail` : "Class Match"}
                         </Badge>
                       </div>
@@ -394,10 +394,10 @@ export function ReviewDialog({
 
                     {/* Driver side */}
                     <div className="p-3 space-y-1">
-                      <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-foreground-muted">
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
                         <UserCheck className="w-3 h-3 text-info" />
                         <span>Driver</span>
-                        <Badge variant="info" className="text-[9px] py-0 px-1 ml-auto font-semibold">
+                        <Badge variant="info" className="text-[11px] py-0 px-1 ml-auto font-semibold">
                           {driverCount > 0 ? `${driverCount} On Duty` : "Active"}
                         </Badge>
                       </div>
@@ -437,7 +437,7 @@ export function ReviewDialog({
                   {/* LLM rationale */}
                   {(narration || isNarrating) && (
                     <div className="px-3 pb-2.5 pt-1.5 border-t border-primary/15 space-y-1">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-primary/80">
+                      <span className="text-[11px] font-semibold uppercase tracking-wider text-primary/80">
                         AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
                       </span>
                       {narration ? (

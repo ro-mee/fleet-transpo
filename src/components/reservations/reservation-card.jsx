@@ -155,7 +155,7 @@ export function ReservationCard({
             <Users className="w-4 h-4" />
           </div>
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Passengers</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Passengers</p>
             <p className="text-xs font-bold font-data text-foreground mt-0.5">{r.passenger_count || 1} Passengers</p>
           </div>
         </div>
@@ -166,7 +166,7 @@ export function ReservationCard({
             <CarFront className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
             {vehicle ? (
               <p className="text-xs font-bold text-foreground mt-0.5 truncate">
                 <span className="font-data font-bold rounded-md bg-muted/60 px-1.5 py-0.5 mr-1 border border-border/60">{vehicle.plate_number}</span>
@@ -184,7 +184,7 @@ export function ReservationCard({
             <UserRound className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
             {driver ? (
               <p className="text-xs font-bold text-foreground mt-0.5 truncate">{driverName(driver)}</p>
             ) : (

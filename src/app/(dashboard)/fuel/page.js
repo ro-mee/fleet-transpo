@@ -77,6 +77,7 @@ export default function FuelPage() {
   const { data: records = [], isLoading } = useQuery({
     queryKey: ["fuel-records"],
     queryFn: () => getFuelRecords(),
+    refetchInterval: 30_000,
   });
 
   // Filter records based on tab & search
@@ -323,6 +324,15 @@ export default function FuelPage() {
     if (!isValid) return;
   };
 
+  const TONE_MAP = {
+    primary:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   icon: 'bg-slate-500/15 text-slate-500',   dot: 'bg-slate-500',   text: 'text-slate-600 dark:text-slate-400' },
+    success:   { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'bg-emerald-500/15 text-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
+    warning:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   icon: 'bg-amber-500/15 text-amber-500',   dot: 'bg-amber-500',   text: 'text-amber-600 dark:text-amber-400' },
+    danger:    { bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: 'bg-red-500/15 text-red-500',       dot: 'bg-red-500',     text: 'text-red-600 dark:text-red-400' },
+    info:      { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: 'bg-blue-500/15 text-blue-500',     dot: 'bg-blue-500',    text: 'text-blue-600 dark:text-blue-400' },
+    secondary: { bg: 'bg-zinc-500/10',    border: 'border-zinc-500/30',    icon: 'bg-zinc-500/15 text-zinc-500',     dot: 'bg-zinc-500',    text: 'text-zinc-600 dark:text-zinc-400' },
+  };
+
   return (
     <div className="space-y-6">
       {/* ── Page Header ── */}
@@ -355,78 +365,106 @@ export default function FuelPage() {
       />
 
       {/* ── Metric Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <button
-          type="button"
-          onClick={() => setActiveTab("all")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            activeTab === "all" ? "border-primary bg-primary/10 shadow-xs" : "border-border/80 bg-surface hover:border-primary/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Total Submissions</span>
-            <div className="p-2 rounded-xl bg-primary/10 text-primary"><Fuel className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data">{records.length}</div>
-            <p className="text-[11px] text-primary font-medium mt-1">All fuel logs</p>
-          </div>
-        </button>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {(() => {
+          const t = TONE_MAP.primary;
+          const isActive = activeTab === "all";
+          return (
+            <button
+              type="button"
+              onClick={() => setActiveTab("all")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                isActive
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-primary/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Total Submissions</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Fuel className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{records.length}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("Pending")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            activeTab === "Pending" ? "border-warning bg-warning/10 shadow-xs" : "border-border/80 bg-surface hover:border-warning/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Pending Audit</span>
-            <div className="p-2 rounded-xl bg-warning/10 text-warning"><Clock className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data">{pendingCount}</div>
-            <p className="text-[11px] text-warning font-medium mt-1">Needs review</p>
-          </div>
-        </button>
+        {(() => {
+          const t = TONE_MAP.warning;
+          const isActive = activeTab === "Pending";
+          return (
+            <button
+              type="button"
+              onClick={() => setActiveTab("Pending")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                isActive
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-warning/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Pending Audit</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Clock className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{pendingCount}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("Approved")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            activeTab === "Approved" ? "border-success bg-success/10 shadow-xs" : "border-border/80 bg-surface hover:border-success/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Approved Expense</span>
-            <div className="p-2 rounded-xl bg-success/10 text-success"><CheckCircle2 className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data">{formatCurrency(totalCost)}</div>
-            <p className="text-[11px] text-success font-medium mt-1">Total cleared</p>
-          </div>
-        </button>
+        {(() => {
+          const t = TONE_MAP.success;
+          const isActive = activeTab === "Approved";
+          return (
+            <button
+              type="button"
+              onClick={() => setActiveTab("Approved")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                isActive
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-success/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Approved Expense</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><CheckCircle2 className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{formatCurrency(totalCost)}</div>
+              </div>
+            </button>
+          );
+        })()}
 
-        <button
-          type="button"
-          onClick={() => setActiveTab("Rejected")}
-          className={cn(
-            "p-4 rounded-3xl border transition-all text-left flex flex-col justify-between space-y-3 cursor-pointer select-none",
-            activeTab === "Rejected" ? "border-danger bg-danger/10 shadow-xs" : "border-border/80 bg-surface hover:border-danger/40"
-          )}
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">Rejected</span>
-            <div className="p-2 rounded-xl bg-danger/10 text-danger"><XCircle className="w-4 h-4" /></div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data">{rejectedCount}</div>
-            <p className="text-[11px] text-danger font-medium mt-1">Flagged logs</p>
-          </div>
-        </button>
+        {(() => {
+          const t = TONE_MAP.danger;
+          const isActive = activeTab === "Rejected";
+          return (
+            <button
+              type="button"
+              onClick={() => setActiveTab("Rejected")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                isActive
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-danger/40"
+              )}
+            >
+              <div className="flex items-start justify-between gap-2 mt-1">
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Rejected</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><XCircle className="w-4 h-4" /></div>
+              </div>
+              <div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{rejectedCount}</div>
+              </div>
+            </button>
+          );
+        })()}
       </div>
 
       {/* ── Status Filter Tabs & Table ── */}

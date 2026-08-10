@@ -352,12 +352,12 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
                         </span>
                       )}
                       {o.seats && (
-                        <span className="text-[10px] font-semibold text-foreground-muted bg-muted/60 px-2 py-0.5 rounded-full">
+                        <span className="text-[11px] font-semibold text-foreground-muted bg-muted/60 px-2 py-0.5 rounded-full">
                           {o.seats} seats
                         </span>
                       )}
                       {o.isPinned && (
-                        <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                        <span className="text-[11px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full">
                           Current Assignment
                         </span>
                       )}

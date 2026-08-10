@@ -149,7 +149,7 @@ export function DataTable({
                     <th
                       key={header.id}
                       className={cn(
-                        "px-5 py-3.5 text-left text-[10px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
+                        "px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
                         header.column.getCanSort() && "cursor-pointer hover:text-foreground transition-colors"
                       )}
                       onClick={header.column.getToggleSortingHandler()}

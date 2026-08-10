@@ -94,7 +94,7 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
           </span>
           Live Traffic
         </div>
-        <span className={cn("text-[10px] font-bold px-1.5 py-0.2 rounded-md", trafficOn ? "bg-success/15 text-success" : "bg-muted text-foreground-muted")}>
+        <span className={cn("text-[11px] font-bold px-1.5 py-0.2 rounded-md", trafficOn ? "bg-success/15 text-success" : "bg-muted text-foreground-muted")}>
           {trafficOn ? "ON" : "OFF"}
         </span>
       </button>
@@ -298,7 +298,7 @@ export default function LiveLocationsMap({
                 <div className="p-1 space-y-2 text-foreground font-sans min-w-[210px]">
                   <div className="flex items-center justify-between border-b border-border/60 pb-2">
                     <span className="font-bold text-sm font-data">{plate}</span>
-                    <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
                       {status || "Active"}
                     </span>
                   </div>
@@ -367,7 +367,7 @@ export default function LiveLocationsMap({
                   <div className="flex items-center justify-between border-b border-border/60 pb-2">
                     <span className="font-bold text-sm capitalize">{type}</span>
                     <span
-                      className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full text-white"
+                      className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full text-white"
                       style={{ backgroundColor: severityColor }}
                     >
                       {severity.toUpperCase()}
@@ -419,7 +419,7 @@ export default function LiveLocationsMap({
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
           </span>
-          Live Traffic Layer Active <span className="text-[10px] text-foreground-muted font-medium font-data">(Real-Time Flow)</span>
+          Live Traffic Layer Active <span className="text-[11px] text-foreground-muted font-medium font-data">(Real-Time Flow)</span>
         </div>
       )}
 
@@ -445,7 +445,7 @@ export default function LiveLocationsMap({
               <div className="flex items-start gap-2.5">
                 <span className="h-2.5 w-2.5 rounded-full bg-success shrink-0 mt-1 shadow-2xs" />
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted">Driver Live Location</p>
+                  <p className="text-[11px] uppercase font-bold text-foreground-muted">Driver Live Location</p>
                   <p className="text-xs text-foreground font-semibold truncate">{originName}</p>
                 </div>
               </div>
@@ -454,7 +454,7 @@ export default function LiveLocationsMap({
               <div className="flex items-start gap-2.5 pt-1 border-t border-border/40">
                 <span className="h-2.5 w-2.5 rounded-full bg-danger shrink-0 mt-1 shadow-2xs" />
                 <div className="min-w-0">
-                  <p className="text-[10px] uppercase font-bold text-foreground-muted">Destination</p>
+                  <p className="text-[11px] uppercase font-bold text-foreground-muted">Destination</p>
                   <p className="text-xs text-foreground font-semibold truncate">{destinationName}</p>
                 </div>
               </div>
@@ -463,7 +463,7 @@ export default function LiveLocationsMap({
 
           {instructions && instructions.length > 0 && (
             <div className="border-t border-border/60 pt-2 space-y-1.5 max-h-36 overflow-y-auto">
-              <p className="text-[10px] font-bold uppercase text-foreground-muted tracking-wider">Step-by-Step Directions</p>
+              <p className="text-[11px] font-bold uppercase text-foreground-muted tracking-wider">Step-by-Step Directions</p>
               {instructions.map((step, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-[11px] text-foreground-secondary">
                   <span className="font-bold text-primary font-data shrink-0">{idx + 1}.</span>
@@ -480,7 +480,7 @@ export default function LiveLocationsMap({
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-3xl border border-border/80 bg-surface/95 p-3.5 shadow-md backdrop-blur space-y-3 max-w-[210px]">
           {legendStatuses.length > 0 && (
             <div>
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
                 Fleet Status
               </p>
               <ul className="space-y-1">
@@ -496,7 +496,7 @@ export default function LiveLocationsMap({
 
           {validIncidents.length > 0 && (
             <div className="border-t border-border/60 pt-2">
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
                 Incidents ({validIncidents.length})
               </p>
               <ul className="space-y-1 text-xs font-medium text-foreground-secondary">
@@ -513,7 +513,7 @@ export default function LiveLocationsMap({
 
           {trafficOn && (
             <div className="border-t border-border/60 pt-2">
-              <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
                 Live Traffic Flow
               </p>
               <ul className="space-y-1 text-xs font-medium text-foreground-secondary">

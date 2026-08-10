@@ -70,7 +70,7 @@ function Field({ icon: Icon, label, children, className, highlight }) {
         className
       )}
     >
-      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted flex items-center gap-1">
+      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted flex items-center gap-1">
         {Icon && <Icon className="w-3 h-3 text-primary/70 shrink-0" aria-hidden="true" />}
         <span className="truncate">{label}</span>
       </p>
@@ -132,7 +132,7 @@ function TripTimingRow({ leg, scheduledIcon: SIcon, actualIcon: AIcon, scheduled
       {/* Left: colored leg strip */}
       <div className={cn("flex items-center justify-center px-2.5 py-2 border-r shrink-0", style.bg, style.border)}>
         <span
-          className={cn("text-[10px] font-black uppercase tracking-widest", style.text)}
+          className={cn("text-[11px] font-black uppercase tracking-widest", style.text)}
           style={{ writingMode: "vertical-lr", transform: "rotate(180deg)" }}
         >
           {leg}
@@ -141,7 +141,7 @@ function TripTimingRow({ leg, scheduledIcon: SIcon, actualIcon: AIcon, scheduled
 
       {/* Middle-left: Scheduled */}
       <div className="flex-1 px-3 py-2 min-w-0 border-r border-border/30">
-        <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
+        <p className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
           {SIcon && <SIcon className={cn("w-3 h-3 shrink-0", style.icon)} />}
           Scheduled
         </p>
@@ -152,7 +152,7 @@ function TripTimingRow({ leg, scheduledIcon: SIcon, actualIcon: AIcon, scheduled
 
       {/* Middle-right: Actual */}
       <div className="flex-1 px-3 py-2 min-w-0">
-        <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
+        <p className="flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted mb-0.5">
           {AIcon && <AIcon className={cn("w-3 h-3 shrink-0", style.icon)} />}
           Actual
         </p>
@@ -164,12 +164,12 @@ function TripTimingRow({ leg, scheduledIcon: SIcon, actualIcon: AIcon, scheduled
       {/* Right: Delta badge */}
       <div className="flex items-center justify-center px-2.5 py-2 shrink-0">
         {deltaLabel ? (
-          <span className={cn("inline-flex items-center gap-1 border rounded-full px-2 py-0.5 text-[10px] font-bold whitespace-nowrap", deltaStyle)}>
+          <span className={cn("inline-flex items-center gap-1 border rounded-full px-2 py-0.5 text-[11px] font-bold whitespace-nowrap", deltaStyle)}>
             {DeltaIcon && <DeltaIcon className="w-2.5 h-2.5" />}
             {deltaLabel}
           </span>
         ) : (
-          <span className="inline-flex items-center border border-border/40 rounded-full px-2 py-0.5 text-[10px] text-foreground-muted bg-muted/20">
+          <span className="inline-flex items-center border border-border/40 rounded-full px-2 py-0.5 text-[11px] text-foreground-muted bg-muted/20">
             Pending
           </span>
         )}
@@ -272,7 +272,7 @@ export function DispatchCard({
         <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-surface px-3 py-2 text-xs">
           <CarFront className="w-4 h-4 text-primary shrink-0" />
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
             {vehicle ? (
               <p className="font-bold text-foreground truncate">
                 <span className="font-data text-xs">{vehicle.plate_number}</span>
@@ -287,7 +287,7 @@ export function DispatchCard({
         <div className="flex items-center gap-2 rounded-2xl border border-border/50 bg-surface px-3 py-2 text-xs">
           <Users className="w-4 h-4 text-primary shrink-0" />
           <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
             {driverNameStr ? (
               <p className="font-bold text-foreground truncate">{driverNameStr}</p>
             ) : (
@@ -470,7 +470,7 @@ export function DispatchCard({
           </Button>
         )}
         {isScheduled && permissions.dispatchUpdate && !canStart && (
-          <Badge variant="outline" className="text-[10px]">
+          <Badge variant="outline" className="text-[11px]">
             Needs vehicle &amp; driver
           </Badge>
         )}

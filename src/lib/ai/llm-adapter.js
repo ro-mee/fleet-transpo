@@ -3,30 +3,14 @@ import { getSystemInstructions } from "./prompt-loader";
 import { logAiRequest } from "./logger";
 
 /**
- * Fetches default active AI provider from aiproviders table or env
+ * Fetches default active AI provider from aiproviders table or env.
+ *
+ * NOTE: The aiproviders table is created by migration 031, not here. This used
+ * to run CREATE TABLE IF NOT EXISTS on every call — a DDL round-trip on the AI
+ * hot path. Migration 031 made that per-request DDL unnecessary.
  */
 export async function getActiveAiProvider() {
   try {
-    // Ensure table exists
-    await query(`
-      CREATE TABLE IF NOT EXISTS aiproviders (
-        provider_id SERIAL PRIMARY KEY,
-        provider_name VARCHAR(50) NOT NULL,
-        display_name VARCHAR(100) NOT NULL,
-        base_url VARCHAR(255),
-        api_key TEXT,
-        model_name VARCHAR(100) NOT NULL,
-        temperature DECIMAL(3,2) DEFAULT 0.70,
-        max_tokens INT DEFAULT 1500,
-        timeout_ms INT DEFAULT 10000,
-        is_enabled BOOLEAN DEFAULT true,
-        is_default BOOLEAN DEFAULT false,
-        custom_headers JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
     const { rows } = await query(
       `SELECT * FROM aiproviders WHERE is_enabled = true AND is_default = true LIMIT 1`
     );

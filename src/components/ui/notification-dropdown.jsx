@@ -95,7 +95,7 @@ export function NotificationDropdown() {
         >
           <Bell className="h-4 w-4" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white shadow-sm">
+            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white shadow-sm">
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
@@ -108,7 +108,7 @@ export function NotificationDropdown() {
           <div className="flex items-center gap-2">
             <span className="text-sm font-bold text-foreground">Notifications</span>
             {unreadCount > 0 && (
-              <Badge variant="primary" className="text-[10px] py-0 px-1.5 font-bold">
+              <Badge variant="primary" className="text-[11px] py-0 px-1.5 font-bold">
                 {unreadCount} new
               </Badge>
             )}
@@ -163,7 +163,7 @@ export function NotificationDropdown() {
                         {notif.message}
                       </p>
                     )}
-                    <span className="text-[10px] text-foreground-muted block pt-0.5">
+                    <span className="text-[11px] text-foreground-muted block pt-0.5">
                       {notif.sent_at ? formatDate(notif.sent_at) : ""}
                     </span>
                   </div>

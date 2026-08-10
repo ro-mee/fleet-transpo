@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CommandPalette } from "@/components/ui/command-palette";
 import { useRequireRole } from "@/hooks/use-role-access";
 import { NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
@@ -120,6 +121,7 @@ export function DashboardLayout({ children }) {
           </ErrorBoundary>
         </div>
       </main>
+      <CommandPalette />
     </div>
   );
 }

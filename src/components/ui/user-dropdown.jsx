@@ -108,10 +108,10 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
               {email}
             </p>
             <div className="flex items-center gap-1.5 mt-1.5">
-              <Badge variant="outline" className="text-[10px] font-medium px-2 py-0">
+              <Badge variant="outline" className="text-[11px] font-medium px-2 py-0">
                 {formatRole(role)}
               </Badge>
-              <span className="text-[10px] font-medium text-success inline-flex items-center gap-1">
+              <span className="text-[11px] font-medium text-success inline-flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3" /> Active
               </span>
             </div>

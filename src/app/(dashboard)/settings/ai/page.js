@@ -171,6 +171,15 @@ export default function AiSettingsPage() {
     onError: (err) => toast.error(err.message),
   });
 
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, is_enabled }) => updateAiProvider(id, { is_enabled }),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.is_enabled ? "AI Provider enabled" : "AI Provider disabled");
+      queryClient.invalidateQueries({ queryKey: ["ai-providers"] });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   function openNewDialog() {
     setEditingProvider(null);
     setFetchedModelList([]);
@@ -249,6 +258,11 @@ export default function AiSettingsPage() {
   const handleFetchModels = async () => {
     setFetchingModels(true);
     setFetchedModelList([]);
+    if (!formData.api_key || formData.api_key.startsWith("••••")) {
+      toast.info("Re-enter the API key to fetch models from the provider");
+      setFetchingModels(false);
+      return;
+    }
     try {
       const res = await fetchAiModels({
         base_url: formData.base_url,
@@ -352,6 +366,27 @@ export default function AiSettingsPage() {
                       {p.is_default && (
                         <Badge variant="default" className="text-[10px] font-extrabold rounded-full px-2">Default</Badge>
                       )}
+                      <Tooltip content={p.is_enabled ? "Enabled — click to disable" : "Disabled — click to enable"}>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={p.is_enabled}
+                          aria-label={`Toggle ${p.display_name}`}
+                          disabled={toggleMutation.isPending}
+                          onClick={() => toggleMutation.mutate({ id: p.provider_id, is_enabled: !p.is_enabled })}
+                          className={cn(
+                            "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed",
+                            p.is_enabled ? "bg-success" : "bg-foreground/20"
+                          )}
+                        >
+                          <span
+                            className={cn(
+                              "inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform",
+                              p.is_enabled ? "translate-x-[19px]" : "translate-x-[3px]"
+                            )}
+                          />
+                        </button>
+                      </Tooltip>
                       <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[10px] font-extrabold rounded-full px-2">
                         {p.is_enabled ? "Enabled" : "Disabled"}
                       </Badge>

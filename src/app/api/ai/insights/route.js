@@ -23,9 +23,7 @@ export async function GET(req) {
 
     return ok({
       insights: deterministicInsights,
-      natural_language_summary: llmResult.success
-        ? llmResult.content
-        : "Fleet operations running smoothly. 85% of vehicles available for guest transfers.",
+      natural_language_summary: llmResult.success ? llmResult.content : null,
     });
   } catch (e) { return handleError(e); }
 }

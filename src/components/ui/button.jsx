@@ -20,9 +20,9 @@ const buttonVariants = cva(
         warning: "bg-warning text-white hover:bg-warning/90",
       },
       size: {
-        default: "h-9 px-4 py-2",
+        default: "h-10 px-4 py-2",
         sm: "h-8 rounded px-3 text-xs",
-        lg: "h-10 rounded-md px-6 text-sm",
+        lg: "h-11 rounded-md px-6 text-sm",
         icon: "h-9 w-9 rounded-md",
       },
     },

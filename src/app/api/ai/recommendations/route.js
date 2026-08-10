@@ -3,6 +3,21 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 import { scoreReservationVehicles, scoreDispatchDrivers } from "@/lib/ai/rule-engine";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 
+// The rule-based scoring is the point of this endpoint; the LLM summary is
+// decorative. A slow/down provider must not stall the AI page, so the call is
+// raced against a short budget — the summary arrives when the provider is fast
+// and is simply omitted (with a null) when it isn't.
+const LLM_SUMMARY_BUDGET_MS = 2500;
+
+function withSummaryBudget(promise) {
+  return Promise.race([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve({ success: false, fallback: true, reason: "timeout" }), LLM_SUMMARY_BUDGET_MS)
+    ),
+  ]);
+}
+
 export async function GET(req) {
   try {
     await requireAuth(req);
@@ -21,10 +36,10 @@ export async function GET(req) {
       // Attempt LLM Synthesis if provider is configured
       const prompt = `Analyze available hotel vehicles for a reservation of ${passengerCount} guest(s). Recommending top vehicle: ${scoredVehicles[0]?.vehicle?.vehicle_name || "None"}. Provide a brief 2-sentence operational summary.`;
       
-      const llmResult = await executeLlmCompletion({
+      const llmResult = await withSummaryBudget(executeLlmCompletion({
         feature_used: "Reservation AI",
         user_prompt: prompt,
-      });
+      }));
 
       return ok({
         type: "reservation",
@@ -43,10 +58,10 @@ export async function GET(req) {
 
       const prompt = `Analyze available drivers for immediate hotel guest dispatch. Recommended top driver: ${scoredDrivers[0]?.driver?.employees?.first_name || "None"}. Provide a 2-sentence recommendation summary.`;
       
-      const llmResult = await executeLlmCompletion({
+      const llmResult = await withSummaryBudget(executeLlmCompletion({
         feature_used: "Dispatch AI",
         user_prompt: prompt,
-      });
+      }));
 
       return ok({
         type: "dispatch",

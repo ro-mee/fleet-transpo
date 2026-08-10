@@ -95,7 +95,7 @@ export default function IncidentMap({ incidents = [] }) {
                         {type}
                       </span>
                       <span
-                        className="text-[10px] font-bold px-2 py-0.5 rounded text-white shadow-sm tracking-widest uppercase"
+                        className="text-[11px] font-bold px-2 py-0.5 rounded text-white shadow-sm tracking-widest uppercase"
                         style={{ backgroundColor: color }}
                       >
                         {severity}
@@ -111,7 +111,7 @@ export default function IncidentMap({ incidents = [] }) {
                             <p className="text-sm font-bold text-foreground truncate">
                               {inc.driver ? `${inc.driver.first_name} ${inc.driver.last_name}` : "Unknown Driver"}
                             </p>
-                            <p className="text-[10px] text-foreground-muted font-bold uppercase tracking-wider">
+                            <p className="text-[11px] text-foreground-muted font-bold uppercase tracking-wider">
                               {inc.plate_number ? `Vehicle: ${inc.plate_number}` : inc.vehicle_id ? `Vehicle ID: #${inc.vehicle_id}` : "No Vehicle Assigned"}
                             </p>
                           </div>
@@ -130,7 +130,7 @@ export default function IncidentMap({ incidents = [] }) {
                       {inc.assistance_needed && inc.assistance_needed.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 pb-1 mt-1">
                           {inc.assistance_needed.map((req, i) => (
-                            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-sm bg-danger text-white text-[10px] font-bold tracking-widest uppercase shadow-[0_0_8px_rgba(239,68,68,0.5)]">
+                            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-sm bg-danger text-white text-[11px] font-bold tracking-widest uppercase shadow-[0_0_8px_rgba(239,68,68,0.5)]">
                               {req} NEEDED
                             </span>
                           ))}
@@ -149,7 +149,7 @@ export default function IncidentMap({ incidents = [] }) {
 
                       {/* Footer/Meta */}
                       <div className="pt-2 mt-1 border-t border-border/40 flex flex-col gap-0.5">
-                        <p className="font-data text-[10px] font-semibold text-foreground-secondary flex items-center justify-between">
+                        <p className="font-data text-[11px] font-semibold text-foreground-secondary flex items-center justify-between">
                           <span>{lat.toFixed(4)}, {lng.toFixed(4)}</span>
                           <span>{ts}</span>
                         </p>
