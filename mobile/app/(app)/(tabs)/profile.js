@@ -219,7 +219,7 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
   saved: { fontFamily: fonts.body, fontSize: 13, marginTop: space.xs },
   identity: {

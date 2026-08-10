@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, space } from "../../../lib/theme";
+import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
+import { mobileNotificationMeta } from "../../../lib/notifications/presentation";
 import {
   Button,
   Card,
@@ -11,16 +14,20 @@ import {
   ErrorNotice,
   ScreenTitle,
   SkeletonCard,
+  StatusPill,
 } from "../../../components/ui";
 import { BrandBar } from "../../../components/logo";
 
 /**
  * In-app notifications feed (GET /api/notifications, self-scoped). Tapping an
- * unread notification marks it read. Push notifications are a separate,
- * later workstream — this is the in-app inbox.
+ * unread notification marks it read and, when the row references an entity the
+ * driver can act on, deep-links to the relevant tab (new dispatches land on
+ * Home). Push notifications are a separate, later workstream — this is the
+ * in-app inbox.
  */
 export default function Notifications() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { colors } = useTheme();
 
   const [items, setItems] = useState([]);
@@ -62,6 +69,15 @@ export default function Notifications() {
       // Non-blocking; the row stays unread.
     }
   }, []);
+
+  const open = useCallback(
+    (n) => {
+      markRead(n.notification_id);
+      const target = mobileNotificationTarget(n);
+      if (target) router.push(target);
+    },
+    [markRead, router]
+  );
 
   const markAllRead = useCallback(async () => {
     try {
@@ -106,7 +122,7 @@ export default function Notifications() {
           items.map((n) => (
             <Pressable
               key={n.notification_id}
-              onPress={() => markRead(n.notification_id)}
+              onPress={() => open(n)}
               accessibilityRole="button"
             >
               <Card tone={!n.is_read ? "info" : null}>
@@ -115,6 +131,20 @@ export default function Notifications() {
                   {!n.is_read ? <View style={[styles.dot, { backgroundColor: colors.info }]} /> : null}
                 </View>
                 <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>{n.message}</Text>
+                {(() => {
+                  const meta = mobileNotificationMeta(n);
+                  const chips = [
+                    meta.category ? { label: meta.category.label + (meta.referenceId ? ` #${meta.referenceId}` : ""), tone: meta.category.tone } : null,
+                    meta.severity ? { label: meta.severity.label, tone: meta.severity.tone } : null,
+                  ].filter(Boolean);
+                  return chips.length ? (
+                    <View style={styles.chipRow}>
+                      {chips.map((c) => (
+                        <StatusPill key={c.label} label={c.label} tone={c.tone} />
+                      ))}
+                    </View>
+                  ) : null;
+                })()}
                 {n.sent_at ? (
                   <Text style={[styles.time, { color: colors.onSurfaceVariant }]}>{new Date(n.sent_at).toLocaleString()}</Text>
                 ) : null}
@@ -129,7 +159,7 @@ export default function Notifications() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
   skeletons: { gap: space.base },
   header: {
     flexDirection: "row",
@@ -141,5 +171,6 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.bodySemiBold, fontSize: 15, flex: 1 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   message: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
   time: { fontFamily: fonts.data, fontSize: 11, marginTop: space.xs },
 });

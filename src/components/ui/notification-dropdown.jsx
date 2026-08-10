@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@/hooks/use-auth";
+import { getNotificationHref } from "@/lib/notifications/target";
+import { notificationCategory, severityBadge } from "@/lib/notifications/presentation";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -52,6 +56,9 @@ const typeBg = {
 
 export function NotificationDropdown() {
   const [open, setOpen] = useState(false);
+  const router = useRouter();
+  const { employee } = useAuth();
+  const role = employee?.roles?.role_name;
   const queryClient = useQueryClient();
 
   const { data: notifications = [] } = useQuery({
@@ -82,6 +89,13 @@ export function NotificationDropdown() {
   const unreadCount = uniqueNotifications.filter((n) => !n.is_read).length;
 
   const recent = uniqueNotifications.slice(0, 5);
+
+  const openNotification = (notif) => {
+    if (!notif.is_read) markReadMut.mutate(notif.notification_id);
+    const href = getNotificationHref(notif, role);
+    setOpen(false);
+    if (href) router.push(href);
+  };
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen} modal={false}>
@@ -135,14 +149,14 @@ export function NotificationDropdown() {
           ) : (
             recent.map((notif) => {
               const Icon = typeIcons[notif.type] || Info;
+              const category = notificationCategory(notif.reference_type);
+              const severity = severityBadge(notif.severity);
               const isUnread = !notif.is_read;
 
               return (
                 <div
                   key={notif.notification_id}
-                  onClick={() => {
-                    if (isUnread) markReadMut.mutate(notif.notification_id);
-                  }}
+                  onClick={() => openNotification(notif)}
                   className={cn(
                     "flex items-start gap-3 p-3 text-left transition-colors cursor-pointer hover:bg-hover",
                     isUnread && "bg-primary/[0.03]"
@@ -166,6 +180,20 @@ export function NotificationDropdown() {
                     <span className="text-[11px] text-foreground-muted block pt-0.5">
                       {notif.sent_at ? formatDate(notif.sent_at) : ""}
                     </span>
+                    {(category || severity) && (
+                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                        {category?.label && (
+                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", category.chipClass)}>
+                            {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
+                          </span>
+                        )}
+                        {severity && (
+                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", severity.chipClass)}>
+                            {severity.label}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               );

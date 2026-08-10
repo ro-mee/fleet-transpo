@@ -4,9 +4,18 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req);
+    const session = await requireAuth(req, [
+      "system_admin",
+      "admin",
+      "fleet_manager",
+      "dispatcher",
+      "management",
+      "driver",
+    ]);
     const sp = new URL(req.url).searchParams;
-    let sql = `SELECT * FROM notifications`;
+    let sql = `SELECT n.*, di.severity AS severity, di.incident_type AS incident_subtype
+                 FROM notifications n
+                 LEFT JOIN driverincidents di ON n.reference_type = 'incident' AND di.incident_id = n.reference_id`;
     const params = []; let idx = 1;
     const conditions = [];
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
@@ -14,20 +23,20 @@ export async function GET(req) {
     const target = sp.get("employee_id");
     if (target) {
       if (!canScopeAll) return err("Not authorized to view another user's notifications", 403);
-      conditions.push(`employee_id = $${idx++}`); params.push(+target);
+      conditions.push(`n.employee_id = $${idx++}`); params.push(+target);
     } else if (own) {
       // employee_id is int and user_id is uuid, so both cannot share one param
       // typed against one column: comparing the numeric employeeId to the uuid
       // user_id column makes Postgres throw a cast error and the self-scoped
       // read 500s. Scope on whichever identity is actually present.
       const isEmp = session.user?.employeeId != null;
-      conditions.push(isEmp ? `employee_id = $${idx++}` : `user_id = $${idx++}`);
+      conditions.push(isEmp ? `n.employee_id = $${idx++}` : `n.user_id = $${idx++}`);
       params.push(own);
     }
-    const type = sp.get("type"); if (type) { conditions.push(`type = $${idx++}`); params.push(type); }
-    const is_read = sp.get("is_read"); if (is_read !== null && is_read !== undefined) { conditions.push(`is_read = $${idx++}`); params.push(is_read === "true"); }
+    const type = sp.get("type"); if (type) { conditions.push(`n.type = $${idx++}`); params.push(type); }
+    const is_read = sp.get("is_read"); if (is_read !== null && is_read !== undefined) { conditions.push(`n.is_read = $${idx++}`); params.push(is_read === "true"); }
     if (conditions.length) sql += " WHERE " + conditions.join(" AND ");
-    sql += " ORDER BY sent_at DESC LIMIT 50";
+    sql += " ORDER BY n.sent_at DESC LIMIT 50";
     const { rows } = await query(sql, params);
     return ok(rows || []);
   } catch (e) { return handleError(e); }
