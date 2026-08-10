@@ -32,7 +32,6 @@
     "@supabase/supabase-js": "^2.110.8",
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-table": "^8.21.3",
-    "@tremor/react": "^3.18.7",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -61,5 +60,9 @@
     "eslint-config-next": "16.2.11",
     "tailwindcss": "^4",
     "vitest": "^3.2.7"
+  },
+  "overrides": {
+    "react": "$react",
+    "react-dom": "$react-dom"
   }
 }

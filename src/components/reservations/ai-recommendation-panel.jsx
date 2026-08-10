@@ -112,7 +112,7 @@ function ChecklistBlock({ items = [] }) {
   );
 }
 
-function VehicleDriverPairBlock({ pair, pick, onSwap, expanded }) {
+function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) {
   const chosen = pick === PICK.ALTERNATE ? pair?.alternate : pair?.recommended;
   const vehicle = chosen?.vehicle;
   const driver = chosen?.driver;
@@ -221,20 +221,34 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, expanded }) {
       {/* Why this pair? — always visible checklist */}
       <ChecklistBlock items={chosen?.checklist} />
 
-      {/* Rationale / Match Reasons */}
-      {expanded && (
-        <div className="pt-2 border-t border-border/40 space-y-1.5">
-          <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">Pairing Rationale</p>
-          <ul className="space-y-1 text-xs">
-            {(chosen?.reasons || []).slice(0, 4).map((r, i) => (
-              <li key={`r-${i}`} className="flex items-start gap-1.5 text-foreground-secondary">
-                <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" />
-                <span>{r}</span>
+      {/* AI Rationale / Match Reasons */}
+      <div className="pt-3 border-t border-border/40 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-info shrink-0" aria-hidden="true" />
+          <p className="text-[11px] font-semibold text-info uppercase tracking-wider">
+            AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
+          </p>
+        </div>
+        {isNarrating ? (
+          <p className="text-xs text-foreground-muted flex items-center gap-1.5">
+            <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+            Writing rationale…
+          </p>
+        ) : narration ? (
+          <ul className="space-y-2 text-xs text-foreground-secondary leading-relaxed">
+            {narration.text.split(/(?<=\.)\s+/).filter(Boolean).map((sentence, idx) => (
+              <li key={idx} className="flex items-start gap-1.5">
+                <Check className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
+                <span>{sentence}</span>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs leading-relaxed text-foreground-muted">
+            Live rationale unavailable — the AI provider did not respond in time.
+          </p>
+        )}
+      </div>
 
       {/* Risks */}
       <RiskList risks={[...(vehicle?.detected_risks || []), ...(driver?.detected_risks || [])]} />
@@ -317,10 +331,9 @@ function Countdown({ pickupAt, now }) {
  * panel open with the server's blocking conflicts and an explicit override —
  * identical to the manual dialog, because it is the same endpoint answering.
  */
-export function AiRecommendationPanel({ requestId, className, defaultExpanded = false, canAssign = false, onAssigned, alreadyAssigned = false, pickupAt = null }) {
+export function AiRecommendationPanel({ requestId, className, canAssign = false, onAssigned, alreadyAssigned = false, pickupAt = null }) {
   const queryClient = useQueryClient();
   const now = useNow();
-  const [expanded, setExpanded] = useState(defaultExpanded);
   const [dismissed, setDismissed] = useState(false);
   const [pick, setPick] = useState(PICK.RECOMMENDED);
   const [conflictError, setConflictError] = useState(null);
@@ -345,7 +358,7 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
   const { data: narrated, isFetching: isNarrating } = useQuery({
     queryKey: ["reservation-recommendation", requestId, "narrated"],
     queryFn: () => getRecommendation(requestId, { narrate: true }),
-    enabled: requestId != null && !dismissed && expanded,
+    enabled: requestId != null && !dismissed,
     staleTime: 5 * 60 * 1000,
     retry: false,
   });
@@ -430,19 +443,6 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
           >
             <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExpanded((v) => !v)}
-            aria-expanded={expanded}
-          >
-            {expanded ? (
-              <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
-            )}
-            <span className="ml-1">{expanded ? "Less" : "Full Explanation"}</span>
-          </Button>
         </div>
       </CardHeader>
 
@@ -485,31 +485,11 @@ export function AiRecommendationPanel({ requestId, className, defaultExpanded = 
               pair={rec?.pair}
               pick={pick}
               onSwap={() => setPick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))}
-              expanded={expanded}
+              isNarrating={isNarrating}
+              narration={narration}
             />
 
-            {expanded && (
-              <div className="rounded-lg border border-info/30 bg-info/5 p-3 space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-3.5 h-3.5 text-info shrink-0" aria-hidden="true" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider text-info">
-                    AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
-                  </span>
-                </div>
-                {isNarrating ? (
-                  <p className="text-sm text-foreground-muted flex items-center gap-1.5">
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin shrink-0" />
-                    Writing rationale…
-                  </p>
-                ) : narration ? (
-                  <p className="text-sm leading-relaxed text-foreground-secondary">{narration.text}</p>
-                ) : (
-                  <p className="text-sm leading-relaxed text-foreground-muted">
-                    Live rationale unavailable — the AI provider did not respond in time.
-                  </p>
-                )}
-              </div>
-            )}
+
 
             <ConflictBlock conflicts={blocking} />
 
