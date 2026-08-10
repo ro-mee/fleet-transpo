@@ -63,7 +63,7 @@ export function FilledButton({ label, onPress, loading, disabled, style, size = 
         isSmall && styles.buttonSmall,
         { backgroundColor: isDisabled ? colors.onSurfaceVariant : colors.primary },
         isSmall ? elevation.level0 : elevation.level1,
-        pressed && !isDisabled && { backgroundColor: colors.primaryContainer },
+        pressed && !isDisabled && { opacity: 0.8 },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -89,7 +89,7 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
         styles.button,
         isSmall && styles.buttonSmall,
         { backgroundColor: isDisabled ? colors.surfaceContainer : colors.secondaryContainer },
-        pressed && !isDisabled && { backgroundColor: colors.onSecondaryContainer },
+        pressed && !isDisabled && { opacity: 0.8 },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -117,7 +117,7 @@ export function OutlinedButton({ label, onPress, loading, disabled, style, size 
         styles.button,
         isSmall && styles.buttonSmall,
         { borderWidth: 1, borderColor: colors.outline, backgroundColor: "transparent" },
-        pressed && !isDisabled && { backgroundColor: colors.surfaceContainerLow },
+        pressed && !isDisabled && { opacity: 0.6 },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -143,7 +143,7 @@ export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
         styles.button,
         isSmall && styles.buttonSmall,
         { backgroundColor: "transparent" },
-        pressed && !isDisabled && { backgroundColor: colors.surfaceContainer },
+        pressed && !isDisabled && { opacity: 0.6 },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -156,6 +156,32 @@ export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
 }
 
 /** Backward-compatible Button (maps to MD3 variants). */
+export function CriticalButton({ label, onPress, loading, disabled, style, size = "lg" }) {
+  const { colors, elevation } = useTheme();
+  const isDisabled = disabled || loading;
+  const isSmall = size === "sm";
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={({ pressed }) => [
+        styles.button,
+        isSmall && styles.buttonSmall,
+        { backgroundColor: isDisabled ? colors.onSurfaceVariant : colors.error },
+        isSmall ? elevation.level0 : elevation.level1,
+        pressed && !isDisabled && { opacity: 0.8 },
+        isDisabled && styles.buttonDisabled,
+        style,
+      ]}
+    >
+      {loading && <ActivityIndicator size="small" color={colors.onError} />}
+      <Text style={[styles.buttonText, { color: colors.onError }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 export function Button({ label, onPress, variant = "primary", loading, disabled, style, size }) {
   if (variant === "secondary") {
     return (
@@ -169,6 +195,9 @@ export function Button({ label, onPress, variant = "primary", loading, disabled,
   }
   if (variant === "text") {
     return <TextButton label={label} onPress={onPress} disabled={disabled} style={style} size={size} />;
+  }
+  if (variant === "critical") {
+    return <CriticalButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
   }
   return <FilledButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
 }

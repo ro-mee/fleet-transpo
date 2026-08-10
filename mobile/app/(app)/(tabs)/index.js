@@ -301,8 +301,13 @@ export default function Home() {
                 />
               </View>
               <Button
+                label="My Submissions (Logbook)"
+                variant="outline"
+                onPress={() => router.push("/submissions")}
+              />
+              <Button
                 label="Emergency Call (Dispatch)"
-                variant="secondary"
+                variant="critical"
                 onPress={() => {
                   const phone = process.env.EXPO_PUBLIC_DISPATCHER_PHONE;
                   if (!phone) {
