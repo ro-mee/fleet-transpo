@@ -13,20 +13,47 @@ It is a **single-organization** system (branch/multi-tenant concepts were remove
 | Web dashboard | `src/` | Next.js 16 (App Router) + React 19 | Admin, fleet managers, dispatchers, drivers, management |
 | Mobile app | `mobile/` | Expo SDK 54 / React Native 0.81 (Expo Router) | Drivers |
 
-**Latest changes:** FleetOps is scoped strictly to **fleet & transportation**. The
-three hospitality roles (`reception_staff`, `restaurant_staff`, `concierge`)
-were **removed** (migration `022_remove_front_desk_roles.sql`: role rows 5/6/8
-deleted; the 3 employees who held them disabled). Six roles remain. Each role is
-a distinct **workspace** (identity, tagline, accent, home, role-specific nav)
+**Scope:** FleetOps is strictly **fleet & transportation**. The three hospitality
+roles (`reception_staff`, `restaurant_staff`, `concierge`) were **removed**
+(migration `022_remove_front_desk_roles.sql`). Six roles remain. Each role is a
+distinct **workspace** (identity, tagline, accent, home, role-specific nav)
 driven by `src/lib/workspaces.js` (`WORKS[role]`, `getWorkspace(role)`); role
 dashboards render through `src/components/dashboard/role-dashboard.jsx` +
-`dashboard-configs.js`. New **read-only operational/executive boards** reuse
-existing data (see §8): `/fleet/availability`, `/drivers/availability`,
-`/fleet/documents` (Vehicle/Driver tabs incl. driver licenses + vehicle
-registration), `/drivers/performance`, `/reports/cost`, `/executive`. New
-endpoints `GET /api/documents/expiring` and `GET /api/reports/fleet-cost`; the
-`admin` role (`role_id 9`, "FleetOps Admin") was added earlier via migration
-`019_admin_role.sql`.
+`dashboard-configs.js`. Earlier additions still apply: **read-only operational/
+executive boards** (`/fleet/availability`, `/drivers/availability`,
+`/fleet/documents`, `/drivers/performance`, `/reports/cost`, `/executive`) and
+endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`.
+
+**Latest changes** (the current feature wave — details in §7/§8/§9):
+
+- **Smart Transportation Queue** (migrations 026–027): explicit priority inputs
+  `is_vip` / `is_emergency` on `transportation_requests` feed a deterministic
+  priority engine (`src/lib/scheduling/priority.js`) that writes a cached
+  `derived_priority` (`Overdue → Critical → High → Medium → Normal → Future`);
+  thresholds are admin-configurable (`src/lib/dispatch-policy.js`, `/settings/dispatch`).
+  AI fleet-pair recommendations are now **immutable snapshots**
+  (`recommendation_snapshots`, `src/lib/ai/pair-scoring.js` + `dispatch-advisor.js`)
+  with a TTL, a `designated-driver` rule enforced at assign, and regeneration.
+- **Incidents module** (migrations 024/029): driver-reported incidents (severity +
+  GPS coords) surface in a staff **read-only registry** with an active-incident
+  map (TomTom tiles), resolve / send-to-maintenance actions, and **vehicle
+  grounding + dispatch-interrupt automation** (see §7.3). Web page `/incidents`.
+- **Notifications direction & preferences** (migration 030): notifications carry
+  `reference_type` / `severity` / `link`; render with shared category/severity
+  chips on web, mobile, and the in-app feed; taps route **per-role**
+  (`src/lib/notifications/target.js`); per-user `notification_preferences` back
+  the `/notifications/preferences` toggle grid.
+- **Global search** (`Ctrl/Cmd+K`): `src/components/ui/command-palette.jsx` +
+  `GET /api/search` across reservations, dispatches, drivers, vehicles.
+- **TomTom routing** (`src/lib/tomtom.js` + `GET /api/tomtom/route` proxy with the
+  server key): route / distance / turn-by-turn for trip detail and live tracking;
+  the mobile **Live Map** uses TomTom static images (no native map SDK).
+- **CORS for the Expo build:** `src/middleware.js` **and** `next.config.mjs` both
+  answer `OPTIONS` preflights for `/api/:path*` with `Access-Control-Allow-Origin: *`
+  so the mobile web/device build can call the API cross-origin.
+- **Mobile app is now a 5-tab app** (Home / Live Map / History / Alerts / Profile);
+  the driver **profile**, **alerts** inbox, **trip history**, and **full-screen
+  map** screens all shipped (see §8).
 
 ---
 
@@ -49,12 +76,13 @@ endpoints `GET /api/documents/expiring` and `GET /api/reports/fleet-cost`; the
 | Scripts | `dev`, `build`, `start`, `lint` (eslint flat config), `test`/`test:run` | |
 
 ### Mobile (`mobile/package.json`)
-- Expo SDK ~54, RN 0.81.5, React 19.1, **expo-router ~6** (file-based), **expo-secure-store** (tokens), **expo-location** (GPS), Google-font packages (Archivo / IBM Plex).
+- Expo SDK ~54, RN 0.81.5, React 19.1, **expo-router ~6** (file-based), **expo-secure-store** (tokens), **expo-location** (GPS), Google-font packages (Archivo / IBM Plex); **react-native-web + @expo/metro-runtime** (Expo web target).
 - Scripts: `start`, `tunnel` (`@expo/ngrok`), `android`, `ios`, `web`.
 
 ### Key environment config
-- `.env` — Supabase URL/key, service-role key, `DATABASE_URL` (pg), `NEXTAUTH_SECRET`, `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, AI provider keys.
-- `next.config.mjs` — minimal (`turbopack.root` only). **No middleware**.
+- `.env` — Supabase URL/key, service-role key, `DATABASE_URL` (pg), `NEXTAUTH_SECRET`, `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, AI provider keys, and TomTom (`NEXT_PUBLIC_TOMTOM_API_KEY` client, `TOMTOM_API_KEY` server).
+- `next.config.mjs` — `turbopack.root` + CORS headers for `/api/:path*`.
+- `src/middleware.js` — **CORS only** (no auth): answers `OPTIONS` preflights for `/api/:path*` with `Access-Control-Allow-Origin: *`. Duplicates the `next.config.mjs` headers so the Expo web/mobile build can call the API cross-origin.
 - Path alias: `@/* → ./src/*` (`jsconfig.json`).
 
 ---
@@ -64,6 +92,7 @@ endpoints `GET /api/documents/expiring` and `GET /api/reports/fleet-cost`; the
 ```
 capstone/
 ├── src/                        # Next.js web app
+│   ├── middleware.js           # CORS preflight for /api/* (Expo cross-origin, no auth)
 │   ├── app/
 │   │   ├── layout.js           # ONLY root layout; wraps all pages in DashboardLayout
 │   │   ├── page.js             # "/" → redirect /dashboard or /login
@@ -71,7 +100,7 @@ capstone/
 │   │   ├── (auth)/             # login, register(→redirect /login), forgot-password, reset-password
 │   │   ├── (dashboard)/        # all app modules (no group layout; chrome from DashboardLayout)
 │   │   │   ├── dashboard/      # home KPIs, charts, live map, AI insights
-│   │   │   ├── driver/         # ★ driver portal (new) — profile + consent gate
+│   │   │   ├── driver/         # ★ driver portal — home, trips, profile (licenses+scan), incidents, vehicle, fuel
 │   │   │   ├── fleet/          # vehicles (+ new/[id]/edit), categories, availability, documents
 │   │   │   ├── drivers/        # list, new, [id] (detail+account), [id]/edit, availability, performance
 │   │   │   ├── trips/          # register, active (live cards), [id]
@@ -79,16 +108,17 @@ capstone/
 │   │   │   ├── dispatch/       # kanban board, calendar, [id]
 │   │   │   ├── fuel/           # records (approval workflow), analytics
 │   │   │   ├── maintenance/    # records, predictive (AI)
+│   │   │   ├── incidents/      # ★ Fleet Incidents Registry (staff read-only + resolve, live map)
 │   │   │   ├── tracking/       # live-map, history
 │   │   │   ├── routes/
 │   │   │   ├── ai/             # insights, predictive-maintenance, provider settings, logs
-│   │   │   ├── reports/        # 5 report types + cost dashboard
+│   │   │   ├── reports/        # 6 report types + cost dashboard
 │   │   │   ├── analytics/
 │   │   │   ├── executive/      # ★ Executive KPI Center (management/admin, read-only)
 │   │   │   ├── notifications/  # feed, preferences, templates
 │   │   │   ├── system/         # ★ System Console (admin) — audit log (system_admin only)
-│   │   │   └── settings/       # general, profile, security, users/new, api, ai/logs
-│   │   └── api/                # ~99 route handler files (see §6)
+│   │   │   └── settings/       # general, profile, security, users/new, api, ai/logs, number-coding (UVVRP), dispatch (smart queue)
+│   │   └── api/                # 116 route handler files (see §6)
 │   ├── components/
 │   │   ├── layout/             # app-shell, dashboard-layout (+RouteGuard)
 │   │   ├── dashboard/          # ★ role-dashboard renderer + dashboard-configs.js
@@ -102,21 +132,25 @@ capstone/
 │   ├── lib/
 │   │   ├── db.js               # getAdminClient(), getPool()/query()/withTransaction()
 │   │   ├── auth.js             # NextAuth options (Credentials, JWT, rate-limited)
-│   │   ├── constants.js        # ROLES, ROLE_IDS, status lifecycles, etc.
+│   │   ├── constants.js        # ROLES, ROLE_IDS, status lifecycles, NOTIFICATION_EVENTS/CHANNELS, derived-priority, etc.
 │   │   ├── workspaces.js       # ★ WORKS[role] per-role workspace (identity, accent, home, nav) + getWorkspace()
+│   │   ├── dispatch-policy.js  # ★ smart-queue thresholds (critical/high/medium minutes, vip/emergency flags)
+│   │   ├── tomtom.js           # ★ TomTom URLs + server-keyed route builder (two-key split)
 │   │   ├── auth/               # api-auth, permissions.js (RBAC matrix), role-guard, mobile-token
 │   │   ├── api/                # utils (requireAuth/ok/err), client (apiFetch), service-auth, ownership, trips-query
-│   │   ├── consent/            # policies.js, driver-visibility.js (NEW)
-│   │   ├── scheduling/         # calendar, conflicts, dispatch/trip/reservation state machines
+│   │   ├── consent/            # policies.js, driver-visibility.js
+│   │   ├── driver/             # grounding.js — breakdown regex + vehicle-grounding rule (shipped stub)
+│   │   ├── notifications/      # presentation.js (category/severity chips), target.js (per-role nav)
+│   │   ├── scheduling/         # calendar, conflicts, priority, queue-grouping, trip-progress, dispatch/trip/reservation state machines
 │   │   ├── integration/        # booking-gateway, contracts, category-resolver, status-map
-│   │   ├── ai/                 # llm-adapter, rule-engine, dispatch-advisor, predictive-maintenance
-│   │   ├── validation/         # schemas (zod), useFormValidation, helpers
-│   │   └── geo/, vehicles/
-│   ├── services/               # 24 thin apiFetch wrappers + server business-logic services
+│   │   ├── ai/                 # llm-adapter, rule-engine, dispatch-advisor, pair-scoring, predictive-maintenance, license-ocr
+│   │   ├── uvvrp/              # policy.js (Number Coding), uvvrp.service.js
+│   │   ├── supabase/, geo/, vehicles/, validation/
+│   ├── services/               # 30 apiFetch wrappers + server business-logic services
 │   └── hooks/                  # use-auth, use-realtime, use-role-access, use-theme, ...
-├── mobile/                     # Expo driver app (see §8)
+├── mobile/                     # Expo driver app — 5-tab UI (see §8)
 ├── supabase/
-│   ├── migrations/             # 27 SQL migrations (see §5)
+│   ├── migrations/             # 38 SQL migrations (see §5)
 │   ├── config.toml
 │   └── functions/ai-recommend-vehicle/   # edge function
 ├── docs/                       # design-system.md, rbac-model.md, mobile-mvp.md
@@ -162,11 +196,38 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 - **LLM** (`lib/ai/llm-adapter.js`) adds natural-language summaries/narrations — failure-tolerant, time-budgeted (25 s), falls back to rule output.
 - `ai_providers` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (tesseract OCR → regex → optional LLM) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
 
+### 4.6 Cross-origin (mobile web) — middleware + config CORS
+The Expo web/device build runs on a different origin than the Next server, so
+every `/api/*` call is cross-origin. Both `src/middleware.js` (matcher `/api/:path*`)
+and `next.config.mjs` `headers()` answer `OPTIONS` preflights with
+`Access-Control-Allow-Origin: *` and allow `Content-Type, Authorization`.
+The **middleware is CORS-only — no auth**. Because `*` forbids cookies, the mobile
+app authenticates via `Authorization: Bearer`, which `resolveIdentity()` prefers
+over the NextAuth cookie (see 4.2).
+
+### 4.7 Smart dispatch & AI pair recommendation
+- **Priority engine** (`lib/scheduling/priority.js`) — pure, deterministic. Inputs:
+  pickup time, status, `is_vip`, `is_emergency`, thresholds. Terminal states → `null`;
+  missed pickup → `Overdue`; then by time-to-pickup `Critical/High/Medium`, same-day
+  `Normal`, else `Future`. VIP boosts one band (max High); emergency forces Critical.
+  The queue groups/sorts by this (`lib/scheduling/queue-grouping.js`); `priority.service.js`
+  batched-UPSERTs it into `transportation_requests.derived_priority` (never human-set).
+  Thresholds come from `dispatch-policy` in `system_settings` (`lib/dispatch-policy.js`).
+- **Fleet-pair scoring** (`lib/ai/pair-scoring.js`) scores vehicle+driver **as one
+  unit** (designated-driver match +45); only a *provably unavailable* custodian
+  legitimizes a substitute. `dispatch-advisor.js` enriches candidates with fuel-burn
+  estimates and `detected_risks`; `recommendation.service.js` enforces the
+  **designated-driver rule** at assign and flips snapshots to `is_consumed`.
+- **Recommendation snapshots** (`recommendation_snapshots`, migration 027) are
+  immutable pair records (`pair_json`, score, reasons, validity window). The
+  saved-recommendation card reads the active snapshot; unconsumed/past-`valid_until`
+  is surfaced as expired with `?regenerate=1`.
+
 ---
 
 ## 5. Database Schema (PostgreSQL on Supabase)
 
-28 migrations in `supabase/migrations/` (numbers are non-linear: no 008; pairs share 011, 013, 014, 017, 018, 019 — applied in filename order). **Migrations are applied via a direct `pg` connection (small Node script in repo dir), NOT the Supabase CLI or SQL editor** (see `AGENTS.md`).
+38 migrations in `supabase/migrations/` (numbers are non-linear: no 008; some numbers have multiple files — 011, 013, 014, 017, 018, 019, 030 — applied in filename order). **Migrations are applied via a direct `pg` connection (small Node script in repo dir), NOT the Supabase CLI or SQL editor** (see `AGENTS.md`).
 
 ### 5.1 Migration timeline
 | Mig | File | Purpose |
@@ -193,14 +254,22 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 | 017b | `driver_vehicle_assignments.sql` | permanent driver↔vehicle pairing w/ 2 partial UNIQUE indexes |
 | 018a | `predictive_maintenance.sql` | `vehicles.service_interval_km/days` |
 | 018b | `cleanup_dead_columns.sql` | drop 6 never-read/written columns |
-| 019 | `service_interval_guards.sql` | positive-interval CHECKs + partial `idx_trips_end_time` |
-| 019 | `admin_role.sql` | ★ insert **`admin`** role (`role_id 9`); backfill role-less active drivers to `driver` |
+| 019a | `service_interval_guards.sql` | positive-interval CHECKs + partial `idx_trips_end_time` |
+| 019b | `admin_role.sql` | ★ insert **`admin`** role (`role_id 9`); backfill role-less active drivers to `driver` |
+| 019c | `cleanup_ai_and_gpstracking.sql` | drop `vehiclereservations.ai_*` + `gpstracking.driver_id` (both dead) |
 | 020 | `fuel_hardening.sql` | fuel review workflow (`rejection_reason`, `approved_by/at`, status CHECK) |
 | 021 | `driver_personal_details.sql` | `drivers.address/sex/birthdate/nationality` (license scan auto-fill) |
 | 022 | `remove_front_desk_roles.sql` | ★ drop `reception_staff`/`restaurant_staff`/`concierge` (role rows 5/6/8); disable the 3 employees who held them |
 | 023 | `dispatch_overlap_guard.sql` | ★ DB-level double-booking guard trigger + advisory locks on `dispatchschedules` |
 | 024 | `driverincidents.sql` | ★ recreate `driverincidents` (dropped in 005) — driver incident reporting + breakdown automation |
 | 025 | `uvvrp.sql` | ★ Number Coding (UVVRP): `uvvrp_exemptions` + `uvvrp_violations` tables |
+| 026 | `smart_dispatch.sql` | ★ smart-queue inputs `is_vip`/`is_emergency` + cached `derived_priority` (CHECK) + indexes; VIP backfill |
+| 027 | `recommendation_snapshots.sql` | ★ immutable AI fleet-pair snapshots table (UNIQUE active-per-request, TTL, consumed flag) |
+| 028 | `recreate_vehicleinspection.sql` | ★ restore `vehicleinspection` (dropped in 005) for `GET /api/driver/vehicle-inspection` |
+| 029 | `incident_coordinates.sql` | ★ `driverincidents.latitude/longitude` for the incident live map |
+| 030a | `dispatch_cancel_reason.sql` | `dispatchschedules.cancel_reason` (auditable stand-downs) |
+| 030b | `notification_preferences.sql` | ★ per-employee (event×channel) notification toggles table + self-access RLS |
+| 031 | `perf_ai_provider_and_board_index.sql` | ★ migrate `aiproviders` out of hot-path DDL; partial `scheduled_departure` index for the dispatch board |
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
@@ -211,10 +280,10 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 | `vehicles` | fleet | plate UNIQUE, status CHECK, service intervals, expiry dates |
 | `drivers` | drivers | license fields, status CHECK, GPS last-known, face image, personal details (021) |
 | `routes` | operations | location FKs (007) |
-| `vehiclereservations` | reservations | legacy assignment record; guest data deprecated (015) |
-| `dispatchschedules` | operations | `dispatch_number` UNIQUE, status CHECK, `request_id` FK |
+| `vehiclereservations` | reservations | legacy assignment record; guest data deprecated (015), `ai_*` cols dropped (019c) |
+| `dispatchschedules` | operations | `dispatch_number` UNIQUE, status CHECK, `request_id` FK, `cancel_reason` (030a) |
 | `trips` | operations | 13-state CHECK, cost+performance cols (007) |
-| `gpstracking` | tracking | BIGSERIAL time-series GPS |
+| `gpstracking` | tracking | BIGSERIAL time-series GPS (no `driver_id`, 019c) |
 | `vehiclemaintenance` | maintenance | inspection merged (005), inspection cols dropped (018b) |
 | `vehicledocuments` | fleet | restored real table (007) |
 | `fuelrecords` | fuel | review workflow (020) |
@@ -229,7 +298,13 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 | `reservation_events` | timeline | append-only |
 | **`driver_consents`** | ★ privacy | `driver_id`, `policy_version`, `accepted_at/via`, `ip_address`; append-only; index `(driver_id, accepted_at DESC)` |
 | `driver_vehicle_assignments` | drivers | interval history + 2 partial UNIQUE active-pairing indexes |
-| `system_settings` | settings | created ad-hoc by `scripts/seed-naia-routes.mjs` (not a migration) |
+| `driverincidents` | ★ incidents | driver-reported incidents (024) with `latitude/longitude` (029); `severity`, `actions_taken`, status |
+| `uvvrp_exemptions`, `uvvrp_violations` | ★ Number Coding | vehicle exemptions + violation history (025) |
+| `recommendation_snapshots` | ★ AI | immutable fleet-pair advice per request; TTL + UNIQUE active-per-request (027) |
+| `vehicleinspection` | ★ fleet | restored driver-facing inspection table for `/api/driver/vehicle-inspection` (028) |
+| `notification_preferences` | ★ notifications | per-employee (event × channel) toggles; absent rows = server defaults (030b) |
+| `aiproviders` | AI | LLM provider config (migrated to proper table in 031; used to be hot-path DDL) |
+| `system_settings` | settings | created ad-hoc by `scripts/seed-naia-routes.mjs` (not a migration); stores `dispatch_policy`, `uvvrp_policy` |
 
 **Views:** `driver_stats` (computed from completed trips). **Storage:** `face-captures` bucket (private). **Sequences:** `dispatch_number_seq`.
 
@@ -240,7 +315,7 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 
 ---
 
-## 6. API Surface (`src/app/api/` — 99 route files)
+## 6. API Surface (`src/app/api/` — 116 route files)
 
 All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads default to the 5 ops roles; writes are narrowed to admin/fleet_manager (+ dispatcher for dispatch/trip/integration; + driver for self-owned actions).
 
@@ -259,7 +334,8 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `driver/license-scan` (POST) ★ — OCR + regex check (shared `src/lib/ai/license-ocr.js`) of a driver's own scan; returns `ok`/`unclear`, **no persistence** — an unreadable photo is never saved, so a driver retakes it until it reads clean.
 - `driver/me/consent` (POST) ★ — record policy acceptance; 409 on stale `policy_version`.
 - `driver/incidents` (GET/POST) ★ — driver-reported incidents (self-scoped to own trips).
-- `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting.
+- `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting (reads `vehicleinspection`, migration 028).
+- `driver/trips` (GET) ★ — **web driver-portal** trip list; always `WHERE driver_id = auth` (unlike the unscoped `trips/`).
 
 ### Trips
 - `trips/` (GET/POST), `trips/[id]` (GET/PUT) — shared `TRIPS_SELECT/TRIPS_JOINS` (`src/lib/api/trips-query.js`).
@@ -276,7 +352,9 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 
 ### Reservations & integration (Booking)
 - `reservations/` (GET, POST→410), `reservations/[id]` (GET, PUT→410), `reservations/[id]/cancel` (→410), `conflicts`, `service-types`, `booking-channels` — legacy **read-only**.
-- `integration/transport-requests` (GET/POST — POST = inbound ingest), `[id]` (GET), `[id]/review|approve|assign|reschedule|cancel|reject` (PUT), `[id]/timeline` (GET), `[id]/recommendation` (GET/POST).
+- `integration/transport-requests` (GET/POST — POST = inbound ingest), `[id]` (GET), `[id]/review|approve|assign|reschedule|cancel|reject` (PUT), `[id]/timeline` (GET), `[id]/recommendation` (GET/POST), `[id]/flags` (PATCH).
+- `[id]/flags` (PATCH) ★ — set `is_vip` / `is_emergency`; recomputes `derived_priority` immediately + writes timeline/audit (system_admin, admin, fleet_manager).
+- `[id]/recommendation` (GET/POST) ★ — active recommendation snapshot (regenerate/narrate); POST persists a snapshot + back-writes legacy AI columns.
 - `integration/inbound`, `outbound`, `pull`, `logs`.
 
 ### Dispatch & assignments
@@ -287,15 +365,19 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `reports/{maintenance,fuel-consumption,fleet-utilization,financial,driver-performance,fleet-cost}` (GET).
 - `documents/expiring` (GET) ★ — Document Expiration Center: aggregates `vehicles.*_expiry` + `vehicledocuments.expiry_date` + `drivers.license_expiry` with days-left/expired flags (admin, system_admin, fleet_manager).
 - `ai/recommendations`, `ai/predictive-maintenance`, `ai/insights[/[id]/dismiss]`, `ai/driver-insights`, `ai/providers[/[id]]`, `ai/providers/fetch-models`, `ai/scan-document`, `ai/logs`, `ai/instructions`.
-- `notifications/` (GET/POST), `notifications/[id]/read`, `notifications/read-all`.
+- `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 030b).
+- `search` (GET) ★ — global command-palette search across reservations, dispatches, drivers, vehicles (min 2 chars, LIMIT 5 per entity; any role).
+- `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin; all roles incl. driver.
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `manifest`, `status/sync`, `cron/sync` (CRON_SECRET).
+- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Read-only + resolve only; creation is driver-side.
+- `settings/dispatch` (GET/PUT) ★ — smart-queue policy (`criticalMinutes`/`highMinutes`/`mediumMinutes`, `enableVipFlag`/`enableEmergencyFlag`); audit-writes `dispatch_policy` (system_admin/admin; fleet_manager read).
 - `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
 - `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
 - `uvvrp/exemptions` (GET/POST), `uvvrp/exemptions/[id]` (PUT) ★ — per-vehicle coding exemptions (category, approver, optional expiry).
 - `uvvrp/violations` (GET), `uvvrp/violations/[id]/decide` (POST) ★ — coding violation history + approve/deny pending approvals (defer-then-retry: an approved violation exempts that vehicle+date).
-- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/trips`, `mobile/driver/trips/[id]/accept|gps`, `mobile/fuel`.
+- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips`, `mobile/driver/trips/[id]/accept|gps`, `mobile/fuel`.
 
 ### Client service layer (`src/services/`)
 Thin `apiFetch` wrappers per domain: `auth, driver, vehicle, trip, reservation, reservation-lifecycle, reservation-events, dispatch, driver-assignment, fuel, transport, report, notification, route, location, settings, status, integration, outbound, maintenance-schedule, ai`. Server-only business-logic services (e.g. `reservation-lifecycle`, `trip-lifecycle`, `status`, `outbound`) are imported by route handlers.
@@ -312,7 +394,7 @@ Thin `apiFetch` wrappers per domain: `auth, driver, vehicle, trip, reservation, 
 > employees were disabled.
 
 ### Model
-- Single source of truth: **`src/lib/auth/permissions.js`** — `MATRIX[role][resource][action]` with resources `vehicles, driver_assignments, reservations, dispatch, drivers, trips, maintenance, fuel, routes, categories, reports, analytics, ai, employees, system`. Verbs `create/read/update/delete` + reservation lifecycle verbs (`approve/assign/dispatch/cancel/reschedule`). `system_admin` short-circuits to always-true.
+- Single source of truth: **`src/lib/auth/permissions.js`** — `MATRIX[role][resource][action]` with resources `vehicles, driver_assignments, reservations, dispatch, drivers, trips, maintenance, fuel, routes, categories, reports, analytics, ai, employees, system` (+ management-only `fuelallocations`, `scheduled_reports`). Verbs `create/read/update/delete` + reservation lifecycle verbs (`approve/assign/dispatch/cancel/reschedule`). `system_admin` short-circuits to always-true.
 - **Denials are explicit** (e.g. management gets no lifecycle verbs — read-only by design).
 - `NAV_ROLES[path]` drives the sidebar + route guard; `hasRole()`, `can()`, `filterNavItems()`, `getRequiredRolesForPath()`.
 - **Per-role workspaces:** `src/lib/workspaces.js` maps each role to a workspace (name, tagline, accent, home route, role-specific `nav` groups). `getWorkspace(role)` falls back to `WORKS.admin` for unknown roles. The sidebar/top-nav render the active role's workspace; `filterNavItems` further gates each item by `NAV_ROLES[item.href]`.

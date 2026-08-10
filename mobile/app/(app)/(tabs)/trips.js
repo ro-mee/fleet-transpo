@@ -77,7 +77,7 @@ export default function History() {
           />
         }
       >
-        <ScreenTitle eyebrow="Driver" title="Trip history" />
+        <ScreenTitle eyebrow="Driver" title="My Trips" />
         <ErrorNotice message={error} />
 
         {loading ? (
