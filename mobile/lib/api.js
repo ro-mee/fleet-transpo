@@ -62,7 +62,11 @@ async function refreshAccessToken() {
 
   refreshPromise = (async () => {
     const refreshToken = await getRefreshToken();
-    if (!refreshToken) throw new ApiError("No refresh token", 401);
+    if (!refreshToken) {
+      await clearAll();
+      onSessionExpired();
+      throw new ApiError("No refresh token", 401);
+    }
 
     const res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, {
       method: "POST",
