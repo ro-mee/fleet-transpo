@@ -211,7 +211,7 @@ export default function FuelReport() {
       style={[styles.flex, { backgroundColor: colors.background }]}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -219,7 +219,7 @@ export default function FuelReport() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <ScreenTitle eyebrow="Driver · Fuel" title="Fuel report" />
+        <ScreenTitle title="Fuel report" />
 
         <ErrorNotice message={error} />
 

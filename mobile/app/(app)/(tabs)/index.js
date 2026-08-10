@@ -336,10 +336,10 @@ export default function Home() {
           <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
             <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
-              Complete this trip?
+              End this trip?
             </Text>
             <Text style={[styles.modalSubtitle, { color: colors.onSurfaceVariant }]}>
-              Enter the ending odometer (km), then confirm. This closes the trip
+              Enter the ending odometer (km), then confirm. This ends the trip
               and stops location sharing.
             </Text>
             <TextInput
@@ -369,7 +369,7 @@ export default function Home() {
                 onPress={confirmComplete}
                 disabled={actingOn === completingTrip?.trip_id}
               >
-                <Text style={styles.modalConfirmText}>Complete trip</Text>
+                <Text style={styles.modalConfirmText}>End Trip</Text>
               </Pressable>
             </View>
           </View>
@@ -387,7 +387,7 @@ function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
   return (
     <View style={{ marginBottom: space.lg }}>
       {/* Expanded Hero Navigation Map */}
-      <View style={{ borderRadius: 28, overflow: "hidden", elevation: 4 }}>
+      <View style={{ borderRadius: 12, overflow: "hidden", elevation: 2 }}>
         <TripMap
           origin={
             trip.origin_latitude != null && trip.origin_longitude != null
@@ -404,53 +404,57 @@ function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
           destinationName={trip.destination}
           plateNumber={trip.plate_number}
           height={320}
-          borderRadius={28}
+          borderRadius={12}
         />
       </View>
 
-      {/* Floating Driver Navigation Bottom Sheet Card */}
-      <Card
-        tone={tone}
+      {/* Floating Premium Valet Ticket Card */}
+      <View
         style={{
-          marginTop: -28,
-          borderRadius: 24,
-          padding: 16,
+          marginTop: -32,
+          borderRadius: 8,
+          marginHorizontal: space.sm,
           backgroundColor: colors.surface,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: 0.15,
-          shadowRadius: 12,
-          elevation: 6,
+          shadowColor: colors.shadow,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.12,
+          shadowRadius: 20,
+          elevation: 8,
           borderWidth: 1,
-          borderColor: colors.outlineVariant || "rgba(0,0,0,0.08)",
+          borderColor: colors.outlineVariant,
+          overflow: "hidden"
         }}
       >
-        <View style={ui.rowBetween}>
+        {/* Ticket Header */}
+        <View style={{ padding: 16, backgroundColor: colors.surfaceContainer, borderBottomWidth: 1, borderStyle: 'dashed', borderColor: colors.outlineVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
-            <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Active Trip #{trip.trip_id}</Text>
+            <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant, fontSize: 12 }]}>TICKET #{trip.trip_id}</Text>
           </View>
           <StatusPill label={trip.trip_status} tone={tone} />
         </View>
 
-        <RouteLine origin={trip.origin} destination={trip.destination} />
+        {/* Ticket Body */}
+        <View style={{ padding: 16 }}>
+          <RouteLine origin={trip.origin} destination={trip.destination} />
 
-        <View style={styles.plateRow}>
-          <Plate plate={trip.plate_number} size="lg" />
-          <ScheduledBlock time={trip.start_time} />
+          <View style={[styles.plateRow, { marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderColor: colors.outlineVariant }]}>
+            <Plate plate={trip.plate_number} size="lg" />
+            <ScheduledBlock time={trip.start_time} />
+          </View>
+
+          <TrackingRow tracking={tracking} />
+
+          {canManage && nextStatus ? (
+            <Button
+              label={nextStatus.label === "Complete Trip" ? "End Trip" : nextStatus.label}
+              onPress={() => onAdvance(nextStatus)}
+              loading={busy}
+              style={{ marginTop: space.md, borderRadius: 8, height: 52 }}
+            />
+          ) : null}
         </View>
-
-        <TrackingRow tracking={tracking} />
-
-        {canManage && nextStatus ? (
-          <Button
-            label={nextStatus.label}
-            onPress={() => onAdvance(nextStatus)}
-            loading={busy}
-            style={{ marginTop: space.sm, borderRadius: 16, height: 48 }}
-          />
-        ) : null}
-      </Card>
+      </View>
     </View>
   );
 }
@@ -476,7 +480,7 @@ function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
       {canManage ? (
         <View style={styles.buttonRow}>
           <Button
-            label="Accept"
+            label="Accept Assignment"
             onPress={onAccept}
             loading={busy}
             style={styles.flex}
@@ -577,8 +581,8 @@ function TrackingRow({ tracking }) {
   if (!tracking.posting) return null;
   return (
     <View style={styles.trackingRow}>
-      <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-      <Text style={[styles.trackingText, { color: colors.onSurfaceVariant }]}>
+      <View style={[styles.statusDot, { backgroundColor: colors.secondary, shadowColor: colors.secondary, shadowOpacity: 0.8, shadowRadius: 6, elevation: 4 }]} />
+      <Text style={[styles.trackingText, { color: colors.onSurfaceVariant, fontWeight: '600' }]}>
         Location shared
         {tracking.lastSentAt
           ? ` · last sent ${tracking.lastSentAt.toLocaleTimeString()}`

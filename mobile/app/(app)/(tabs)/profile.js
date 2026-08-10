@@ -87,14 +87,14 @@ export default function Profile() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingBottom: insets.bottom + space.xxl },
         ]}
       >
-        <ScreenTitle eyebrow="Driver" title="Your profile" />
+        <ScreenTitle title="Your profile" />
         <ErrorNotice message={error} />
 
         {loading ? (
@@ -209,7 +209,7 @@ export default function Profile() {
               <Detail label="Via" value={consent?.acceptedVia ?? "—"} />
             </Card>
 
-            <Button label="Sign out" variant="outline" onPress={signOut} />
+            <Button label="Sign out" variant="critical-tonal" onPress={signOut} />
           </>
         )}
       </ScrollView>

@@ -63,7 +63,7 @@ export default function History() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -77,7 +77,7 @@ export default function History() {
           />
         }
       >
-        <ScreenTitle eyebrow="Driver" title="My Trips" />
+        <ScreenTitle title="My Trips" />
         <ErrorNotice message={error} />
 
         {loading ? (

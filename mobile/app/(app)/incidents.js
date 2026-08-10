@@ -182,7 +182,7 @@ export default function Incidents() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -190,7 +190,7 @@ export default function Incidents() {
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        <ScreenTitle eyebrow="Driver" title="Report an incident" />
+        <ScreenTitle title="Report an incident" />
         <ErrorNotice message={error} />
 
         <Card>

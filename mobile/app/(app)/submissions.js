@@ -50,14 +50,14 @@ export default function Submissions() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingBottom: insets.bottom + space.xxl },
         ]}
       >
-        <ScreenTitle eyebrow="Driver" title="My Submissions" />
+        <ScreenTitle title="My Submissions" />
         
         <ErrorNotice message={error} />
 

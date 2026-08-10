@@ -48,14 +48,14 @@ export default function Inspection() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
           { paddingBottom: insets.bottom + space.xxl },
         ]}
       >
-        <ScreenTitle eyebrow="Driver" title="Vehicle inspection" />
+        <ScreenTitle title="Vehicle inspection" />
         <ErrorNotice message={error} />
 
         {loading ? (

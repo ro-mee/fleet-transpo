@@ -63,7 +63,7 @@ export function FilledButton({ label, onPress, loading, disabled, style, size = 
         isSmall && styles.buttonSmall,
         { backgroundColor: isDisabled ? colors.onSurfaceVariant : colors.primary },
         isSmall ? elevation.level0 : elevation.level1,
-        pressed && !isDisabled && { opacity: 0.8 },
+        pressed && !isDisabled && { transform: [{ scale: 0.96 }] },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -88,8 +88,12 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
       style={({ pressed }) => [
         styles.button,
         isSmall && styles.buttonSmall,
-        { backgroundColor: isDisabled ? colors.surfaceContainer : colors.secondaryContainer },
-        pressed && !isDisabled && { opacity: 0.8 },
+        { 
+          backgroundColor: isDisabled ? colors.surfaceContainer : colors.secondaryContainer,
+          borderWidth: 1,
+          borderColor: isDisabled ? "transparent" : colors.secondary
+        },
+        pressed && !isDisabled && { transform: [{ scale: 0.96 }] },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -117,7 +121,7 @@ export function OutlinedButton({ label, onPress, loading, disabled, style, size 
         styles.button,
         isSmall && styles.buttonSmall,
         { borderWidth: 1, borderColor: colors.outline, backgroundColor: "transparent" },
-        pressed && !isDisabled && { opacity: 0.6 },
+        pressed && !isDisabled && { opacity: 0.7, transform: [{ scale: 0.98 }] },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -143,7 +147,7 @@ export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
         styles.button,
         isSmall && styles.buttonSmall,
         { backgroundColor: "transparent" },
-        pressed && !isDisabled && { opacity: 0.6 },
+        pressed && !isDisabled && { opacity: 0.5, transform: [{ scale: 0.98 }] },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
@@ -171,13 +175,57 @@ export function CriticalButton({ label, onPress, loading, disabled, style, size 
         isSmall && styles.buttonSmall,
         { backgroundColor: isDisabled ? colors.onSurfaceVariant : colors.error },
         isSmall ? elevation.level0 : elevation.level1,
-        pressed && !isDisabled && { opacity: 0.8 },
+        pressed && !isDisabled && { transform: [{ scale: 0.96 }] },
         isDisabled && styles.buttonDisabled,
         style,
       ]}
     >
       {loading && <ActivityIndicator size="small" color={colors.onError} />}
       <Text style={[styles.buttonText, { color: colors.onError }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+export function CriticalTonalButton({ label, icon, onPress, loading, disabled, style, size = "md" }) {
+  const { colors } = useTheme();
+  const isDisabled = disabled || loading;
+  const isSmall = size === "sm";
+
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      style={({ pressed }) => [
+        styles.button,
+        isSmall && styles.buttonSmall,
+        { 
+          backgroundColor: isDisabled ? colors.surfaceContainer : colors.errorContainer,
+          borderWidth: 1,
+          borderColor: isDisabled ? "transparent" : colors.error
+        },
+        pressed && !isDisabled && { transform: [{ scale: 0.96 }] },
+        isDisabled && styles.buttonDisabled,
+        style,
+      ]}
+    >
+      <View style={styles.buttonInner}>
+        {icon && <View style={[styles.icon, isSmall && styles.iconSmall]}>{icon}</View>}
+        <Text
+          style={[
+            styles.buttonText,
+            isSmall && styles.buttonTextSmall,
+            { color: isDisabled ? colors.onSurfaceVariant : colors.error, opacity: loading ? 0 : 1 },
+          ]}
+        >
+          {label}
+        </Text>
+      </View>
+      {loading && (
+        <ActivityIndicator
+          color={colors.error}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
     </Pressable>
   );
 }
@@ -198,6 +246,9 @@ export function Button({ label, onPress, variant = "primary", loading, disabled,
   }
   if (variant === "critical") {
     return <CriticalButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
+  }
+  if (variant === "critical-tonal") {
+    return <CriticalTonalButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
   }
   return <FilledButton label={label} onPress={onPress} loading={loading} disabled={disabled} style={style} size={size} />;
 }
@@ -261,7 +312,8 @@ export function Field({ label, error, required = false, right, ...inputProps }) 
           styles.inputBox,
           {
             borderColor: error ? colors.error : focused ? colors.primary : colors.outlineVariant,
-            backgroundColor: colors.surface,
+            backgroundColor: focused ? colors.surface : colors.surfaceContainer,
+            borderWidth: focused ? 1.5 : 1,
           },
         ]}
       >
@@ -480,7 +532,6 @@ export const styles = StyleSheet.create({
   field: { gap: space.xs, marginBottom: space.base },
   inputBox: {
     minHeight: 56,
-    borderWidth: 1.5,
     borderRadius: radius.control,
     flexDirection: "row",
     alignItems: "center",

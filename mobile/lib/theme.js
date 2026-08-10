@@ -1,15 +1,7 @@
 /**
- * FleetOps Mobile — Material Design 3 design tokens.
+ * FleetOps Mobile — Material Design 3 design tokens adapted for "Premium Hospitality".
  *
- * Tokens are referenced by role, never by raw value. Light and dark palettes are
- * provided; the active one is selected by a ThemeProvider in app/_layout.js and
- * exposed through useTheme(). Screens that import `colors`/`type` directly read
- * the light palette (kept for backward compatibility) while themed components
- * use the live palette.
- *
- * Spacing follows an 8-point grid. Type roles map to MD3 scale but keep the
- * dispatch-floor typefaces: Archivo (display), IBM Plex Sans (body), IBM Plex
- * Mono (data). Font assets are loaded once in app/_layout.js.
+ * Midnight Emerald & Warm Sand Theme.
  */
 
 // ---- 8-point spacing grid ----
@@ -24,18 +16,18 @@ export const space = {
   xxxl: 40,
 };
 
-// ---- MD3 shape (dp) ----
+// ---- Shape (dp) ----
 export const radius = {
   none: 0,
   xs: 4,
   sm: 6,
-  control: 12,
-  card: 16,
-  lg: 24,
+  control: 8, // Sharpened from 12 for a more ticket/editorial look
+  card: 8,    // Sharpened from 16
+  lg: 16,     // Sharpened from 24
   pill: 999,
 };
 
-// ---- Typefaces (loaded in app/_layout.js) ----
+// ---- Typefaces ----
 export const fonts = {
   display: "Archivo_600SemiBold",
   displayBold: "Archivo_700Bold",
@@ -46,113 +38,124 @@ export const fonts = {
   dataSemiBold: "IBMPlexMono_600SemiBold",
 };
 
-// ---- MD3 tonal palettes ----
+// ---- The Midnight Emerald Palette ----
 const light = {
-  // MD3 core adapted for Web UI alignment
-  primary: "#111827",
+  // Midnight Emerald Theme
+  primary: "#0A2A26",         // Midnight Emerald
   onPrimary: "#FFFFFF",
-  primaryContainer: "#e5e7eb",
-  onPrimaryContainer: "#111827",
-  secondary: "#4b5563",
-  onSecondary: "#FFFFFF",
-  secondaryContainer: "#e5e7eb",
-  onSecondaryContainer: "#111827",
-  tertiary: "#6b7280",
-  onTertiary: "#FFFFFF",
-  tertiaryContainer: "#f3f4f6",
-  onTertiaryContainer: "#111827",
-  error: "#ef4444",
-  onError: "#FFFFFF",
-  errorContainer: "#fef2f2",
-  onErrorContainer: "#7f1d1d",
-  background: "#f3f3f3",
-  onBackground: "#111827",
-  surface: "#ffffff",
-  onSurface: "#111827",
-  surfaceVariant: "#e5e7eb",
-  onSurfaceVariant: "#4b5563",
-  surfaceContainerLow: "#ffffff",
-  surfaceContainer: "#f9fafb",
-  surfaceContainerHigh: "#f3f4f6",
-  outline: "#d1d5db",
-  outlineVariant: "#e5e7eb",
-  inverseSurface: "#111827",
-  inverseOnSurface: "#f3f3f3",
-  inversePrimary: "#f5f5f5",
-  shadow: "#000000",
-  scrim: "#000000",
-  surfaceTint: "#111827",
+  primaryContainer: "#E6EFEE",
+  onPrimaryContainer: "#0A2A26",
+  
+  secondary: "#00D4FF",       // Electric Cyan
+  onSecondary: "#0A2A26",
+  secondaryContainer: "#E0FAFF",
+  onSecondaryContainer: "#005566",
 
-  // FleetOps semantic roles
-  foreground: "#111827",
-  foregroundSecondary: "#4b5563",
-  foregroundMuted: "#6b7280",
-  border: "#d1d5db",
-  borderStrong: "#9ca3af",
-  hover: "#f3f4f6",
-  success: "#10b981",
-  warning: "#f59e0b",
-  danger: "#ef4444",
-  info: "#3b82f6",
-  edge: "#111827",
+  tertiary: "#8C8377",        // Muted Taupe
+  onTertiary: "#FFFFFF",
+  tertiaryContainer: "#EAE5DF",
+  onTertiaryContainer: "#3D3833",
+
+  error: "#FF3B30",           // Signal Red
+  onError: "#FFFFFF",
+  errorContainer: "#FFEBEA",
+  onErrorContainer: "#80120C",
+
+  background: "#F7F6F2",      // Warm Sand
+  onBackground: "#0A2A26",    // Deep Green Text
+  
+  surface: "#FFFFFF",         // Pure White Cards
+  onSurface: "#0A2A26",
+  surfaceVariant: "#EFECE5",  // Slightly darker sand for accents
+  onSurfaceVariant: "#596664",
+  
+  surfaceContainerLow: "#FFFFFF",
+  surfaceContainer: "#F7F6F2",
+  surfaceContainerHigh: "#EFECE5",
+  
+  outline: "#D8D4CC",         // Crisp dividers
+  outlineVariant: "#E6E2D8",
+  
+  inverseSurface: "#0A2A26",
+  inverseOnSurface: "#F7F6F2",
+  inversePrimary: "#00D4FF",
+  
+  shadow: "#0A2A26",          // Colored shadow for elegance
+  scrim: "#000000",
+  surfaceTint: "#0A2A26",
+
+  // Semantic roles
+  foreground: "#0A2A26",
+  foregroundSecondary: "#596664",
+  foregroundMuted: "#889491",
+  border: "#D8D4CC",
+  borderStrong: "#B0ACA3",
+  hover: "#F2F0E9",
+  success: "#10B981",
+  warning: "#F59E0B",
+  danger: "#FF3B30",
+  info: "#00D4FF",
+  edge: "#0A2A26",
 };
 
 const dark = {
-  // MD3 core adapted for Web UI alignment
-  primary: "#f5f5f5",
-  onPrimary: "#111111",
-  primaryContainer: "#262626",
-  onPrimaryContainer: "#f5f5f5",
-  secondary: "#a3a3a3",
-  onSecondary: "#111111",
-  secondaryContainer: "#262626",
-  onSecondaryContainer: "#f5f5f5",
-  tertiary: "#6b7280",
-  onTertiary: "#111111",
-  tertiaryContainer: "#242424",
-  onTertiaryContainer: "#f5f5f5",
-  error: "#ef4444",
-  onError: "#111111",
-  errorContainer: "#7f1d1d",
-  onErrorContainer: "#fef2f2",
-  background: "#111111",
-  onBackground: "#f5f5f5",
-  surface: "#1a1a1a",
-  onSurface: "#f5f5f5",
-  surfaceVariant: "#2a2a2a",
-  onSurfaceVariant: "#a3a3a3",
-  surfaceContainerLow: "#111111",
-  surfaceContainer: "#1a1a1a",
-  surfaceContainerHigh: "#242424",
-  outline: "#2a2a2a",
-  outlineVariant: "#404040",
-  inverseSurface: "#f5f5f5",
-  inverseOnSurface: "#111111",
-  inversePrimary: "#111827",
+  primary: "#00D4FF",         // Electric Cyan pops on dark
+  onPrimary: "#041412",
+  primaryContainer: "#0A2A26",
+  onPrimaryContainer: "#00D4FF",
+  
+  secondary: "#0A2A26",
+  onSecondary: "#FFFFFF",
+  secondaryContainer: "#113A35",
+  onSecondaryContainer: "#BBEBE6",
+
+  error: "#FF453A",
+  onError: "#041412",
+  errorContainer: "#4A0E0A",
+  onErrorContainer: "#FFB4AB",
+
+  background: "#08100F",      // Very deep black/green
+  onBackground: "#F7F6F2",
+  
+  surface: "#0D1B19",         // Slightly lifted
+  onSurface: "#F7F6F2",
+  surfaceVariant: "#162825",
+  onSurfaceVariant: "#A5B5B2",
+  
+  surfaceContainerLow: "#08100F",
+  surfaceContainer: "#0D1B19",
+  surfaceContainerHigh: "#162825",
+  
+  outline: "#2A3A38",
+  outlineVariant: "#1B2A28",
+  
+  inverseSurface: "#F7F6F2",
+  inverseOnSurface: "#08100F",
+  inversePrimary: "#0A2A26",
+  
   shadow: "#000000",
   scrim: "#000000",
-  surfaceTint: "#f5f5f5",
+  surfaceTint: "#00D4FF",
 
-  // FleetOps semantic roles
-  foreground: "#f5f5f5",
-  foregroundSecondary: "#a3a3a3",
-  foregroundMuted: "#6b7280",
-  border: "#2a2a2a",
-  borderStrong: "#404040",
-  hover: "#242424",
-  success: "#10b981",
-  warning: "#f59e0b",
-  danger: "#ef4444",
-  info: "#3b82f6",
-  edge: "#f5f5f5",
+  foreground: "#F7F6F2",
+  foregroundSecondary: "#A5B5B2",
+  foregroundMuted: "#6B7D7A",
+  border: "#2A3A38",
+  borderStrong: "#455956",
+  hover: "#1A2C2A",
+  success: "#10B981",
+  warning: "#F59E0B",
+  danger: "#FF453A",
+  info: "#00D4FF",
+  edge: "#00D4FF",
 };
 
 export const palettes = { light, dark };
 
-// Backward-compatible default export (light) so existing screens keep working.
+// Backward-compatible default export
 export const colors = light;
 
-// MD3 semantic aliases (point at the active palette via useTheme).
+// MD3 semantic aliases
 export const m3 = (c) => ({
   primary: c.primary,
   onPrimary: c.onPrimary,
@@ -182,54 +185,54 @@ export const m3 = (c) => ({
   onErrorContainer: c.onErrorContainer,
 });
 
-// Tinted backgrounds for status pills (per-palette semantic).
 export function statusSurfaces(c = colors) {
   return {
-    success: c === dark ? "#064e3b" : "#ecfdf5",
-    warning: c === dark ? "#78350f" : "#fffbeb",
-    info: c === dark ? "#1e3a5f" : "#eff6ff",
-    danger: c === dark ? "#7f1d1d" : "#fef2f2",
-    neutral: c === dark ? "#242424" : "#f3f4f6",
+    success: c === dark ? "#023D26" : "#E5F7ED",
+    warning: c === dark ? "#4A2F00" : "#FFF7E0",
+    info: c === dark ? "#003A4A" : "#E0F9FF",
+    danger: c === dark ? "#4A0E0A" : "#FFEBEA",
+    neutral: c === dark ? "#162825" : "#EFECE5",
   };
 }
 
-// Backward-compatible (light).
 export const statusSurfacesLight = statusSurfaces(light);
 
-/** MD3 type scale. `c` is the active palette's on-surface colour. */
 export function typeFor(c = colors) {
   return {
     display: {
       fontFamily: fonts.displayBold,
       fontSize: 32,
-      lineHeight: 40,
-      letterSpacing: -0.5,
+      lineHeight: 38,
+      letterSpacing: -1, // Tighter editorial tracking
       color: c.onBackground,
     },
     headline: {
       fontFamily: fonts.displayBold,
       fontSize: 28,
-      lineHeight: 36,
-      letterSpacing: -0.3,
+      lineHeight: 34,
+      letterSpacing: -0.8,
       color: c.onBackground,
     },
     pageTitle: {
       fontFamily: fonts.displayBold,
-      fontSize: 22,
-      lineHeight: 28,
-      letterSpacing: -0.3,
+      fontSize: 24,
+      lineHeight: 30,
+      letterSpacing: -0.5,
       color: c.onBackground,
     },
     titleLarge: {
       fontFamily: fonts.display,
-      fontSize: 22,
-      lineHeight: 28,
+      fontSize: 20,
+      lineHeight: 26,
+      letterSpacing: -0.2,
       color: c.onBackground,
     },
     sectionTitle: {
       fontFamily: fonts.display,
-      fontSize: 18,
-      lineHeight: 24,
+      fontSize: 16,
+      lineHeight: 20,
+      letterSpacing: 0,
+      textTransform: "uppercase",
       color: c.onBackground,
     },
     cardTitle: {
@@ -240,8 +243,8 @@ export function typeFor(c = colors) {
     },
     body: {
       fontFamily: fonts.body,
-      fontSize: 14,
-      lineHeight: 21,
+      fontSize: 15,
+      lineHeight: 22,
       color: c.onSurfaceVariant,
     },
     supporting: {
@@ -259,65 +262,56 @@ export function typeFor(c = colors) {
     },
     label: {
       fontFamily: fonts.data,
-      fontSize: 12,
-      lineHeight: 16,
-      letterSpacing: 0.5,
+      fontSize: 11,
+      lineHeight: 14,
+      letterSpacing: 1,
       textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
     caption: {
       fontFamily: fonts.bodyMedium,
-      fontSize: 11,
-      lineHeight: 14,
+      fontSize: 12,
+      lineHeight: 16,
       color: c.onSurfaceVariant,
     },
   };
 }
 
-// Backward-compatible (light).
 export const type = typeFor(light);
 
-/**
- * Elevation (dp) → MD3 tonal overlays + shadow. `isDark` chooses surface tint.
- */
 export function elevationFor(isDark = false) {
   return {
-    level0: { shadowColor: "#000", shadowOpacity: 0, elevation: 0 },
+    level0: { shadowColor: "#0A2A26", shadowOpacity: 0, elevation: 0 },
     level1: {
-      shadowColor: "#000",
-      shadowOpacity: isDark ? 0.4 : 0.08,
-      shadowRadius: 6,
-      shadowOffset: { width: 0, height: 2 },
-      elevation: 3,
+      shadowColor: "#0A2A26",
+      shadowOpacity: isDark ? 0.4 : 0.04, // Much softer shadows for premium feel
+      shadowRadius: 12,
+      shadowOffset: { width: 0, height: 4 },
+      elevation: 2,
     },
     level2: {
-      shadowColor: "#000",
-      shadowOpacity: isDark ? 0.5 : 0.12,
-      shadowRadius: 10,
-      shadowOffset: { width: 0, height: 4 },
-      elevation: 6,
+      shadowColor: "#0A2A26",
+      shadowOpacity: isDark ? 0.5 : 0.08,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
+      elevation: 4,
     },
     level3: {
-      shadowColor: "#000",
-      shadowOpacity: isDark ? 0.6 : 0.16,
-      shadowRadius: 14,
-      shadowOffset: { width: 0, height: 6 },
-      elevation: 9,
+      shadowColor: "#0A2A26",
+      shadowOpacity: isDark ? 0.6 : 0.12,
+      shadowRadius: 24,
+      shadowOffset: { width: 0, height: 12 },
+      elevation: 8,
     },
   };
 }
 
-// Backward-compatible.
 export const shadows = {
   card: elevationFor(false).level1,
   raised: elevationFor(false).level2,
   none: { elevation: 0, shadowOpacity: 0 },
 };
 
-/**
- * Maps a trip_status value to a semantic role. Statuses come from the
- * chk_trip_status constraint. Anything unrecognised falls back to neutral.
- */
 export function tripStatusTone(status) {
   switch (status) {
     case "Completed":
@@ -342,5 +336,4 @@ export function tripStatusTone(status) {
   }
 }
 
-/** Minimum touch target for a touch-first context (MD3 recommends 48dp). */
 export const TOUCH_TARGET = 48;
