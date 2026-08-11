@@ -39,7 +39,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 // `transportation_requests` — two entities under one module, so the same booking
 // appeared in both places with different ids, different statuses, and a row click
 // that led to a detail page keyed on the other table's primary key. The request IS
-// the reservation now; vehiclereservations is a legacy FK target.
+// the reservation; `vehiclereservations` was dropped in Phase 3.
 //
 // The split with the queue is deliberate and is about audience, not data. The queue
 // is the dispatcher's workspace: cards, conflict chips, AI badges, auto-refresh,

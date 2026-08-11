@@ -151,7 +151,7 @@ export async function POST(req) {
         const activeDispatches = await query(
           `SELECT ds.dispatch_id, ds.dispatch_number, r.guest_name
              FROM dispatchschedules ds
-             LEFT JOIN vehiclereservations r ON r.reservation_id = ds.reservation_id
+             LEFT JOIN transportation_requests r ON r.request_id = ds.request_id
             WHERE ds.vehicle_id = $1 
               AND ds.status IN ('Scheduled', 'In Progress') 
               AND ds.deleted_at IS NULL

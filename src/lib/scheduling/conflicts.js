@@ -15,7 +15,6 @@ import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
 // follow-up work in docs/rbac-model.md rather than done here.
 
 // Statuses that still hold a resource. Completed/Cancelled/Rejected release it.
-const ACTIVE_RESERVATION_STATUSES = ["Pending", "Approved", "Dispatched"];
 const ACTIVE_DISPATCH_STATUSES = ["Scheduled", "In Progress"];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -36,51 +35,6 @@ const ACTIVE_ASSIGNMENTS_SQL = `
    WHERE a.assigned_until IS NULL
      AND (a.vehicle_id = ANY($1) OR a.driver_id = ANY($2))
 `;
-
-/**
- * Find reservations that overlap the requested window for the same vehicle or
- * driver on the same date. Time-window overlap uses the half-open rule
- * (startA < endB AND endA > startB); a missing return time is coalesced to the
- * pickup time so a point booking still conflicts when it falls inside a window.
- *
- * @returns {Promise<Array>} conflicting rows (empty = free)
- */
-export async function findReservationConflicts({
-  vehicleId,
-  driverId,
-  date,
-  pickupTime,
-  returnTime,
-  excludeId = null,
-}) {
-  if (!date || (!vehicleId && !driverId) || !pickupTime) return [];
-
-  const params = [date, pickupTime, returnTime || pickupTime];
-  let idx = 4;
-
-  const resourceClauses = [];
-  if (vehicleId) { resourceClauses.push(`vehicle_id = $${idx++}`); params.push(vehicleId); }
-  if (driverId) { resourceClauses.push(`driver_id = $${idx++}`); params.push(driverId); }
-
-  let sql = `
-    SELECT reservation_id, vehicle_id, driver_id, pickup_time, estimated_return_time, status
-    FROM vehiclereservations
-    WHERE deleted_at IS NULL
-      AND reservation_date = $1
-      AND status = ANY($${idx++})
-      AND (${resourceClauses.join(" OR ")})
-      AND (
-        pickup_time < $3::time
-        AND COALESCE(estimated_return_time, pickup_time) > $2::time
-      )
-  `;
-  params.push(ACTIVE_RESERVATION_STATUSES);
-
-  if (excludeId) { sql += ` AND reservation_id <> $${idx++}`; params.push(excludeId); }
-
-  const { rows } = await query(sql, params);
-  return rows;
-}
 
 /**
  * Find dispatch schedules that overlap the requested departure/arrival window

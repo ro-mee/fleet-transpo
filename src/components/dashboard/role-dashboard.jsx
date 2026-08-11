@@ -34,7 +34,7 @@ import { getAiInsights } from "@/services/ai.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { getDriverStats } from "@/services/driver.service";
 import { getTrips, getActiveTrips, getLatestLocations } from "@/services/trip.service";
-import { getReservations } from "@/services/reservation.service";
+import { getTransportRequests } from "@/services/transport.service";
 import { getNotifications } from "@/services/notification.service";
 import { getAuditLogs } from "@/services/audit.service";
 import { getSystemActivity } from "@/services/system.service";
@@ -121,8 +121,8 @@ export function RoleDashboard({ role, employee }) {
     refetchInterval: q.includes("activeTrips") ? 30000 : undefined,
   });
   const { data: reservations = [] } = useQuery({
-    queryKey: ["reservations"],
-    queryFn: () => getReservations(),
+    queryKey: ["transport-requests"],
+    queryFn: () => getTransportRequests(),
     enabled: q.includes("reservations"),
   });
   const { data: locations = [] } = useQuery({
@@ -176,7 +176,7 @@ export function RoleDashboard({ role, employee }) {
     const maintenance = vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length;
     const utilization = vehicles.length ? Math.round((available / vehicles.length) * 100) : 0;
     const tripsToday = trips.filter((t) => isToday(t.start_time) || isToday(t.created_at)).length;
-    const statusLower = (r) => (r.fleet_status || r.status || r.reservation_status || "").toLowerCase();
+    const statusLower = (r) => (r.fleet_status || "").toLowerCase();
     const openRequests = reservations.filter((r) => OPEN_STATUSES.includes(statusLower(r))).length;
     const todayRequests = reservations.filter((r) => isToday(r.pickup_datetime) || isToday(r.created_at)).length;
     return {
@@ -254,7 +254,7 @@ export function RoleDashboard({ role, employee }) {
 
   const queueItems = useMemo(() => {
     return reservations
-      .filter((r) => OPEN_STATUSES.includes((r.fleet_status || r.status || r.reservation_status || "").toLowerCase()))
+      .filter((r) => OPEN_STATUSES.includes((r.fleet_status || "").toLowerCase()))
       .sort((a, b) => new Date(b.pickup_datetime || b.created_at || 0) - new Date(a.pickup_datetime || a.created_at || 0))
       .slice(0, 6);
   }, [reservations]);
@@ -494,20 +494,20 @@ function DashboardSection({ section, data }) {
             <div className="divide-y divide-border">
               {data.queueItems.map((r) => (
                 <Link
-                  key={r.request_id || r.reservation_id}
-                  href={`/reservations/${r.request_id || r.reservation_id}`}
+                  key={r.request_id}
+                  href={`/reservations/${r.request_id}`}
                   className="flex items-center gap-3 px-5 py-3 hover:bg-hover transition-colors"
                 >
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">
-                      {r.guest_name || r.reservation_number || `Request #${r.request_id || r.reservation_id}`}
+                      {r.guest_name || r.reservation_number || `Request #${r.request_id}`}
                     </p>
                     <p className="text-xs text-foreground-muted truncate">
                       {r.pickup_location || r.route_name || r.service_types?.service_name || ""}
                       {r.pickup_datetime ? ` · ${formatDateTime(r.pickup_datetime)}` : ""}
                     </p>
                   </div>
-                  <StatusBadge status={r.fleet_status || r.status} entity="reservation" className="flex-shrink-0" />
+                  <StatusBadge status={r.fleet_status} entity="reservation" className="flex-shrink-0" />
                 </Link>
               ))}
             </div>

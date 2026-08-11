@@ -1,7 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
@@ -87,7 +87,6 @@ export async function PUT(req, { params }) {
     const p = [];
     if (trip?.vehicle_id) p.push(syncVehicleStatus(trip.vehicle_id));
     if (trip?.driver_id) p.push(syncDriverStatus(trip.driver_id));
-    if (trip?.dispatch_id) p.push(syncDispatchReservation(trip.dispatch_id));
     await Promise.all(p);
 
     // A flagged reading is accepted — an implausible jump is not proof of an

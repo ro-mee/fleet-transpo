@@ -52,9 +52,9 @@ import {
 //
 // Rewritten off `vehiclereservations`. The old page read
 // `dispatch.estimated_distance` (dropped by migration 007 as a route property) and
-// `dispatch.vehiclereservations.*` (now a legacy FK target whose guest columns 015
-// deprecates), so the distance card always read "— km" and the guest panel never
-// rendered at all. Both now come from the originating transportation request.
+// `dispatch.vehiclereservations.*` (a table 015 deprecated and Phase 3 dropped),
+// so the distance card always read "— km" and the guest panel never rendered at
+// all. Both now come from the originating transportation request.
 //
 // Actions mirror the board exactly, and for the same reason: Start and Complete go
 // through the TRIP endpoints, never PUT /api/dispatch/[id]/status. Only the trip

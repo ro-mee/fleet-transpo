@@ -27,37 +27,30 @@ async function run() {
     `);
     console.log("Cleared test dispatch schedules.");
 
-    // 3. Delete test reservations
+    // 3. Delete test drivers
     await client.query(`
-      DELETE FROM vehiclereservations 
-      WHERE pickup_location = 'TEST-LOCATION'
-    `);
-    console.log("Cleared test reservations.");
-
-    // 4. Delete test drivers
-    await client.query(`
-      DELETE FROM drivers 
+      DELETE FROM drivers
       WHERE employee_id IN (SELECT employee_id FROM employees WHERE first_name = 'TEST' AND last_name = 'DRIVER')
     `);
     console.log("Cleared test drivers.");
 
-    // 5. Delete test employees
+    // 4. Delete test employees
     await client.query(`
-      DELETE FROM employees 
+      DELETE FROM employees
       WHERE first_name = 'TEST' AND last_name = 'DRIVER'
     `);
     console.log("Cleared test employees.");
 
-    // 6. Delete test vehicles
+    // 5. Delete test vehicles
     await client.query(`
-      DELETE FROM vehicles 
+      DELETE FROM vehicles
       WHERE vehicle_name = 'TEST-VEHICLE'
     `);
     console.log("Cleared test vehicles.");
 
-    // 7. Delete test vehicle categories
+    // 6. Delete test vehicle categories
     await client.query(`
-      DELETE FROM vehiclecategories 
+      DELETE FROM vehiclecategories
       WHERE category_name = 'TEST-CAT'
     `);
     console.log("Cleared test vehicle categories.");

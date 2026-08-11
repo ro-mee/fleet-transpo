@@ -65,10 +65,10 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
   }
 
   const { data: reservation } = await supabase
-    .from("vehiclereservations")
-    .select("reservation_id")
+    .from("transportation_requests")
+    .select("request_id")
     .eq("vehicle_id", vehicleId)
-    .in("status", ["Approved", "Dispatched"])
+    .in("fleet_status", ["Approved", "Scheduled", "Assigned"])
     .is("deleted_at", null)
     .limit(1);
   if (reservation?.length) {
@@ -272,61 +272,13 @@ export async function syncDriverStatus(driverId) {
   await supabase.from("drivers").update({ driver_status: "Available" }).eq("driver_id", driverId);
 }
 
-export async function syncReservationStatus(reservationId) {
-  if (!reservationId) return;
-  const supabase = getAdminClient();
-
-  const { data: dispatch } = await supabase
-    .from("dispatchschedules")
-    .select("dispatch_id, status")
-    .eq("reservation_id", reservationId)
-    .is("deleted_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (!dispatch) return;
-
-  if (dispatch.status === "Completed") {
-    await supabase.from("vehiclereservations").update({ status: "Completed" }).eq("reservation_id", reservationId);
-    return;
-  }
-
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("trip_id")
-    .eq("dispatch_id", dispatch.dispatch_id)
-    .in("trip_status", ["Trip Started", "En Route", "Arrived", "In Progress"])
-    .is("deleted_at", null)
-    .limit(1)
-    .maybeSingle();
-  if (trip) {
-    await supabase.from("vehiclereservations").update({ status: "Dispatched" }).eq("reservation_id", reservationId);
-    return;
-  }
-
-  if (dispatch.status === "Scheduled") {
-    await supabase.from("vehiclereservations").update({ status: "Dispatched" }).eq("reservation_id", reservationId);
-  }
-}
-
-export async function syncDispatchReservation(dispatchId) {
-  if (!dispatchId) return;
-  const supabase = getAdminClient();
-
-  const { data: dispatch } = await supabase
-    .from("dispatchschedules")
-    .select("reservation_id")
-    .eq("dispatch_id", dispatchId)
-    .maybeSingle();
-  if (dispatch?.reservation_id) await syncReservationStatus(dispatch.reservation_id);
-}
-
 export async function ensureTripForDispatch(dispatchId) {
   if (!dispatchId) return;
   const supabase = getAdminClient();
 
   const { data: dispatch } = await supabase
     .from("dispatchschedules")
-    .select("dispatch_id, vehicle_id, driver_id, reservation_id, route_id")
+    .select("dispatch_id, vehicle_id, driver_id, route_id")
     .eq("dispatch_id", dispatchId)
     .maybeSingle();
   if (!dispatch) return;

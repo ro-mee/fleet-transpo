@@ -1,6 +1,6 @@
 import { query, withTransaction } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 import { writeAudit } from "@/lib/audit";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
@@ -133,7 +133,6 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   const p = [];
   if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
   if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
-  if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));
   await Promise.all(p);
   await writeAudit(null, session, { action: "update", resource: "trips", resourceId: tripId, oldValues: { trip_status: before[0].trip_status }, newValues: { trip_status: "Completed" } });
 
@@ -230,7 +229,6 @@ export async function cancelTrip(tripId, session, { reason = null } = {}) {
     const p = [];
     if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
     if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
-    if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));
     await Promise.all(p);
   } catch (e) {
     console.warn("trip-cancel -> status sync failed:", e?.message || e);
@@ -299,7 +297,6 @@ export async function syncBusyTrip(tripId, session) {
   const p = [];
   if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id));
   if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id));
-  if (before[0]?.dispatch_id) p.push(syncDispatchReservation(before[0].dispatch_id));
   await Promise.all(p);
 
   // A started trip means the underlying Booking request is now In Progress.

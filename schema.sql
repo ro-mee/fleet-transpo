@@ -112,7 +112,6 @@ CREATE TABLE booking_channels (
 
 CREATE TABLE dispatchschedules (
   dispatch_id integer DEFAULT nextval('dispatchschedules_dispatch_id_seq'::regclass) NOT NULL,
-  reservation_id integer,
   vehicle_id integer,
   driver_id integer,
   route_id integer,
@@ -492,7 +491,6 @@ CREATE TABLE transportation_requests (
   priority varchar(20) DEFAULT 'Normal'::character varying NOT NULL,
   booking_status varchar(50) DEFAULT 'Pending'::character varying,
   fleet_status varchar(50) DEFAULT 'Pending'::character varying NOT NULL,
-  reservation_id integer,
   status_reason text,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
@@ -665,42 +663,6 @@ CREATE TABLE vehiclemaintenance (
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
-CREATE TABLE vehiclereservations (
-  reservation_id integer DEFAULT nextval('vehiclereservations_reservation_id_seq'::regclass) NOT NULL,
-  vehicle_id integer,
-  driver_id integer,
-  guest_name varchar(255),
-  guest_phone varchar(50),
-  guest_email varchar(255),
-  pickup_location text NOT NULL,
-  dropoff_location text,
-  reservation_date date NOT NULL,
-  pickup_time time NOT NULL,
-  estimated_return_time time,
-  purpose varchar(255),
-  notes text,
-  passenger_count integer DEFAULT 1,
-  status varchar(50) DEFAULT 'Pending'::character varying,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  deleted_at timestamptz,
-  created_by integer,
-  updated_by integer,
-  service_type_id integer,
-  external_booking_id varchar(255),
-  integration_source varchar(50),
-  booking_channel_id integer,
-  cancellation_reason text,
-  guest_id varchar(100),
-  room_number varchar(20),
-  bill_to_room boolean DEFAULT false,
-  pickup_location_id integer,
-  dropoff_location_id integer,
-  request_id integer,
-  CONSTRAINT chk_reservation_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Dispatched'::character varying, 'Completed'::character varying, 'Cancelled'::character varying, 'Rejected'::character varying])::text[]))),
-  CONSTRAINT vehiclereservations_pkey PRIMARY KEY (reservation_id)
-);
-
 CREATE TABLE vehicles (
   vehicle_id integer DEFAULT nextval('vehicles_vehicle_id_seq'::regclass) NOT NULL,
   category_id integer,
@@ -744,7 +706,6 @@ ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_employee_id_fkey FOREIGN KEY (e
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id);
-ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_reservation_id_fkey FOREIGN KEY (reservation_id) REFERENCES vehiclereservations(reservation_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_route_id_fkey FOREIGN KEY (route_id) REFERENCES routes(route_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
@@ -793,7 +754,6 @@ ALTER TABLE substitute_vehicle_schedules ADD CONSTRAINT substitute_vehicle_sched
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_requested_category_id_fkey FOREIGN KEY (requested_category_id) REFERENCES vehiclecategories(category_id);
-ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_reservation_id_fkey FOREIGN KEY (reservation_id) REFERENCES vehiclereservations(reservation_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES service_types(service_type_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
@@ -815,15 +775,6 @@ ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey F
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_booking_channel_id_fkey FOREIGN KEY (booking_channel_id) REFERENCES booking_channels(channel_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_dropoff_location_id_fkey FOREIGN KEY (dropoff_location_id) REFERENCES locations(location_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_pickup_location_id_fkey FOREIGN KEY (pickup_location_id) REFERENCES locations(location_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES service_types(service_type_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
-ALTER TABLE vehiclereservations ADD CONSTRAINT vehiclereservations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_category_id_fkey FOREIGN KEY (category_id) REFERENCES vehiclecategories(category_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -845,7 +796,6 @@ CREATE INDEX idx_dispatch_active_departure ON public.dispatchschedules USING btr
 CREATE INDEX idx_dispatch_date ON public.dispatchschedules USING btree (scheduled_departure);
 CREATE INDEX idx_dispatch_driver ON public.dispatchschedules USING btree (driver_id);
 CREATE INDEX idx_dispatch_request ON public.dispatchschedules USING btree (request_id);
-CREATE INDEX idx_dispatch_reservation ON public.dispatchschedules USING btree (reservation_id);
 CREATE INDEX idx_dispatch_status ON public.dispatchschedules USING btree (status);
 CREATE INDEX idx_dispatch_vehicle ON public.dispatchschedules USING btree (vehicle_id);
 CREATE INDEX idx_driver_consents_driver ON public.driver_consents USING btree (driver_id, accepted_at DESC);
@@ -876,15 +826,6 @@ CREATE INDEX idx_notifications_user ON public.notifications USING btree (employe
 CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING btree (request_id, generated_at DESC);
 CREATE INDEX idx_rec_snapshots_validity ON public.recommendation_snapshots USING btree (valid_until) WHERE (is_consumed = false);
 CREATE INDEX idx_reservation_events_request_timeline ON public.reservation_events USING btree (request_id, occurred_at DESC);
-CREATE INDEX idx_reservations_channel ON public.vehiclereservations USING btree (booking_channel_id);
-CREATE INDEX idx_reservations_date ON public.vehiclereservations USING btree (reservation_date);
-CREATE INDEX idx_reservations_dropoff_loc ON public.vehiclereservations USING btree (dropoff_location_id);
-CREATE INDEX idx_reservations_external ON public.vehiclereservations USING btree (external_booking_id);
-CREATE INDEX idx_reservations_pickup_loc ON public.vehiclereservations USING btree (pickup_location_id);
-CREATE INDEX idx_reservations_request ON public.vehiclereservations USING btree (request_id);
-CREATE INDEX idx_reservations_service ON public.vehiclereservations USING btree (service_type_id);
-CREATE INDEX idx_reservations_status ON public.vehiclereservations USING btree (status);
-CREATE INDEX idx_reservations_vehicle ON public.vehiclereservations USING btree (vehicle_id);
 CREATE INDEX idx_routes_dest_loc ON public.routes USING btree (destination_location_id);
 CREATE INDEX idx_routes_name ON public.routes USING btree (route_name);
 CREATE INDEX idx_routes_origin_loc ON public.routes USING btree (origin_location_id);
@@ -901,7 +842,6 @@ CREATE INDEX idx_transport_requests_external ON public.transportation_requests U
 CREATE INDEX idx_transport_requests_flags ON public.transportation_requests USING btree (is_vip, is_emergency);
 CREATE INDEX idx_transport_requests_fleet_status ON public.transportation_requests USING btree (fleet_status);
 CREATE INDEX idx_transport_requests_pickup ON public.transportation_requests USING btree (pickup_datetime);
-CREATE INDEX idx_transport_requests_reservation ON public.transportation_requests USING btree (reservation_id);
 CREATE INDEX idx_transport_requests_reservation_number ON public.transportation_requests USING btree (reservation_number);
 CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests USING btree (vehicle_id);
 CREATE INDEX idx_trips_date ON public.trips USING btree (start_time);
@@ -1112,46 +1052,6 @@ END;
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.log_reservation_integration()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-BEGIN
-  IF NEW.external_booking_id IS NOT NULL THEN
-    INSERT INTO integration_log (
-      direction,
-      source_system,
-      event_type,
-      reference_type,
-      reference_id,
-      external_booking_id,
-      payload,
-      status
-    ) VALUES (
-      'outbound',
-      COALESCE(NEW.integration_source, 'fleet'),
-      'reservation_' || LOWER(NEW.status),
-      'reservation',
-      NEW.reservation_id,
-      NEW.external_booking_id,
-      jsonb_build_object(
-        'reservation_id', NEW.reservation_id,
-        'status', NEW.status,
-        'service_type_id', NEW.service_type_id,
-        'vehicle_id', NEW.vehicle_id,
-        'driver_id', NEW.driver_id,
-        'pickup_time', NEW.pickup_time,
-        'reservation_date', NEW.reservation_date
-      ),
-      'processed'
-    );
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
-
 CREATE OR REPLACE FUNCTION public.notify_dispatch_created()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1221,40 +1121,6 @@ END;
 $function$
 ;
 
-CREATE OR REPLACE FUNCTION public.notify_reservation_approved()
- RETURNS trigger
- LANGUAGE plpgsql
- SECURITY DEFINER
-AS $function$
-BEGIN
-  IF NEW.status = 'Approved' AND OLD.status = 'Pending' THEN
-    INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-    SELECT
-      e.employee_id,
-      'Reservation Approved',
-      'Reservation #' || NEW.reservation_id || ' has been approved.',
-      'Success',
-      'reservation',
-      NEW.reservation_id
-    FROM employees e
-    WHERE e.employee_id = NEW.created_by;
-
-    INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-    SELECT
-      e.employee_id,
-      'Reservation Approved',
-      'Reservation #' || NEW.reservation_id || ' has been approved and ready for dispatch.',
-      'Success',
-      'reservation',
-      NEW.reservation_id
-    FROM employees e
-    WHERE e.role_id IN (SELECT role_id FROM roles WHERE role_name IN ('dispatcher', 'fleet_manager', 'admin'));
-  END IF;
-  RETURN NEW;
-END;
-$function$
-;
-
 CREATE OR REPLACE FUNCTION public.notify_trip_completed()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1292,18 +1158,15 @@ $function$
 
 CREATE TRIGGER trg_dispatch_number BEFORE INSERT ON public.dispatchschedules FOR EACH ROW WHEN ((new.dispatch_number IS NULL)) EXECUTE FUNCTION generate_dispatch_number();
 CREATE TRIGGER trg_dispatch_overlap BEFORE INSERT OR UPDATE OF vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_dispatch_overlap();
-CREATE TRIGGER trigger_log_reservation_integration AFTER INSERT OR UPDATE OF status ON public.vehiclereservations FOR EACH ROW EXECUTE FUNCTION log_reservation_integration();
 CREATE TRIGGER trigger_notify_dispatch_created AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION notify_dispatch_created();
 CREATE TRIGGER trigger_notify_document_expiry AFTER INSERT OR UPDATE ON public.vehicledocuments FOR EACH ROW EXECUTE FUNCTION notify_document_expiry();
 CREATE TRIGGER trigger_notify_maintenance_due AFTER INSERT OR UPDATE ON public.vehiclemaintenance FOR EACH ROW EXECUTE FUNCTION notify_maintenance_due();
-CREATE TRIGGER trigger_notify_reservation_approved AFTER UPDATE ON public.vehiclereservations FOR EACH ROW WHEN ((((new.status)::text = 'Approved'::text) AND ((old.status)::text = 'Pending'::text))) EXECUTE FUNCTION notify_reservation_approved();
 CREATE TRIGGER trigger_notify_trip_completed AFTER UPDATE ON public.trips FOR EACH ROW WHEN ((((new.trip_status)::text = 'Completed'::text) AND ((old.trip_status)::text <> 'Completed'::text))) EXECUTE FUNCTION notify_trip_completed();
 CREATE TRIGGER update_dispatch_updated_at BEFORE UPDATE ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_driverattendance_updated_at BEFORE UPDATE ON public.driverattendance FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_drivers_updated_at BEFORE UPDATE ON public.drivers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_employees_updated_at BEFORE UPDATE ON public.employees FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_maintenance_updated_at BEFORE UPDATE ON public.vehiclemaintenance FOR EACH ROW EXECUTE FUNCTION update_updated_at();
-CREATE TRIGGER update_reservations_updated_at BEFORE UPDATE ON public.vehiclereservations FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_routes_updated_at BEFORE UPDATE ON public.routes FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_service_types_updated_at BEFORE UPDATE ON public.service_types FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE TRIGGER update_transportation_requests_updated_at BEFORE UPDATE ON public.transportation_requests FOR EACH ROW EXECUTE FUNCTION update_updated_at();

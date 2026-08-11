@@ -4,7 +4,7 @@ import { assertDispatchOwnership } from "@/lib/api/ownership";
 import { canTransitionDispatch } from "@/lib/scheduling/dispatch-state";
 import { writeAudit } from "@/lib/audit";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { findRequestForDispatch, advanceReservation } from "@/services/reservation-lifecycle.service";
 
 export async function PUT(req, { params }) {
@@ -23,7 +23,6 @@ export async function PUT(req, { params }) {
     const p = [];
     if (owned?.vehicle_id) p.push(syncVehicleStatus(owned.vehicle_id));
     if (owned?.driver_id) p.push(syncDriverStatus(owned.driver_id));
-    p.push(syncDispatchReservation(id));
 
     if (next === "Cancelled") {
       await query(

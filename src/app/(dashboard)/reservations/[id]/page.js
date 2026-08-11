@@ -569,9 +569,6 @@ export default function ReservationDetailPage() {
                     ? `${approver}${r.approved_at ? ` · ${formatDateTime(r.approved_at)}` : ""}`
                     : null}
                 </Field>
-                <Field label="Reservation ID">
-                  {r.reservation_id ? <span className="font-data text-xs">#{r.reservation_id}</span> : null}
-                </Field>
               </div>
             </CardContent>
           </Card>

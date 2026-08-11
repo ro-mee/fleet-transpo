@@ -17,7 +17,7 @@ import { writeAudit } from "@/lib/audit";
 // Inbound ingestion: Booking subsystem -> Fleet Reservation Queue.
 //
 // This is the dedicated boundary where transportation requests ENTER Fleet. It
-// is intentionally separate from POST /api/reservations (the human path) so that:
+// is separate from the in-app creation form (the human path) so that:
 //   - the machine contract is validated independently (contracts.js),
 //   - ingestion is IDEMPOTENT on external_booking_id (retried/replayed webhooks
 //     never create duplicates), and

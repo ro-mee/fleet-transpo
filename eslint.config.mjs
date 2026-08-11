@@ -16,6 +16,15 @@ const eslintConfig = defineConfig([
     // ErrorUtils / nativePerformanceNow and produced 772 of 773 no-undef
     // errors before it was excluded.
     "mobile/dist/**",
+    // Not application source, and each drowns the real count:
+    //   Capstone/  — the untracked Obsidian vault; its plugins ship minified
+    //               bundles (MainLoop, MLTensorUsage, define, ...).
+    //   */skills/  — sample outputs captured by skill workspaces, kept as
+    //               fixtures. They are not wired into the app and are not
+    //               meant to compile.
+    "Capstone/**",
+    ".claude/skills/**",
+    ".agents/skills/**",
   ]),
 
   // `no-undef` is off for plain .js under eslint-config-next, which is how
