@@ -8,6 +8,21 @@ function isBeforeToday(dateStr) {
   return !Number.isNaN(d.getTime()) && d.getTime() < today.getTime();
 }
 
+// Last instant of the current local day — the horizon past which a booking is
+// too far off to hold the vehicle. Local, not UTC: the fleet is read in local
+// days, and `toISOString()` on a local midnight lands on the wrong date east
+// of Greenwich.
+function endOfTodayIso() {
+  const d = new Date();
+  d.setHours(23, 59, 59, 999);
+  return d.toISOString();
+}
+
+function localDateStr(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminClient();
 
   const { data: vehicle } = await supabase
@@ -52,11 +67,26 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     return;
   }
 
+  // A booking only holds the vehicle once it is close enough to matter. Both
+  // checks below used to fire on ANY open row with no time bound, so a vehicle
+  // booked for next Friday read as `Reserved` every day until then, and every
+  // availability search that trusted the status flag dropped it from all other
+  // dates. The horizon is the end of the current local day: today's bookings
+  // hold the vehicle, later ones leave it Available.
+  //
+  // There is deliberately no lower bound. An open dispatch whose departure has
+  // already passed still holds the vehicle — it is either out on the road or
+  // the row is stale, and neither state makes the vehicle grabbable. Releasing
+  // it is trip completion's job, not a status sweep's. A row with no departure
+  // recorded holds it too, for the same reason: unknown is not "free".
+  const horizon = endOfTodayIso();
+
   const { data: dispatch } = await supabase
     .from("dispatchschedules")
     .select("dispatch_id")
     .eq("vehicle_id", vehicleId)
     .in("status", ["Scheduled", "In Progress"])
+    .or(`scheduled_departure.is.null,scheduled_departure.lte.${horizon}`)
     .is("deleted_at", null)
     .limit(1);
   if (dispatch?.length) {
@@ -64,11 +94,13 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     return;
   }
 
+  const todayStr = localDateStr();
   const { data: reservation } = await supabase
     .from("vehiclereservations")
     .select("reservation_id")
     .eq("vehicle_id", vehicleId)
     .in("status", ["Approved", "Dispatched"])
+    .or(`reservation_date.is.null,reservation_date.lte.${todayStr}`)
     .is("deleted_at", null)
     .limit(1);
   if (reservation?.length) {

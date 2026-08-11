@@ -9,11 +9,16 @@ const ALLOWED_KEYS = new Set([
   "mediumMinutes",
   "enableVipFlag",
   "enableEmergencyFlag",
+  "departureAlertsEnabled",
+  "departureAlertTiers",
 ]);
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    // Dispatchers read this but cannot write it: the departure-alert tiers are
+    // consumed by their board, so excluding them here would silently fall the
+    // warnings back to defaults for exactly the role that acts on them.
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     return ok(await getDispatchPolicy());
   } catch (e) {
     return handleError(e);

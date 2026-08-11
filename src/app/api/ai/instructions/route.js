@@ -1,11 +1,32 @@
 import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
-import { readFile } from "fs/promises";
+import { readFile, readdir } from "fs/promises";
 import { join } from "path";
+import { REPORT_TYPES } from "@/lib/ai/report-narrative";
 
 export async function GET() {
   try {
-    const filePath = join(process.cwd(), "resources", "ai", "instructions.md");
-    const content = await readFile(filePath, "utf-8");
-    return ok({ content });
+    const base = join(process.cwd(), "resources", "ai");
+    const mainPath = join(base, "instructions.md");
+    const [content, reportFiles] = await Promise.all([
+      readFile(mainPath, "utf-8"),
+      readdir(join(base, "reports"), { withFileTypes: true }).catch(() => []),
+    ]);
+
+    const reports = [];
+    for (const type of REPORT_TYPES) {
+      const f = `${type}.md`;
+      const exists = reportFiles.some((d) => d.isFile() && d.name === f);
+      let reportContent = null;
+      if (exists) {
+        try {
+          reportContent = await readFile(join(base, "reports", f), "utf-8");
+        } catch {
+          reportContent = null;
+        }
+      }
+      reports.push({ report: type, exists, content: reportContent });
+    }
+
+    return ok({ content, reports });
   } catch (e) { return handleError(e); }
 }

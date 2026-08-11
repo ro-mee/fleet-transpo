@@ -13,7 +13,7 @@ import { DERIVED_PRIORITY, DERIVED_PRIORITY_RANK, RESERVATION_LIFECYCLE as L } f
 // Within Today/Upcoming the auto-sort is by derived_priority (Overdue first,
 // Future last) then soonest pickup — the priority engine decides, never a human.
 
-export const QUEUE_TABS = ["today", "upcoming", "inProgress", "completed", "cancelled"];
+export const QUEUE_TABS = ["today", "upcoming", "assigned", "inProgress", "completed", "cancelled"];
 
 const IN_PROGRESS = new Set([L.IN_PROGRESS]);
 const TERMINAL = new Set([L.COMPLETED, L.CANCELLED, L.REJECTED]);
@@ -33,6 +33,10 @@ export function bucketRequest(request, now = new Date()) {
   if (IN_PROGRESS.has(status)) return "inProgress";
   if (status === L.COMPLETED) return "completed";
   if (status === L.CANCELLED) return "cancelled";
+  // Assigned requests are already committed — vehicle + driver set — and just
+  // wait on the driver to start. Pull them into their own lane so Today/Upcoming
+  // stay focused on what still needs review / approval / assignment.
+  if (status === L.ASSIGNED) return "assigned";
 
   // Any other non-terminal request still awaiting dispatch/action.
   const pickup = new Date(request?.pickup_datetime);
@@ -56,10 +60,10 @@ export function compareByPriority(a, b) {
  * Group a list of requests into the five tab buckets, each auto-sorted.
  * Requests with no derived_priority are sorted by pickup time as a fallback.
  *
- * @returns {{ today: object[], upcoming: object[], inProgress: object[], completed: object[], cancelled: object[] }}
+ * @returns {{ today: object[], upcoming: object[], assigned: object[], inProgress: object[], completed: object[], cancelled: object[] }}
  */
 export function groupQueue(requests, now = new Date()) {
-  const buckets = { today: [], upcoming: [], inProgress: [], completed: [], cancelled: [] };
+  const buckets = { today: [], upcoming: [], assigned: [], inProgress: [], completed: [], cancelled: [] };
   for (const r of requests || []) {
     const bucket = bucketRequest(r, now);
     if (buckets[bucket]) buckets[bucket].push(r);

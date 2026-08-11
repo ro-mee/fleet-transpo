@@ -1,7 +1,8 @@
 import { query } from "@/lib/db";
 import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
-import { buildDispatchRecommendation } from "@/lib/ai/dispatch-advisor";
+import { buildDispatchRecommendation, shapePinnedPair } from "@/lib/ai/dispatch-advisor";
+import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { estimateEfficiency, isProximityRelevant } from "@/lib/ai/rule-engine";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateTrip, estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
@@ -29,10 +30,12 @@ const NARRATION_BUDGET_MS = 25000;
 const RATIONALE_INSTRUCTIONS =
   "You are a fleet dispatch assistant for a hotel transportation desk. " +
   "You are given a transport request and the pairing a deterministic scorer already chose. " +
-  "Write 2-3 plain sentences explaining why the pairing fits and what the dispatcher should " +
-  "double-check before approving. Use only the facts given — never invent vehicles, drivers, " +
-  "names, or numbers. Do not recommend a different vehicle or driver. No preamble, no markdown, " +
-  "no bullet points.";
+  "Explain why the pairing fits and what to double check by writing a concise checklist of 2-3 key points. " +
+  "Start each point with a checkmark symbol (✓). Keep each point extremely brief and focused only on the most critical information. " +
+  "Use only the facts given — never invent facts. Do not recommend a different vehicle or driver. " +
+  "Refer to the vehicle and driver EXACTLY as named in the facts; never substitute a different plate number, vehicle class, or driver name. " +
+  "When a value is given as 'not recorded' or 'UNKNOWN', treat it as missing data: say it is unverified and must be confirmed. " +
+  "Never restate a missing value as a number, and never describe missing data as if it were a measured result.";
 
 /**
  * Fetch the candidate pools and attach the Smart Dispatch signals as
@@ -47,6 +50,43 @@ const RATIONALE_INSTRUCTIONS =
  * always valid because there is a real slot on the future date.
  */
 const PROXIMITY_WINDOW_HRS = 3;
+
+/**
+ * A usable lat/lng pair, or null when the position is not actually recorded.
+ *
+ * `Number(null)` is 0 and `Number.isFinite(0)` is true, so a NULL coordinate
+ * column reads as a perfectly valid position at (0, 0) — roughly 13,300 km from
+ * Manila, out in the Gulf of Guinea. Reject the empty cases explicitly, and
+ * treat exact (0, 0) as unset: it is never a real position for this fleet.
+ */
+function toCoords(lat, lng) {
+  if (lat === null || lat === undefined || lat === "") return null;
+  if (lng === null || lng === undefined || lng === "") return null;
+
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+  if (Math.abs(latNum) > 90 || Math.abs(lngNum) > 180) return null;
+  if (latNum === 0 && lngNum === 0) return null;
+
+  return { lat: latNum, lng: lngNum };
+}
+
+/**
+ * Where a driver is starting from, and how confident we are about it.
+ *
+ * `basis` travels with the number so the narration can say "assumed at hotel
+ * base" instead of presenting a fallback as a tracked position.
+ */
+function driverPosition(driver, ping) {
+  const own = toCoords(driver?.current_latitude, driver?.current_longitude);
+  if (own) return { ...own, basis: "recorded position" };
+
+  const gps = toCoords(ping?.latitude, ping?.longitude);
+  if (gps) return { ...gps, basis: "last GPS ping" };
+
+  return { ...HOTEL_BASE, basis: "assumed at hotel base" };
+}
 
 async function fetchCandidates(request) {
   const passengers = Number(request?.passenger_count) || 1;
@@ -72,6 +112,22 @@ async function fetchCandidates(request) {
   ).then((r) => r.rows);
   const gpsByDriver = new Map(lastGps.map((r) => [r.driver_id, r]));
 
+  // Two deliberate widenings of the candidate pools, both so the pair engine can
+  // apply the real rule instead of inheriting a wrong verdict from a status column:
+  //
+  // Vehicles — only statuses that actually ground the vehicle are excluded.
+  // `Reserved` is not one of them: it is written whenever the vehicle has a
+  // booking on the current day, so filtering on `= 'Available'` dropped cars that
+  // are genuinely free at the requested time. `schedule_load` below already
+  // answers the time-specific question by overlap, and the engine treats a
+  // non-zero load as disqualifying — so overlap, not the label, decides.
+  //
+  // Drivers — the whole roster, not just `Available` ones. The engine must be
+  // able to SEE that a vehicle's custodian is On Leave; if that row is missing it
+  // reads the car as having no custodian and reports the wrong reason. Nothing is
+  // loosened by this: `isDriverUnavailableFor` re-checks status, licence and
+  // window load, and only a designated driver or an explicitly assigned
+  // substitute is ever offered.
   const [vehicles, drivers] = await Promise.all([
     query(
       `WITH usage AS (
@@ -110,10 +166,16 @@ async function fetchCandidates(request) {
          LEFT JOIN usage   u ON u.vehicle_id = v.vehicle_id
          LEFT JOIN history h ON h.vehicle_id = v.vehicle_id
         WHERE v.deleted_at IS NULL
-          AND v.vehicle_status = 'Available'
+          AND v.vehicle_status <> ALL($5::text[])
           AND (v.seating_capacity IS NULL OR v.seating_capacity >= $1::int)
           AND ($4::int IS NULL OR v.category_id = $4::int)`,
-      [passengers, windowStart, windowEnd, request?.requested_category_id ?? null]
+      [
+        passengers,
+        windowStart,
+        windowEnd,
+        request?.requested_category_id ?? null,
+        NON_DISPATCHABLE_VEHICLE_STATUSES,
+      ]
     ).then((r) =>
       r.rows.map((v) => {
         v._est_fuel_liters = estimateFuel(trip.distanceKm, estimateEfficiency(v), v.tank_capacity ?? null).liters;
@@ -146,24 +208,15 @@ async function fetchCandidates(request) {
                AND t.trip_status = 'Completed'
                AND t.deleted_at IS NULL
         WHERE d.deleted_at IS NULL
-          AND d.driver_status = 'Available'
         GROUP BY d.driver_id, e.first_name, e.last_name`,
       [windowStart, windowEnd]
     ).then((r) =>
       r.rows.map((d) => {
-        let lat = Number(d.current_latitude);
-        let lng = Number(d.current_longitude);
-        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-          const g = gpsByDriver.get(d.driver_id);
-          if (g && Number.isFinite(Number(g.latitude))) {
-            lat = Number(g.latitude);
-            lng = Number(g.longitude);
-          } else {
-            lat = HOTEL_BASE.lat;
-            lng = HOTEL_BASE.lng;
-          }
-        }
-        d._pickup_distance_km = pickupCoords ? Number(haversineKm(pickupCoords, { lat, lng }).toFixed(1)) : null;
+        const position = driverPosition(d, gpsByDriver.get(d.driver_id));
+        d._pickup_distance_km = pickupCoords
+          ? Number(haversineKm(pickupCoords, position).toFixed(1))
+          : null;
+        d._position_basis = position.basis;
         d._proximity_relevant = proximityRelevant;
         d._schedule_load = Number(d.schedule_load) || 0;
         return d;
@@ -182,8 +235,32 @@ function buildRationalePrompt(request, recommendation) {
   const trip = recommendation.trip ?? {};
   const risks = [...(v?.detected_risks ?? []), ...(d?.detected_risks ?? [])];
 
+  // Never let a missing value reach the model as a number or a bare "?" — it
+  // reads those as facts and repeats them with full confidence. An explicit
+  // "not recorded" is something the model can correctly flag as unverified.
+  const known = (value, format = (x) => String(x)) =>
+    value === null || value === undefined || value === "" ? "not recorded" : format(value);
+
+  // Distance is only a fact when the position behind it is one. An assumed
+  // position must never be narrated as "N km away".
+  const assumedPosition = d?.position_basis === "assumed at hotel base";
+  const distanceLine =
+    d?.distance_from_pickup_km == null
+      ? "Distance to pickup: not computed (pickup location could not be resolved)."
+      : assumedPosition
+        ? "Distance to pickup: UNKNOWN — this driver has no recorded position or GPS ping. Do not state a distance or an ETA for them; say their location is unconfirmed and must be verified by radio."
+        : `Distance to pickup: ${d.distance_from_pickup_km} km (${d.position_basis}).`;
+
+  const seats = Number(v?.seating_capacity);
+  const passengers = Number(trip.passenger_count) || 1;
+  const seatLine = Number.isFinite(seats)
+    ? seats === passengers
+      ? `Seats ${seats} for ${passengers} passenger(s) — exactly at capacity, no spare seat for luggage overflow.`
+      : `Seats ${seats} for ${passengers} passenger(s) — ${seats - passengers} spare seat(s).`
+    : `Seating capacity not recorded; ${passengers} passenger(s) expected.`;
+
   const lines = [
-    `Guest: ${request?.guest_name || "Walk-in guest"} · ${trip.passenger_count ?? 1} passenger(s)`,
+    `Guest: ${request?.guest_name || "Walk-in guest"} · ${passengers} passenger(s)`,
     `Route: ${request?.pickup_location || "unspecified"} to ${request?.dropoff_location || "unspecified"}`,
     `Pickup: ${request?.pickup_datetime || "unscheduled"} · Priority: ${request?.priority || "Medium"}`,
     `Requested class: ${request?.requested_vehicle_type || "unspecified"}`,
@@ -192,10 +269,30 @@ function buildRationalePrompt(request, recommendation) {
       : "Trip estimate: unavailable.",
     "",
     v
-      ? `Chosen vehicle: ${v.vehicle_name} (${v.plate_number || "no plate on file"}), seats ${v.seating_capacity ?? "?"}, fuel ${v.fuel_level ?? "?"}%. Pair score ${pair?.score ?? v.score}/100. Scorer reasons: ${(pair?.reasons ?? v.reasons ?? []).join("; ") || "none recorded"}. Estimated fuel burn: ${v.estimated_fuel_liters ?? "?"} L. ${v.schedule_load ?? 0} scheduled dispatch(es) in this window. Service risk: ${v.maintenance?.risk ?? "not set"}.`
+      ? [
+          `Chosen vehicle: ${known(v.vehicle_name)} (plate ${known(v.plate_number)}).`,
+          seatLine,
+          `Fuel level: ${known(v.fuel_level, (x) => `${x}%`)}. Estimated burn for this trip: ${known(v.estimated_fuel_liters, (x) => `${x} L`)}.`,
+          `Pair score ${known(pair?.score ?? v.score, (x) => `${x}/100`)}. Scorer reasons: ${(pair?.reasons ?? v.reasons ?? []).join("; ") || "none recorded"}.`,
+          `Scheduled dispatches in this window: ${known(v.schedule_load)}. Service risk: ${known(v.maintenance?.risk)}.`,
+        ].join(" ")
       : `Chosen vehicle: none — ${recommendation.vehicle?.considered ?? 0} vehicle(s) were available but none fit this request.`,
     d
-      ? `Chosen driver: ${d.driver_name}, ${d.years_of_experience ?? "?"} year(s) experience, rating ${d.rating ?? "unrated"}. Pair score ${pair?.score ?? d.score}/100. Scorer reasons: ${(pair?.reasons ?? d.reasons ?? []).join("; ") || "none recorded"}. ${d.distance_from_pickup_km != null ? `${d.distance_from_pickup_km} km from pickup.` : "Distance to pickup unknown."} ${d.schedule_load ?? 0} scheduled dispatch(es) in this window. ${pair?.is_designated ? "This is the vehicle's designated driver." : pair?.replacement_reason ? `Substitute because: ${pair.replacement_reason}` : ""}`
+      ? [
+          `Chosen driver: ${known(d.driver_name)}.`,
+          `Experience: ${known(d.years_of_experience, (x) => `${x} year(s)`)}.`,
+          `Guest rating: ${known(d.rating, (x) => `${x}/5`)} — "not recorded" means this driver has no completed rated trips yet, NOT a poor rating.`,
+          distanceLine,
+          `Pair score ${known(pair?.score ?? d.score, (x) => `${x}/100`)}. Scorer reasons: ${(pair?.reasons ?? d.reasons ?? []).join("; ") || "none recorded"}.`,
+          `Scheduled dispatches in this window: ${known(d.schedule_load)}.`,
+          pair?.is_designated
+            ? "This is the vehicle's designated driver."
+            : pair?.replacement_reason
+              ? `Substitute driver because: ${pair.replacement_reason}`
+              : "",
+        ]
+          .filter(Boolean)
+          .join(" ")
       : `Chosen driver: none — ${recommendation.driver?.considered ?? 0} driver(s) were available but none qualified.`,
     "",
     risks.length
@@ -204,6 +301,88 @@ function buildRationalePrompt(request, recommendation) {
   ];
 
   return lines.join("\n");
+}
+
+/**
+ * Load the exact vehicle/driver the client pinned, shaped like the advisor's
+ * own candidates so buildRationalePrompt() can consume either.
+ *
+ * The review dialog assembles its "Best Available Pair" from the DB-backed
+ * custodial pairings and is what "Approve & Assign Now" commits, while the pair
+ * engine ranks its own candidate pool by score. The two can legitimately choose
+ * differently, and a checklist about a pair the dispatcher is NOT assigning is
+ * worse than no checklist. So the caller pins the pair it is showing and the
+ * narration follows it.
+ *
+ * Returns null halves when an id is absent or no longer matches a live row —
+ * the caller then falls back to the scored pair.
+ */
+async function loadPinnedPair(vehicleId, driverId, request, trip) {
+  const [vehicleRow, driverRow] = await Promise.all([
+    vehicleId
+      ? query(
+          `SELECT v.*, vc.category_name
+             FROM vehicles v
+             LEFT JOIN vehiclecategories vc ON v.category_id = vc.category_id
+            WHERE v.vehicle_id = $1 AND v.deleted_at IS NULL`,
+          [vehicleId]
+        ).then((r) => r.rows[0] ?? null)
+      : null,
+    driverId
+      ? query(
+          `SELECT d.*,
+                  e.first_name,
+                  e.last_name,
+                  ROUND(AVG(t.customer_rating)::numeric, 2) AS avg_guest_rating,
+                  COUNT(t.trip_id)::int                     AS total_completed_trips
+             FROM drivers d
+             LEFT JOIN employees e ON e.employee_id = d.employee_id
+             LEFT JOIN trips t
+                    ON t.driver_id = d.driver_id
+                   AND t.trip_status = 'Completed'
+                   AND t.deleted_at IS NULL
+            WHERE d.driver_id = $1 AND d.deleted_at IS NULL
+            GROUP BY d.driver_id, e.first_name, e.last_name`,
+          [driverId]
+        ).then((r) => r.rows[0] ?? null)
+      : null,
+  ]);
+
+  if (!vehicleRow && !driverRow) return null;
+
+  if (vehicleRow) {
+    vehicleRow._est_fuel_liters = estimateFuel(
+      trip.distanceKm,
+      estimateEfficiency(vehicleRow),
+      vehicleRow.tank_capacity ?? null
+    ).liters;
+    vehicleRow._maintenance = predictVehicle(vehicleRow);
+  }
+
+  if (driverRow) {
+    const pickupCoords = resolveCoordinates(request?.pickup_location);
+    const lastPing = await query(
+      `SELECT DISTINCT ON (t.driver_id) g.latitude, g.longitude
+         FROM gpstracking g
+         JOIN trips t ON t.trip_id = g.trip_id
+        WHERE t.driver_id = $1
+        ORDER BY t.driver_id, g.recorded_at DESC`,
+      [driverId]
+    ).then((r) => r.rows[0] ?? null);
+
+    const position = driverPosition(driverRow, lastPing);
+    driverRow._pickup_distance_km = pickupCoords
+      ? Number(haversineKm(pickupCoords, position).toFixed(1))
+      : null;
+    driverRow._position_basis = position.basis;
+    driverRow._proximity_relevant = isProximityRelevant(
+      request?.pickup_datetime,
+      new Date(),
+      PROXIMITY_WINDOW_HRS
+    ) && !!pickupCoords;
+  }
+
+  return { vehicle: vehicleRow, driver: driverRow };
 }
 
 /**
@@ -246,6 +425,70 @@ async function loadActivePairs() {
   return rows;
 }
 
+/** All substitute coverage rows — the engine resolves which covers the date. */
+async function loadActiveSubstitutes() {
+  const { rows } = await query(
+    `SELECT vehicle_id, substitute_driver_id, effective_from, effective_until
+       FROM substitute_vehicle_schedules`
+  );
+  return rows;
+}
+
+/**
+ * Narrate a recommendation, honouring a `?vehicle_id=&driver_id=` pin.
+ *
+ * With a pin, the checklist describes the pair the caller is showing and about
+ * to assign. Without one, it falls back to the scored pair — the previous
+ * behaviour, still correct for callers that render the scorer's pick directly.
+ */
+async function narrateForRequest(req, request, recommendation, session) {
+  const url = new URL(req.url, `http://${req.headers.get("host") || "localhost"}`);
+  if (url.searchParams.get("narrate") !== "1") return null;
+
+  const pinnedVehicleId = Number(url.searchParams.get("vehicle_id")) || null;
+  const pinnedDriverId = Number(url.searchParams.get("driver_id")) || null;
+
+  if (!pinnedVehicleId && !pinnedDriverId) {
+    return narrate(request, recommendation, session);
+  }
+
+  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
+  const pinnedRows = await loadPinnedPair(pinnedVehicleId, pinnedDriverId, request, trip);
+  if (!pinnedRows) return narrate(request, recommendation, session);
+
+  const scored = recommendation.pair?.recommended;
+  const isSamePair =
+    scored?.vehicle_id === pinnedVehicleId && scored?.driver_id === pinnedDriverId;
+
+  // The scored pair's score/reasons only describe the scored pair. Carry them
+  // over when the pin IS that pair, and drop them otherwise.
+  const shaped = shapePinnedPair({
+    vehicle: pinnedRows.vehicle,
+    driver: pinnedRows.driver,
+    request,
+    score: isSamePair ? (scored?.score ?? null) : null,
+  });
+
+  return narrate(
+    request,
+    {
+      ...recommendation,
+      pair: {
+        ...recommendation.pair,
+        recommended: {
+          ...(isSamePair ? scored : {}),
+          ...shaped,
+          vehicle_id: pinnedVehicleId,
+          driver_id: pinnedDriverId,
+          is_designated: isSamePair ? scored?.is_designated : undefined,
+          replacement_reason: isSamePair ? scored?.replacement_reason : null,
+        },
+      },
+    },
+    session
+  );
+}
+
 /**
  * GET returns the current advisory.
  *
@@ -272,6 +515,12 @@ export async function GET(req, { params }) {
           vehicle: request.ai_vehicle_recommendation,
           driver: request.ai_driver_recommendation,
         };
+        const narrationResult = await narrateForRequest(
+          req,
+          request,
+          { trip: pair?.trip ?? null, pair: { recommended: pair } },
+          session
+        );
         return ok({
           generated_at: snapshot.generated_at,
           trip: pair?.trip ?? null,
@@ -285,19 +534,20 @@ export async function GET(req, { params }) {
           },
           vehicle: legacy.vehicle,
           driver: legacy.driver,
-          narration: null,
+          narration: narrationResult,
         });
       }
     }
 
     const { vehicles, drivers } = await fetchCandidates(request);
-    const activePairs = await loadActivePairs();
-    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs });
+    const [activePairs, activeSubstitutes] = await Promise.all([
+      loadActivePairs(),
+      loadActiveSubstitutes(),
+    ]);
+    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs, activeSubstitutes });
 
     // Only the explicit second call pays for the provider round-trip.
-    if (new URL(req.url).searchParams.get("narrate") === "1") {
-      recommendation.narration = await narrate(request, recommendation, session);
-    }
+    recommendation.narration = await narrateForRequest(req, request, recommendation, session);
 
     return ok(recommendation);
   } catch (e) { return handleError(e); }
@@ -320,8 +570,11 @@ export async function POST(req, { params }) {
     // No narration here: this call persists the recommendation, and a write path
     // must not wait on an external provider. GET is where the prose belongs.
     const { vehicles, drivers } = await fetchCandidates(request);
-    const activePairs = await loadActivePairs();
-    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs });
+    const [activePairs, activeSubstitutes] = await Promise.all([
+      loadActivePairs(),
+      loadActiveSubstitutes(),
+    ]);
+    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs, activeSubstitutes });
 
     const pairPayload = {
       trip: recommendation.trip,

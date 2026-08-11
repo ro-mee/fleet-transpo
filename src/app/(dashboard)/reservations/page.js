@@ -98,12 +98,20 @@ export default function ReservationsPage() {
       }),
       columnHelper.accessor("guest_name", {
         header: "Guest",
-        cell: (info) => (
-          <div>
-            <p className="font-bold text-sm text-foreground">{info.getValue() || "—"}</p>
-            <p className="text-xs text-foreground-muted font-medium">{info.row.original.source_system}</p>
-          </div>
-        ),
+        cell: (info) => {
+          const name = info.getValue() || "";
+          const parts = name.split(" ").filter(Boolean);
+          const shortName = parts.length > 1 
+            ? `${parts[0]} ${parts[parts.length - 1][0]}.` 
+            : parts[0] || "—";
+            
+          return (
+            <div>
+              <p className="font-bold text-sm text-foreground">{shortName}</p>
+              <p className="text-xs text-foreground-muted font-medium">{info.row.original.source_system}</p>
+            </div>
+          );
+        },
       }),
       columnHelper.accessor("pickup_location", {
         header: "Route",
@@ -111,12 +119,12 @@ export default function ReservationsPage() {
           <div className="max-w-[220px]">
             <p className="flex items-center gap-1.5 truncate text-xs font-medium text-foreground-secondary">
               <MapPin className="h-3.5 w-3.5 shrink-0 text-danger" />
-              {info.getValue()}
+              {info.getValue() ? info.getValue().replace(/Terminal /i, "").replace(/ Hotel/i, "").trim() : "—"}
             </p>
             {info.row.original.dropoff_location && (
               <p className="flex items-center gap-1.5 truncate text-xs font-medium text-foreground-secondary mt-0.5">
                 <MapPin className="h-3.5 w-3.5 shrink-0 text-success" />
-                {info.row.original.dropoff_location}
+                {info.row.original.dropoff_location.replace(/Terminal /i, "").replace(/ Hotel/i, "").trim()}
               </p>
             )}
           </div>
@@ -175,7 +183,7 @@ export default function ReservationsPage() {
               <p className="flex items-center gap-1.5">
                 <UserCheck className="h-3.5 w-3.5 text-foreground-muted" />
                 <span className={driver ? "text-foreground-secondary font-semibold" : "text-foreground-muted"}>
-                  {driver ? [driver.first_name, driver.last_name].filter(Boolean).join(" ") : "—"}
+                  {driver ? `${driver.first_name?.split(" ")[0]} ${driver.last_name ? driver.last_name.split(" ").pop()[0] + "." : ""}`.trim() : "—"}
                 </span>
               </p>
             </div>
@@ -194,24 +202,6 @@ export default function ReservationsPage() {
       columnHelper.accessor("fleet_status", {
         header: "Status",
         cell: (info) => <StatusBadge status={info.getValue()} entity="reservation" className="rounded-full px-3 py-1 text-xs font-bold" />,
-      }),
-      columnHelper.display({
-        id: "open",
-        header: "",
-        cell: (info) => (
-          <div className="inline-flex items-center rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              aria-label={`Open ${info.row.original.reservation_number || "reservation"}`}
-              onClick={() => {
-                router.push(`/reservations/${info.row.original.request_id}`);
-              }}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-foreground-secondary transition-colors hover:bg-hover hover:text-foreground cursor-pointer"
-            >
-              <ArrowUpRight className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        ),
       }),
     ],
     [router]

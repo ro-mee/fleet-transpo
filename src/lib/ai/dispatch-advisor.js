@@ -1,6 +1,7 @@
 import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
-import { buildFleetPairRecommendations } from "@/lib/ai/pair-scoring";
+import { buildFleetPairRecommendations, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
 import { estimateTrip, estimateFuel } from "@/lib/geo/distance";
+import { DRIVER_STATUS } from "@/lib/constants";
 
 // AI dispatch advisor — builds the Phase 14 recommendation payload.
 //
@@ -78,8 +79,18 @@ function vehicleRisks(vehicle, request) {
     }
   }
 
-  if (vehicle?.vehicle_status && vehicle.vehicle_status !== "Available") {
+  // A status only counts as a risk when it describes the vehicle itself.
+  // `Reserved` does not: it means "booked at some point today", which says
+  // nothing about the requested window and is answered precisely by the
+  // schedule-load check below. Flagging it high would have the panel warn about
+  // a car that is genuinely free at the pickup time.
+  if (vehicle?.vehicle_status && !vehicleOperationallyAvailable(vehicle)) {
     risks.push({ level: "high", message: `Vehicle status is ${vehicle.vehicle_status}.` });
+  }
+
+  const load = Number(vehicle?._schedule_load);
+  if (Number.isFinite(load) && load > 0) {
+    risks.push({ level: "high", message: `Already has ${load} dispatch(es) in this window.` });
   }
 
   return risks;
@@ -134,7 +145,7 @@ function toVehicleCandidate(scored, request, trip) {
     estimated_fuel_liters: fuel.liters,
     estimated_fuel_percent_of_tank: fuel.percentOfTank,
     schedule_load: vehicle._schedule_load ?? null,
-    availability: availabilityLabel(vehicle.vehicle_status, vehicle._schedule_load),
+    availability: availabilityLabel(vehicle.vehicle_status, vehicle._schedule_load, "vehicle"),
     maintenance: vehicle._maintenance
       ? {
           score: vehicle._maintenance.score,
@@ -165,6 +176,10 @@ function toDriverCandidate(scored) {
     confidence: Number(scored.confidence),
     reasons: scored.reasons,
     distance_from_pickup_km: driver._pickup_distance_km ?? null,
+    // How the distance was derived ("recorded position", "last GPS ping",
+    // "assumed at hotel base"). The narration must not present an assumed
+    // position as a tracked one.
+    position_basis: driver._position_basis ?? null,
     estimated_arrival_minutes:
       driver._pickup_distance_km != null ? Math.max(1, Math.round((driver._pickup_distance_km / 25) * 60)) : null,
     proximity_relevant: driver._proximity_relevant ?? false,
@@ -177,14 +192,22 @@ function toDriverCandidate(scored) {
 /**
  * One-line readiness label for a vehicle or driver: "Available", or how busy
  * they are in the pickup window. Backs the availability chip in the panel.
+ *
+ * `kind` matters because the two status vocabularies mean different things. A
+ * driver who is not `Available` really is out of action. A vehicle that is
+ * `Reserved` is not — that label only records a booking somewhere in the day,
+ * so the schedule load is what decides whether this window is free. Only the
+ * statuses that ground the vehicle make it unavailable.
  */
-function availabilityLabel(status, scheduleLoad) {
+function availabilityLabel(status, scheduleLoad, kind = "driver") {
   const load = Number(scheduleLoad);
   if (Number.isFinite(load) && load > 0) {
     return { free: false, label: `${load} dispatch(es) in this window` };
   }
-  if (status && status !== "Available") {
-    return { free: false, label: `Status: ${status}` };
+  if (status) {
+    const blocked =
+      kind === "vehicle" ? !vehicleOperationallyAvailable({ vehicle_status: status }) : status !== "Available";
+    if (blocked) return { free: false, label: `Status: ${status}` };
   }
   return { free: true, label: "Available" };
 }
@@ -228,6 +251,26 @@ function toPairCandidate(pair, request, trip) {
 }
 
 /**
+ * Shape a caller-pinned vehicle/driver into the advisor's candidate payload.
+ *
+ * Used when the UI has already decided which pair it is committing and needs the
+ * narration to describe that pair rather than the independently-scored one. No
+ * score is invented: `score` stays null unless the caller supplies one, since
+ * these rows never went through the pair engine.
+ */
+export function shapePinnedPair({ vehicle, driver, request, score = null }) {
+  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
+
+  return {
+    vehicle: vehicle
+      ? toVehicleCandidate({ vehicle, score, confidence: 0, reasons: [] }, request, trip)
+      : null,
+    driver: driver ? toDriverCandidate({ driver, score, confidence: 0, reasons: [] }) : null,
+    score,
+  };
+}
+
+/**
  * Build the full dispatch recommendation for a request.
  *
  * Pure and synchronous: callers fetch the candidate pools (so they control the
@@ -244,11 +287,13 @@ function toPairCandidate(pair, request, trip) {
  * @param {object[]} params.vehicles    candidate vehicles (already availability-filtered)
  * @param {object[]} params.drivers     candidate drivers
  * @param {Array} [params.activePairs]  active custodial pairs (assigned_until IS NULL)
+ * @param {Array} [params.activeSubstitutes] day-scoped substitute schedules
  * @param {Date} [params.now]           fixed clock for tests
  * @returns {{
  *   generated_at: string,
  *   trip: object,
- *   pair: { recommended: object|null, alternate: object|null, considered: number },
+ *   pair: { recommended: object|null, alternate: object|null, considered: number,
+ *           none_reasons: Array<{vehicle_id:number, plate:string, reason:string}> },
  *   vehicle: object, driver: object, narration: null
  * }}
  */
@@ -257,25 +302,35 @@ export function buildDispatchRecommendation({
   vehicles = [],
   drivers = [],
   activePairs = [],
+  activeSubstitutes = [],
   now = new Date(),
 }) {
   const passengers = Number(request?.passenger_count) || 1;
   const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
 
   // Pair engine ranks complete vehicle+driver pairs; designated match dominates.
-  const { recommended, alternate } = buildFleetPairRecommendations({
+  const { recommended, alternate, skipped = [] } = buildFleetPairRecommendations({
     request,
     vehicles,
     drivers,
     activePairs,
+    activeSubstitutes,
     trip,
     now,
   });
 
   // Legacy independent scores, retained ONLY for backward compatibility of the
   // `vehicle`/`driver` payload shape. The recommended pair is the decision.
+  //
+  // Callers hand in the full driver roster, not just the free ones, so the pair
+  // engine can recognise an absent custodian and say so precisely ("designated
+  // driver is On Leave and no substitute is assigned") instead of mistaking the
+  // car for one that never had a custodian. These legacy blocks predate that and
+  // are meant to list only drivers who could take a job, so they are filtered
+  // back down here rather than changing their published shape.
+  const availableDrivers = drivers.filter((d) => d?.driver_status === DRIVER_STATUS.AVAILABLE);
   const scoredVehicles = scoreReservationVehicles(vehicles, passengers);
-  const scoredDrivers = scoreDispatchDrivers(drivers);
+  const scoredDrivers = scoreDispatchDrivers(availableDrivers);
   const vehicleCandidates = scoredVehicles.map((s) => toVehicleCandidate(s, request, trip));
   const driverCandidates = scoredDrivers.map(toDriverCandidate);
 
@@ -291,7 +346,10 @@ export function buildDispatchRecommendation({
     pair: {
       recommended: recommended ? toPairCandidate(recommended, request, trip) : null,
       alternate: alternate ? toPairCandidate(alternate, request, trip) : null,
-      considered: recommended ? 1 : 0,
+      considered: vehicles.length,
+      // "Why no candidates" — distinct vehicle-level reasons the pairing engine
+      // skipped when it could not form a pair. Empty when a pair exists.
+      none_reasons: skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason })),
     },
     vehicle: {
       recommended: vehicleCandidates[0] ?? null,

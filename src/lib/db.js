@@ -34,13 +34,21 @@ export function getAdminClient() {
 
 export function getPool() {
   assertServerOnly("getPool");
-  if (!pool) {
+  if (!globalThis.postgresPool) {
     if (!process.env.DATABASE_URL) {
       throw new Error("DATABASE_URL is not set.");
     }
-    pool = new Pool({ connectionString: process.env.DATABASE_URL });
+    // In Next.js dev mode, HMR constantly clears the module cache.
+    // If we don't attach the pool to globalThis, we spawn a new pool
+    // (and new connections) on every save, quickly exhausting the 15
+    // session connections on Supabase.
+    globalThis.postgresPool = new Pool({ 
+      connectionString: process.env.DATABASE_URL,
+      max: 10,
+      idleTimeoutMillis: 30000,
+    });
   }
-  return pool;
+  return globalThis.postgresPool;
 }
 
 export async function query(text, params = []) {

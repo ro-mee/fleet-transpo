@@ -93,7 +93,7 @@ export function DataTable({
   }, [pageCount, pageIndex]);
 
   return (
-    <div className="space-y-0 overflow-hidden rounded-3xl border border-border/80 bg-surface shadow-xs">
+    <div className="space-y-0 w-full max-w-full min-w-0 overflow-hidden rounded-3xl border border-border/80 bg-surface shadow-xs">
       {/* ── Header Title Bar ── */}
       <div className="flex flex-col gap-3 border-b border-border/60 bg-surface px-6 py-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3.5">
@@ -140,8 +140,8 @@ export function DataTable({
           <TableSkeleton />
         </div>
       ) : (
-        <div className="relative overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <table className="w-full min-w-[1000px] border-collapse">
+        <div className="relative w-full max-w-full overflow-x-auto [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-border">
+          <table className="w-full text-sm text-left border-collapse table-auto">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
                 <tr key={headerGroup.id} className="border-b border-border/60 bg-surface">
@@ -149,7 +149,7 @@ export function DataTable({
                     <th
                       key={header.id}
                       className={cn(
-                        "px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
+                        "px-3 sm:px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
                         header.column.getCanSort() && "cursor-pointer hover:text-foreground transition-colors"
                       )}
                       onClick={header.column.getToggleSortingHandler()}
@@ -184,7 +184,7 @@ export function DataTable({
                     onClick={() => onRowClick?.(row.original)}
                   >
                     {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={cn("px-5 py-4 text-xs font-medium text-foreground whitespace-nowrap", cell.column.columnDef.meta?.className)}>
+                      <td key={cell.id} className={cn("px-3 sm:px-5 py-4 text-xs font-medium text-foreground whitespace-nowrap", cell.column.columnDef.meta?.className)}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}

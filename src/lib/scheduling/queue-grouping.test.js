@@ -30,6 +30,11 @@ describe("bucketRequest", () => {
     expect(bucketRequest(mk({ derived_priority: DERIVED_PRIORITY.OVERDUE }), NOW)).toBe("today");
   });
 
+  it("Assigned goes to its own lane regardless of pickup date", () => {
+    expect(bucketRequest(mk({ fleet_status: L.ASSIGNED, pickup_datetime: todayISO }), NOW)).toBe("assigned");
+    expect(bucketRequest(mk({ fleet_status: L.ASSIGNED, pickup_datetime: tomorrowISO }), NOW)).toBe("assigned");
+  });
+
   it("Rejected goes to cancelled bucket fallback", () => {
     expect(bucketRequest(mk({ fleet_status: L.REJECTED }), NOW)).toBe("today");
   });
@@ -66,10 +71,13 @@ describe("groupQueue", () => {
       mk({ request_id: 4, fleet_status: L.COMPLETED }),
       mk({ request_id: 5, fleet_status: L.CANCELLED }),
       mk({ request_id: 6, fleet_status: L.APPROVED, derived_priority: DERIVED_PRIORITY.CRITICAL }),
+      mk({ request_id: 7, fleet_status: L.ASSIGNED }),
+      mk({ request_id: 8, fleet_status: L.ASSIGNED, pickup_datetime: tomorrowISO }),
     ];
     const g = groupQueue(reqs, NOW);
     expect(g.today.map((r) => r.request_id)).toEqual([1, 6]);
     expect(g.upcoming.map((r) => r.request_id)).toEqual([2]);
+    expect(g.assigned.map((r) => r.request_id)).toEqual([7, 8]);
     expect(g.inProgress.map((r) => r.request_id)).toEqual([3]);
     expect(g.completed.map((r) => r.request_id)).toEqual([4]);
     expect(g.cancelled.map((r) => r.request_id)).toEqual([5]);

@@ -16,6 +16,7 @@ import { getRecommendation } from "@/services/transport.service";
 import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
+import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime } from "@/lib/utils";
 import {
@@ -53,18 +54,12 @@ export function ReviewDialog({
     enabled: isOpen && !!requestId,
   });
 
-  // LLM narration — slow, nullable, streams in behind the scored result.
-  const { data: narrated, isFetching: isNarrating } = useQuery({
-    queryKey: ["reservation-recommendation", requestId, "narrated"],
-    queryFn: () => getRecommendation(requestId, { narrate: true }),
-    enabled: isOpen && !!requestId,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  });
+  // LLM narration is declared further down: it is pinned to the best available
+  // pair, so it cannot be issued until that pair has been computed.
 
   // Real custodial pairs — same three queries the assign dialog uses.
   // These are database-backed and always show even when the AI returns nothing.
-  const { data: vehicles = [] } = useQuery({
+  const { data: vehiclesData } = useQuery({
     queryKey: ["available-vehicles", request?.pickup_datetime],
     queryFn: () => getAvailableVehicles(
       request?.pickup_datetime
@@ -73,7 +68,7 @@ export function ReviewDialog({
     ),
     enabled: isOpen,
   });
-  const { data: drivers = [] } = useQuery({
+  const { data: driversData } = useQuery({
     queryKey: ["drivers", { status: "Available", pickup_at: request?.pickup_datetime }],
     queryFn: () => getDrivers({
       status: "Available",
@@ -82,10 +77,100 @@ export function ReviewDialog({
     }),
     enabled: isOpen,
   });
+  const vehicles = vehiclesData ?? [];
+  const drivers = driversData ?? [];
   const { data: pairingData } = useQuery({
     queryKey: ["driver-assignments", "active"],
     queryFn: () => getDriverAssignments(),
     enabled: isOpen,
+  });
+
+  // Substitute coverage (migration 032): a vehicle whose custodian is off duty
+  // but covered by a substitute on the pickup date is a valid pair. Mirrors the
+  // assign dialog so the DB-backed "best pair" fallback never sells the dispatcher
+  // short when an eligible substitute exists.
+  const subDate = request?.pickup_datetime ? String(request.pickup_datetime).slice(0, 10) : null;
+  const { data: subData } = useQuery({
+    queryKey: ["substitute-schedules", subDate],
+    queryFn: () => getSubstituteSchedules(subDate ? { date: subDate } : {}),
+    enabled: isOpen && !!subDate,
+  });
+  const substituteRows = subData?.schedules ?? [];
+
+  // Build the best available pair from real DB data.
+  // Logic mirrors assign-dialog: vehicle must be available + big enough + right class,
+  // driver must be on duty. A vehicle whose custodian is off duty but covered by a
+  // substitute for the pickup date is offered with the substitute instead. Pick the
+  // first sorted pair; AI score enhances it.
+  //
+  // Computed above the `!request` guard, and before the narration query, because
+  // the advisory is pinned to this pair — it must be known before we ask for it.
+  const reqCategoryId = request?.requested_category_id ?? null;
+  const passengers = Number(request?.passenger_count) || 1;
+  const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
+  const onDuty = new Set(drivers.map((d) => d.driver_id));
+  const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
+  const pairingRows = (pairingData?.assignments ?? []).filter((a) => {
+    const v = vById.get(a.vehicle_id);
+    if (!v || !onDuty.has(a.driver_id)) return false;
+    const seats = Number(v.seating_capacity) || 0;
+    if (seats > 0 && seats < passengers) return false;
+    if (reqCategoryId != null && v.category_id !== reqCategoryId) return false;
+    return true;
+  });
+  const offeredVehicleIds = new Set(pairingRows.map((a) => a.vehicle_id));
+  const subRows = substituteRows
+    .filter((s) => {
+      const v = vById.get(s.vehicle_id);
+      if (!v || offeredVehicleIds.has(s.vehicle_id) || !onDuty.has(s.substitute_driver_id)) return false;
+      const seats = Number(v.seating_capacity) || 0;
+      if (seats > 0 && seats < passengers) return false;
+      if (reqCategoryId != null && v.category_id !== reqCategoryId) return false;
+      return true;
+    })
+    .map((s) => ({
+      driver_id: s.substitute_driver_id,
+      vehicle_id: s.vehicle_id,
+      is_substitute: true,
+    }));
+  const pairings = [...pairingRows, ...subRows].sort((a, b) => {
+    const va = vById.get(a.vehicle_id);
+    const vb = vById.get(b.vehicle_id);
+    return (va?.plate_number || "").localeCompare(vb?.plate_number || "");
+  });
+
+  const bestPairing = pairings[0] ?? null;
+  const bestVehicle = bestPairing ? vById.get(bestPairing.vehicle_id) : null;
+  const bestDriver  = bestPairing ? driverById.get(bestPairing.driver_id) : null;
+
+  // LLM narration — slow, nullable, streams in behind the scored result.
+  //
+  // PINNED to the pair above. The server ranks its own candidate pool and can
+  // pick a different vehicle/driver; narrating that pick produced a checklist
+  // about a dispatch the dispatcher was never going to make. Held until the
+  // candidate pools have resolved so we never pin to a half-loaded pair.
+  const poolsReady =
+    vehiclesData !== undefined &&
+    driversData !== undefined &&
+    pairingData !== undefined &&
+    (!subDate || subData !== undefined);
+
+  const { data: narrated, isFetching: isNarrating } = useQuery({
+    queryKey: [
+      "reservation-recommendation",
+      requestId,
+      "narrated",
+      bestPairing?.vehicle_id ?? null,
+      bestPairing?.driver_id ?? null,
+    ],
+    queryFn: () =>
+      getRecommendation(requestId, {
+        narrate: true,
+        vehicleId: bestPairing?.vehicle_id ?? null,
+        driverId: bestPairing?.driver_id ?? null,
+      }),
+    enabled: isOpen && !!requestId && poolsReady,
+    retry: false,
   });
 
   if (!request) return null;
@@ -94,33 +179,6 @@ export function ReviewDialog({
   const conflicts = r.conflicts || [];
   const narration = narrated?.narration;
   const category = r.vehiclecategories?.category_name || r.requested_vehicle_type || "Standard Vehicle";
-  const reqCategoryId = r.requested_category_id ?? null;
-  const passengers = Number(r.passenger_count) || 1;
-
-  // Build the best available pair from real DB data.
-  // Logic mirrors assign-dialog: vehicle must be available + big enough + right class,
-  // driver must be on duty. Pick the first sorted pair; AI score enhances it.
-  const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
-  const onDuty = new Set(drivers.map((d) => d.driver_id));
-  const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
-  const pairings = (pairingData?.assignments ?? [])
-    .filter((a) => {
-      const v = vById.get(a.vehicle_id);
-      if (!v || !onDuty.has(a.driver_id)) return false;
-      const seats = Number(v.seating_capacity) || 0;
-      if (seats > 0 && seats < passengers) return false;
-      if (reqCategoryId != null && v.category_id !== reqCategoryId) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      const va = vById.get(a.vehicle_id);
-      const vb = vById.get(b.vehicle_id);
-      return (va?.plate_number || "").localeCompare(vb?.plate_number || "");
-    });
-
-  const bestPairing = pairings[0] ?? null;
-  const bestVehicle = bestPairing ? vById.get(bestPairing.vehicle_id) : null;
-  const bestDriver  = bestPairing ? driverById.get(bestPairing.driver_id) : null;
 
   // AI-scored pair overlay — the pair is the decision unit, so score/reasons/
   // risks come from the recommended pair's vehicle & driver halves. Falls back
@@ -129,6 +187,17 @@ export function ReviewDialog({
   const aiVehicle = aiPair?.vehicle || aiRec?.vehicle?.recommended || r.ai_vehicle_recommendation;
   const aiDriver  = aiPair?.driver  || aiRec?.driver?.recommended  || r.ai_driver_recommendation;
 
+  // The scorer ranks its own candidate pool and can land on a different pair
+  // than the custodial one shown here. Its score, reasons and risks describe
+  // THAT pair, so they may only be overlaid when the two agree — otherwise the
+  // card advertises a match percentage earned by a vehicle it isn't offering.
+  const aiMatchesCard =
+    !!bestPairing &&
+    aiPair?.vehicle_id === bestPairing.vehicle_id &&
+    aiPair?.driver_id === bestPairing.driver_id;
+  const cardVehicleAi = aiMatchesCard ? aiVehicle : null;
+  const cardDriverAi  = aiMatchesCard ? aiDriver  : null;
+
   // Merge: prefer real pairing for identity, AI for score/reasons.
   const displayVehicle = bestVehicle
     ? {
@@ -136,10 +205,10 @@ export function ReviewDialog({
         vehicle_name:    bestVehicle.vehicle_name,
         fuel_level:      bestVehicle.fuel_level,
         seating_capacity: bestVehicle.seating_capacity,
-        score:           aiVehicle?.score ?? null,
-        reasons:         aiVehicle?.reasons ?? [],
-        detected_risks:  aiVehicle?.detected_risks ?? [],
-        estimated_fuel_liters: aiVehicle?.estimated_fuel_liters ?? null,
+        score:           cardVehicleAi?.score ?? null,
+        reasons:         cardVehicleAi?.reasons ?? [],
+        detected_risks:  cardVehicleAi?.detected_risks ?? [],
+        estimated_fuel_liters: cardVehicleAi?.estimated_fuel_liters ?? null,
       }
     : aiVehicle ?? null;
 
@@ -149,12 +218,12 @@ export function ReviewDialog({
 
   const displayDriver = bestDriver
     ? {
-        driver_name:          personName(bestDriver) || bestDriver.driver_name,
+        driver_name:          (personName(bestDriver) || bestDriver.driver_name) + (bestPairing?.is_substitute ? " (substitute)" : ""),
         years_of_experience:  bestDriver.years_of_experience,
         rating:               bestDriver.rating,
-        score:                aiDriver?.score ?? null,
-        reasons:              aiDriver?.reasons ?? [],
-        detected_risks:       aiDriver?.detected_risks ?? [],
+        score:                cardDriverAi?.score ?? null,
+        reasons:              cardDriverAi?.reasons ?? [],
+        detected_risks:       cardDriverAi?.detected_risks ?? [],
       }
     : aiDriver ?? null;
 
@@ -162,6 +231,18 @@ export function ReviewDialog({
   const vehicleCount = vehicles.length;
   const driverCount  = drivers.length;
   const pairScore   = displayVehicle?.score ?? displayDriver?.score ?? null;
+
+  // The pair "Approve & Assign Now" commits: the DB-backed best eligible pair
+  // first, falling back to the AI-recommended pair's ids when a real pairing
+  // could not be assembled. Null when nothing is eligible — the button then
+  // sends the request without ids so the parent can fall back to the manual
+  // dialog instead of guessing.
+  const recommended = bestPairing
+    ? { vehicleId: bestPairing.vehicle_id, driverId: bestPairing.driver_id }
+    : {
+        vehicleId: aiVehicle?.vehicle_id ?? null,
+        driverId: aiDriver?.driver_id ?? null,
+      };
 
   // Pre-compute the diagnostic card for the no-pair-available state.
   // Computed here (not inside JSX) to avoid IIFE which breaks the JSX parser.
@@ -227,7 +308,7 @@ export function ReviewDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-xl p-6 sm:max-w-2xl overflow-hidden">
+      <DialogContent className="max-w-xl p-4 sm:p-6 w-[95vw] sm:max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
         <DialogHeader className="pb-3 border-b border-border">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -242,7 +323,7 @@ export function ReviewDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-3.5 py-2 max-h-[70vh] overflow-y-auto pr-1">
+        <div className="space-y-3.5 py-2 flex-1 overflow-y-auto pr-1 -mr-1">
           {/* Guest & Source Header */}
           <div className="p-3.5 rounded-xl bg-hover/50 border border-border/80 flex items-center justify-between gap-3">
             <div>
@@ -262,15 +343,17 @@ export function ReviewDialog({
 
           {/* Route & Timing Box */}
           <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2.5 text-sm shadow-xs">
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-danger shrink-0" />
-              <span className="text-xs font-semibold text-foreground-muted uppercase w-16">Pickup:</span>
-              <span className="font-medium text-foreground truncate">{r.pickup_location || "—"}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-success shrink-0" />
-              <span className="text-xs font-semibold text-foreground-muted uppercase w-16">Dropoff:</span>
-              <span className="font-medium text-foreground truncate">{r.dropoff_location || "—"}</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <MapPin className="w-4 h-4 text-danger shrink-0" />
+                <span className="text-xs font-semibold text-foreground-muted uppercase w-16 shrink-0">Pickup:</span>
+                <span className="font-medium text-foreground truncate">{r.pickup_location || "—"}</span>
+              </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <MapPin className="w-4 h-4 text-success shrink-0" />
+                <span className="text-xs font-semibold text-foreground-muted uppercase w-16 shrink-0">Dropoff:</span>
+                <span className="font-medium text-foreground truncate">{r.dropoff_location || "—"}</span>
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-border/60 text-xs">
               <div className="flex items-center gap-1.5 text-foreground font-medium">
@@ -341,7 +424,7 @@ export function ReviewDialog({
                   </div>
 
                   {/* Substitute-pair attribution from the AI pair decision */}
-                  {aiPair?.reason_type === "replacement" && aiPair?.replacement_reason && (
+                  {aiMatchesCard && aiPair?.reason_type === "replacement" && aiPair?.replacement_reason && (
                     <div className="flex items-start gap-1.5 px-3 py-1.5 border-b border-primary/15 bg-warning/10 text-[11px] text-foreground-secondary">
                       <AlertTriangle className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
                       <span>
@@ -352,7 +435,7 @@ export function ReviewDialog({
                   )}
 
                   {/* Combined Vehicle + Driver side by side */}
-                  <div className="grid grid-cols-2 divide-x divide-primary/15">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-primary/15">
                     {/* Vehicle side */}
                     <div className="p-3 space-y-1">
                       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
@@ -367,29 +450,6 @@ export function ReviewDialog({
                           ? `${displayVehicle.plate_number}${displayVehicle.vehicle_name ? ` · ${displayVehicle.vehicle_name}` : ""}`
                           : displayVehicle?.vehicle_name || `Class: ${category}`}
                       </p>
-                      {/* AI top reason (only when AI has scored this vehicle) */}
-                      {displayVehicle?.reasons?.length > 0 ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          {displayVehicle.reasons[0]}
-                        </p>
-                      ) : displayVehicle?.seating_capacity ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          {displayVehicle.seating_capacity} seats · Available
-                        </p>
-                      ) : null}
-                      {/* Risk or fuel hint */}
-                      {displayVehicle?.detected_risks?.length > 0 ? (
-                        <p className="text-[11px] text-warning font-medium truncate">
-                          ⚠ {displayVehicle.detected_risks[0].message}
-                        </p>
-                      ) : displayVehicle?.fuel_level != null ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          Fuel: {displayVehicle.fuel_level}%
-                          {displayVehicle.estimated_fuel_liters != null
-                            ? ` · Est. ${displayVehicle.estimated_fuel_liters}L for trip`
-                            : ""}
-                        </p>
-                      ) : null}
                     </div>
 
                     {/* Driver side */}
@@ -404,48 +464,46 @@ export function ReviewDialog({
                       <p className="text-sm font-bold text-foreground truncate">
                         {displayDriver?.driver_name || "—"}
                       </p>
-                      {/* AI top reason (only when AI has scored this driver) */}
-                      {displayDriver?.reasons?.length > 0 ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          {displayDriver.reasons[0]}
-                        </p>
-                      ) : displayDriver?.years_of_experience != null ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          {displayDriver.years_of_experience} yr{displayDriver.years_of_experience !== 1 ? "s" : ""} experience
-                        </p>
-                      ) : null}
-                      {/* Risk or rating hint */}
-                      {displayDriver?.detected_risks?.length > 0 ? (
-                        <p className="text-[11px] text-warning font-medium truncate">
-                          ⚠ {displayDriver.detected_risks[0].message}
-                        </p>
-                      ) : displayDriver?.avg_guest_rating != null ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          ⭐ {Number(displayDriver.avg_guest_rating).toFixed(1)}/5 guest rating
-                          {displayDriver.total_completed_trips > 0
-                            ? ` · ${displayDriver.total_completed_trips} trips`
-                            : ""}
-                        </p>
-                      ) : displayDriver?.rating != null ? (
-                        <p className="text-[11px] text-foreground-muted truncate">
-                          ⭐ {Number(displayDriver.rating).toFixed(1)}/5 guest rating
-                        </p>
-                      ) : null}
                     </div>
                   </div>
 
                   {/* LLM rationale */}
-                  {(narration || isNarrating) && (
-                    <div className="px-3 pb-2.5 pt-1.5 border-t border-primary/15 space-y-1">
-                      <span className="text-[11px] font-semibold uppercase tracking-wider text-primary/80">
-                        AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
-                      </span>
-                      {narration ? (
-                        <p className="text-[11px] leading-relaxed text-foreground-secondary">{narration.text}</p>
+                  {(narrated || isNarrating) && (
+                    <div className="px-4 py-3.5 border-t border-primary/10 bg-primary/[0.02] space-y-2.5 transition-all duration-300">
+                      <div className="flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-primary animate-pulse" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-primary/95">
+                          AI Dispatch Advisory
+                        </span>
+                        {narration?.provider && (
+                          <span className="text-[9px] font-semibold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full ml-auto">
+                            {narration.provider}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {isNarrating ? (
+                        <div className="flex items-center gap-2 text-[11px] text-foreground-muted py-1">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                          <span className="animate-pulse">Analyzing dispatch safety &amp; efficiency...</span>
+                        </div>
+                      ) : narration ? (
+                        <ul className="space-y-2">
+                          {(narration.text || "")
+                            .split("\n")
+                            .map((line) => line.replace(/^[✓✓\s\-*]+/, "").trim())
+                            .filter(Boolean)
+                            .map((point, idx) => (
+                              <li key={idx} className="flex items-start gap-2.5 text-[11px] leading-relaxed text-foreground-secondary">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
+                                <span>{point}</span>
+                              </li>
+                            ))}
+                        </ul>
                       ) : (
-                        <p className="text-[11px] leading-relaxed text-foreground-muted flex items-center gap-1.5">
-                          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                          Writing rationale…
+                        <p className="text-[11px] leading-relaxed text-danger/80 bg-danger/[0.03] border border-danger/10 px-2.5 py-2 rounded-lg flex items-center gap-2">
+                          <AlertTriangle className="w-3.5 h-3.5 text-danger shrink-0" />
+                          <span>AI Advisory currently offline (provider limit or network issues). Proceed with standard protocols.</span>
                         </p>
                       )}
                     </div>
@@ -469,10 +527,10 @@ export function ReviewDialog({
         </div>
 
         {/* Clean, Non-Truncated Action Decision Footer */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3.5 border-t border-border mt-2">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3.5 border-t border-border mt-2">
           <Button
             variant="outline"
-            className="text-danger border-danger/30 hover:bg-danger/10 hover:text-danger text-xs font-semibold px-3 h-9 shrink-0"
+            className="text-danger border-danger/30 hover:bg-danger/10 hover:text-danger text-xs font-semibold px-3 h-9 shrink-0 w-full sm:w-auto"
             disabled={isPending}
             onClick={() => onReject(r)}
           >
@@ -480,10 +538,10 @@ export function ReviewDialog({
             Reject Request
           </Button>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 w-full sm:w-auto">
             <Button
               variant="success"
-              className="text-xs font-semibold px-3.5 h-9"
+              className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
               disabled={isPending}
               onClick={() => onApprove(r)}
             >
@@ -492,9 +550,9 @@ export function ReviewDialog({
             </Button>
             <Button
               variant="default"
-              className="text-xs font-semibold px-3.5 h-9"
+              className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
               disabled={isPending}
-              onClick={() => onAssign(r)}
+              onClick={() => onAssign(r, recommended)}
             >
               <Send className="w-4 h-4 mr-1.5" />
               Approve &amp; Assign Now

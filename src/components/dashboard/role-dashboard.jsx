@@ -374,7 +374,7 @@ function DashboardSection({ section, data }) {
         <SectionCard title="Reservation Trends" icon={BarChart3} extra={<span className="text-xs text-foreground-muted">last 14 days</span>}>
           <div className="h-[260px]">
             {data.reservationTrend.some((d) => d.count > 0) ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <AreaChart data={data.reservationTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
                   <defs>
                     <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
@@ -405,7 +405,7 @@ function DashboardSection({ section, data }) {
         <SectionCard title="Fleet Status" icon={Activity}>
           <div className="h-[260px]">
             {data.fleetStatus.length ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <PieChart>
                   <Pie data={data.fleetStatus} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={2}>
                     {data.fleetStatus.map((entry) => (

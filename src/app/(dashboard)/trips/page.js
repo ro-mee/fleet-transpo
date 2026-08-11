@@ -89,7 +89,9 @@ export default function TripsPage() {
         cell: (info) => {
           const d = info.getValue();
           if (!d) return <span className="text-xs text-foreground-muted italic font-medium">Unassigned</span>;
-          const name = `${d.first_name || ""} ${d.last_name || ""}`.trim();
+          const name =
+            `${d.first_name?.split(" ")[0] || ""} ${d.last_name ? d.last_name.split(" ").pop()[0] + "." : ""}`.trim() ||
+            "—";
           const initials = [d.first_name?.[0], d.last_name?.[0]].filter(Boolean).join("").toUpperCase();
           return (
             <div className="flex items-center gap-3">

@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectTrigger,
@@ -22,8 +23,9 @@ import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
+import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { formatDateTime } from "@/lib/utils";
-import { Send, Info, Car, UserCheck, CheckCircle2 } from "lucide-react";
+import { Send, Info, UserCheck, CheckCircle2, Search } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
 
 // Name off either shape: /api/drivers nests the person under `employees`,
@@ -49,6 +51,15 @@ const personName = (r) =>
 // person responsible for it. There is deliberately no way to substitute a different
 // driver here — changing who is responsible for a car is done on the vehicle's own
 // page, where it updates the permanent record instead of quietly applying to one trip.
+//
+// A vehicle is offered only through a VALID PAIRING, never on its own merits plus
+// any free driver. Being operational and free in the window is necessary but not
+// sufficient — the person behind the wheel must be the vehicle's designated driver,
+// or the substitute explicitly assigned to it for the pickup date. A car whose
+// custodian is unavailable and has no recorded substitute is withheld: the fix is
+// to assign a substitute (via the substitute-driver flow), which the empty state
+// says, not to cross-product the car with whoever happens to be on duty. The
+// server enforces the same rule at commit time (validatePairAvailability).
 //
 // The list only offers pairings that can actually be assigned: vehicle available and
 // big enough, driver on duty. Anything the server would refuse is left out rather
@@ -94,12 +105,25 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
     queryFn: () => getDriverAssignments(),
   });
 
+  // Substitute coverage (migration 032). When a vehicle's custodian is off duty
+  // but a substitute is scheduled to cover the pickup date, the substitute stands
+  // in for the custodian and the vehicle should still be offered — paired with the
+  // substitute, not the custodian. Filtered to schedules that actually cover the
+  // pickup date so an unrelated schedule never surfaces the vehicle.
+  const subDate = request?.pickup_datetime ? String(request.pickup_datetime).slice(0, 10) : null;
+  const { data: subData, isLoading: loadingSubs } = useQuery({
+    queryKey: ["substitute-schedules", subDate],
+    queryFn: () => getSubstituteSchedules(subDate ? { date: subDate } : {}),
+    enabled: !!subDate,
+  });
+  const substituteRows = useMemo(() => subData?.schedules ?? [], [subData]);
+
   // The reference lists load async; until they do, `vehicles`/`drivers`/`rows`
   // are all empty and any attribution ("paired", "off duty", "wrong class")
   // computed from them is a guess that will flash and flip the moment data
   // lands. Gate the pinned attribution on data being ready so the dialog never
   // shows a warning it is about to retract.
-  const sourcesLoading = loadingVehicles || loadingDrivers || loadingPairings;
+  const sourcesLoading = loadingVehicles || loadingDrivers || loadingPairings || loadingSubs;
 
   // Same floor the server uses: an absent or zero passenger_count means one seat.
   const passengers = Number(request?.passenger_count) || 1;
@@ -133,7 +157,7 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
     const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
     const onDuty = new Set(drivers.map((d) => d.driver_id));
 
-    return rows
+    const custodian = rows
       .filter((a) => {
         const v = vById.get(a.vehicle_id);
         return (
@@ -161,7 +185,50 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
         };
       })
       .sort((a, b) => a.plate.localeCompare(b.plate));
-  }, [vehicles, drivers, pairingData, seatsTooFew, reqCategoryId]);
+
+    // Substitutes (migration 032) cover a vehicle whose custodian is off duty. Only
+    // surface a substitute-backed pair for a vehicle the custodian list could NOT
+    // offer (custodian off duty too all those days), and only if the substitute
+    // driver is themselves on duty. The pair uses the substitute, not the custodian.
+    // `vehicleId` is the key the option objects above actually use — reading
+    // `vehicle_id` here built a Set of `undefined`, so this exclusion never
+    // fired and a vehicle whose custodian was on duty got offered a second time
+    // with its substitute. An available designated driver is not replaceable.
+    const offeredVehicleIds = new Set(custodian.map((o) => o.vehicleId));
+    const substitute = substituteRows
+      .filter((s) => {
+        const v = vById.get(s.vehicle_id);
+        return (
+          v &&
+          !offeredVehicleIds.has(s.vehicle_id) &&
+          onDuty.has(s.substitute_driver_id) &&
+          !seatsTooFew(v) &&
+          (reqCategoryId == null || v.category_id === reqCategoryId)
+        );
+      })
+      .map((s) => {
+        const v = vById.get(s.vehicle_id);
+        const subName =
+          `${s.first_name || ""} ${s.last_name || ""}`.trim() ||
+          (s.substitute_driver_id ? `Driver #${s.substitute_driver_id}` : "substitute");
+        return {
+          value: `${s.vehicle_id}:${s.substitute_driver_id}`,
+          vehicleId: s.vehicle_id,
+          driverId: s.substitute_driver_id,
+          plate: v.plate_number,
+          driverName: subName,
+          note: "substitute",
+          label:
+            `${v.plate_number}` +
+            (v.seating_capacity ? ` · ${v.seating_capacity} seats` : "") +
+            (v.model ? ` · ${v.model}` : "") +
+            ` · ${subName} (substitute)`,
+        };
+      })
+      .sort((a, b) => a.plate.localeCompare(b.plate));
+
+    return [...custodian, ...substitute];
+  }, [vehicles, drivers, pairingData, seatsTooFew, reqCategoryId, substituteRows]);
 
   // A request may already hold a combination that is not a current pairing — made
   // before this dialog changed, or through the API. Show it rather than silently
@@ -249,10 +316,15 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
       ? request?.vehiclecategories?.category_name || request?.requested_vehicle_type || "Requested class"
       : null;
 
-  // Available vehicles no row offers — either nobody is paired to them, or that
-  // pairing's driver is off duty. Counted against allOptions rather than options: a
-  // pinned vehicle is visible at the top of the list, so counting it as "not listed"
-  // would make the footnote contradict the list right above it.
+  // Vehicles free in this window that no row offers — nobody is designated to
+  // them, or their designated driver is unavailable and no substitute is assigned
+  // for this date. Reported as a footnote rather than left silent: without it a
+  // dispatcher who knows the yard has cars sitting idle reads the short list as a
+  // bug instead of as a missing substitute assignment.
+  //
+  // Counted against allOptions rather than options: a pinned vehicle is visible at
+  // the top of the list, so counting it as "not listed" would make the footnote
+  // contradict the list right above it.
   const offeredVehicleIds = new Set(allOptions.map((o) => o.vehicleId));
   const hiddenCount = vehicles.filter((v) => !offeredVehicleIds.has(v.vehicle_id)).length;
 
@@ -278,7 +350,7 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
   };
 
   const blocking = conflictError?.data?.conflicts || [];
-  const loading = loadingVehicles || loadingDrivers || loadingPairings;
+  const loading = loadingVehicles || loadingDrivers || loadingPairings || loadingSubs;
 
   return (
     <>
@@ -321,9 +393,13 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
             </div>
           ) : filteredOptions.length === 0 ? (
             <div className="flex h-24 w-full flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-muted/20 p-4 text-center">
-              <p className="text-xs font-semibold text-foreground">No available pairs found</p>
+              <p className="text-xs font-semibold text-foreground">
+                {allOptions.length > 0 ? "No pairs match your search" : "No valid pairs found"}
+              </p>
               <p className="text-[11px] text-foreground-muted mt-0.5">
-                Try clearing your search query or check driver schedules.
+                {allOptions.length > 0
+                  ? "Clear the search to see every assignable pair."
+                  : "A vehicle is only offered with its designated driver — or a substitute assigned to it for this date. Assign a substitute first, then reopen."}
               </p>
             </div>
           ) : (
@@ -365,6 +441,14 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
                     <div className="flex items-center gap-1.5 text-xs text-foreground-secondary pt-0.5">
                       <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
                       <span className="font-semibold truncate">{o.driverName || "Assigned Driver"}</span>
+                      {/* A substitute is not this vehicle's custodian. Saying so on
+                          the row keeps the dispatcher from reading a stand-in as the
+                          permanent pairing they are used to seeing here. */}
+                      {o.note && (
+                        <span className="shrink-0 text-[11px] font-semibold text-foreground-muted bg-muted/60 px-2 py-0.5 rounded-full">
+                          {o.note}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="shrink-0 pl-2">
@@ -379,6 +463,15 @@ function AssignForm({ request, onClose, onSubmit, isPending, conflictError }) {
             })
           )}
         </div>
+
+        {!loading && hiddenCount > 0 && (
+          <p className="text-[11px] leading-relaxed text-foreground-muted">
+            {hiddenCount === 1
+              ? "1 vehicle is free for this window but has no driver cleared to take it."
+              : `${hiddenCount} vehicles are free for this window but have no driver cleared to take them.`}{" "}
+            Assign a designated or substitute driver to offer them here.
+          </p>
+        )}
 
         {selectedOpt?.isPinned && (
           <div className="rounded-2xl border border-warning/30 bg-warning/5 p-3">

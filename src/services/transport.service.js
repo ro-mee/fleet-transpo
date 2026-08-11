@@ -97,10 +97,18 @@ export async function getRequestTimeline(id) {
 // over the pick the rule engine already made. It is a separate, slower call on
 // purpose — the scored result should never wait on prose. Returns the same
 // payload either way, with `narration` null when the provider doesn't answer.
-export async function getRecommendation(id, { persist = false, narrate = false, regenerate = false } = {}) {
+export async function getRecommendation(
+  id,
+  { persist = false, narrate = false, regenerate = false, vehicleId = null, driverId = null } = {}
+) {
   const params = new URLSearchParams();
   if (narrate && !persist) params.set("narrate", "1");
   if (regenerate) params.set("regenerate", "1");
+  // Pin the narration to the pair the caller is displaying. Without this the
+  // server narrates its own scored pick, which can differ from the pair the
+  // dispatcher sees and assigns.
+  if (narrate && !persist && vehicleId != null) params.set("vehicle_id", String(vehicleId));
+  if (narrate && !persist && driverId != null) params.set("driver_id", String(driverId));
   const qs = params.toString() ? `?${params.toString()}` : "";
   return apiFetch(`/api/integration/transport-requests/${id}/recommendation${qs}`, {
     method: persist ? "POST" : "GET",

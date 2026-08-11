@@ -14,6 +14,7 @@ import { DocumentScanCard } from "@/components/ui/document-scan-card";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { getVehicle, deleteVehicle } from "@/services/vehicle.service";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
+import { SubstituteDriverCard } from "@/components/drivers/substitute-driver-card";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import {
@@ -258,6 +259,11 @@ export default function VehicleDetailPage() {
             side="vehicle"
             id={vehicleId}
             canManage={can("driver_assignments", "create")}
+          />
+
+          <SubstituteDriverCard
+            id={vehicleId}
+            canManage={can("substitute_driver_schedules", "create")}
           />
 
           {/* Compliance Document Scans Card */}

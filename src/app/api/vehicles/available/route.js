@@ -7,10 +7,25 @@ export async function GET(req) {
     await requireAuth(req);
     const { searchParams } = new URL(req.url);
 
+    // `Reserved` is not a reason to hide a vehicle from a *windowed* search.
+    // status.service.js writes that status whenever the vehicle has an open
+    // booking that starts on or before the end of today — a whole-day flag, not
+    // a slot one. So a vehicle out at 1pm still reads as Reserved for an 8pm
+    // search, and this endpoint used to drop it. The NOT EXISTS below already
+    // answers the real question ("is it taken during THIS window?") precisely,
+    // so when a window is given it supersedes the coarse status flag. Without a
+    // window there is nothing to compare against, so the strict reading stands.
+    //
+    // Under Maintenance / In Use / Decommissioned / Registration Expired stay
+    // excluded either way: those are conditions of the vehicle, not of a slot.
+    const pickupAt = searchParams.get("pickup_at");
+    const returnAt = searchParams.get("return_at");
+    const statuses = pickupAt ? `ARRAY['Available','Reserved']` : `ARRAY['Available']`;
+
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories
                FROM vehicles v
                LEFT JOIN vehiclecategories vc ON v.category_id = vc.category_id
-               WHERE v.vehicle_status = 'Available' AND v.deleted_at IS NULL`;
+               WHERE v.vehicle_status = ANY(${statuses}) AND v.deleted_at IS NULL`;
     const params = [];
     let idx = 1;
 
@@ -26,8 +41,6 @@ export async function GET(req) {
     // Time-window conflict exclusion: omit vehicles already dispatched in the
     // requested slot so the pair card never proposes an occupied resource.
     // Half-open overlap: departure < return_at AND arrival > pickup_at.
-    const pickupAt = searchParams.get("pickup_at");
-    const returnAt = searchParams.get("return_at");
     if (pickupAt) {
       const end = returnAt || pickupAt;
       sql += `

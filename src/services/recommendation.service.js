@@ -1,5 +1,10 @@
 import { query } from "@/lib/db";
-import { resolveDesignatedDriver, isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
+import {
+  resolveVehiclePairing,
+  resolveSubstituteForDate,
+  vehicleOperationallyAvailable,
+  PAIRING_KIND,
+} from "@/lib/ai/pair-scoring";
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -8,10 +13,11 @@ import { resolveDesignatedDriver, isDriverUnavailableFor } from "@/lib/ai/pair-s
 // Assigned (so the same suggestion isn't reapplied twice); valid_until is the
 // hard expiry after which the card surfaces "Recommendation Expired".
 //
-// Also owns validatePairAvailability(), the designated-driver enforcement rule:
-//   - if a vehicle has an active custodian and the chosen driver isn't it, and
-//     that custodian is PROVABLY available for the window -> hard block,
-//   - only a provably-unavailable custodian legitimizes a substitute.
+// Also owns validatePairAvailability(), the assignment-time revalidation:
+// a vehicle may only be committed to a driver who is its designated custodian,
+// or — when that custodian is unavailable — the substitute explicitly assigned
+// to it for the pickup date. It re-derives everything from the live DB rather
+// than trusting the snapshot or the UI that proposed the pair.
 
 /** Default snapshot validity window. */
 const SNAPSHOT_TTL_MINUTES = 60;
@@ -108,7 +114,24 @@ export async function markRecommendationConsumed(requestId, snapshotId) {
 }
 
 /**
- * Enforce the designated-driver rule for an assign.
+ * Independently revalidate a vehicle+driver assignment at commit time.
+ *
+ * This runs against the CURRENT database, never against the recommendation that
+ * proposed the pair: a snapshot can be minutes old, the designated driver may
+ * have gone on leave since, a substitute may have been booked or unbooked, and
+ * the UI that offered the pair may be stale. Everything is re-derived here.
+ *
+ * The rule is the shared one (`resolveVehiclePairing`), so the answer cannot
+ * disagree with what the assignment screen and the AI recommendation applied:
+ *   - the vehicle's own status must permit dispatch (`Reserved` does — it only
+ *     records a booking during the day; a genuine clash in the requested window
+ *     is the caller's double-booking check, which still runs),
+ *   - and the driver must be either the vehicle's designated custodian, or —
+ *     when that custodian is unavailable — the substitute explicitly assigned to
+ *     this vehicle for the pickup date, who must themselves be eligible.
+ *
+ * An arbitrary available driver is never accepted: being free is not the same as
+ * being assigned to the vehicle.
  *
  * @param {object} params
  * @param {object} params.request        transportation_requests row
@@ -120,11 +143,52 @@ export async function markRecommendationConsumed(requestId, snapshotId) {
 export async function validatePairAvailability({ request, vehicleId, driverId, now = new Date() }) {
   if (!vehicleId || !driverId) return { ok: true }; // one-sided assign is fine
 
-  const { rows: pairs } = await query(
-    `SELECT driver_id, vehicle_id
-       FROM driver_vehicle_assignments
-      WHERE assigned_until IS NULL`
-  );
+  const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
+  const windowEnd = windowStart
+    ? new Date(new Date(windowStart).getTime() + 60 * 60 * 1000).toISOString()
+    : null;
+
+  const [{ rows: pairs }, { rows: substitutes }, { rows: vehicleRows }] = await Promise.all([
+    query(
+      `SELECT driver_id, vehicle_id
+         FROM driver_vehicle_assignments
+        WHERE assigned_until IS NULL`
+    ),
+    query(
+      `SELECT vehicle_id, substitute_driver_id, effective_from, effective_until
+         FROM substitute_vehicle_schedules`
+    ),
+    query(
+      `SELECT vehicle_id, plate_number, vehicle_status
+         FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
+      [vehicleId]
+    ),
+  ]);
+
+  const vehicle = vehicleRows[0] ?? null;
+  if (vehicle && !vehicleOperationallyAvailable(vehicle)) {
+    return {
+      ok: false,
+      conflict: {
+        type: "vehicle_status",
+        severity: "blocking",
+        message: `Vehicle ${vehicle.plate_number || `#${vehicleId}`} is ${vehicle.vehicle_status} and cannot be dispatched.`,
+        detail: { vehicle_id: vehicleId, vehicle_status: vehicle.vehicle_status },
+      },
+    };
+  }
+
+  const pickupDate = request?.pickup_datetime || now;
+
+  // Load every driver the rule could name — the proposed one, the vehicle's
+  // custodian, and its booked substitute — so eligibility is judged on real rows
+  // rather than on absence of data.
+  const designatedId = pairs.find(
+    (p) => p.assigned_until == null && Number(p.vehicle_id) === Number(vehicleId)
+  )?.driver_id;
+  const substituteId = resolveSubstituteForDate(vehicleId, pickupDate, substitutes);
+  const wanted = [...new Set([driverId, designatedId, substituteId].filter((v) => v != null).map(Number))];
+
   const { rows: drivers } = await query(
     `SELECT d.driver_id, d.driver_status, d.license_expiry,
             COALESCE((
@@ -138,39 +202,63 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
             ), 0)::int AS _schedule_load
        FROM drivers d
       WHERE d.deleted_at IS NULL AND d.driver_id = ANY($3::int[])`,
-    [
-      request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null,
-      request?.pickup_datetime
-        ? new Date(
-            new Date(request.pickup_datetime).getTime() + 60 * 60 * 1000
-          ).toISOString()
-        : null,
-      [driverId],
-    ]
+    [windowStart, windowEnd, wanted]
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
-  const designated = resolveDesignatedDriver(vehicleId, pairs, driverById);
-  if (!designated) return { ok: true }; // vehicle has no custodian -> any driver OK
+  const pairing = resolveVehiclePairing({
+    vehicleId,
+    pickupDate,
+    activePairs: pairs,
+    activeSubstitutes: substitutes,
+    driverById,
+    now,
+  });
 
-  if (Number(driverId) === Number(designated.driver_id)) return { ok: true };
-
-  // A substitute is only legitimate when the custodian is provably unavailable.
-  const unavail = isDriverUnavailableFor(designated, now);
-  if (unavail.unavailable) {
+  if (!pairing.ok) {
     return {
-      ok: true,
-      reason: `Designated driver ${designated.driver_id} is unavailable: ${unavail.reason}. Substitute allowed.`,
+      ok: false,
+      conflict: {
+        type: "designated_driver",
+        severity: "blocking",
+        message: `Vehicle #${vehicleId} has no driver cleared to take it: ${pairing.reason}`,
+        detail: {
+          vehicle_id: vehicleId,
+          designated_driver_id: pairing.designated?.driver_id ?? null,
+          proposed_driver_id: driverId,
+        },
+      },
     };
   }
 
+  if (Number(driverId) === Number(pairing.driver.driver_id)) {
+    return {
+      ok: true,
+      reason:
+        pairing.kind === PAIRING_KIND.DESIGNATED
+          ? `Driver ${driverId} is the designated driver for vehicle #${vehicleId}.`
+          : `Driver ${driverId} is the assigned substitute for vehicle #${vehicleId}. ${pairing.reason}`,
+    };
+  }
+
+  // The vehicle HAS a cleared driver — just not this one. Naming them makes the
+  // 409 actionable instead of merely refusing.
+  const expected =
+    pairing.kind === PAIRING_KIND.DESIGNATED
+      ? `its designated driver #${pairing.driver.driver_id}`
+      : `its assigned substitute #${pairing.driver.driver_id}`;
   return {
     ok: false,
     conflict: {
       type: "designated_driver",
       severity: "blocking",
-      message: `Vehicle #${vehicleId} is designated to driver #${designated.driver_id}, who is available. Assign that driver, or release the pairing first.`,
-      detail: { vehicle_id: vehicleId, designated_driver_id: designated.driver_id, proposed_driver_id: driverId },
+      message: `Vehicle #${vehicleId} must be driven by ${expected}, not driver #${driverId}. Assign that driver, or record a substitute assignment first.`,
+      detail: {
+        vehicle_id: vehicleId,
+        designated_driver_id: pairing.designated?.driver_id ?? null,
+        expected_driver_id: pairing.driver.driver_id,
+        proposed_driver_id: driverId,
+      },
     },
   };
 }

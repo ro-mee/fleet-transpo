@@ -1,47 +1,26 @@
 import { query } from "@/lib/db";
 
-// Human-facing reservation identifiers: RSV-YYYYMMDD-####
+// Human-facing reservation identifiers: RS-XXXX
 //
-// Dispatchers read these aloud over radio and type them into search, so the
-// format is deliberately short and day-scoped rather than a global sequence or
-// a UUID. The ####  counter restarts each day.
+// Dispatchers read these aloud over radio and type them into search. The format
+// uses a short, fixed prefix and random alphanumeric characters.
 //
 // Uniqueness is guaranteed by the UNIQUE index on
 // transportation_requests.reservation_number (migration 016), not by this
-// function. Two concurrent ingests can compute the same next number; the loser
-// takes a unique-violation and retries. generateReservationNumber() handles
-// that retry internally so callers just get a usable number.
+// function. If a collision occurs, generateReservationNumber() catches the 
+// unique violation and retries.
 
-const PREFIX = "RSV";
+const PREFIX = "RS";
 const MAX_ATTEMPTS = 5;
 
-/** Format a Date as YYYYMMDD in local time. */
-function dateStamp(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
-}
-
-/**
- * Build the next candidate number for a given day by looking at the highest
- * existing suffix. Uses the string form so it works off the UNIQUE index and
- * doesn't need a separate counter table.
- */
-async function nextCandidate(stamp) {
-  const { rows } = await query(
-    `SELECT reservation_number
-       FROM transportation_requests
-      WHERE reservation_number LIKE $1
-      ORDER BY reservation_number DESC
-      LIMIT 1`,
-    [`${PREFIX}-${stamp}-%`]
-  );
-
-  const last = rows[0]?.reservation_number;
-  const lastSeq = last ? parseInt(last.slice(-4), 10) : 0;
-  const nextSeq = (Number.isFinite(lastSeq) ? lastSeq : 0) + 1;
-  return `${PREFIX}-${stamp}-${String(nextSeq).padStart(4, "0")}`;
+/** Generate a random uppercase alphanumeric string. */
+function generateRandomSuffix(length = 4) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return result;
 }
 
 /**
@@ -56,10 +35,8 @@ async function nextCandidate(stamp) {
  * @returns {Promise<string|null>} the assigned number, or null if it couldn't be assigned
  */
 export async function assignReservationNumber(requestId, when = new Date()) {
-  const stamp = dateStamp(when);
-
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const candidate = await nextCandidate(stamp);
+    const candidate = `${PREFIX}-${generateRandomSuffix()}`;
     try {
       const { rows } = await query(
         `UPDATE transportation_requests

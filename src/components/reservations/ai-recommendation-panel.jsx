@@ -118,6 +118,7 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
   const driver = chosen?.driver;
 
   if (!vehicle) {
+    const reasons = Array.isArray(pair?.none_reasons) ? pair.none_reasons : [];
     return (
       <div className="rounded-xl border border-border bg-hover/30 p-4 space-y-2">
         <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
@@ -125,10 +126,30 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
           <span>Vehicle &amp; Driver Dispatch Pair</span>
         </div>
         <p className="text-xs text-foreground-secondary leading-relaxed">
-          {pair?.considered > 0
-            ? `None of the ${pair.considered} available vehicles fit this request's seating capacity or requirements.`
-            : "No candidates are currently available for this pickup window."}
+          {reasons.length > 0
+            ? `No available vehicle could form a dispatch pair for this pickup window.`
+            : pair?.considered > 0
+              ? `None of the ${pair.considered} available vehicles fit this request's seating capacity or requirements.`
+              : "No candidates are currently available for this pickup window."}
         </p>
+        {reasons.length > 0 && (
+          <div className="rounded-lg border border-border/60 bg-surface/60 px-3 py-2.5 space-y-1.5">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+              Why no pair is available
+            </p>
+            <ul className="space-y-1.5">
+              {reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-foreground-secondary leading-relaxed">
+                  <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+                  <span>
+                    {r.plate ? <span className="font-semibold text-foreground">{r.plate}: </span> : null}
+                    {r.reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }

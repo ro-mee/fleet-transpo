@@ -21,6 +21,7 @@ import { UserDropdown } from "@/components/ui/user-dropdown";
 import { NotificationDropdown } from "@/components/ui/notification-dropdown";
 import { getInitials } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { useSidebar } from "@/hooks/use-sidebar";
 
 const accentChip = {
   primary: "bg-primary/10 text-primary",
@@ -30,6 +31,14 @@ const accentChip = {
   danger: "bg-danger/10 text-danger",
   neutral: "bg-foreground text-surface",
 };
+
+// Every collapsed-rail class comes in two halves: the pinned-narrow look and the
+// `group-hover:` half that widens it back out. Only Auto mode wants the second
+// half — in Collapsed mode the rail stays narrow, so those classes must not be
+// emitted at all.
+function onPeek(peek, classes) {
+  return peek ? classes : "";
+}
 
 function isActive(pathname, href, allHrefs = []) {
   if (pathname === href) return true;
@@ -46,10 +55,11 @@ function isActive(pathname, href, allHrefs = []) {
   return !hasBetterMatch;
 }
 
-export function Sidebar({ collapsed, setCollapsed }) {
+export function Sidebar() {
   const pathname = usePathname();
   const { employee, signOut, loading } = useAuth();
   const { filterNav, userRole } = useRoleAccess();
+  const { collapsed, peek, toggle } = useSidebar();
   const workspace = getWorkspace(userRole);
   const visibleGroups = filterNav(workspace.nav || []);
   const homeHref = workspace.home;
@@ -81,34 +91,43 @@ export function Sidebar({ collapsed, setCollapsed }) {
   return (
     <aside
       className={cn(
-        "fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar border-r border-sidebar-border transition-all duration-200 select-none",
-        collapsed ? "w-[72px]" : "w-60"
+        "peer fixed left-0 top-0 z-40 flex h-full flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 select-none overflow-x-hidden whitespace-nowrap",
+        // `group` is what arms every group-hover: below, so Collapsed mode drops
+        // it entirely and the rail stops reacting to the pointer.
+        peek && "group",
+        collapsed ? "w-[72px]" : "w-60",
+        onPeek(peek, "hover:w-60")
       )}
     >
       {/* ── ORIGINAL CLEAN BRAND HEADER ── */}
       <div className={cn(
-        "flex h-14 items-center border-b border-sidebar-border",
-        collapsed ? "justify-center px-0" : "px-4"
+        "group/brand relative flex h-14 items-center border-b border-sidebar-border transition-all duration-300",
+        collapsed ? "justify-center px-0" : "px-4",
+        collapsed && onPeek(peek, "group-hover:justify-start group-hover:px-4")
       )}>
-        {!collapsed ? (
-          <Link href={homeHref} className="flex items-center gap-2.5">
-            <div className={cn("flex h-7 w-7 items-center justify-center rounded", chip)}>
-              <CarFront className="h-4 w-4" />
-            </div>
-            <span className="text-base font-semibold tracking-tight text-foreground">{workspace.name}</span>
-          </Link>
-        ) : (
-          <Link href={homeHref}>
-            <div className={cn("flex h-7 w-7 items-center justify-center rounded", chip)}>
-              <CarFront className="h-4 w-4" />
-            </div>
-          </Link>
-        )}
+        <Link href={homeHref} className={cn("flex items-center overflow-hidden", collapsed ? cn("gap-0", onPeek(peek, "group-hover:gap-2.5")) : "gap-2.5")}>
+          <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded", chip)}>
+            <CarFront className="h-4 w-4" />
+          </div>
+          <span className={cn(
+            "text-base font-semibold tracking-tight text-foreground transition-all duration-300",
+            collapsed ? "w-0 opacity-0" : "w-[150px] opacity-100",
+            collapsed && onPeek(peek, "group-hover:w-[150px] group-hover:opacity-100 group-hover:ml-0")
+          )}>
+            {workspace.name}
+          </span>
+        </Link>
         <button
-          onClick={() => setCollapsed(!collapsed)}
+          onClick={toggle}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           className={cn(
-            "flex h-7 w-7 items-center justify-center rounded text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer",
-            collapsed ? "mt-4" : "ml-auto"
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded text-foreground-muted hover:text-foreground hover:bg-hover transition-all duration-200 cursor-pointer",
+            !collapsed && "ml-auto",
+            // Pinned narrow: the mark and the toggle share one 72px slot, so the
+            // toggle only surfaces while the header itself is hovered.
+            collapsed && !peek && "absolute left-1/2 -translate-x-1/2 bg-sidebar opacity-0 pointer-events-none group-hover/brand:opacity-100 group-hover/brand:pointer-events-auto",
+            // Auto: hidden on the rail, rejoins the row once hover re-flows it.
+            collapsed && peek && "hidden group-hover:flex group-hover:ml-auto"
           )}
         >
           {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
@@ -119,15 +138,16 @@ export function Sidebar({ collapsed, setCollapsed }) {
       <nav className="flex-1 overflow-y-auto scrollbar-none px-2 py-4 space-y-6">
         {visibleGroups.map((group) => (
           <div key={group.label}>
-            {!collapsed && (
-              <p className="px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-foreground-muted">
-                {group.label}
-              </p>
-            )}
+            <p className={cn(
+              "px-2 mb-1.5 text-[11px] font-medium uppercase tracking-wider text-foreground-muted transition-all duration-300",
+              collapsed ? "w-0 opacity-0 h-0 overflow-hidden group-hover:w-auto group-hover:opacity-100 group-hover:h-4" : "w-auto opacity-100 h-4"
+            )}>
+              {group.label}
+            </p>
             <div className="space-y-0.5">
               {group.items.map((item) => {
                 const active = isActive(pathname, item.href, allHrefs);
-                if (item.children && !collapsed) {
+                if (item.children) {
                   return (
                     <NavGroupItem
                       key={item.href}
@@ -145,28 +165,44 @@ export function Sidebar({ collapsed, setCollapsed }) {
                     key={item.href}
                     href={item.href}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-2 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
-                      collapsed && "justify-center px-1 hover:translate-x-0",
+                      "flex items-center rounded-md py-2 text-sm transition-all duration-300 relative cursor-pointer hover:translate-x-0.5",
+                      collapsed ? "gap-0 px-1 justify-center group-hover:gap-3 group-hover:justify-start group-hover:px-2" : "gap-3 px-2",
                       active
                         ? "bg-hover text-foreground font-medium"
                         : "text-foreground-secondary hover:text-foreground hover:bg-hover"
                     )}
                     title={collapsed ? item.label : undefined}
                   >
-                    {active && !collapsed && (
-                      <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
+                    {active && (
+                      <span className={cn(
+                        "absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none transition-all duration-300",
+                        collapsed ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+                      )} />
                     )}
-                    {active && collapsed && (
-                      <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none" />
+                    {active && (
+                      <span className={cn(
+                        "absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none transition-all duration-300",
+                        collapsed ? "opacity-100 group-hover:opacity-0" : "opacity-0"
+                      )} />
                     )}
-                    <item.icon className="h-4 w-4 flex-shrink-0" />
-                    {!collapsed && <span>{item.label}</span>}
+                    <item.icon className="h-4 w-4 shrink-0" />
+                    <span className={cn(
+                      "transition-all duration-300 overflow-hidden",
+                      collapsed ? "w-0 opacity-0 group-hover:w-[140px] group-hover:opacity-100 group-hover:ml-0" : "w-[140px] opacity-100 ml-0"
+                    )}>
+                      {item.label}
+                    </span>
                     {item.href === "/incidents" && pendingCount > 0 && (
                       <span className={cn(
-                        "rounded-full bg-danger",
-                        collapsed ? "absolute top-1 right-1 h-2 w-2" : "ml-auto flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
+                        "rounded-full bg-danger transition-all duration-300",
+                        collapsed ? "absolute top-1 right-1 h-2 w-2 group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:w-5 group-hover:items-center group-hover:justify-center group-hover:text-[11px] group-hover:font-bold group-hover:text-white" : "ml-auto flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
                       )}>
-                        {!collapsed && pendingCount}
+                        <span className={cn(
+                          "transition-all duration-300",
+                          collapsed ? "hidden group-hover:block" : "block"
+                        )}>
+                          {pendingCount}
+                        </span>
                       </span>
                     )}
                   </Link>
@@ -180,48 +216,37 @@ export function Sidebar({ collapsed, setCollapsed }) {
       {/* ── ORIGINAL USER FOOTER CARD ── */}
       {!loading && (
         <div className={cn(
-          "border-t border-sidebar-border py-3",
-          collapsed ? "flex justify-center px-2" : "px-3"
+          "border-t border-sidebar-border py-3 transition-all duration-300",
+          collapsed ? "flex justify-center px-2 group-hover:justify-start group-hover:px-3" : "px-3"
         )}>
-          {!collapsed ? (
-            <UserDropdown
-              employee={employee}
-              signOut={signOut}
-              side="top"
-              align="start"
-              chevron="up"
-              triggerClassName="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer"
-            >
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-                  {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0 text-left">
-                <p className="text-sm font-medium text-foreground truncate leading-tight">
-                  {employee ? employee.first_name + " " + employee.last_name : "User"}
-                </p>
-                <p className="text-[11px] text-foreground-muted truncate">
-                  {employee?.roles?.role_name ?? ""}
-                </p>
-              </div>
-            </UserDropdown>
-          ) : (
-            <UserDropdown
-              employee={employee}
-              signOut={signOut}
-              side="top"
-              align="start"
-              chevron="up"
-              triggerClassName="justify-center w-full rounded-md px-1 py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer"
-            >
-              <Avatar className="h-7 w-7">
-                <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
-                  {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
-                </AvatarFallback>
-              </Avatar>
-            </UserDropdown>
-          )}
+          <UserDropdown
+            employee={employee}
+            signOut={signOut}
+            side="top"
+            align="start"
+            chevron="up"
+            triggerClassName={cn(
+              "rounded-md py-1.5 hover:bg-hover transition-colors duration-150 cursor-pointer overflow-hidden flex items-center",
+              collapsed ? "gap-0 w-9 px-1 justify-center group-hover:gap-2.5 group-hover:w-full group-hover:px-2 group-hover:justify-start" : "gap-2.5 w-full px-2 justify-start"
+            )}
+          >
+            <Avatar className="h-7 w-7 shrink-0">
+              <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
+                {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
+              </AvatarFallback>
+            </Avatar>
+            <div className={cn(
+              "flex-1 min-w-0 text-left transition-all duration-300",
+              collapsed ? "w-0 opacity-0 group-hover:w-auto group-hover:opacity-100" : "w-auto opacity-100"
+            )}>
+              <p className="text-sm font-medium text-foreground truncate leading-tight">
+                {employee ? employee.first_name + " " + employee.last_name : "User"}
+              </p>
+              <p className="text-[11px] text-foreground-muted truncate">
+                {employee?.roles?.role_name ?? ""}
+              </p>
+            </div>
+          </UserDropdown>
         </div>
       )}
     </aside>
@@ -233,63 +258,71 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
     pathname.startsWith(item.href) && item.href !== "/dashboard"
   );
   const active = isActive(pathname, item.href, allHrefs);
-
-  if (collapsed) {
-    return (
-      <Link
-        href={item.children?.[0]?.href || item.href}
-        className={cn(
-          "flex items-center justify-center rounded-md px-1 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
-          active
-            ? "bg-hover text-foreground"
-            : "text-foreground-secondary hover:text-foreground hover:bg-hover"
-        )}
-        title={item.label}
-      >
-        {active && (
-          <span className="absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none" />
-        )}
-        <item.icon className="h-4 w-4" />
-        {item.href === "/incidents" && pendingCount > 0 && (
-          <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-danger" />
-        )}
-      </Link>
-    );
-  }
-
   const visibleChildren = item.children || [];
 
   if (visibleChildren.length === 0) return null;
 
   return (
-    <div>
+    <div className="group/navitem relative">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => {
+          // If completely collapsed and not hovered, clicking redirects to first child.
+          // Otherwise, it toggles the accordion.
+          if (collapsed && !expanded) {
+            // we let hover open it visually, clicking toggles expansion
+            setExpanded(!expanded);
+          } else {
+            setExpanded(!expanded);
+          }
+        }}
         className={cn(
-          "flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm transition-all duration-200 relative cursor-pointer hover:translate-x-0.5",
+          "flex w-full items-center rounded-md py-2 text-sm transition-all duration-300 relative cursor-pointer hover:translate-x-0.5",
+          collapsed ? "gap-0 px-1 justify-center group-hover:gap-3 group-hover:justify-start group-hover:px-2" : "gap-3 px-2",
           active
             ? "bg-hover text-foreground font-medium"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
         )}
       >
         {active && (
-          <span className="absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none" />
+          <span className={cn(
+            "absolute left-0 top-1.5 bottom-1.5 w-[2.5px] bg-foreground rounded-r-full pointer-events-none transition-all duration-300",
+            collapsed ? "opacity-0 group-hover:opacity-100" : "opacity-100"
+          )} />
         )}
-        <item.icon className="h-4 w-4 flex-shrink-0" />
-        <span className="flex-1 text-left">{item.label}</span>
+        {active && (
+          <span className={cn(
+            "absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full bg-foreground ring-2 ring-sidebar pointer-events-none transition-all duration-300",
+            collapsed ? "opacity-100 group-hover:opacity-0" : "opacity-0"
+          )} />
+        )}
+        <item.icon className="h-4 w-4 shrink-0" />
+        <span className={cn(
+          "text-left transition-all duration-300 overflow-hidden",
+          collapsed ? "w-0 opacity-0 group-hover:w-[140px] group-hover:opacity-100" : "flex-1 w-[140px] opacity-100"
+        )}>
+          {item.label}
+        </span>
         {item.href === "/incidents" && pendingCount > 0 && (
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white">
-            {pendingCount}
+          <span className={cn(
+            "rounded-full bg-danger transition-all duration-300",
+            collapsed ? "absolute top-1 right-1 h-2 w-2 group-hover:static group-hover:flex group-hover:h-5 group-hover:w-5 group-hover:items-center group-hover:justify-center group-hover:text-[11px] group-hover:font-bold group-hover:text-white" : "flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
+          )}>
+            <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>{pendingCount}</span>
           </span>
         )}
+        {/* Width lives only in the ternary — declaring w-3.5 in the base class too
+            would out-specify the collapsed w-0 and keep 14px of chevron in the
+            flex row, pushing the icon off the axis the plain nav links center on. */}
         <ChevronDown className={cn(
-          "h-3.5 w-3.5 text-foreground-muted transition-transform",
-          expanded && "rotate-180"
+          "h-3.5 shrink-0 text-foreground-muted transition-all duration-300",
+          expanded && "rotate-180",
+          collapsed ? "w-0 opacity-0 group-hover:w-3.5 group-hover:opacity-100" : "w-3.5 opacity-100"
         )} />
       </button>
       <div className={cn(
-        "overflow-hidden transition-all duration-200",
-        expanded ? "mt-0.5" : "h-0"
+        "overflow-hidden transition-all duration-300",
+        expanded ? "mt-0.5 max-h-[500px]" : "max-h-0",
+        collapsed ? "opacity-0 group-hover:opacity-100" : "opacity-100"
       )}>
         <div className="ml-3 space-y-0.5">
           {visibleChildren.map((child) => {
@@ -327,10 +360,11 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
   );
 }
 
-export function TopNav({ collapsed }) {
+export function TopNav() {
   const pathname = usePathname();
   const { signOut, user, employee, loading } = useAuth();
   const { theme, toggle, mounted } = useTheme();
+  const { collapsed, peek } = useSidebar();
 
   const workspace = getWorkspace(employee?.roles?.role_name || user?.role);
   const segments = pathname.split("/").filter(Boolean);
@@ -338,8 +372,9 @@ export function TopNav({ collapsed }) {
   return (
     <header
       className={cn(
-        "fixed top-0 right-0 z-30 flex h-14 items-center border-b border-border bg-surface transition-all duration-200 select-none",
-        collapsed ? "left-[72px]" : "left-60"
+        "fixed top-0 right-0 z-30 flex h-14 items-center border-b border-border bg-surface transition-all duration-300 select-none",
+        collapsed ? "left-[72px]" : "left-60",
+        collapsed && peek && "peer-hover:left-60"
       )}
     >
       <div className="flex items-center gap-2 px-6">

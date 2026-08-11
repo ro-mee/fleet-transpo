@@ -396,7 +396,34 @@ export async function getActivePairings() {
 export async function loadVehicleTravelContext(date) {
   const policy = await getUvvrpPolicy();
   const exemptVehicleIds = policy?.enabled ? await getExemptVehicleIds() : new Set();
-  const pairings = await getActivePairings();
+  let pairings = await getActivePairings();
+
+  // Substitute coverage (migration 032). A vehicle whose custodian is off duty
+  // (suspended/on leave/off duty) is still travelable on a date the substitute
+  // covers — the substitute stands in for the custodian in the travel check, so
+  // `vehicleCanTravel` validates the substitute's license/duty status instead of
+  // the unavailable custodian's. Failure-tolerant: a read error just degrades to
+  // the custodial-pairing-only check.
+  try {
+    const d = date ? new Date(date) : new Date();
+    const iso = d.toISOString().slice(0, 10);
+    const { rows: subs } = await query(
+      `SELECT vehicle_id, substitute_driver_id
+         FROM substitute_vehicle_schedules
+        WHERE effective_from <= $1::date
+          AND (effective_until IS NULL OR effective_until >= $1::date)`,
+      [iso]
+    );
+    if (subs.length) {
+      const subByVehicle = new Map(subs.map((s) => [s.vehicle_id, s.substitute_driver_id]));
+      pairings = pairings.map((p) =>
+        subByVehicle.has(p.vehicle_id) ? { ...p, driver_id: subByVehicle.get(p.vehicle_id) } : p
+      );
+    }
+  } catch (e) {
+    console.warn("loadVehicleTravelContext: substitute lookup skipped:", e.message);
+  }
+
   const driverIds = [...new Set(pairings.map((p) => p.driver_id).filter(Boolean))];
   const driverRows = driverIds.length
     ? (await query(

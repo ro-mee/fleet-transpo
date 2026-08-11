@@ -54,6 +54,7 @@ export const NAV_ROLES = {
   "/system/audit": ["system_admin"],
   "/settings/general": ["admin", "system_admin"],
   "/settings/number-coding": ["admin", "system_admin"],
+  "/settings/dispatch": ["admin", "system_admin"],
   "/settings/users/new": ["admin", "system_admin"],
   "/settings/ai": ["admin", "system_admin", "fleet_manager"],
   "/settings/ai/logs": ["admin", "system_admin", "fleet_manager"],
@@ -80,6 +81,9 @@ const MATRIX = {
   admin: {
     vehicles: { create: true, read: true, update: true, delete: true },
     driver_assignments: { create: true, read: true, update: true, delete: true },
+    // Day-scoped substitute driver coverage (migration 032) follows the same
+    // fleet-management authority as the custodial pairing it complements.
+    substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -103,6 +107,7 @@ const MATRIX = {
     // it. delete:true is not a row deletion — releasing a pairing closes its
     // interval (see /api/driver-assignments/[id]).
     driver_assignments: { create: true, read: true, update: true, delete: true },
+    substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -126,6 +131,7 @@ const MATRIX = {
     // chip when a dispatch departs from it, but reassigning custody is not their
     // call. The API mirrors this — POST/DELETE exclude dispatcher.
     driver_assignments: { read: true },
+    substitute_driver_schedules: { read: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -159,6 +165,7 @@ const MATRIX = {
   management: {
     vehicles: { read: true },
     driver_assignments: { read: true },
+    substitute_driver_schedules: { read: true },
     reservations: {
       read: true,
       approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,
