@@ -1,303 +1,167 @@
 # Role-Based Access Control (RBAC) Model
 
-## 1. Executive Summary
+FleetOps has **six roles** and a single organization. Authorization is enforced in
+the application layer, per API route. This document describes the roles, the
+permission matrix, and why the database is not the boundary.
 
-This document defines the Role-Based Access Control (RBAC) model for FleetOps, an
-AI-driven fleet transportation management system operating within a single-organization
-hotel and restaurant ecosystem. The model covers 9 distinct user roles.
+Source of truth: **`src/lib/auth/permissions.js`** — `MATRIX[role][resource][action]`
+plus `NAV_ROLES[path]`. `role-guard.js` re-exports it and adds the React hook;
+the matrix data itself lives in `permissions.js`.
 
-**Enforcement is application-layer, not database-layer.** Every API route authorizes
-requests in Node via `requireAuth(req, [roles])` (`src/lib/api/utils.js`), and the client
-gates navigation, routes, and feature buttons via the helpers in
-`src/lib/auth/role-guard.js`. Row-Level Security (RLS) policies still exist in the SQL
-migrations but are **inert at runtime** — see Section 5.
+> **History.** FleetOps was multi-branch and had nine roles. Branches were removed
+> in migration `013_drop_branches.sql`. The three hospitality roles
+> (`reception_staff`, `restaurant_staff`, `concierge`) were removed in migration
+> `022_remove_front_desk_roles.sql`, and the three employees holding them were
+> disabled. There is no branch scoping and there are no front-desk roles anywhere
+> in the current system.
 
-- Section 2 describes the enforcement architecture.
-- Section 3 defines each role.
-- Section 4 provides the resource access matrix (the source of truth for per-route roles).
-- Section 5 explains why RLS is not the boundary.
-- Section 6 documents the four client-side and server-side enforcement layers.
+## 1. Roles
 
-> **Single-org note:** FleetOps was multi-branch in an earlier design. Branches were
-> removed entirely in `supabase/migrations/013_drop_branches.sql` (branch_id columns and
-> the branches table are gone). This document reflects the single-organization model — there
-> is no branch scoping anywhere.
+Six roles, from `src/lib/constants.js` (`ROLES`, `ROLE_IDS`). The IDs are
+non-contiguous because rows 5/6/8 were the removed hospitality roles.
 
-## 2. Enforcement Architecture
+| Role | `role_id` | Workspace | Authority |
+|---|---|---|---|
+| `system_admin` | 1 | System Console | Everything. `can()` short-circuits to `true` before the matrix is consulted. |
+| `fleet_manager` | 2 | Fleet Operations | Full write on fleet, drivers, maintenance, fuel, and the reservation lifecycle. No deletes, no system config. |
+| `dispatcher` | 3 | Transportation Operations | Runs the queue: creates dispatches and trips, drives the reservation lifecycle. Read-only on vehicles, drivers and custodial pairings. |
+| `driver` | 4 | Driver Workspace | Own data only. Executes assigned trips, reports GPS, files fuel and incidents. |
+| `management` | 7 | Executive Center | Read-only. Reports, analytics, AI insights. No lifecycle verbs. |
+| `admin` | 9 | Operations Center | Full CRUD on operational domains, creates employee accounts, read-only on system config. |
 
-### 2.1 System Context
+## 2. Why enforcement is application-layer
 
-FleetOps is a multi-role fleet transportation management system serving a single
-organization's hotel, restaurant, and transportation operations. It supports 9 distinct
-user roles across 35+ database tables, 12+ backend service modules, and a Next.js dashboard
-with a mobile driver experience.
+Both database paths hold elevated privileges:
 
-### 2.2 Why Enforcement Is Application-Layer
+- the raw `pg` pool (`DATABASE_URL`, `src/lib/db.js`) connects as the database owner;
+- the Supabase client uses the **service-role** key, which bypasses RLS by design.
 
-Both data-access paths in the app hold elevated database privileges:
+Neither establishes an end-user Postgres identity, so RLS policies have no session
+to read and **cannot** be the security boundary. RLS is enabled in the SQL and the
+policies exist, but they are inert at runtime — kept for reference, not relied on.
+`has_role()` in the migrations even calls a function that was later dropped
+(`get_current_employee_role`), which would error if it ever ran; that it has never
+errored is evidence it never runs.
 
-- The raw `pg` Pool (`DATABASE_URL`, `src/lib/db.js` → `query()`) connects as the database
-  owner.
-- The Supabase client is created with the **service role** key (`getAdminClient()`), which
-  bypasses RLS by design.
+Authorization therefore lives in the application, in four layers:
 
-Because every query runs with privileges that ignore RLS, **RLS can never be the security
-boundary**. Authorization must be — and is — enforced in the application:
-
-| Layer | Where | Mechanism |
+| Layer | Where | What it does |
 |---|---|---|
-| API route authz | `src/lib/api/utils.js` | `requireAuth(req, [allowedRoles])` throws 401/403 |
-| Login throttling | `src/lib/auth.js` | per-IP in-memory rate limit (5/min) |
-| Nav gating | `src/lib/auth/role-guard.js` → `NAV_ROLES`, `filterNavItems()` | hides sidebar items |
-| Route guard | `useRequireRole()` | redirects unauthorized users |
-| Feature gating | `can(employee, resource, action)` matrix | conditionally renders actions |
-
-The `can()` matrix in `src/lib/auth/role-guard.js` is the **single source of truth** for
-which role may perform which action; the per-route `requireAuth` role lists are derived from
-it.
-
-### 2.3 Roles
-
-Nine roles are seeded and present in `src/lib/constants.js` (`ROLES`, `ROLE_IDS`):
-
-`system_admin`, `admin`, `fleet_manager`, `dispatcher`, `driver`, `reception_staff`,
-`restaurant_staff`, `concierge`, `management`.
-
-## 3. Role Definitions
-
-### 3.1 system_admin
-
-- **Description:** Full system access, configuration management, automation rules, audit logs, and RBAC management.
-- **Scope:** Organization-wide. No restrictions.
-- **Persona:** IT administrator / system owner.
-- **Access Pattern:** Full CRUD on all resources. `can()` returns `true` for system_admin unconditionally.
-
-### 3.2 admin
-
-- **Description:** Day-to-day operational administrator. Manages fleet, drivers, reservations, dispatch, fuel, maintenance — all operational domains. Creates employee accounts.
-- **Scope:** Organization-wide.
-- **Access Pattern:** Full CRUD on all operational resources. Read-only on system config. Creates accounts via the admin-only `POST /api/auth/register`.
-
-### 3.3 fleet_manager
-
-- **Description:** Focused on fleet operations — vehicles, drivers, maintenance, inspections, assignments.
-- **Scope:** Organization-wide (no branch restriction), read across all fleet data for coordination.
-- **Access Pattern:** Create/update on fleet, vehicles, drivers, maintenance, inspections, fuel (no delete — deletes are admin/system_admin only). Read on reservations, dispatch, trips. Cannot manage users, roles, or system config.
-
-### 3.4 dispatcher
-
-- **Description:** Creates and manages dispatches, reservations, and trips. Monitors GPS tracking and coordinates real-time operations.
-- **Scope:** Organization-wide read across relevant fleet data.
-- **Access Pattern:** Create/update on reservations, dispatch, trips, routes. Read on vehicles, drivers, GPS, fuel. Cannot delete, manage fleet inventory, maintenance, or system settings.
-
-### 3.5 driver
-
-- **Description:** Mobile user. Executes assigned trips, reports GPS location, logs fuel receipts, checks in/out for attendance.
-- **Scope:** Own data only — assigned trips, own attendance, own performance.
-- **Access Pattern:** Insert own GPS, attendance, fuel records. Read own trips, dispatch, performance, notifications. Update own trip/dispatch status (via the trip start/complete/status and dispatch status routes, which include `driver`). Cannot view other drivers' data, fleet management, or admin pages.
-- **License scans (self-service, view-only):** A driver may upload a scan of their own license (front/back) on `/driver/profile` only while a side has no scan on file yet, or their license is within 30 days of expiry (or already expired). Before a scan is saved it is passed through `POST /api/driver/license-scan` (Tesseract OCR + the shared license regex parsers in `src/lib/ai/license-ocr.js`, no LLM call); if the photo is unreadable the scan is **not persisted** and the driver retakes it — the DB never stores an unreadable scan. A saved scan is locked/view-only (persisted via `PATCH /api/driver/me`, which enforces the per-side `canUpdateLicenseScan` gate). License **number / class / expiry fields remain staff-only**; a driver cannot change them. The staff document scanner (`POST /api/ai/scan-document`) remains gated to system_admin/admin/fleet_manager/dispatcher and is not exposed to drivers.
-
-### 3.6 reception_staff
-
-- **Description:** Hotel front desk staff who create guest transportation reservations.
-- **Scope:** Organization-wide reservation visibility per RBAC (no branch scoping). Create + read reservations. No access to fleet ops, dispatch mutation, or maintenance.
-- **Access Pattern:** Create + read on reservations. Read on vehicle categories. No dispatch/fleet/driver/fuel/system write access.
-
-### 3.7 concierge
-
-- **Description:** Hotel concierge arranging guest transportation, tours, and excursions.
-- **Scope:** Create + read reservations; read routes to recommend tours.
-- **Access Pattern:** Create + read on reservations. Read on routes and categories. Same as reception_staff plus route read access.
-
-### 3.8 restaurant_staff
-
-- **Description:** Restaurant staff who request food delivery and supply logistics.
-- **Scope:** Create delivery requests, track delivery status.
-- **Access Pattern:** Create + read on reservations (delivery type). Read on dispatch status. No fleet/driver/maintenance access.
-
-### 3.9 management
-
-- **Description:** Read-only access to reports, analytics dashboards, AI insights, and operational summaries.
-- **Scope:** Organization-wide read of aggregated/analytical data. No writes on operational data.
-- **Access Pattern:** Read on reports, analytics, AI insights, trip/fuel analytics. `create`/`read` on reports. No INSERT/UPDATE/DELETE on operational data, no user management, no system config, no employee list.
-
-## 4. Resource Access Matrix
-
-This matrix is the source of truth for the `requireAuth(req, [roles])` lists on each route
-and for the `can()` matrix. `—` means denied. There is no branch scoping.
-
-### 4.1 Fleet & Vehicles
-
-| Resource | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| **Vehicles** SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Assigned | ✅ | ✅ | ✅ | ✅ |
-| Vehicles INSERT/UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| Vehicles DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-| **Categories** SELECT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Categories INSERT/UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| Categories DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-| **Maintenance** INSERT | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — |
-| Maintenance UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| Maintenance DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-| **Documents** INSERT/UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| Documents DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-
-### 4.2 Reservations
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | ✅ |
-| INSERT | ✅ | ✅ | ✅ | ✅ | — | ✅ | ✅ | ✅ | — |
-| UPDATE / cancel | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-
-### 4.3 Dispatch
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Own | ✅ | ✅ | ✅ | ✅ |
-| INSERT | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| UPDATE (record) | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| UPDATE (status) | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-
-### 4.4 Drivers
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Own | — | — | — | ✅ |
-| INSERT/UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-
-### 4.5 Routes
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| INSERT/UPDATE | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-
-### 4.6 Trips
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Own | — | — | — | ✅ |
-| INSERT | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| UPDATE (record) | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| UPDATE/start/complete/status | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | — | — |
-
-### 4.7 GPS Tracking
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Own | — | — | — | ✅ |
-| INSERT | — | — | — | — | ✅ Own vehicle | — | — | — | — |
-
-### 4.8 Fuel
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT | ✅ | ✅ | ✅ | ✅ | ✅ Own | — | — | — | ✅ |
-| INSERT | ✅ | ✅ | ✅ | — | ✅ | — | — | — | — |
-| UPDATE | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| DELETE | ✅ | ✅ | — | — | — | — | — | — | — |
-
-### 4.9 AI & Providers
-
-| Resource | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| AI insights / recommendations (read) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| AI providers CRUD + document scan | ✅ | ✅ | fleet_manager: scan only | — | — | — | — | — | — |
-
-> AI provider config (create/update/delete/test, model fetch) is admin/system_admin only.
-> Document scanning (`POST /api/ai/scan-document`) allows system_admin/admin/fleet_manager
-> since it feeds vehicle onboarding.
-
-### 4.10 Reports & Analytics
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| Generate / view | ✅ | ✅ | ✅ | ✅ Limited | — | — | — | — | ✅ |
-
-### 4.11 Notifications
-
-| Operation | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| SELECT / mark read (own) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Create | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-
-### 4.12 System
-
-| Resource | system_admin | admin | fleet_manager | dispatcher | driver | reception | resto | concierge | mgmt |
-|---|---|---|---|---|---|---|---|---|---|
-| Roles / Permissions | ✅ CRUD | ✅ Read | — | — | — | — | — | — | — |
-| Audit Logs | ✅ Read | ✅ Read | — | — | — | — | — | — | — |
-| System Config | ✅ CRUD | ✅ Read | — | — | — | — | — | — | — |
-| Employees (create) | ✅ | ✅ | — | — | — | — | — | — | — |
-| Integration events | ✅ | ✅ | ✅ | ✅ | — | — | — | — | — |
-| Status sync | ✅ | ✅ | ✅ | — | — | — | — | — | — |
-| Profile (self) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-## 5. Data-Level Security (RLS) — Not the Enforcement Boundary
-
-RLS policies exist in `supabase/migrations/002_rls_policies.sql` and `011_rls_fix.sql`, and
-RLS is `ENABLE`d on the tables. **However, these policies do not enforce anything at
-runtime**, because:
-
-1. The app queries Postgres through the raw `pg` Pool as the database owner, and
-2. The Supabase client uses the **service role** key, which bypasses RLS.
-
-Neither path establishes an end-user Postgres identity, so the RLS helper functions
-(`get_current_employee_id()`, `has_role()`, etc.) have no session to read. The policies are
-effectively dead code kept for reference only.
-
-**Do not rely on RLS.** All authorization is enforced in the application (Section 2.2). If
-true database-level enforcement is ever desired, it would require routing user queries
-through PostgREST/Supabase with per-user JWTs (a significant architectural change) — that is
-explicitly out of scope for the current single-instance design.
-
-## 6. Enforcement Layers (Implemented)
-
-### 6.1 Layer 1 — Navigation Gating
-
-`src/lib/auth/role-guard.js` defines `NAV_ROLES` and `filterNavItems()`. The sidebar renders
-only items whose allowed-roles list includes the user's role (or `"*"`).
-
-### 6.2 Layer 2 — Route Guards
-
-`useRequireRole(requiredRoles)` redirects unauthorized users to `/dashboard`.
-
-> **Known limitation:** the redirect runs in a `useEffect` after first render, so restricted
-> pages can briefly flash before redirecting. This is a defense-in-depth convenience layer,
-> not the real boundary — the API layer (6.4) is authoritative.
-
-### 6.3 Layer 3 — Feature Gating
-
-`can(employee, resource, action)` returns a boolean used to conditionally render action
-buttons (create/approve/delete, etc.). This is the source of truth the API role lists mirror.
-
-### 6.4 Layer 4 — API Route Authorization (authoritative)
-
-Every mutation route calls `await requireAuth(req, [allowedRoles])` at the top of its
-handler; it throws `AuthError(401)` if unauthenticated and `AuthError(403)` if the role is
-not permitted. GET/read routes and self-scoped read-state toggles (mark-notification-read,
-dismiss-insight) use the default authenticated check. Account creation
-(`POST /api/auth/register`) is restricted to `system_admin`/`admin`; there is no public
-self-signup.
-
-A `withRole([...])` HOF also exists in `src/lib/auth/api-auth.js` as an alternative wrapper
-form; the codebase standardizes on the inline `requireAuth(req, [...])` call.
-
-## 7. Status
-
-The RBAC model described here is **implemented**:
-
-- ✅ All 9 roles present in `constants.js` and seed data.
-- ✅ Per-route `requireAuth(req, [roles])` on every create/update/delete route (Section 4).
-- ✅ Nav / route / feature client guards in `role-guard.js`.
-- ✅ No public self-signup; admin-only account creation.
-- ✅ Login rate limiting (5/min per IP).
-- ✅ Single-org — no branch scoping anywhere.
-
-Remaining hardening (tracked separately): audit-log writing, scheduled compliance sync,
-server-side state-machine validation on status transitions, and removal of the inert RLS
-migrations if they are judged to add more confusion than reference value.
+| **API route authz** (authoritative) | `requireAuth(req, [roles])` in `src/lib/api/utils.js` | Throws 401 unauthenticated, 403 wrong role. This is the real boundary. |
+| Ownership scoping | `src/lib/api/ownership.js` | `assertTripOwnership` / `assertDispatchOwnership` return 404 for another driver's row; `resolveDriverScope` 403s a driver asking for someone else's data. |
+| Nav gating | `NAV_ROLES` + `filterNavItems()` | Hides sidebar items the role cannot use. |
+| Feature gating | `can(employee, resource, action)` | Conditionally renders action buttons. |
+
+The last two decide what the UI *offers*. They are convenience, not protection:
+`useRequireRole()` redirects from a `useEffect`, so a restricted page can flash
+before the redirect. The API check is what actually stops a request.
+
+`scripts/verify-rbac.mjs` asserts the UI matrix and the per-route role lists agree,
+so a verb cannot be merely hidden while its endpoint stays open.
+
+Auth resolution itself (`resolveIdentity`) accepts either a NextAuth cookie session
+or an `Authorization: Bearer` mobile JWT, with bearer winning when both are
+present. `DEFAULT_ROLES` for `requireAuth` is the five staff roles — **driver is
+excluded by default** and must be named explicitly.
+
+## 3. Permission matrix
+
+Transcribed from `MATRIX` in `src/lib/auth/permissions.js`. `system_admin` is
+omitted: it never reaches the matrix. Blank means denied.
+
+Verbs are `create` / `read` / `update` / `delete`, plus five lifecycle verbs on
+`reservations` — `approve`, `assign`, `dispatch`, `cancel`, `reschedule`. Lifecycle
+is separate from `update` on purpose: moving a request through its states is a
+different authority than editing its fields.
+
+| Resource | admin | fleet_manager | dispatcher | driver | management |
+|---|---|---|---|---|---|
+| `vehicles` | CRUD | CRU | R | R | R |
+| `driver_assignments` | CRUD | CRUD¹ | R | — | R |
+| `reservations` | CRUD + lifecycle | CRU + lifecycle | CRU + lifecycle | —² | R, lifecycle explicitly denied |
+| `dispatch` | CRUD | CRU | CRU | R, U | R |
+| `drivers` | CRUD | CRU | R | R | R |
+| `trips` | CRUD | CRU | CRU | R, U | R |
+| `maintenance` | CRUD | CRU | R | C, R | R |
+| `fuel` | CRUD | CRU | R | C, R | R |
+| `routes` | CRUD | CRU | CRU | — | R |
+| `categories` | CRUD | CRU | — | — | R |
+| `reports` | CRU | CRU | CR | — | CR |
+| `analytics` | R | R | R | — | R |
+| `ai` | R | R | R | R | R |
+| `employees` | CRU | R | — | R | — |
+| `system` | R | — | — | — | — |
+| `fuelallocations` | — | — | — | — | R |
+| `scheduled_reports` | — | — | — | — | R |
+
+¹ `delete` on `driver_assignments` is not a row deletion — releasing a custodial
+pairing closes its interval (`DELETE /api/driver-assignments/[id]`).
+
+² `driver` has `reservations: { read: false }` written out explicitly rather than
+omitted, so the denial is readable at the matrix rather than inferred from a
+missing key. Management's five lifecycle verbs are written out `false` for the same
+reason: management observes without acting.
+
+A dispatcher reads `driver_assignments` but cannot write them — they need to *see*
+the custodial pairing to understand the warning when a dispatch departs from it,
+but reassigning custody is a fleet-management decision. The API mirrors this: POST
+and DELETE exclude dispatcher.
+
+## 4. Navigation access
+
+`NAV_ROLES[path]` in `permissions.js` gates each route; `"*"` means any
+authenticated role. `getRequiredRolesForPath()` falls back to the longest matching
+prefix, so a subpath inherits its parent's roles unless it declares its own.
+
+Notable entries:
+
+| Path | Roles |
+|---|---|
+| `/dashboard` | all except `driver` |
+| `/driver`, `/driver/*` | `driver` only |
+| `/reservations` | `*` |
+| `/reservations/queue` | admin, system_admin, fleet_manager, dispatcher |
+| `/executive` | admin, management |
+| `/system/audit` | `system_admin` only |
+| `/settings/general`, `/settings/api`, `/settings/number-coding`, `/settings/users/new` | admin, system_admin |
+| `/settings/profile`, `/settings/security`, `/notifications`, `/notifications/preferences` | `*` |
+
+A driver navigating directly to `/dashboard` would render it — a UI-only exposure,
+since every data endpoint behind it still enforces roles.
+
+## 5. Accounts and sessions
+
+- **No public signup.** `POST /api/auth/register` is admin-only and 409s on a
+  duplicate email; it never silently overwrites a credential. The public register
+  page redirects to login.
+- **Web sessions:** NextAuth Credentials, bcrypt against `employees.password_hash`,
+  JWT session strategy, per-IP login rate limit of 5/min. Drivers land on `/driver`,
+  everyone else on `/dashboard`.
+- **Mobile tokens** are a separate system: a 15-minute access JWT and a 30-day
+  refresh JWT, both signed with `NEXTAUTH_SECRET`. Refresh tokens are stored
+  SHA-256 hashed in `mobile_refresh_tokens` with single-use rotation, and the role
+  and driver link are re-read from the database on every refresh — so disabling an
+  account takes effect at the next refresh rather than at token expiry.
+- **Machine-to-machine:** `verifyServiceToken` (`src/lib/api/service-auth.js`)
+  does a constant-time compare and fails closed when the secret is unset. Used by
+  `/api/cron/sync` and the Booking ingest endpoint.
+- **Driver license scans** are self-service but narrowly gated: a driver may
+  upload a scan of their own license only while that side has no scan on file or
+  the license is within 30 days of expiry. The scan passes through
+  `POST /api/driver/license-scan` (Tesseract OCR + regex, no persistence) first, so
+  an unreadable photo is never stored. License number, class and expiry stay
+  staff-only.
+
+## 6. Status and known gaps
+
+Implemented: all six roles, per-route `requireAuth` on every mutating route,
+ownership scoping for driver-facing reads, the client guards, admin-only account
+creation, login rate limiting, and no branch scoping anywhere.
+
+Known gaps, tracked rather than fixed:
+
+- The inert RLS migrations are still in the tree. Removing them is a judgement
+  call between reference value and the confusion of shipping policies that do
+  nothing.
+- `useRequireRole()`'s post-render redirect flash (§2).
+- A driver can render `/dashboard` (§4).
