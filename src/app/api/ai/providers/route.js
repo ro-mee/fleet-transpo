@@ -6,25 +6,9 @@ import { isUrl } from "@/lib/validation";
 export async function GET(req) {
   try {
     await requireAuth(req);
-    await query(`
-      CREATE TABLE IF NOT EXISTS aiproviders (
-        provider_id SERIAL PRIMARY KEY,
-        provider_name VARCHAR(50) NOT NULL,
-        display_name VARCHAR(100) NOT NULL,
-        base_url VARCHAR(255),
-        api_key TEXT,
-        model_name VARCHAR(100) NOT NULL,
-        temperature DECIMAL(3,2) DEFAULT 0.70,
-        max_tokens INT DEFAULT 1500,
-        timeout_ms INT DEFAULT 10000,
-        is_enabled BOOLEAN DEFAULT true,
-        is_default BOOLEAN DEFAULT false,
-        custom_headers JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
 
+    // aiproviders is created by migration 031, not per request. The DDL that
+    // used to run here had already drifted — it omitted target_feature.
     const { rows } = await query(`SELECT * FROM aiproviders ORDER BY is_default DESC, provider_id ASC`);
     
     // Mask API keys before sending to frontend

@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "db:status": "node scripts/migrate.mjs status",
+    "db:up": "node scripts/migrate.mjs up",
+    "db:dump": "node scripts/dump-schema.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",

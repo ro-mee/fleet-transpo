@@ -2,6 +2,10 @@ import { query } from "@/lib/db";
 
 /**
  * Logs AI request execution, token usage, and status to ailogs table in PostgreSQL.
+ *
+ * NOTE: The ailogs table is created by migration 034, not here. This used to run
+ * CREATE TABLE IF NOT EXISTS on every call — a DDL round-trip on the AI hot path.
+ * Same reasoning as getActiveAiProvider in ./llm-adapter.js.
  */
 export async function logAiRequest({
   feature_used,
@@ -16,24 +20,6 @@ export async function logAiRequest({
   user_email = null,
 }) {
   try {
-    // Auto-create ailogs table if it does not exist
-    await query(`
-      CREATE TABLE IF NOT EXISTS ailogs (
-        log_id SERIAL PRIMARY KEY,
-        feature_used VARCHAR(50) NOT NULL,
-        provider_name VARCHAR(50),
-        model_name VARCHAR(100),
-        prompt_tokens INT DEFAULT 0,
-        completion_tokens INT DEFAULT 0,
-        total_tokens INT DEFAULT 0,
-        duration_ms INT DEFAULT 0,
-        status VARCHAR(20) DEFAULT 'Success',
-        error_message TEXT,
-        user_email VARCHAR(255),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
     await query(
       `INSERT INTO ailogs (
         feature_used, provider_name, model_name, prompt_tokens, 
