@@ -11,9 +11,14 @@ describe("shouldGroundVehicle", () => {
     expect(shouldGroundVehicle({ incidentType: "Collision", severity: "Critical", vehicleId: 2 })).toBe(true);
   });
 
-  it("grounds Minor/Moderate non-breakdown incidents as well", () => {
-    expect(shouldGroundVehicle({ incidentType: "Minor fender bump", severity: "Minor", vehicleId: 3 })).toBe(true);
-    expect(shouldGroundVehicle({ incidentType: "Late report", severity: "Moderate", vehicleId: 3 })).toBe(true);
+  it("does not ground Minor/Moderate non-breakdown incidents", () => {
+    expect(shouldGroundVehicle({ incidentType: "Minor fender bump", severity: "Minor", vehicleId: 3 })).toBe(false);
+    expect(shouldGroundVehicle({ incidentType: "Late report", severity: "Moderate", vehicleId: 3 })).toBe(false);
+  });
+
+  it("does not ground when incident type is missing and severity is not severe", () => {
+    expect(shouldGroundVehicle({ severity: "Minor", vehicleId: 5 })).toBe(false);
+    expect(shouldGroundVehicle({ incidentType: null, vehicleId: 5 })).toBe(false);
   });
 
   it("never grounds without a vehicle", () => {

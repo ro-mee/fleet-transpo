@@ -58,6 +58,7 @@
     "@types/leaflet": "^1.9.21",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "globals": "^17.9.0",
     "tailwindcss": "^4",
     "vitest": "^3.2.7"
   },

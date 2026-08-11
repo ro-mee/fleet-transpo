@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation } from "@/services/status.service";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";

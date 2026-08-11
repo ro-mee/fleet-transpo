@@ -11,6 +11,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectTrigger,
@@ -23,7 +24,7 @@ import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
 import { formatDateTime } from "@/lib/utils";
-import { Send, Info, Car, UserCheck, CheckCircle2 } from "lucide-react";
+import { Send, Info, Car, UserCheck, CheckCircle2, Search } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
 
 // Name off either shape: /api/drivers nests the person under `employees`,
