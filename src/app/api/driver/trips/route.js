@@ -12,7 +12,7 @@ export async function GET(req) {
     const session = await requireDriver(req);
 
     const sp = new URL(req.url).searchParams;
-    let sql = `${TRIPS_SELECT} ${TRIPS_JOINS}
+    let sql = `SELECT ${TRIPS_SELECT} ${TRIPS_JOINS}
       WHERE t.driver_id = $1 AND t.deleted_at IS NULL`;
     const params = [session.user.driverId];
     let idx = 2;

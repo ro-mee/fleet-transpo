@@ -43,6 +43,19 @@ export async function GET(req) {
       [session.user.driverId]
     );
 
+    const { rows: recentRows } = await query(
+      `SELECT t.trip_id, t.trip_status, r.origin, r.destination, t.start_time,
+              v.vehicle_id, v.plate_number, v.model
+         FROM trips t
+         LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
+         LEFT JOIN routes r   ON r.route_id = t.route_id
+        WHERE t.driver_id = $1 AND t.deleted_at IS NULL
+          AND t.trip_status <> 'Cancelled'
+        ORDER BY t.start_time DESC NULLS LAST, t.trip_id DESC
+        LIMIT 1`,
+      [session.user.driverId]
+    );
+
     return ok({
       employeeId: me.employee_id,
       email: me.email,
@@ -61,6 +74,7 @@ export async function GET(req) {
           }
         : null,
       activeTrip: activeRows[0] ?? null,
+      recentTrip: recentRows[0] ?? null,
     });
   } catch (e) {
     return handleError(e);

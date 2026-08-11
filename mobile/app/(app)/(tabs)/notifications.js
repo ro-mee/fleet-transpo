@@ -90,7 +90,7 @@ export default function Notifications() {
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
-      <BrandBar />
+
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -101,7 +101,7 @@ export default function Notifications() {
         }
       >
         <View style={styles.header}>
-          <ScreenTitle eyebrow="Driver" title="Notifications" />
+          <ScreenTitle title="Notifications" />
           <Button
             label="Mark all read"
             variant="text"

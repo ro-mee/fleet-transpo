@@ -42,7 +42,7 @@ export function getPool() {
     // If we don't attach the pool to globalThis, we spawn a new pool
     // (and new connections) on every save, quickly exhausting the 15
     // session connections on Supabase.
-    globalThis.postgresPool = new Pool({ 
+    globalThis.postgresPool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 10,
       idleTimeoutMillis: 30000,

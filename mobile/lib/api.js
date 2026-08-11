@@ -107,9 +107,11 @@ export async function apiFetch(path, options = {}) {
 
   const send = async (t) => {
     const headers = {
-      "Content-Type": "application/json",
       ...(init.headers || {}),
     };
+    if (!(init.body instanceof FormData) && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
+    }
     if (t) headers.Authorization = `Bearer ${t}`;
     return fetchWithTimeout(`${BASE_URL}${path}`, { ...init, headers });
   };
