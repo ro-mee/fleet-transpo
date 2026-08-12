@@ -30,6 +30,7 @@ import {
   Database,
   Navigation,
   AlertTriangle,
+  LayoutGrid,
 } from "lucide-react";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
@@ -143,6 +144,8 @@ export const WORKS = {
         label: "Fleet Operations",
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
+          { href: "/fleet/availability", label: "Vehicle Availability Board", icon: Truck },
+          { href: "/drivers/availability", label: "Driver Availability Board", icon: LayoutGrid },
           { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
           { href: "/drivers", label: "Driver Management", icon: Users },
         ],
@@ -187,6 +190,8 @@ export const WORKS = {
       {
         label: "Operations",
         items: [
+          { href: "/fleet/availability", label: "Fleet Availability", icon: Truck },
+          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
           { href: "/tracking/history", label: "Trip Timeline", icon: ClipboardList },
@@ -241,6 +246,7 @@ export const WORKS = {
           { href: "/reports", label: "Reports Hub", icon: BarChart3 },
           { href: "/reports/cost", label: "Financial Overview", icon: BarChart3 },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
           { href: "/drivers/performance", label: "Driver Performance", icon: Gauge },
         ],
       },
