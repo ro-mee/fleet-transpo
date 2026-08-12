@@ -11,7 +11,11 @@
     "test:run": "vitest run",
     "db:status": "node scripts/migrate.mjs status",
     "db:up": "node scripts/migrate.mjs up",
-    "db:dump": "node scripts/dump-schema.mjs"
+    "db:dump": "node scripts/dump-schema.mjs",
+    "seed:status": "node scripts/seed-demo.mjs status",
+    "seed:plan": "node scripts/seed-demo.mjs plan",
+    "seed:up": "node scripts/seed-demo.mjs up",
+    "seed:down": "node scripts/seed-demo.mjs down"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
