@@ -112,15 +112,7 @@ export function FleetTable({ filters = {} }) {
           </span>
         ),
       }),
-      columnHelper.accessor("fuel_type", {
-        header: "Fuel",
-        cell: (info) => (
-          <Badge variant="secondary" className="gap-1.5 text-xs font-semibold px-2.5 py-0.5 rounded-full">
-            <CircleGauge className="h-3 w-3" />
-            {info.getValue()}
-          </Badge>
-        ),
-      }),
+
       columnHelper.accessor("mileage", {
         header: "Mileage",
         cell: (info) => (
@@ -129,21 +121,7 @@ export function FleetTable({ filters = {} }) {
           </span>
         ),
       }),
-      columnHelper.accessor("registration_expiry", {
-        header: "Registration",
-        cell: (info) => {
-          const expiry = info.getValue();
-          if (!expiry) return <span className="text-xs font-medium text-foreground-secondary">—</span>;
-          const overdue = new Date(expiry) < new Date(new Date().toDateString());
-          return (
-            <div className="flex items-center gap-2">
-              <CalendarClock className={overdue ? "h-3.5 w-3.5 text-danger" : "h-3.5 w-3.5 text-foreground-muted"} />
-              <span className={overdue ? "font-medium text-danger text-xs font-data" : "text-xs font-medium text-foreground-secondary font-data"}>{formatDate(expiry)}</span>
-              {overdue && <Badge variant="danger" className="ml-1.5 text-[11px] rounded-full">Overdue</Badge>}
-            </div>
-          );
-        },
-      }),
+
       columnHelper.accessor("vehicle_status", {
         header: "Status",
         cell: (info) => {

@@ -3,6 +3,7 @@ import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
+import { resolveSubstituteForDate } from "@/lib/ai/pair-scoring";
 
 // Double-booking prevention.
 //
@@ -143,7 +144,7 @@ function maintenanceCoversDay(row, day) {
  * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], uvvrp = null } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null } = {}) {
   const findings = [];
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
@@ -249,8 +250,13 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
   // at most one active row per driver and per vehicle.
   if (vehicle || driver) {
     const active = assignments.filter((a) => a.assigned_until == null);
+    // A scheduled substitute covering the pickup date is the vehicle's effective
+    // driver — assigning them is the intended pair, not a pairing departure.
+    const isScheduledSubstitute =
+      vehicle && driver && pickup &&
+      resolveSubstituteForDate(vehicle.vehicle_id, pickup, substitutes) === Number(driver.driver_id);
 
-    if (driver) {
+    if (driver && !isScheduledSubstitute) {
       const driverName = `${driver.first_name || ""} ${driver.last_name || ""}`.trim() || `#${driver.driver_id}`;
       const own = active.find((a) => a.driver_id === driver.driver_id);
       if (own && (!vehicle || own.vehicle_id !== vehicle.vehicle_id)) {
@@ -268,7 +274,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
       }
     }
 
-    if (vehicle) {
+    if (vehicle && !isScheduledSubstitute) {
       const custodian = active.find((a) => a.vehicle_id === vehicle.vehicle_id);
       if (custodian && (!driver || custodian.driver_id !== driver.driver_id)) {
         const custodianName =
@@ -337,7 +343,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   const pickup = request.pickup_datetime || null;
 
   // Run every probe concurrently; each resolves to rows or a null/[] fallback.
-  const [overlap, vehicleRow, driverRow, maintenance, assignments] = await Promise.all([
+  const [overlap, vehicleRow, driverRow, maintenance, assignments, substitutes] = await Promise.all([
     // 1+2. Vehicle / driver already committed to an overlapping dispatch.
     pickup && (vehicleId || driverId)
       ? findDispatchConflicts({
@@ -400,6 +406,19 @@ export async function detectRequestConflicts(request, opts = {}) {
           .then((r) => r.rows)
           .catch(() => [])
       : Promise.resolve([]),
+
+    // Substitute schedules (032) for the proposed vehicle — the engine resolves
+    // whether one covers the pickup date.
+    vehicleId
+      ? query(
+          `SELECT vehicle_id, substitute_driver_id, effective_from, effective_until
+             FROM substitute_vehicle_schedules
+            WHERE vehicle_id = $1`,
+          [vehicleId]
+        )
+          .then((r) => r.rows)
+          .catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   // findDispatchConflicts has already applied the overlap window in SQL, so the
@@ -411,6 +430,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     dispatches: overlap,
     maintenance: maintenance.map((m) => ({ ...m, vehicle_id: vehicleId })),
     assignments,
+    substitutes,
     uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime),
   });
 }
@@ -451,7 +471,7 @@ export async function detectConflictsForRequests(requests = []) {
   const windowStart = times.length ? new Date(Math.min(...times) - DAY_MS).toISOString() : null;
   const windowEnd = times.length ? new Date(Math.max(...times) + DAY_MS).toISOString() : null;
 
-  const [vehicles, drivers, dispatches, maintenance, assignments] = await Promise.all([
+  const [vehicles, drivers, dispatches, maintenance, assignments, substitutes] = await Promise.all([
     vehicleIds.length
       ? query(
           `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status
@@ -496,6 +516,17 @@ export async function detectConflictsForRequests(requests = []) {
     // Custodial pairings (017) for every vehicle/driver on the page, fetched
     // once. Same SQL as the single path so the two cannot load different rows.
     query(ACTIVE_ASSIGNMENTS_SQL, [vehicleIds, driverIds]).then((r) => r.rows).catch(() => []),
+
+    // Substitute schedules (032) for every proposed vehicle on the page, fetched
+    // once. The evaluator resolves which (if any) cover each pickup date.
+    vehicleIds.length
+      ? query(
+          `SELECT vehicle_id, substitute_driver_id, effective_from, effective_until
+             FROM substitute_vehicle_schedules
+            WHERE vehicle_id = ANY($1)`,
+          [vehicleIds]
+        ).then((r) => r.rows).catch(() => [])
+      : Promise.resolve([]),
   ]);
 
   const vehicleById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
@@ -536,7 +567,7 @@ export async function detectConflictsForRequests(requests = []) {
       r.request_id,
       // `assignments` is passed whole: the evaluator looks pairings up by exact
       // driver_id/vehicle_id, so unlike `dispatches` there is nothing to narrow.
-      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments, uvvrp })
+      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments, substitutes, uvvrp })
     );
   }
 

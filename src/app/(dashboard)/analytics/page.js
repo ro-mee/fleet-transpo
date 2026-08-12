@@ -14,6 +14,8 @@ import {
 } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
 import { getTransportRequests } from "@/services/transport.service";
+import { getReportNarrative } from "@/services/ai.service";
+import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -155,6 +157,31 @@ export default function AnalyticsPage() {
   const fu = fuel || { totalLiters: 0, totalCost: 0, byCategory: [], monthlyData: [] };
   const fi = financial || { totalCost: 0, tripCost: 0, fuelCost: 0, maintCost: 0, costPerKm: 0 };
   const maintDue = (predictionData?.summary?.overdue ?? 0) + (predictionData?.summary?.critical ?? 0);
+
+  // AI Analyst narrative — one consolidated snapshot across all executive KPIs.
+  const narrativeData = useMemo(
+    () => ({
+      utilization: f.utilization,
+      totalTrips: f.totalTrips,
+      totalDistance: f.totalDistance,
+      totalLiters: fu.totalLiters,
+      totalCost: fi.totalCost || fi.fuelCost,
+      tripCost: fi.tripCost,
+      fuelCost: fi.fuelCost,
+      maintCost: fi.maintCost,
+      costPerKm: fi.costPerKm,
+      maintDue,
+      avgScore: driversPerformance?.avgScore ?? 0,
+    }),
+    [f, fu, fi, driversPerformance, maintDue]
+  );
+
+  const [narrativeForce, setNarrativeForce] = useState(0);
+
+  const { data: narrative, isLoading: narrativeLoading, isFetching: narrativeFetching } = useQuery({
+    queryKey: ["report-narrative", "analytics", dateBounds, narrativeForce],
+    queryFn: () => getReportNarrative("analytics", narrativeData, dateBounds, narrativeForce > 0),
+  });
 
   const pickupDemandTrend = useMemo(() => {
     const days = dateRange === "7d" ? 7 : 14;
@@ -375,6 +402,16 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {/* ── AI ANALYST NARRATIVE (Tier 1) ── */}
+      <AiAnalystCard
+        title="AI Analyst · Executive Telemetry"
+        reportLabel="Consolidated analysis of utilization, cost-per-km, and maintenance risk"
+        loading={narrativeLoading || narrativeFetching}
+        data={narrative}
+        onRegenerate={() => setNarrativeForce((n) => n + 1)}
+        isRegenerating={narrativeFetching}
+      />
+
       {/* ── EXECUTIVE KPI CARDS ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Operational Cost */}
@@ -494,7 +531,7 @@ export default function AnalyticsPage() {
           <CardContent className="p-5">
             {volumeView === "chart" ? (
               <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <AreaChart data={pickupDemandTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="areaGradPrimary" x1="0" y1="0" x2="0" y2="1">
@@ -584,7 +621,7 @@ export default function AnalyticsPage() {
           <CardContent className="p-5">
             {/* Donut Chart with Radial Track & Corner Radius Slices */}
             <div className="h-[220px] flex items-center justify-center relative">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <PieChart>
                   {/* Subtle Background Track Rail */}
                   <Pie
@@ -653,7 +690,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent className="pt-4">
             <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <ComposedChart data={fuelByCategory} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="classFuelBar" x1="0" y1="0" x2="0" y2="1">
@@ -685,7 +722,7 @@ export default function AnalyticsPage() {
           </CardHeader>
           <CardContent className="pt-4">
             <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <ComposedChart data={monthlyCostData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                   <defs>
                     <linearGradient id="composedBarGrad" x1="0" y1="0" x2="0" y2="1">

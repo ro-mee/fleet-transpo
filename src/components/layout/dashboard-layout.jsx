@@ -10,6 +10,7 @@ import { AlertTriangle, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { useRequireRole } from "@/hooks/use-role-access";
+import { useSidebar } from "@/hooks/use-sidebar";
 import { NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
 const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
@@ -98,7 +99,7 @@ function RouteGuard({ pathname, children }) {
 }
 
 export function DashboardLayout({ children }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, peek } = useSidebar();
   const pathname = usePathname();
 
   if (authRoutes.includes(pathname)) {
@@ -107,12 +108,16 @@ export function DashboardLayout({ children }) {
 
   return (
     <div className="min-h-screen bg-background">
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
-      <TopNav collapsed={collapsed} />
+      <Sidebar />
+      <TopNav />
+      {/* Sidebar carries `peer`, so the collapsed rail's hover-peek shifts this
+          padding in CSS — no hover state in React, no re-render on mouse move.
+          Without it the expanded rail (z-40, fixed) paints over the content. */}
       <main
         className={cn(
           "pt-16 min-h-screen transition-all duration-300",
-          collapsed ? "pl-[72px]" : "pl-64"
+          collapsed ? "pl-[72px]" : "pl-60",
+          collapsed && peek && "peer-hover:pl-60"
         )}
       >
         <div className="p-6">

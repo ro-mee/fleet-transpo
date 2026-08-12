@@ -26,11 +26,13 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { SIDEBAR_MODES, useSidebar } from "@/hooks/use-sidebar";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 
 export default function SettingsGeneralPage() {
   useRequireRole(["admin", "system_admin"]);
   const queryClient = useQueryClient();
+  const { mode: sidebarMode, setMode: setSidebarMode } = useSidebar();
 
   const [form, setForm] = useState({
     hotel_name: "CoCo Star Hotel",
@@ -264,17 +266,19 @@ export default function SettingsGeneralPage() {
             <div>
               <label className="text-xs font-bold text-foreground-secondary mb-2 block">Sidebar Behavior</label>
               <div className="flex gap-2">
-                {["Expanded", "Collapsed", "Auto"].map((mode) => (
+                {SIDEBAR_MODES.map((m) => (
                   <div
-                    key={mode}
+                    key={m.value}
+                    onClick={() => setSidebarMode(m.value)}
+                    title={m.description}
                     className={cn(
                       "flex-1 p-3 rounded-3xl border text-center cursor-pointer transition-all",
-                      mode === "Expanded"
+                      m.value === sidebarMode
                         ? "border-primary bg-primary/10 font-bold text-primary"
                         : "border-border/80 bg-surface hover:border-primary/40 text-foreground-secondary"
                     )}
                   >
-                    <p className="text-xs font-bold">{mode}</p>
+                    <p className="text-xs font-bold">{m.label}</p>
                   </div>
                 ))}
               </div>

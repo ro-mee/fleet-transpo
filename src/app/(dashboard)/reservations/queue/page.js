@@ -37,6 +37,7 @@ import { groupQueue, QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
+  CarFront,
   CheckCircle2,
   DownloadCloud,
   Inbox,
@@ -59,6 +60,7 @@ const REFETCH_MS = 30_000;
 const TAB_META = {
   today: { label: "Today", icon: Inbox },
   upcoming: { label: "Upcoming", icon: CalendarClock },
+  assigned: { label: "Assigned", icon: CarFront },
   inProgress: { label: "In Progress", icon: PlayCircle },
   completed: { label: "Completed", icon: CheckCircle2 },
   cancelled: { label: "Cancelled", icon: XCircle },
@@ -177,9 +179,14 @@ export default function UnifiedQueuePage() {
       setAssignError(null);
       invalidate();
     },
-    onError: (e) => {
-      if (e?.status === 409 && e?.data?.conflicts?.length) setAssignError(e);
-      else toast.error(e.message || "Failed to assign resources");
+    onError: (e, variables) => {
+      // A blocking 409 (from the auto-assign path or the dialog) surfaces the
+      // server's findings in the dialog instead of a bare toast, so the override
+      // decision is made against the server's own reasons.
+      if (e?.status === 409 && e?.data?.conflicts?.length) {
+        setAssigning(variables?.request ?? null);
+        setAssignError(e);
+      } else toast.error(e.message || "Failed to assign resources");
     },
   });
 
@@ -215,7 +222,6 @@ export default function UnifiedQueuePage() {
     );
   }, [grouped, tab, search]);
 
-  const activeCount = counts.today + counts.upcoming + counts.inProgress;
   const searching = search.trim().length > 0;
   const tabTone = (id) => {
     if (id === "inProgress") return "warning";
@@ -324,17 +330,26 @@ export default function UnifiedQueuePage() {
         })()}
 
         {(() => {
-          const t = TONE_MAP.primary;
+          const t = TONE_MAP.info;
           return (
-            <div className="relative p-4 rounded-3xl border-2 border-border/60 bg-surface text-left flex flex-col justify-between gap-3 select-none overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setTab("assigned")}
+              className={cn(
+                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
+                tab === "assigned"
+                  ? cn(t.border, t.bg, "shadow-md")
+                  : "border-border/60 bg-surface hover:shadow-sm hover:border-info/40"
+              )}
+            >
               <div className="flex items-start justify-between gap-2 mt-1">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Active Total</span>
-                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><TriangleAlert className="w-4 h-4" /></div>
+                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Assigned</span>
+                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><CarFront className="w-4 h-4" /></div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{activeCount}</div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.assigned}</div>
               </div>
-            </div>
+            </button>
           );
         })()}
       </div>
@@ -520,10 +535,25 @@ export default function UnifiedQueuePage() {
             setRejectReason("");
             setRejecting(req);
           }}
-          onAssign={(req) => {
+          onAssign={async (req, recommended) => {
             setReviewing(null);
-            setAssignError(null);
-            setAssigning(req);
+            // "Approve & Assign Now": one click should commit, not bounce to the
+            // dialog. The assign endpoint refuses anything that has not cleared
+            // APPROVED and refuses a bad pair it would have to override, so this
+            // chain approves first, then assigns the recommended pair, and only
+            // falls back to the manual assign dialog when there is nothing to
+            // auto-assign (no eligible pair) or the server blocked it.
+            try {
+              await approveMutation.mutateAsync(req);
+            } catch {
+              return;
+            }
+            if (recommended && (recommended.vehicleId || recommended.driverId)) {
+              assignMutation.mutate({ request: req, ...recommended, force: false });
+            } else {
+              setAssignError(null);
+              setAssigning(req);
+            }
           }}
           isPending={approveMutation.isPending || rejectMutation.isPending || assignMutation.isPending}
         />

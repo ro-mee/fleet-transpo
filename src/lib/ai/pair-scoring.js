@@ -1,4 +1,4 @@
-import { DRIVER_STATUS } from "@/lib/constants";
+import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
 import { estimateEfficiency, scoreProximity, scheduleGapGain, maintenanceRiskGain } from "@/lib/ai/rule-engine";
 import { RISK } from "@/lib/ai/predictive-maintenance";
 
@@ -56,6 +56,48 @@ export function resolveDesignatedDriver(vehicleId, activePairs, driverById) {
   return driverById.get(Number(pair.driver_id)) ?? null;
 }
 
+/** Local YYYY-MM-DD key for a Date or parseable date string. */
+function dateKey(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * The substitute driver (id) scheduled to cover a vehicle on a date, if any.
+ *
+ * A schedule covers the date when `effective_from <= date` and
+ * (`effective_until IS NULL` (open-ended) OR `effective_until >= date`).
+ *
+ * @param {number|string}  vehicleId
+ * @param {Date|string}    date        the date to test coverage for
+ * @param {Array<{vehicle_id:number, substitute_driver_id:number,
+ *                 effective_from:string, effective_until:string|null}>} substitutes
+ * @returns {number|null}  the covering substitute driver id, or null
+ */
+export function resolveSubstituteForDate(vehicleId, date, substitutes) {
+  if (!Array.isArray(substitutes) || !date) return null;
+  const want = dateKey(date);
+  if (!want) return null;
+  const match = substitutes.find((s) => {
+    if (Number(s.vehicle_id) !== Number(vehicleId)) return false;
+    const from = dateKey(s.effective_from);
+    if (!from || want < from) return false;
+    if (s.effective_until != null) {
+      const until = dateKey(s.effective_until);
+      if (!until || want > until) return false;
+    }
+    return true;
+  });
+  return match ? Number(match.substitute_driver_id) : null;
+}
+
+/** Whether a day-scoped substitute covers a vehicle on a given date. */
+export function hasSubstituteForDate(vehicleId, date, substitutes) {
+  return resolveSubstituteForDate(vehicleId, date, substitutes) != null;
+}
+
 /**
  * Whether a driver is provably unavailable for the pickup window.
  *
@@ -92,10 +134,190 @@ export function isDriverUnavailableFor(driver, now = new Date()) {
   return { unavailable: false, reason: null };
 }
 
+/**
+ * Statuses that describe a CONDITION OF THE VEHICLE, so they rule it out of any
+ * dispatch regardless of when the trip is.
+ *
+ * `Reserved` is deliberately absent. It is a cached, whole-day schedule label
+ * (see status.service.js) meaning "this vehicle has a booking today" — not
+ * "this vehicle is taken at the time you asked about". A vehicle booked 10-11am
+ * is genuinely free at 2pm, so treating Reserved as unavailable hides usable
+ * capacity. Time-specific availability is answered by real schedule-overlap,
+ * which remains the authority; this set only removes vehicles that cannot go
+ * out at all.
+ */
+export const NON_DISPATCHABLE_VEHICLE_STATUSES = [
+  VEHICLE_STATUS.IN_USE,
+  VEHICLE_STATUS.UNDER_MAINTENANCE,
+  VEHICLE_STATUS.DECOMMISSIONED,
+  VEHICLE_STATUS.REGISTRATION_EXPIRED,
+];
+
+const NON_DISPATCHABLE_SET = new Set(NON_DISPATCHABLE_VEHICLE_STATUSES);
+
+/** Whether a vehicle's own status permits dispatch at all (Reserved does). */
+export function vehicleOperationallyAvailable(vehicle) {
+  const status = vehicle?.vehicle_status;
+  if (!status) return true;
+  return !NON_DISPATCHABLE_SET.has(status);
+}
+
+/** How a vehicle earned its driver — or why it did not get one. */
+export const PAIRING_KIND = {
+  DESIGNATED: "designated",
+  SUBSTITUTE: "substitute",
+  NONE: "none",
+};
+
+/**
+ * The ONE rule deciding whether a vehicle may be offered for assignment, and
+ * with which driver. Shared by the assignment UI, the AI candidate filter and
+ * the assignment-time revalidation so the three can never disagree.
+ *
+ * A vehicle is offered only when it has a VALID PAIRING:
+ *   - its designated driver is available and eligible, or
+ *   - its designated driver is unavailable AND a substitute has already been
+ *     explicitly assigned to that vehicle for the pickup date, and that
+ *     substitute is itself available and eligible.
+ *
+ * Everything else is withheld. In particular a merely-available driver is never
+ * paired with a vehicle they are not the custodian or booked substitute of: a
+ * substitute is an explicit, recorded relationship, not "whoever is free".
+ * A vehicle with no custodian and no substitute has nobody who may drive it, so
+ * it is withheld until a dispatcher records one.
+ *
+ * @param {object} params
+ * @param {number|string} params.vehicleId
+ * @param {Date|string} params.pickupDate  date the substitute schedule is tested against
+ * @param {Array} params.activePairs       custodial pairs (assigned_until IS NULL)
+ * @param {Array} params.activeSubstitutes day-scoped substitute schedules
+ * @param {Map<number, object>} params.driverById  full driver rows by id
+ * @param {Date} [params.now]
+ * @returns {{ ok:boolean, kind:string, driver:object|null, designated:object|null,
+ *             reason:string|null }}
+ */
+export function resolveVehiclePairing({
+  vehicleId,
+  pickupDate,
+  activePairs = [],
+  activeSubstitutes = [],
+  driverById = new Map(),
+  now = new Date(),
+}) {
+  const designated = resolveDesignatedDriver(vehicleId, activePairs, driverById);
+
+  if (designated) {
+    const unavail = isDriverUnavailableFor(designated, now);
+    if (!unavail.unavailable) {
+      // Rule 1: the intact pairing is the only offer. No substitute is
+      // considered while the custodian can drive, and no unrelated driver is
+      // ever offered alongside them.
+      return { ok: true, kind: PAIRING_KIND.DESIGNATED, driver: designated, designated, reason: null };
+    }
+
+    const subId = resolveSubstituteForDate(vehicleId, pickupDate, activeSubstitutes);
+    if (subId == null) {
+      // Rule 3: no recorded substitute means nobody may take the car. The
+      // dispatcher assigns a substitute first; the app does not invent one.
+      return {
+        ok: false,
+        kind: PAIRING_KIND.NONE,
+        driver: null,
+        designated,
+        reason: `${unavail.reason} No substitute driver is assigned to this vehicle for ${dateKey(pickupDate) ?? "this date"}.`,
+      };
+    }
+
+    const substitute = driverById.get(Number(subId)) ?? null;
+    if (!substitute) {
+      return {
+        ok: false,
+        kind: PAIRING_KIND.NONE,
+        driver: null,
+        designated,
+        reason: `${unavail.reason} The assigned substitute driver could not be loaded.`,
+      };
+    }
+
+    // Rule 7: being the booked substitute is not enough — they are validated
+    // for this dispatch exactly as the custodian was.
+    const subUnavail = isDriverUnavailableFor(substitute, now);
+    if (subUnavail.unavailable) {
+      return {
+        ok: false,
+        kind: PAIRING_KIND.NONE,
+        driver: null,
+        designated,
+        reason: `${unavail.reason} Assigned substitute is also unavailable: ${subUnavail.reason}`,
+      };
+    }
+
+    return {
+      ok: true,
+      kind: PAIRING_KIND.SUBSTITUTE,
+      driver: substitute,
+      designated,
+      reason: `${unavail.reason} Substitute assigned for ${dateKey(pickupDate) ?? "this date"}.`,
+    };
+  }
+
+  // No custodian. A substitute schedule can still stand on its own — it is an
+  // explicit assignment of a driver to this vehicle.
+  const subId = resolveSubstituteForDate(vehicleId, pickupDate, activeSubstitutes);
+  if (subId == null) {
+    // Rule 4.
+    return {
+      ok: false,
+      kind: PAIRING_KIND.NONE,
+      driver: null,
+      designated: null,
+      reason: "Vehicle has no designated driver and no assigned substitute for this date.",
+    };
+  }
+
+  const substitute = driverById.get(Number(subId)) ?? null;
+  if (!substitute) {
+    return {
+      ok: false,
+      kind: PAIRING_KIND.NONE,
+      driver: null,
+      designated: null,
+      reason: "The assigned substitute driver could not be loaded.",
+    };
+  }
+
+  const subUnavail = isDriverUnavailableFor(substitute, now);
+  if (subUnavail.unavailable) {
+    return {
+      ok: false,
+      kind: PAIRING_KIND.NONE,
+      driver: null,
+      designated: null,
+      reason: `Assigned substitute is unavailable: ${subUnavail.reason}`,
+    };
+  }
+
+  return {
+    ok: true,
+    kind: PAIRING_KIND.SUBSTITUTE,
+    driver: substitute,
+    designated: null,
+    reason: `Substitute assigned for ${dateKey(pickupDate) ?? "this date"}.`,
+  };
+}
+
 /** Vehicle readiness signal, 0..1. Higher is better. */
 function vehicleReadiness(vehicle) {
   let s = 0;
-  if (vehicle?.vehicle_status === "Available") s += 0.3;
+  // Readiness is judged on what the vehicle can actually do in the requested
+  // window, not on the cached status label. `Reserved` earns the same credit as
+  // `Available` — it only means the vehicle has a booking somewhere today, and
+  // the schedule-load term below is what prices an actual clash. Penalising the
+  // label as well would double-count it and rank a genuinely-free car below an
+  // equal one purely for having an unrelated trip that morning. Statuses that
+  // really do rule the vehicle out are removed by the candidate filter before
+  // scoring, so they never reach here.
+  if (vehicleOperationallyAvailable(vehicle)) s += 0.3;
 
   const fuel = Number(vehicle?.fuel_level);
   if (Number.isFinite(fuel)) s += Math.min(0.25, (fuel / 100) * 0.25);
@@ -214,50 +436,89 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
 /**
  * Build ranked fleet-pair recommendations for a request.
  *
- * For every candidate vehicle that fits, the primary driver is its designated
- * custodian (when available). Only when that custodian is provably unavailable
- * is a substitute scored, with the reason carried on the pair.
+ * Vehicle availability and driver availability are evaluated SEPARATELY, then
+ * required together: a vehicle only becomes a candidate pair when it is
+ * operational, free in the window, AND has a valid pairing (see
+ * `resolveVehiclePairing`). A vehicle whose custodian cannot drive and which has
+ * no explicitly assigned substitute is withheld with a reason, so the dispatcher
+ * is told to assign a substitute rather than shown a car nobody may take.
  *
  * @param {object} params
  * @param {object} params.request
  * @param {object[]} params.vehicles candidate vehicles (availability-filtered)
  * @param {object[]} params.drivers  candidate drivers
  * @param {Array} params.activePairs active custodial pairs (assigned_until IS NULL)
+ * @param {Array} [params.activeSubstitutes] day-scoped substitute schedules
  * @param {object} [params.trip] precomputed trip estimate
  * @param {Date} [params.now]
  * @returns {{ pairs: object[], recommended: object|null, alternate: object|null }}
  */
-export function buildFleetPairRecommendations({ request, vehicles = [], drivers = [], activePairs = [], trip, now = new Date() }) {
+export function buildFleetPairRecommendations({
+  request,
+  vehicles = [],
+  drivers = [],
+  activePairs = [],
+  activeSubstitutes = [],
+  trip,
+  now = new Date(),
+}) {
   const passengers = Number(request?.passenger_count) || 1;
+  const pickupDate = request?.pickup_datetime || now;
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
   const pairs = [];
+  // Why candidate vehicles did not make it to a pair — surfaced so the panel can
+  // explain "no candidates" instead of just showing an empty state.
+  const skipped = [];
 
   for (const vehicle of vehicles) {
     const seats = Number(vehicle?.seating_capacity) || 0;
-    if (seats > 0 && seats < passengers) continue;
-
-    const designated = resolveDesignatedDriver(vehicle.vehicle_id, activePairs, driverById);
-    let chosen;
-    let replacement_reason = null;
-
-    if (designated) {
-      const unavail = isDriverUnavailableFor(designated, now);
-      if (unavail.unavailable) {
-        replacement_reason = unavail.reason;
-        // Fall back to the next-best available driver for this vehicle.
-        chosen = drivers
-          .filter((d) => d.driver_id !== designated.driver_id && !isDriverUnavailableFor(d, now).unavailable)
-          .sort((a, b) => driverReadiness(b) - driverReadiness(a))[0] ?? null;
-      } else {
-        chosen = designated;
-      }
-    } else {
-      chosen = drivers
-        .filter((d) => !isDriverUnavailableFor(d, now).unavailable)
-        .sort((a, b) => driverReadiness(b) - driverReadiness(a))[0] ?? null;
+    if (seats > 0 && seats < passengers) {
+      skipped.push({ vehicle_id: vehicle.vehicle_id, plate: vehicle.plate_number, reason: `Seats ${seats} — too small for ${passengers} passenger(s).` });
+      continue;
     }
 
-    if (!chosen) continue;
+    // A restriction on the vehicle itself outranks any driver being free.
+    if (!vehicleOperationallyAvailable(vehicle)) {
+      skipped.push({
+        vehicle_id: vehicle.vehicle_id,
+        plate: vehicle.plate_number,
+        reason: `Vehicle status is ${vehicle.vehicle_status}.`,
+      });
+      continue;
+    }
+
+    // A real clash in the requested window, computed by the caller. This is the
+    // authority on time-specific availability — not the cached status label.
+    const vLoad = Number(vehicle?._schedule_load);
+    if (Number.isFinite(vLoad) && vLoad > 0) {
+      skipped.push({
+        vehicle_id: vehicle.vehicle_id,
+        plate: vehicle.plate_number,
+        reason: `Already has ${vLoad} dispatch(es) in this window.`,
+      });
+      continue;
+    }
+
+    const pairing = resolveVehiclePairing({
+      vehicleId: vehicle.vehicle_id,
+      pickupDate,
+      activePairs,
+      activeSubstitutes,
+      driverById,
+      now,
+    });
+    if (!pairing.ok) {
+      skipped.push({
+        vehicle_id: vehicle.vehicle_id,
+        plate: vehicle.plate_number,
+        reason: pairing.reason,
+      });
+      continue;
+    }
+
+    const chosen = pairing.driver;
+    const designated = pairing.designated;
+    const replacement_reason = pairing.kind === PAIRING_KIND.SUBSTITUTE ? pairing.reason : null;
 
     const scored = scoreFleetPair({
       vehicle,
@@ -273,6 +534,7 @@ export function buildFleetPairRecommendations({ request, vehicles = [], drivers 
       vehicle,
       driver: chosen,
       designated,
+      pairing_kind: pairing.kind,
       ...scored,
     });
   }
@@ -286,6 +548,9 @@ export function buildFleetPairRecommendations({ request, vehicles = [], drivers 
     pairs,
     recommended,
     alternate,
+    // Distinct vehicle-level "why not" reasons, newest-first. Empty when a pair
+    // was produced (pairs.length > 0) or no pools were passed at all.
+    skipped,
   };
 }
 
@@ -300,9 +565,14 @@ export function buildChecklist(pair, isTopRanked) {
   const vehicle = pair?.vehicle;
   const driver = pair?.driver;
 
-  // Designated vs substitute — the core pairing rule.
+  // Designated vs substitute — the core pairing rule. `pairing_kind` is the
+  // precise signal; `is_designated` alone cannot tell a substitute covering an
+  // absent custodian apart from one assigned to a vehicle that never had a
+  // custodian, and only the former is a downgrade worth flagging.
   if (pair?.is_designated) {
     items.push({ text: "Designated driver available", pass: true });
+  } else if (pair?.pairing_kind === PAIRING_KIND.SUBSTITUTE && !pair?.designated) {
+    items.push({ text: "Assigned substitute driver for this vehicle", pass: true });
   } else if (pair?.reason_type === REASON_TYPE.REPLACEMENT) {
     items.push({
       text: `Substitute driver — designated unavailable (${pair.replacement_reason || "no reason"}).`,

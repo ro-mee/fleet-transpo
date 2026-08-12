@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requireAuth, ok, handleError } from "@/lib/api/utils";
 import { scoreReservationVehicles, scoreDispatchDrivers } from "@/lib/ai/rule-engine";
+import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 
 // The rule-based scoring is the point of this endpoint; the LLM summary is
@@ -27,8 +28,31 @@ export async function GET(req) {
     if (type === "reservation") {
       const passengerCount = Number(sp.get("passengers")) || 1;
 
+      // This endpoint takes no pickup time — only a passenger count — so the
+      // only window it can honestly evaluate is RIGHT NOW. It therefore keeps
+      // `Reserved` vehicles (that label only records a booking somewhere in the
+      // day, not that the vehicle is taken at this moment) and instead excludes
+      // the ones that are genuinely out on a dispatch as of now. Statuses that
+      // ground the vehicle regardless of time are excluded outright.
+      //
+      // These are advisory suggestions for the AI overview page, NOT the
+      // assignment screen: no driver is paired here, so nothing on this list is
+      // assignment-ready. The dispatch recommendation endpoint, which does have
+      // a pickup window and the pairing data, is what decides that.
       const { rows: vehicles } = await query(
-        `SELECT * FROM vehicles WHERE vehicle_status = 'Available' AND deleted_at IS NULL ORDER BY vehicle_id DESC`
+        `SELECT * FROM vehicles
+          WHERE deleted_at IS NULL
+            AND vehicle_status <> ALL($1::text[])
+            AND NOT EXISTS (
+              SELECT 1 FROM dispatchschedules ds
+               WHERE ds.vehicle_id = vehicles.vehicle_id
+                 AND ds.deleted_at IS NULL
+                 AND ds.status IN ('Scheduled', 'In Progress')
+                 AND ds.scheduled_departure <= NOW()
+                 AND COALESCE(ds.scheduled_arrival, ds.scheduled_departure) > NOW()
+            )
+          ORDER BY vehicle_id DESC`,
+        [NON_DISPATCHABLE_VEHICLE_STATUSES]
       );
 
       const scoredVehicles = scoreReservationVehicles(vehicles, passengerCount);

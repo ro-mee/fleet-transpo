@@ -26,6 +26,9 @@ export async function GET(req) {
           )
         END                     AS drivers,
         row_to_json(r.*)        AS routes,
+        -- Route endpoints with real coordinates (for live ETA remaining-distance math).
+        row_to_json(ol.*)       AS origin_location,
+        row_to_json(dl.*)       AS destination_location,
         -- The transportation request that originated this dispatch.
         CASE WHEN tr.request_id IS NULL THEN NULL ELSE
           json_build_object(
@@ -60,7 +63,16 @@ export async function GET(req) {
             'fuel_consumed',  lat.fuel_consumed,
             'avg_speed',      lat.avg_speed
           )
-        END                     AS latest_trip
+        END                     AS latest_trip,
+        -- Latest vehicle GPS for the running trip (drives the live ETA).
+        CASE WHEN loc.latitude IS NULL THEN NULL ELSE
+          json_build_object(
+            'latitude',  loc.latitude,
+            'longitude', loc.longitude,
+            'speed',     loc.speed,
+            'recorded_at', loc.recorded_at
+          )
+        END                     AS latest_location
       FROM dispatchschedules ds
       LEFT JOIN vehicles v
         ON ds.vehicle_id = v.vehicle_id
@@ -70,17 +82,30 @@ export async function GET(req) {
         ON d.employee_id = de.employee_id
       LEFT JOIN routes r
         ON ds.route_id = r.route_id
+      LEFT JOIN locations ol
+        ON r.origin_location_id = ol.location_id
+      LEFT JOIN locations dl
+        ON r.destination_location_id = dl.location_id
       LEFT JOIN transportation_requests tr
         ON ds.request_id = tr.request_id AND tr.deleted_at IS NULL
       LEFT JOIN service_types st
         ON tr.service_type_id = st.service_type_id
       LEFT JOIN LATERAL (
-        SELECT *
+        SELECT t.trip_id, t.trip_status,
+               t.start_time, t.end_time, t.distance, t.actual_duration,
+               t.start_odometer, t.end_odometer, t.fuel_consumed, t.avg_speed
         FROM trips t
         WHERE t.dispatch_id = ds.dispatch_id AND t.deleted_at IS NULL
         ORDER BY t.created_at DESC
         LIMIT 1
       ) lat ON TRUE
+      LEFT JOIN LATERAL (
+        SELECT g.latitude, g.longitude, g.speed, g.recorded_at
+        FROM gpstracking g
+        WHERE g.vehicle_id = ds.vehicle_id AND g.trip_id = lat.trip_id
+        ORDER BY g.recorded_at DESC
+        LIMIT 1
+      ) loc ON TRUE
       WHERE ds.deleted_at IS NULL
       -- Order by nearest departure first (soonest, including already-overdue, at
       -- the top). The board's urgency is how close a trip is to leaving — the

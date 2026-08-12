@@ -19,16 +19,16 @@ import {
 import { toast } from "@/components/ui/toast";
 import { DispatchCard, DispatchCardSkeleton } from "@/components/dispatch/dispatch-card";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
-import { TripOdometerDialog } from "@/components/dispatch/trip-odometer-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
+import { useDepartureAlerts } from "@/hooks/use-departure-alerts";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import {
   getDispatchesByStatus,
   updateDispatch,
   updateDispatchStatus,
 } from "@/services/dispatch.service";
-import { startTrip, completeTrip } from "@/services/trip.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
+import { alertMessage } from "@/lib/scheduling/departure-alerts";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
@@ -117,7 +117,6 @@ export default function DispatchPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState(null); // { dispatch, mode }
-  const [odometer, setOdometer] = useState(null); // { dispatch, mode: start|complete }
   const [cancelling, setCancelling] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [busyId, setBusyId] = useState(null);
@@ -135,10 +134,6 @@ export default function DispatchPage() {
       dispatchUpdate: can("dispatch", "update"),
       reservationsRead: can("reservations", "read"),
       tripsRead: can("trips", "read"),
-      // Start and Complete move the trip, not the dispatch, so they check the
-      // trips verb — matching the role list /api/trips/[id]/{start,complete}
-      // enforces server-side.
-      tripsUpdate: can("trips", "update"),
       routesRead: can("routes", "read"),
     }),
     [can]
@@ -177,32 +172,6 @@ export default function DispatchPage() {
       queryClient.invalidateQueries({ queryKey: key });
     }
   };
-
-  // Start and Complete go through the TRIP endpoints, never through
-  // PUT /api/dispatch/[id]/status. Only the trip routes advance the originating
-  // transportation request and write its reservation_events row; the dispatch
-  // status route moves that one column and nothing else, which would leave the
-  // request behind and punch a hole in the Phase 15 timeline. The trip routes
-  // set dispatchschedules.status themselves, so the board still lands in the
-  // right lane.
-  const tripMutation = useMutation({
-    mutationFn: ({ dispatch, mode, body }) => {
-      const tripId = dispatch.latest_trip?.trip_id;
-      if (!tripId) throw new Error("This dispatch has no trip record yet.");
-      return mode === "start" ? startTrip(tripId, body) : completeTrip(tripId, body);
-    },
-    onMutate: ({ dispatch }) => setBusyId(dispatch.dispatch_id),
-    onSuccess: (_res, { mode }) => {
-      toast.success(mode === "start" ? "Trip started" : "Trip completed");
-      setOdometer(null);
-      invalidate();
-    },
-    // The start endpoint refuses expired registration/licence and unavailable
-    // vehicles or drivers with a 400. Keep the dialog open so the reading isn't
-    // retyped once the underlying problem is sorted.
-    onError: (e) => toast.error(e.message || "Failed to update the trip"),
-    onSettled: () => setBusyId(null),
-  });
 
   // Cancelling stands the dispatch down without touching a trip, so it is the
   // one verb that still moves the dispatch row directly.
@@ -247,6 +216,26 @@ export default function DispatchPage() {
     }),
     [groups]
   );
+
+  // Warnings are evaluated over every lane that can still depart, not the
+  // selected one — a dispatcher reviewing Completed must not go blind to a car
+  // that is ten minutes from leaving with nobody on it. Search is excluded for
+  // the same reason.
+  const alertable = useMemo(
+    () => [...(groups?.pendingReassignment || []), ...(groups?.scheduled || [])],
+    [groups]
+  );
+  const { byId: alertsById, count: alertCount, alerts } = useDepartureAlerts(alertable);
+
+  // Per-lane tally, so a chip can carry the warning even when its lane is closed.
+  const alertsByLane = useMemo(() => {
+    const tally = {};
+    for (const { dispatch: d } of alerts) {
+      const key = d.status === D.PENDING_REASSIGNMENT ? "pendingReassignment" : "scheduled";
+      tally[key] = (tally[key] || 0) + 1;
+    }
+    return tally;
+  }, [alerts]);
 
   const allItems = useMemo(
     () => (groups?.[lane] || []).filter((d) => matches(d, search)),
@@ -356,12 +345,56 @@ export default function DispatchPage() {
         })}
       </StatGrid>
 
+      {/* Departure warnings — the one thing on this board that is time-critical,
+          so it sits above the lanes and stays put regardless of which lane is
+          open or what is typed in the search box. */}
+      {alertCount > 0 && (
+        <div className="rounded-2xl border border-danger/30 bg-danger/6 p-4">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-danger" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-foreground">
+                {alertCount === 1
+                  ? "1 dispatch is departing without a full assignment"
+                  : `${alertCount} dispatches are departing without a full assignment`}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                {alerts.slice(0, 4).map(({ dispatch: d, alert }) => (
+                  <button
+                    key={d.dispatch_id}
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      switchLane(
+                        d.status === D.PENDING_REASSIGNMENT ? "pendingReassignment" : "scheduled"
+                      );
+                    }}
+                    className="text-xs font-semibold text-foreground-secondary hover:text-danger transition-colors cursor-pointer"
+                  >
+                    <span className="font-data">
+                      {d.dispatch_number || `DSP-${d.dispatch_id}`}
+                    </span>
+                    <span className="ml-1.5 text-foreground-muted">{alertMessage(alert)}</span>
+                  </button>
+                ))}
+                {alerts.length > 4 && (
+                  <span className="text-xs text-foreground-muted">
+                    +{alerts.length - 4} more
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Lane selector + search. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Dispatch status">
           {LANES.map((l) => {
             const LaneIcon = l.icon;
             const active = lane === l.id;
+            const laneAlerts = alertsByLane[l.id] || 0;
             return (
               <button
                 key={l.id}
@@ -378,6 +411,14 @@ export default function DispatchPage() {
               >
                 <LaneIcon className="w-3.5 h-3.5" aria-hidden="true" />
                 {l.label} ({counts[l.id]})
+                {laneAlerts > 0 && (
+                  <span
+                    className="flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white"
+                    title={`${laneAlerts} departing without a full assignment`}
+                  >
+                    {laneAlerts}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -448,8 +489,7 @@ export default function DispatchPage() {
                   dispatch={d}
                   permissions={permissions}
                   isBusy={busyId === d.dispatch_id}
-                  onStart={(dispatch) => setOdometer({ dispatch, mode: "start" })}
-                  onComplete={(dispatch) => setOdometer({ dispatch, mode: "complete" })}
+                  alert={alertsById.get(d.dispatch_id) || null}
                   onCancel={(dispatch) => setCancelling(dispatch)}
                   onReassign={(dispatch, mode) => setEditing({ dispatch, mode })}
                   onEditNotes={(dispatch) => setEditing({ dispatch, mode: "notes" })}
@@ -518,14 +558,6 @@ export default function DispatchPage() {
         isPending={patchMutation.isPending}
         onClose={() => setEditing(null)}
         onSubmit={(payload) => patchMutation.mutate(payload)}
-      />
-
-      <TripOdometerDialog
-        dispatch={odometer?.dispatch}
-        mode={odometer?.mode}
-        isPending={tripMutation.isPending}
-        onClose={() => setOdometer(null)}
-        onSubmit={(payload) => tripMutation.mutate(payload)}
       />
 
       <Dialog open={!!cancelling} onOpenChange={(open) => { if (!open) { setCancelling(null); setCancelReason(""); } }}>

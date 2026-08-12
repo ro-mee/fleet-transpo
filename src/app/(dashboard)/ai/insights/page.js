@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,13 +28,16 @@ function normalizeSeverity(insight) {
   return (insight.severity || insight.impact || "low").toLowerCase();
 }
 
+
+
 export default function AiInsightsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const queryClient = useQueryClient();
+  const [syncToken, setSyncToken] = useState(0);
 
   const { data: insightsData, isLoading, isFetching, refetch } = useQuery({
-    queryKey: ["ai-insights"],
-    queryFn: () => getAiInsights(),
+    queryKey: ["ai-insights", syncToken],
+    queryFn: () => getAiInsights(syncToken > 0),
   });
 
   const insights = Array.isArray(insightsData)
@@ -63,6 +67,18 @@ export default function AiInsightsPage() {
     onError: (err) => toast.error(err.message || "Failed to dismiss alert"),
   });
 
+  const handleForceSync = () => {
+    toast.info("Re-analyzing fleet telemetry with AI...");
+    setSyncToken(Date.now());
+  };
+
+  // Show success toast when fetching finishes
+  useEffect(() => {
+    if (syncToken > 0 && !isFetching && !isLoading) {
+      toast.success("AI Insights re-analyzed and synced!");
+    }
+  }, [isFetching, isLoading, syncToken]);
+
   const distribution = [
     { label: "High / Critical", value: counts.high, tone: "danger" },
     { label: "Medium Urgency", value: counts.medium, tone: "warning" },
@@ -82,12 +98,12 @@ export default function AiInsightsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => refetch()}
+            onClick={handleForceSync}
             disabled={isFetching}
             className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}
           >
             <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isFetching && "animate-spin")} />
-            Sync Real-Time
+            Force AI Re-Analyze
           </Button>
         }
       />
@@ -111,14 +127,40 @@ export default function AiInsightsPage() {
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-muted/30 border border-border/60">
-                {nlSummary ? (
-                  <p className="text-sm leading-relaxed text-foreground font-medium">{nlSummary}</p>
+              <div className="mt-4">
+                {isLoading ? (
+                  <div className="p-5 rounded-3xl bg-surface border border-border/60 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.02)] flex gap-4 items-center">
+                    <Skeleton className="w-8 h-8 rounded-full shrink-0" />
+                    <div className="flex-1 space-y-2.5">
+                      <Skeleton className="h-3.5 w-full rounded-md" />
+                      <Skeleton className="h-3.5 w-[85%] rounded-md" />
+                    </div>
+                  </div>
+                ) : nlSummary ? (
+                  <div className="relative p-5 rounded-3xl bg-gradient-to-br from-primary/5 via-surface to-muted/20 border border-primary/10 shadow-[0_8px_30px_-6px_rgba(0,0,0,0.05)] overflow-hidden group">
+                    <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-primary to-primary/20 group-hover:from-primary group-hover:to-primary/60 transition-colors duration-500" />
+                    <div className="flex gap-4">
+                      <div className="flex-shrink-0 mt-0.5">
+                        <div className="flex items-center justify-center w-8 h-8 rounded-full bg-primary/10 text-primary border border-primary/20 shadow-2xs group-hover:scale-110 transition-transform duration-300">
+                          <Bot className="w-4 h-4" />
+                        </div>
+                      </div>
+                      <p className="text-[13.5px] text-foreground-secondary leading-loose font-medium text-balance">
+                        {nlSummary}
+                      </p>
+                    </div>
+                  </div>
                 ) : (
-                  <p className="text-sm leading-relaxed text-foreground-muted">
-                    AI summary unavailable — the LLM provider did not respond. The insights below are
-                    rule-based scoring.
-                  </p>
+                  <div className="relative p-5 rounded-3xl bg-surface/50 border border-border/60 shadow-[0_2px_10px_-3px_rgba(0,0,0,0.02)] overflow-hidden flex gap-4 items-start">
+                    <div className="flex-shrink-0 mt-0.5">
+                      <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/50 text-foreground-muted border border-border/60 shadow-2xs">
+                        <Radar className="w-4 h-4 opacity-70" />
+                      </div>
+                    </div>
+                    <p className="text-[13px] text-foreground-secondary leading-relaxed font-medium">
+                      Live telemetry is currently operating in <span className="font-bold text-foreground">Deterministic Mode</span>. Generative AI summaries are temporarily unavailable, but all core rule-based safety, compliance, and maintenance alerts remain fully active below.
+                    </p>
+                  </div>
                 )}
               </div>
 

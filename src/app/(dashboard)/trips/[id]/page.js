@@ -1,20 +1,17 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import dynamic from "next/dynamic";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { TripOdometerDialog } from "@/components/dispatch/trip-odometer-dialog";
-import { getTrip, startTrip, completeTrip, getTripLocations } from "@/services/trip.service";
+import { getTrip, getTripLocations } from "@/services/trip.service";
 import { apiFetch } from "@/lib/api/client";
 import { formatDateTime, formatDuration } from "@/lib/utils";
-import { DISPATCH_STATUS as D } from "@/lib/constants";
-import { useRoleAccess } from "@/hooks/use-role-access";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { StatusBadge } from "@/components/ui/status-badge";
 import {
@@ -27,16 +24,12 @@ import {
   Navigation,
   Gauge,
   CheckCircle2,
-  Loader2,
-  Play,
-  Square,
   ChevronRight,
   TrendingUp,
   Star,
   TriangleAlert,
   Calendar,
 } from "lucide-react";
-import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 const TripRouteMap = dynamic(() => import("@/components/maps/live-locations-map"), {
@@ -50,12 +43,7 @@ export default function TripDetailPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const params = useParams();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const tripId = Number(params.id);
-
-  const { can } = useRoleAccess();
-  const permissions = useMemo(() => ({ tripsUpdate: can("trips", "update") }), [can]);
-  const [odometerMode, setOdometerMode] = useState(null);
 
   const {
     data: trip,
@@ -116,39 +104,6 @@ export default function TripDetailPage() {
     return { origin, destination };
   }, [driverLiveCoords, hasRouteCoords, routeOrigin, routeDest]);
 
-  const startMutation = useMutation({
-    mutationFn: (body) => startTrip(tripId, body),
-    onSuccess: () => {
-      toast.success("Trip started");
-      setOdometerMode(null);
-      queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
-      queryClient.invalidateQueries({ queryKey: ["trips"] });
-      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
-      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
-  const completeMutation = useMutation({
-    mutationFn: (body) => completeTrip(tripId, body),
-    onSuccess: () => {
-      toast.success("Trip completed");
-      setOdometerMode(null);
-      queryClient.invalidateQueries({ queryKey: ["trip", tripId] });
-      queryClient.invalidateQueries({ queryKey: ["trips"] });
-      queryClient.invalidateQueries({ queryKey: ["trips-active"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicles"] });
-      queryClient.invalidateQueries({ queryKey: ["vehicle"] });
-      queryClient.invalidateQueries({ queryKey: ["drivers"] });
-      queryClient.invalidateQueries({ queryKey: ["driver-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["dispatches"] });
-    },
-    onError: (err) => toast.error(err.message),
-  });
-
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -194,13 +149,6 @@ export default function TripDetailPage() {
 
   const currentStepIndex = tripSteps.indexOf(trip.trip_status);
 
-  const canStart =
-    permissions.tripsUpdate &&
-    ["Assigned", "Scheduled", "Driver Accepted"].includes(trip.trip_status);
-  const canComplete =
-    permissions.tripsUpdate &&
-    ["In Progress", "Trip Started", "En Route", "Arrived"].includes(trip.trip_status);
-
   const hasPerformanceMetrics = [
     trip.on_time_completion,
     trip.fuel_efficiency,
@@ -221,37 +169,6 @@ export default function TripDetailPage() {
               Back
             </Button>
             <StatusBadge status={trip.trip_status} entity="trip" className="text-xs px-3 py-1 font-semibold" />
-
-            {canStart && (
-              <Button
-                size="sm"
-                className="bg-success text-white hover:bg-emerald-600 font-semibold rounded-xl"
-                onClick={() => setOdometerMode("start")}
-                disabled={startMutation.isPending}
-              >
-                {startMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Play className="w-4 h-4 mr-2" />
-                )}
-                Start Trip
-              </Button>
-            )}
-            {canComplete && (
-              <Button
-                size="sm"
-                className="bg-primary text-white font-semibold rounded-xl"
-                onClick={() => setOdometerMode("complete")}
-                disabled={completeMutation.isPending}
-              >
-                {completeMutation.isPending ? (
-                  <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                ) : (
-                  <Square className="w-4 h-4 mr-2" />
-                )}
-                Complete Trip
-              </Button>
-            )}
           </div>
         }
       />
@@ -485,24 +402,6 @@ export default function TripDetailPage() {
           </div>
         </CardContent>
       </Card>
-
-      <TripOdometerDialog
-        dispatch={
-          odometerMode
-            ? {
-                dispatch_id: trip.dispatch_id ?? null,
-                dispatch_number:
-                  trip.dispatchschedules?.dispatch_number || `Trip #${trip.trip_id}`,
-                latest_trip: trip,
-                vehicles: trip.vehicles || null,
-              }
-            : null
-        }
-        mode={odometerMode}
-        onOpenChange={(open) => {
-          if (!open) setOdometerMode(null);
-        }}
-      />
     </div>
   );
 }

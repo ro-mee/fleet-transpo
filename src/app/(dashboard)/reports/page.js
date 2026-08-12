@@ -15,6 +15,8 @@ import {
   getFinancialSummary,
 } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
+import { getReportNarrative } from "@/services/ai.service";
+import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -186,6 +188,31 @@ export default function ReportsPage() {
   });
 
   const maintDue = (predictionData?.summary?.overdue ?? 0) + (predictionData?.summary?.critical ?? 0);
+
+  // AI Analyst narrative — feeds the currently selected report's live data.
+  const narrativeData = useMemo(() => {
+    switch (selectedReport) {
+      case "fuel":
+        return fuelReport || {};
+      case "maintenance":
+        return { ...maintReport, vehiclesDue: maintDue } || {};
+      case "drivers":
+        return driverReport || {};
+      case "financial":
+        return financialReport || {};
+      default:
+        return fleetReport || {};
+    }
+  }, [selectedReport, fleetReport, fuelReport, maintReport, driverReport, financialReport, maintDue]);
+
+  const reportLabel = REPORT_TYPES.find((r) => r.id === selectedReport)?.label || "Report";
+  const [narrativeForce, setNarrativeForce] = useState(0);
+
+  const { data: narrative, isLoading: narrativeLoading, isFetching: narrativeFetching } = useQuery({
+    queryKey: ["report-narrative", selectedReport, dateBounds, narrativeForce],
+    queryFn: () => getReportNarrative(selectedReport, narrativeData, dateBounds, narrativeForce > 0),
+    enabled: Boolean(narrativeData),
+  });
 
   const fleetVehicleChartData = useMemo(() => {
     const raw = (fleetReport?.byVehicle || []).slice(0, 8).map((v) => ({
@@ -451,6 +478,16 @@ export default function ReportsPage() {
         })}
       </div>
 
+      {/* ── AI ANALYST NARRATIVE (Tier 1) ── */}
+      <AiAnalystCard
+        title={`AI Analyst · ${reportLabel}`}
+        reportLabel="Executive analysis of the live report figures"
+        loading={narrativeLoading || narrativeFetching}
+        data={narrative}
+        onRegenerate={() => setNarrativeForce((n) => n + 1)}
+        isRegenerating={narrativeFetching}
+      />
+
       {/* ── TAB 1: FLEET UTILIZATION ── */}
       {selectedReport === "fleet" && (
         <div className="space-y-6">
@@ -472,7 +509,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="pt-4">
               <div className="h-[320px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart data={fleetVehicleChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="barTripsGrad" x1="0" y1="0" x2="0" y2="1">
@@ -555,7 +592,7 @@ export default function ReportsPage() {
             </CardHeader>
             <CardContent className="pt-4">
               <div className="h-[320px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart data={fuelClassChartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                     <defs>
                       <linearGradient id="classFuelBarReport" x1="0" y1="0" x2="0" y2="1">
@@ -643,7 +680,7 @@ export default function ReportsPage() {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
                 {/* Left 5 Cols: Donut Chart with Center Gauge Overlay */}
                 <div className="lg:col-span-5 h-[280px] flex items-center justify-center relative">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <PieChart>
                       <Pie
                         data={[{ value: 1 }]}
@@ -874,7 +911,7 @@ export default function ReportsPage() {
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
                 {/* Left 5 Cols: Donut Chart with Center Gauge Overlay */}
                 <div className="lg:col-span-5 h-[280px] flex items-center justify-center relative">
-                  <ResponsiveContainer width="100%" height="100%">
+                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     <PieChart>
                       <Pie
                         data={[{ value: 1 }]}

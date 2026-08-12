@@ -12,13 +12,15 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { getInitials, cn } from "@/lib/utils";
+import { SIDEBAR_MODES, useSidebar } from "@/hooks/use-sidebar";
 import {
   User,
   Lock,
   LogOut,
   ChevronUp,
   ChevronDown,
-  Bell,
+  PanelLeft,
+  Check,
   ChevronRight,
   ShieldCheck,
 } from "lucide-react";
@@ -30,7 +32,11 @@ function formatRole(role) {
 
 export function UserDropdown({ employee, signOut, side = "bottom", align = "end", children, chevron, triggerClassName }) {
   const [open, setOpen] = useState(false);
+  const [behaviorOpen, setBehaviorOpen] = useState(false);
   const router = useRouter();
+  const { mode, setMode } = useSidebar();
+
+  const activeMode = SIDEBAR_MODES.find((m) => m.value === mode) || SIDEBAR_MODES[0];
 
   const name = employee
     ? `${employee.first_name} ${employee.last_name}`
@@ -63,7 +69,13 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setBehaviorOpen(false);
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
@@ -144,16 +156,57 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
             <ChevronRight className="h-3.5 w-3.5 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform" />
           </DropdownMenuItem>
 
-          <DropdownMenuItem
-            onClick={() => router.push("/notifications")}
-            className="rounded-md px-3 py-2 text-sm text-foreground-secondary hover:text-foreground hover:bg-hover focus:text-foreground focus:bg-hover cursor-pointer flex items-center justify-between group transition-colors"
+          {/* Radix closes the menu on item select, so this row is a plain button
+              that expands the mode list in place instead. */}
+          <button
+            type="button"
+            onClick={() => setBehaviorOpen((v) => !v)}
+            className="w-full rounded-md px-3 py-2 text-sm text-foreground-secondary hover:text-foreground hover:bg-hover cursor-pointer flex items-center justify-between group transition-colors outline-none"
           >
             <div className="flex items-center gap-2.5">
-              <Bell className="h-4 w-4 text-foreground-secondary group-hover:text-foreground" />
-              <span>Notifications &amp; Alerts</span>
+              <PanelLeft className="h-4 w-4 text-foreground-secondary group-hover:text-foreground" />
+              <span>Sidebar Behavior</span>
             </div>
-            <ChevronRight className="h-3.5 w-3.5 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-transform" />
-          </DropdownMenuItem>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-foreground-muted">{activeMode.label}</span>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 text-foreground-muted transition-transform",
+                  behaviorOpen && "rotate-180"
+                )}
+              />
+            </div>
+          </button>
+
+          {behaviorOpen && (
+            <div className="ml-3 space-y-0.5 border-l border-border/60 pl-2">
+              {SIDEBAR_MODES.map((m) => {
+                const selected = m.value === mode;
+                return (
+                  <button
+                    key={m.value}
+                    type="button"
+                    onClick={() => setMode(m.value)}
+                    className={cn(
+                      "w-full rounded-md px-2.5 py-1.5 text-left cursor-pointer flex items-center gap-2.5 transition-colors outline-none",
+                      selected
+                        ? "bg-hover text-foreground"
+                        : "text-foreground-secondary hover:text-foreground hover:bg-hover"
+                    )}
+                  >
+                    <m.icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm leading-tight">{m.label}</span>
+                      <span className="block text-[11px] text-foreground-muted truncate">
+                        {m.description}
+                      </span>
+                    </span>
+                    {selected && <Check className="h-3.5 w-3.5 shrink-0 text-success" />}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <DropdownMenuSeparator className="my-1 bg-border/60" />

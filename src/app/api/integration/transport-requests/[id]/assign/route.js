@@ -5,6 +5,7 @@ import { advanceReservation, loadRequest } from "@/services/reservation-lifecycl
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
 import { validatePairAvailability } from "@/services/recommendation.service";
+import { createDispatchForRequest, syncDispatchSideEffects } from "@/services/dispatch-autocreate.service";
 import { writeAudit } from "@/lib/audit";
 
 // ASSIGN a vehicle and/or driver to an approved request.
@@ -145,6 +146,45 @@ export async function PUT(req, { params }) {
       newValues: { vehicle_id: vehicleId || null, driver_id: driverId || null, fleet_status: L.ASSIGNED },
     });
 
-    return ok({ ...result.request, warnings: force ? blocking : [] });
+    // GAP-FIX: a full pair is now also surfaced on the Dispatch board + the
+    // driver's mobile trip list. When both vehicle and driver are committed,
+    // auto-create the dispatch row (with a route/trip). Best-effort — the
+    // assignment above is already committed, so a failure here must never roll it
+    // back or turn the request into a 500.
+    let dispatchId = null;
+    let dispatchNumber = null;
+    if (vehicleId && driverId) {
+      try {
+        const dispatch = await createDispatchForRequest({
+          request: before,
+          vehicleId,
+          driverId,
+          session,
+        });
+        if (dispatch) {
+          dispatchId = dispatch.dispatch_id;
+          dispatchNumber = dispatch.dispatch_number;
+          await syncDispatchSideEffects(dispatch.dispatch_id);
+          await recordReservationEvent({
+            requestId: id,
+            eventType: E.DISPATCH_CREATED,
+            fromStatus: L.ASSIGNED,
+            toStatus: L.ASSIGNED,
+            session,
+            description: `Dispatch ${dispatch.dispatch_number || `#${dispatch.dispatch_id}`} created.`,
+            metadata: { dispatch_id: dispatch.dispatch_id, dispatch_number: dispatch.dispatch_number ?? null },
+          });
+        }
+      } catch (syncErr) {
+        console.warn(`auto-dispatch for request ${id} failed:`, syncErr?.message || syncErr);
+      }
+    }
+
+    return ok({
+      ...result.request,
+      warnings: force ? blocking : [],
+      dispatch_id: dispatchId ?? undefined,
+      dispatch_number: dispatchNumber ?? undefined,
+    });
   } catch (e) { return handleError(e); }
 }

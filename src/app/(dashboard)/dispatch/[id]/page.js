@@ -4,7 +4,13 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -18,18 +24,16 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton, DetailSkeleton } from "@/components/ui/skeleton";
+import { DetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-import { TripOdometerDialog } from "@/components/dispatch/trip-odometer-dialog";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
 import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { getDispatch, updateDispatch, updateDispatchStatus } from "@/services/dispatch.service";
-import { startTrip, completeTrip } from "@/services/trip.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
-import { formatDateTime, formatDistance, formatDuration } from "@/lib/utils";
+import { formatDateTime, formatDistance, formatDuration, cn } from "@/lib/utils";
 import {
   ArrowLeft,
   CalendarClock,
@@ -39,10 +43,13 @@ import {
   FileText,
   Gauge,
   MapPin,
+  Navigation,
   PlayCircle,
   Route as RouteIcon,
   Send,
+  StickyNote,
   TriangleAlert,
+  User,
   UserCheck,
   Users,
   XCircle,
@@ -61,34 +68,77 @@ import {
 // routes advance the originating request and append its reservation_events row —
 // moving the dispatch column alone would leave the request behind and punch a hole
 // in the timeline rendered further down this very page.
+//
+// Styling follows the reservation detail page (`/reservations/[id]`): the two pages
+// describe the same journey from either side of the handoff, so they share the
+// banner, the 7/5 column split, the tinted section headers and the Field shell.
+
 // pg returns DECIMAL columns as strings, and formatDistance() calls .toFixed() on
 // what it is given — so every numeric read goes through here before formatting.
 const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
-function Field({ icon: Icon, label, value, tone = "text-foreground-muted", href }) {
+// Matches the reservation detail page's Field so the two records read as one
+// system. Values wrap rather than truncate — a route or a special request that
+// silently loses its tail is worse than one that takes a second line.
+function Field({ icon: Icon, label, value, children, tone = "text-foreground-muted", href, className }) {
+  const content = children ?? value;
   const body = (
     <>
-      <p className="text-xs text-foreground-muted">{label}</p>
-      <p className="truncate text-sm font-medium text-foreground">{value ?? "—"}</p>
+      <p className="text-xs font-medium text-foreground-secondary flex items-center gap-1.5">
+        {Icon && <Icon className={cn("w-3.5 h-3.5 shrink-0", tone)} />}
+        {label}
+      </p>
+      <p className="text-sm font-semibold text-foreground break-words">{content ?? "—"}</p>
     </>
   );
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-muted/30 p-3">
-      <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${tone}`} />
-      <div className="min-w-0">
-        {href ? (
-          <Link href={href} className="block hover:underline">
-            {body}
-          </Link>
-        ) : (
-          body
-        )}
-      </div>
+    <div
+      className={cn(
+        "min-w-0 p-4 rounded-xl bg-muted/20 border border-border/40 space-y-1.5",
+        className
+      )}
+    >
+      {href ? (
+        <Link href={href} className="block hover:underline">
+          {body}
+        </Link>
+      ) : (
+        body
+      )}
     </div>
   );
 }
 
+/** Section shell shared by every panel below, mirroring the reservation page. */
+function Section({ icon: Icon, iconClass, title, description, children, className }) {
+  return (
+    <Card className={cn("border-0 shadow-sm rounded-2xl", className)}>
+      <CardHeader className="pb-3 border-b border-border/60">
+        <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+          <div className={cn("p-2 rounded-xl", iconClass)}>
+            <Icon className="w-4 h-4" />
+          </div>
+          {title}
+        </CardTitle>
+        {description && <CardDescription className="text-xs">{description}</CardDescription>}
+      </CardHeader>
+      <CardContent className="pt-4">{children}</CardContent>
+    </Card>
+  );
+}
 
+/** Prominent origin/destination block — the same treatment the reservation page gives it. */
+function Endpoint({ label, value, tone }) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl bg-muted/20 border border-border/50 p-4">
+      <MapPin className={cn("mt-0.5 w-4 h-4 shrink-0", tone)} />
+      <div className="min-w-0">
+        <p className="text-xs font-medium text-foreground-secondary uppercase tracking-wider">{label}</p>
+        <p className="text-base font-bold text-foreground break-words mt-0.5">{value || "—"}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function DispatchDetailPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
@@ -98,7 +148,6 @@ export default function DispatchDetailPage() {
   const { can } = useRoleAccess();
   const dispatchId = Number(params.id);
 
-  const [odometer, setOdometer] = useState(null); // { dispatch, mode }
   const [editing, setEditing] = useState(null); // { dispatch, mode }
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -141,20 +190,6 @@ export default function DispatchDetailPage() {
       queryClient.invalidateQueries({ queryKey: key });
     }
   };
-
-  const tripMutation = useMutation({
-    mutationFn: ({ mode, body }) => {
-      const tripId = dispatch?.latest_trip?.trip_id;
-      if (!tripId) throw new Error("This dispatch has no trip record yet.");
-      return mode === "start" ? startTrip(tripId, body) : completeTrip(tripId, body);
-    },
-    onSuccess: (_res, { mode }) => {
-      toast.success(mode === "start" ? "Trip started" : "Trip completed");
-      setOdometer(null);
-      invalidate();
-    },
-    onError: (e) => toast.error(e.message || "Failed to update the trip"),
-  });
 
   const cancelMutation = useMutation({
     mutationFn: () => updateDispatchStatus(dispatchId, D.CANCELLED, cancelReason.trim() || null),
@@ -204,6 +239,7 @@ export default function DispatchDetailPage() {
       />
     );
   }
+
   const request = dispatch.transportation_requests || null;
   const vehicle = dispatch.vehicles || null;
   const driver = dispatch.drivers || null;
@@ -229,26 +265,31 @@ export default function DispatchDetailPage() {
   const fullyAssigned = Boolean(dispatch.vehicle_id && dispatch.driver_id);
   const hasTrip = Boolean(trip?.trip_id);
 
-  const canStart = isScheduled && permissions.tripsUpdate && fullyAssigned && hasTrip;
-  const canComplete = isInProgress && permissions.tripsUpdate && hasTrip;
   const canCancel = isOpen && permissions.dispatchUpdate;
-  const busy = tripMutation.isPending || cancelMutation.isPending || patchMutation.isPending;
+  const busy = cancelMutation.isPending || patchMutation.isPending;
 
   return (
-    <div className="max-w-6xl space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Go back">
-            <ArrowLeft className="h-5 w-5" />
+    <div className="space-y-6 w-full pb-6">
+      {/* ── Top Page Banner & Header Bar ── */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
+        <div className="flex items-center gap-3.5">
+          <Button
+            variant="outline"
+            size="icon"
+            className="rounded-xl shrink-0"
+            onClick={() => router.back()}
+            aria-label="Go back"
+          >
+            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
           </Button>
           <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-bold text-foreground">{dispatch.dispatch_number}</h1>
-              <StatusBadge status={dispatch.status} entity="dispatch" />
+            <div className="flex items-center gap-2 flex-wrap">
+              <h1 className="text-xl font-bold text-foreground">{dispatch.dispatch_number}</h1>
               {priority && <StatusBadge status={priority} entity="priority" />}
+              <StatusBadge status={dispatch.status} entity="dispatch" />
               {trip?.trip_status && <StatusBadge status={trip.trip_status} entity="trip" />}
             </div>
-            <p className="mt-1 text-sm text-foreground-secondary">
+            <p className="text-xs text-foreground-secondary mt-0.5">
               Created {formatDateTime(dispatch.created_at)}
               {request?.reservation_number && (
                 <>
@@ -271,47 +312,46 @@ export default function DispatchDetailPage() {
 
         {/* Actions match the board's, and each verb matches the role list its
             endpoint enforces. A hidden button is a convenience, not the boundary. */}
-        <div className="flex flex-wrap items-center gap-2">
-          {canStart && (
-            <Button disabled={busy} onClick={() => setOdometer({ dispatch, mode: "start" })}>
-              <PlayCircle className="mr-2 h-4 w-4" />
-              Start trip
-            </Button>
-          )}
-          {canComplete && (
-            <Button disabled={busy} onClick={() => setOdometer({ dispatch, mode: "complete" })}>
-              <CheckCircle2 className="mr-2 h-4 w-4" />
-              Complete trip
-            </Button>
-          )}
-          {isScheduled && permissions.tripsUpdate && !fullyAssigned && (
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {isScheduled && permissions.dispatchUpdate && !fullyAssigned && (
             <Badge variant="warning" className="gap-1">
               <TriangleAlert className="h-3 w-3" />
               Needs a vehicle and driver
             </Badge>
           )}
-          {isScheduled && permissions.tripsUpdate && fullyAssigned && !hasTrip && (
+          {isScheduled && permissions.dispatchUpdate && fullyAssigned && !hasTrip && (
             <Badge variant="warning" className="gap-1">
               <TriangleAlert className="h-3 w-3" />
               No trip record yet
             </Badge>
           )}
           {permissions.dispatchUpdate && (
-            <Button variant="outline" disabled={busy} onClick={() => setEditing({ dispatch, mode: "notes" })}>
-              <FileText className="mr-2 h-4 w-4" />
-              Notes
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs"
+              disabled={busy}
+              onClick={() => setEditing({ dispatch, mode: "notes" })}
+            >
+              <FileText className="w-3.5 h-3.5 mr-1" /> Notes
             </Button>
           )}
           {canCancel && (
-            <Button variant="outline" disabled={busy} onClick={() => setConfirmCancel(true)}>
-              <XCircle className="mr-2 h-4 w-4" />
-              Cancel
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs text-danger border-danger/30 hover:bg-danger/10"
+              disabled={busy}
+              onClick={() => setConfirmCancel(true)}
+            >
+              <XCircle className="w-3.5 h-3.5 mr-1" /> Cancel
             </Button>
           )}
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* ── At-a-glance strip: who is driving what, and when ── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Field
           icon={CarFront}
           label="Vehicle"
@@ -338,84 +378,107 @@ export default function DispatchDetailPage() {
 
       {/* Progress is rendered as text when there is no honest denominator — an
           in-progress trip with no scheduled arrival has no percentage to show. */}
-      <Card className="border-0 shadow-sm">
-        <CardContent className="p-4">
-          {progress.pct === null ? (
-            <p className="text-sm text-foreground-secondary">
-              {progress.label}
-              {progress.elapsedMin != null && ` · ${formatDuration(progress.elapsedMin)} elapsed`}
-            </p>
-          ) : (
-            <ProgressBar
-              value={progress.pct}
-              tone={progress.tone}
-              label="Trip progress"
-              valueLabel={progress.label}
-            />
-          )}
-        </CardContent>
-      </Card>
+      <div className="p-4 rounded-2xl bg-surface border border-border/60 shadow-xs">
+        {progress.pct === null ? (
+          <p className="text-sm text-foreground-secondary">
+            {progress.label}
+            {progress.elapsedMin != null && ` · ${formatDuration(progress.elapsedMin)} elapsed`}
+          </p>
+        ) : (
+          <ProgressBar
+            value={progress.pct}
+            tone={progress.tone}
+            label="Trip progress"
+            valueLabel={progress.label}
+          />
+        )}
+      </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Card className="border-0 shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Journey</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2">
-              <Field icon={MapPin} label="Pickup" value={pickup} tone="text-danger" />
-              <Field icon={MapPin} label="Dropoff" value={dropoff} tone="text-success" />
-              <Field
-                icon={CalendarClock}
-                label="Scheduled arrival"
-                value={dispatch.scheduled_arrival ? formatDateTime(dispatch.scheduled_arrival) : null}
-              />
-              <Field
-                icon={PlayCircle}
-                label="Actual departure"
-                value={dispatch.actual_departure ? formatDateTime(dispatch.actual_departure) : null}
-              />
-              <Field
-                icon={CheckCircle2}
-                label="Actual arrival"
-                value={dispatch.actual_arrival ? formatDateTime(dispatch.actual_arrival) : null}
-              />
-              {route && (
+      {/* ── Main Details Layout (7 Cols Left / 5 Cols Right) ── */}
+      <div className="grid gap-6 lg:grid-cols-12 items-start">
+        {/* ── LEFT COLUMN: Journey, Guest Info & Trip Record (7 Cols) ── */}
+        <div className="lg:col-span-7 space-y-6">
+          <Section
+            icon={Navigation}
+            iconClass="bg-primary/10 text-primary"
+            title="Journey"
+            description="Where this dispatch is going, and the times it is held to."
+          >
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Endpoint label="Pickup Location" value={pickup} tone="text-danger" />
+                <Endpoint label="Dropoff Destination" value={dropoff} tone="text-success" />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field
-                  icon={RouteIcon}
-                  label="Route"
-                  value={`${route.route_name}${route.origin ? ` · ${route.origin} → ${route.destination}` : ""}`}
+                  icon={CalendarClock}
+                  label="Scheduled arrival"
+                  value={dispatch.scheduled_arrival ? formatDateTime(dispatch.scheduled_arrival) : null}
                 />
-              )}
-            </CardContent>
-          </Card>
+                <Field
+                  icon={PlayCircle}
+                  label="Actual departure"
+                  value={dispatch.actual_departure ? formatDateTime(dispatch.actual_departure) : null}
+                />
+                <Field
+                  icon={CheckCircle2}
+                  label="Actual arrival"
+                  value={dispatch.actual_arrival ? formatDateTime(dispatch.actual_arrival) : null}
+                />
+                {route && (
+                  <Field
+                    icon={RouteIcon}
+                    label="Route"
+                    value={`${route.route_name}${route.origin ? ` · ${route.origin} → ${route.destination}` : ""}`}
+                  />
+                )}
+              </div>
+            </div>
+          </Section>
 
           {/* Guest data is Booking's, shown read-only. Fleet never authors a booking. */}
           {request && (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">Guest &amp; booking</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-2">
+            <Section
+              icon={User}
+              iconClass="bg-blue-500/10 text-blue-500"
+              title="Guest & booking"
+              description="Inbound booking details from the originating reservation."
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field icon={Users} label="Guest" value={request.guest_name} />
-                <Field icon={FileText} label="Booking reference" value={request.booking_reference} />
+                <Field icon={FileText} label="Booking reference">
+                  {request.booking_reference ? (
+                    <span className="font-data text-xs">{request.booking_reference}</span>
+                  ) : null}
+                </Field>
                 <Field icon={Users} label="Passengers" value={request.passenger_count} />
-                <Field icon={CarFront} label="Service" value={request.service_name || request.requested_vehicle_type} />
+                <Field
+                  icon={CarFront}
+                  label="Service"
+                  value={request.service_name || request.requested_vehicle_type}
+                />
                 {request.special_requests && (
-                  <div className="sm:col-span-2">
-                    <Field icon={TriangleAlert} label="Special requests" value={request.special_requests} tone="text-warning" />
-                  </div>
+                  <Field
+                    icon={TriangleAlert}
+                    label="Special requests"
+                    value={request.special_requests}
+                    tone="text-warning"
+                    className="sm:col-span-2"
+                  />
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </Section>
           )}
 
           {trip && (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">Trip record</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 sm:grid-cols-2">
+            <Section
+              icon={Gauge}
+              iconClass="bg-amber-500/10 text-amber-500"
+              title="Trip record"
+              description="What the driver actually logged against this dispatch."
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field icon={Gauge} label="Start odometer" value={trip.start_odometer} />
                 <Field icon={Gauge} label="End odometer" value={trip.end_odometer} />
                 <Field
@@ -426,58 +489,50 @@ export default function DispatchDetailPage() {
                 <Field
                   icon={Clock}
                   label="Actual duration"
-                  value={num(trip.actual_duration) != null ? formatDuration(trip.actual_duration) : null}
+                  value={num(trip.actual_duration) != null ? formatDuration(num(trip.actual_duration)) : null}
                 />
                 <Field icon={Gauge} label="Fuel consumed" value={trip.fuel_consumed} />
                 <Field icon={Gauge} label="Average speed" value={trip.avg_speed} />
-              </CardContent>
-            </Card>
+              </div>
+            </Section>
           )}
 
           {dispatch.notes && (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">Notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="whitespace-pre-wrap text-sm text-foreground-secondary">{dispatch.notes}</p>
-              </CardContent>
-            </Card>
+            <Section
+              icon={StickyNote}
+              iconClass="bg-violet-500/10 text-violet-500"
+              title="Notes"
+              description="Dispatcher notes recorded against this run."
+            >
+              <p className="whitespace-pre-wrap break-words text-sm text-foreground-secondary">
+                {dispatch.notes}
+              </p>
+            </Section>
           )}
         </div>
 
-        {/* The same append-only history the reservation page shows. A dispatch
+        {/* ── RIGHT COLUMN: History (5 Cols) ──
+            The same append-only history the reservation page shows. A dispatch
             raised outside the request flow has none, which the component treats as
             a normal empty state rather than an error. */}
-        <div className="space-y-6">
+        <div className="lg:col-span-5 space-y-6">
           {request?.request_id ? (
             <ReservationTimeline requestId={request.request_id} />
           ) : (
-            <Card className="border-0 shadow-sm">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-base font-semibold">History</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-foreground-muted">
-                  This dispatch was not raised from a transportation request, so there is no
-                  reservation history to show.
-                </p>
-              </CardContent>
-            </Card>
+            <Section
+              icon={FileText}
+              iconClass="bg-primary/10 text-primary"
+              title="History"
+              description="Append-only record of everything that happened to this booking."
+            >
+              <p className="text-sm text-foreground-muted">
+                This dispatch was not raised from a transportation request, so there is no
+                reservation history to show.
+              </p>
+            </Section>
           )}
         </div>
       </div>
-
-      {/* Both dialogs own their own <Dialog> wrapper and hand back the whole
-          payload ({ dispatch, mode, body } / { dispatch, patch }), so the
-          mutations take it as-is. */}
-      <TripOdometerDialog
-        dispatch={odometer?.dispatch || null}
-        mode={odometer?.mode || null}
-        isPending={tripMutation.isPending}
-        onClose={() => setOdometer(null)}
-        onSubmit={({ mode, body }) => tripMutation.mutate({ mode, body })}
-      />
 
       <DispatchEditDialog
         dispatch={editing?.dispatch || null}

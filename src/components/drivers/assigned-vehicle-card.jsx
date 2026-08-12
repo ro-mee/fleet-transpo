@@ -14,9 +14,11 @@ import {
   assignDriverVehicle,
   releaseDriverAssignment,
 } from "@/services/driver-assignment.service";
+import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { getVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
-import { CarFront, User, Link2, Unlink, Loader2, History, Info } from "lucide-react";
+import { CarFront, User, Link2, Unlink, Loader2, History, Info, AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 // Custodial pairing card (migration 017), shared by the driver and vehicle detail
 // pages. One component with a `side` prop rather than two near-identical ones:
@@ -64,6 +66,28 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
   // Set when the API answers 409 because the vehicle is held by someone else —
   // holds the payload needed to re-send the same request with force: true.
   const [displacing, setDisplacing] = useState(null);
+  const [displacingVehicleId, setDisplacingVehicleId] = useState(null);
+
+  // When a reassignment would displace the current holder, also check whether
+  // that vehicle has a substitute driver actively covering it today. If so, we
+  // surface it in the confirm dialog before letting the manager override it.
+  const { data: substitutesData } = useQuery({
+    queryKey: ["driver-assignments-substitute", displacingVehicleId],
+    queryFn: () => getSubstituteSchedules({ vehicle_id: displacingVehicleId }),
+    enabled: !!displacingVehicleId,
+  });
+
+  const coveringSubstitute = useMemo(() => {
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+      today.getDate()
+    ).padStart(2, "0")}`;
+    return (substitutesData?.schedules ?? []).find((s) => {
+      if (s.effective_until != null && todayKey > s.effective_until) return false;
+      if (s.effective_from != null && todayKey < s.effective_from) return false;
+      return true;
+    }) ?? null;
+  }, [substitutesData]);
 
   const filters = side === "driver" ? { driver_id: id } : { vehicle_id: id };
 
@@ -121,6 +145,7 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
       toast.success("Assignment saved");
       setPicked("");
       setDisplacing(null);
+      setDisplacingVehicleId(null);
       invalidate();
     },
     onError: (err, vars) => {
@@ -128,6 +153,7 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
       // Ask before displacing them rather than silently taking the car.
       if (err.status === 409 && err.data?.requires_force) {
         setDisplacing({ otherId: vars.otherId, message: err.message, current: err.data.current_assignment });
+        setDisplacingVehicleId(Number(vars.otherId));
         return;
       }
       toast.error(err.message || "Failed to save assignment");
@@ -275,17 +301,61 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
         onConfirm={() => releasing && releaseMutation.mutate(releasing.assignment_id)}
       />
 
-      <ConfirmDialog
+      <Dialog
         open={!!displacing}
-        onOpenChange={(open) => !open && setDisplacing(null)}
-        title="Reassign this vehicle?"
-        message={displacing?.message || "This vehicle is already assigned to another driver."}
-        confirmLabel="Reassign"
-        variant="warning"
-        onConfirm={() =>
-          displacing && assignMutation.mutate({ otherId: displacing.otherId, force: true })
-        }
-      />
+        onOpenChange={(open) => {
+          if (!open) {
+            setDisplacing(null);
+            setDisplacingVehicleId(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <div className={`w-10 h-10 rounded-xl ${coveringSubstitute ? "bg-warning/10" : "bg-hover"} flex items-center justify-center mb-3`}>
+              <AlertTriangle className={`w-5 h-5 ${coveringSubstitute ? "text-warning" : "text-foreground-secondary"}`} />
+            </div>
+            <DialogTitle>Reassign this vehicle?</DialogTitle>
+            <DialogDescription>
+              {displacing?.message || "This vehicle is already assigned to another driver."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {coveringSubstitute && (
+            <div className="rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12.5px] text-foreground-secondary font-medium flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" aria-hidden="true" />
+              <span>
+                This vehicle has a <span className="font-bold text-foreground">scheduled substitute driver</span> actively
+                covering it now:{" "}
+                <span className="font-bold text-foreground">
+                  {[coveringSubstitute.first_name, coveringSubstitute.last_name].filter(Boolean).join(" ") ||
+                    `driver #${coveringSubstitute.substitute_driver_id}`}
+                </span>
+                {coveringSubstitute.effective_until
+                  ? ` (until ${coveringSubstitute.effective_until}).`
+                  : " (open-ended)."}{" "}
+                Reassigning will override this coverage.
+              </span>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setDisplacing(null); setDisplacingVehicleId(null); }}>
+              Cancel
+            </Button>
+            <Button
+              variant="warning"
+              onClick={() => {
+                displacing && assignMutation.mutate({ otherId: displacing.otherId, force: true });
+                setDisplacing(null);
+                setDisplacingVehicleId(null);
+              }}
+            >
+              Reassign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

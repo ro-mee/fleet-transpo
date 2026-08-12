@@ -24,14 +24,6 @@ export async function updateTripStatus(id, status) {
   return apiFetch(`/api/trips/${id}/status`, { method: "PUT", body: { status } });
 }
 
-export async function startTrip(id, startData) {
-  return apiFetch(`/api/trips/${id}/start`, { method: "PUT", body: startData });
-}
-
-export async function completeTrip(id, endData) {
-  return apiFetch(`/api/trips/${id}/complete`, { method: "PUT", body: endData });
-}
-
 export async function getTripLocations(tripId) {
   return apiFetch(`/api/trips/${tripId}/locations`);
 }

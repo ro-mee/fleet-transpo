@@ -86,6 +86,18 @@ export async function GET(req) {
       params.push(status);
     }
 
+    // Only drivers with NO currently active custodial vehicle (017). Used to
+    // populate the substitute-driver picker — a substitute must be someone who
+    // doesn't already own a car.
+    const unassigned = searchParams.get("unassigned") === "1";
+    if (unassigned) {
+      sql += `
+        AND NOT EXISTS (
+          SELECT 1 FROM driver_vehicle_assignments dva
+          WHERE dva.driver_id = d.driver_id AND dva.assigned_until IS NULL
+        )`;
+    }
+
     const licenseClass = searchParams.get("license_class");
     if (licenseClass && licenseClass !== "all") {
       sql += ` AND d.license_class = $${idx++}`;

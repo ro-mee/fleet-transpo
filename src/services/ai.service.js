@@ -35,8 +35,14 @@ export async function getAiRecommendations(type = "reservation", params = {}) {
   return apiFetch(`/api/ai/recommendations${buildQuery({ type, ...params })}`);
 }
 
-export async function getAiInsights() {
-  return apiFetch("/api/ai/insights");
+// Report & analytics AI analyst narrative
+export async function getReportNarrative(report, data, range = null, force = false) {
+  return apiFetch("/api/ai/report-narrative", { method: "POST", body: { report, data, range, force } });
+}
+
+export async function getAiInsights(force = false) {
+  const url = force ? `/api/ai/insights?force=true&t=${Date.now()}` : "/api/ai/insights";
+  return apiFetch(url);
 }
 
 export async function createAiInsight(insight) {

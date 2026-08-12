@@ -35,6 +35,8 @@ import {
   Eye,
   EyeOff,
   Bug,
+  FolderTree,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -67,6 +69,7 @@ export default function AiSettingsPage() {
   const [testingInsight, setTestingInsight] = useState(false);
   const [driverTestResult, setDriverTestResult] = useState(null);
   const [testingDriverInsight, setTestingDriverInsight] = useState(false);
+  const [expandedReport, setExpandedReport] = useState(null);
 
   const [formData, setFormData] = useState({
     name: "my-openai",
@@ -478,6 +481,59 @@ export default function AiSettingsPage() {
               Loading instructions...
             </p>
           )}
+
+          {/* Per-report analyst instructions */}
+          <div className="mt-5 border-t border-border/60 pt-4">
+            <p className="text-xs font-bold text-foreground uppercase tracking-wide mb-3">
+              Per-Report Analyst Instructions
+            </p>
+            {instructions?.reports?.length ? (
+              <div className="space-y-2">
+                {instructions.reports.map((r) => (
+                  <div key={r.report} className="rounded-2xl border border-border/60 bg-muted/20 overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setExpandedReport(expandedReport === r.report ? null : r.report)}
+                      className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FolderTree className="w-4 h-4 text-primary" />                        <span className="text-sm font-bold text-foreground capitalize">{r.report}</span>
+                        <code className="text-[11px] font-data text-foreground-secondary bg-background/60 px-1.5 py-0.5 rounded-md">
+                          reports/{r.report}.md
+                        </code>
+                      </div>
+                      <span className="flex items-center gap-2">
+                        {r.exists ? (
+                          <Badge variant="outline" className="text-[11px] font-data font-bold rounded-full px-2.5 text-emerald-600">Loaded</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[11px] font-data font-bold rounded-full px-2.5 text-muted-foreground">Missing</Badge>
+                        )}
+                        <ChevronDown className={cn("w-4 h-4 text-foreground-secondary transition-transform", expandedReport === r.report && "rotate-180")} />
+                      </span>
+                    </button>
+                    {expandedReport === r.report && (
+                      <div className="px-4 pb-4">
+                        {r.exists && r.content ? (
+                          <pre className="text-xs text-foreground-secondary leading-relaxed whitespace-pre-wrap font-sans max-h-60 overflow-y-auto rounded-xl bg-background/50 p-3">
+                            {r.content}
+                          </pre>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            No report instruction file found. The narrative will use the global{" "}
+                            <code className="text-primary font-data bg-primary/10 px-1.5 py-0.5 rounded-md">instructions.md</code>.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                No report instruction files detected in <code className="text-primary font-data bg-primary/10 px-1.5 py-0.5 rounded-md">resources/ai/reports/</code>.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
