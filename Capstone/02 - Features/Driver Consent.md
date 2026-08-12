@@ -1,0 +1,47 @@
+---
+type: feature
+status: working
+tags: [feature, consent, privacy, drivers]
+source:
+  - src/lib/consent/driver-visibility.js
+  - supabase/migrations/017_driver_consents.sql
+last_verified: 2026-08-11
+---
+
+# Feature: Driver Consent
+
+## What it does
+
+Governs what a driver can **see** about themselves and what they can **change**, plus recorded consent (migration `017_driver_consents.sql`).
+
+## The allow-lists — CONFIRMED (`src/lib/consent/driver-visibility.js`)
+
+```js
+DRIVER_VISIBLE_SECTIONS = ["profile", "license", "performance",
+                           "trip_history", "attendance"]
+
+DRIVER_SELF_EDITABLE_FIELDS = ["phone", "face_image_url",
+                               "license_image_url", "license_back_image_url"]
+
+LICENSE_REUPLOAD_WINDOW_DAYS = 30
+```
+
+**Allow-list, not deny-list.** Add a column to `drivers` tomorrow and it is *not* driver-editable until someone deliberately adds it to the array. The safe default is the automatic one. → [[Fail Closed By Default]]
+
+Note what a driver **cannot** edit: name, licence number, licence expiry, employment status. They can update contact details and re-upload photos of documents — the things only they can supply — and nothing that would let them misrepresent their credentials.
+
+## The 30-day re-upload window
+
+`canUpdateLicenseScan()` blocks licence re-scans inside a 30-day window. INFERRED: to prevent repeated re-uploads being used to churn the licence record — but the repository does not currently document why this specific window was chosen.
+
+## Consent records
+
+`driver_consents` (migration 017) records that a driver agreed to something — INFERRED: location tracking and personal-data handling, given the GPS feature. **TODO:** read the migration to confirm the consent types.
+
+## Why this feature exists at all — INFERRED
+
+A driver app that reports continuous location and stores licence photographs collects personal data. Recording consent and constraining self-service is the minimum responsible handling. For a Philippine deployment, the Data Privacy Act is the relevant backdrop.
+
+## Related
+
+[[Driver Management]] · [[Tracking]] · [[RBAC]] · [[Fail Closed By Default]] · [[Feature Index]]

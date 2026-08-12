@@ -43,3 +43,6 @@ next-env.d.ts
 .claude/skills/
 .expo/
 .agents/skills
+
+# Obsidian local configuration
+Capstone/.obsidian/

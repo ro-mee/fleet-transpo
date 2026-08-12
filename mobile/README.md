@@ -28,7 +28,7 @@ Routing is file-based via `expo-router`; `package.json` `main` points at
 | `app/_layout.js` | Root layout, wraps everything in `AuthProvider` + error boundary |
 | `app/login.js` | Driver sign in; redirects out once a session exists |
 | `app/(app)/_layout.js` | Auth + consent guard for signed-in routes |
-| `app/(app)/(tabs)/` | Bottom-tab driver app: home, history, alerts, profile |
+| `app/(app)/(tabs)/` | Bottom-tab driver app: home, trips, vehicle, alerts, profile |
 | `app/(app)/fuel-report.js` | Fuel submission for the active trip's vehicle |
 | `app/(app)/incidents.js` | Driver incident / emergency reporting |
 | `app/(app)/inspection.js` | Vehicle inspection snapshot (read-only) |

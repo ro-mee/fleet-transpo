@@ -51,7 +51,7 @@ endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`.
 - **CORS for the Expo build:** `src/middleware.js` **and** `next.config.mjs` both
   answer `OPTIONS` preflights for `/api/:path*` with `Access-Control-Allow-Origin: *`
   so the mobile web/device build can call the API cross-origin.
-- **Mobile app is now a 5-tab app** (Home / Live Map / History / Alerts / Profile);
+- Mobile app is now a 5-tab app (Home / Trips / Vehicle / Alerts / Profile);
   the driver **profile**, **alerts** inbox, **trip history**, and **full-screen
   map** screens all shipped (see §8).
 

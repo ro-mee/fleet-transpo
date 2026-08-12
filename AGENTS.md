@@ -6,7 +6,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 # Supabase migrations — apply via direct DB connection
 
-The `supabase` CLI is NOT usable in this repo: `.env` line 8 is an orphaned token (a bare host string with no `=`) that breaks `supabase` CLI parsing, and `psql`/`docker` are unavailable. Pasting migration SQL into the Supabase SQL editor was found UNRELIABLE — applies there were silently not landing on the project the app actually uses (`dnxuphhxlzidvwtdqqkq`, db `postgres`, schema `public`) because the browser editor can target a different project/DB.
+The `supabase` CLI is NOT usable in this repo because `psql`/`docker` are unavailable. Pasting migration SQL into the Supabase SQL editor was found UNRELIABLE — applies there were silently not landing on the project the app actually uses (`dnxuphhxlzidvwtdqqkq`, db `postgres`, schema `public`) because the browser editor can target a different project/DB.
 
 The reliable path is a direct connection using `pg` + the real `DATABASE_URL` from `.env`. **Do not hand-write a one-off script for this — there is a runner:**
 
