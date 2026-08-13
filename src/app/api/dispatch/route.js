@@ -10,8 +10,8 @@ import { validatePairAvailability } from "@/services/recommendation.service";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 
-const JOIN_SELECT = `ds.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(vr.*) as vehiclereservations, row_to_json(r.*) as routes`;
-const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id LEFT JOIN drivers d ON ds.driver_id = d.driver_id LEFT JOIN vehiclereservations vr ON ds.reservation_id = vr.reservation_id LEFT JOIN routes r ON ds.route_id = r.route_id`;
+const JOIN_SELECT = `ds.*, row_to_json(v.*) as vehicles, row_to_json(d.*) as drivers, row_to_json(tr.*) as transportation_requests, row_to_json(r.*) as routes`;
+const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id LEFT JOIN drivers d ON ds.driver_id = d.driver_id LEFT JOIN transportation_requests tr ON ds.request_id = tr.request_id LEFT JOIN routes r ON ds.route_id = r.route_id`;
 
 export async function GET(req) {
   try {
@@ -62,7 +62,6 @@ export async function POST(req) {
     const errors = validateBody(body, {
       vehicle_id: { type: "id", label: "Vehicle" },
       driver_id: { type: "id", label: "Driver" },
-      reservation_id: { type: "id", label: "Reservation" },
       route_id: { type: "id", label: "Route" },
       scheduled_departure: { required: true, type: "date", label: "Scheduled departure" },
       scheduled_arrival: { type: "date", label: "Scheduled arrival" },
@@ -77,7 +76,7 @@ export async function POST(req) {
     }
 
     const allowedKeys = new Set([
-      "vehicle_id", "driver_id", "reservation_id", "request_id", "route_id", "scheduled_departure",
+      "vehicle_id", "driver_id", "request_id", "route_id", "scheduled_departure",
       "scheduled_arrival", "actual_departure", "actual_arrival", "status",
       "dispatch_number", "notes", "priority",
     ]);
@@ -199,7 +198,6 @@ export async function POST(req) {
             driver_id: rows[0]?.driver_id ?? null,
           },
           patch: {
-            reservation_id: transportRequest.reservation_id ?? rows[0]?.reservation_id ?? null,
             vehicle_id: rows[0]?.vehicle_id ?? null,
             driver_id: rows[0]?.driver_id ?? null,
           },

@@ -6,23 +6,7 @@ export async function GET(req) {
     await requireAuth(req);
     const sp = new URL(req.url).searchParams;
 
-    await query(`
-      CREATE TABLE IF NOT EXISTS ailogs (
-        log_id SERIAL PRIMARY KEY,
-        feature_used VARCHAR(50) NOT NULL,
-        provider_name VARCHAR(50),
-        model_name VARCHAR(100),
-        prompt_tokens INT DEFAULT 0,
-        completion_tokens INT DEFAULT 0,
-        total_tokens INT DEFAULT 0,
-        duration_ms INT DEFAULT 0,
-        status VARCHAR(20) DEFAULT 'Success',
-        error_message TEXT,
-        user_email VARCHAR(255),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      );
-    `);
-
+    // ailogs is created by migration 034, not per request.
     let sql = `SELECT * FROM ailogs WHERE 1=1`;
     const params = [];
     let idx = 1;

@@ -49,7 +49,6 @@ export function canTransitionDispatch(from, to) {
   if (TERMINAL.has(from)) {
     return { ok: false, reason: `Dispatch is ${from} and can no longer change status.` };
   }
-
   const allowed = NEXT[from] || [];
   if (!allowed.includes(to)) {
     return { ok: false, reason: `Cannot move a dispatch from "${from}" to "${to}".` };

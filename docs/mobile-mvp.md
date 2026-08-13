@@ -8,6 +8,7 @@ The mobile app is one Expo client with two post-login experiences:
   track an assigned driver during an active trip, view history, rate completion.
 - **Driver:** view only assigned trips, accept/decline, update trip progress,
   share active-trip location, and submit a fuel receipt report.
+  (Tab structure is documented in code: `mobile/app/(app)/(tabs)/_layout.js`)
 
 The Guest/Driver selector in the initial shell is a development preview only.
 Production navigation must come from the authenticated account role.

@@ -1,6 +1,16 @@
 import { query } from "@/lib/db";
 import { requireAuth, ok, handleError } from "@/lib/api/utils";
 
+// pg returns DATE columns as JS Date objects (local time), not strings — a bare
+// `.substring(0, 7)` on one yields "Fri Jul". Build the YYYY-MM key from local
+// components, same as fuel/analytics.
+const monthKey = (d) => {
+  if (d instanceof Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  return String(d ?? "").slice(0, 7) || "Unknown";
+};
+
 export async function GET(req) {
   try {
     await requireAuth(req);
@@ -35,10 +45,11 @@ export async function GET(req) {
 
     const monthlyMap = {};
     const categoryMap = {};
+    const vehicleMap = {};
 
     records.forEach((r) => {
-      const m = (r.fuel_date ? String(r.fuel_date) : "").substring(0, 7);
-      if (m) {
+      const m = monthKey(r.fuel_date);
+      if (m && m !== "Unknown") {
         if (!monthlyMap[m]) monthlyMap[m] = { month: m, liters: 0, cost: 0 };
         monthlyMap[m].liters += Number(r.liters) || 0;
         monthlyMap[m].cost += Number(r.amount) || 0;
@@ -50,16 +61,29 @@ export async function GET(req) {
       }
       categoryMap[catName].liters += Number(r.liters) || 0;
       categoryMap[catName].cost += Number(r.amount) || 0;
+
+      const plate = r.plate_number || "Unknown";
+      if (!vehicleMap[plate]) {
+        vehicleMap[plate] = {
+          vehicle: `${r.vehicle_name || ""} ${plate}`.trim() || plate,
+          plate_number: plate,
+          liters: 0,
+          cost: 0,
+        };
+      }
+      vehicleMap[plate].liters += Number(r.liters) || 0;
+      vehicleMap[plate].cost += Number(r.amount) || 0;
     });
 
     const monthlyData = Object.values(monthlyMap).sort((a, b) => a.month.localeCompare(b.month));
     const byCategory = Object.values(categoryMap);
+    const byVehicle = Object.values(vehicleMap);
 
     return ok({
       totalLiters,
       totalCost,
       avgCost: totalLiters ? totalCost / totalLiters : 0,
-      byVehicle: [],
+      byVehicle,
       byCategory,
       monthlyData,
     });

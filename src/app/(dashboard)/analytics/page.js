@@ -13,9 +13,9 @@ import {
   getDriverPerformanceReport,
 } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
+import { getTransportRequests } from "@/services/transport.service";
 import { getReportNarrative } from "@/services/ai.service";
 import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
-import { getReservations } from "@/services/reservation.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -149,8 +149,8 @@ export default function AnalyticsPage() {
   });
 
   const { data: reservations = [] } = useQuery({
-    queryKey: ["analytics-reservations"],
-    queryFn: () => getReservations(),
+    queryKey: ["analytics-transport-requests"],
+    queryFn: () => getTransportRequests(),
   });
 
   const f = fleet || { utilization: 0, totalTrips: 0, totalDistance: 0 };
@@ -203,17 +203,6 @@ export default function AnalyticsPage() {
     });
 
     const list = Array.from(map.values());
-    if (list.every((item) => item.requests === 0)) {
-      return [
-        { date: "Mon", requests: 12 },
-        { date: "Tue", requests: 19 },
-        { date: "Wed", requests: 15 },
-        { date: "Thu", requests: 24 },
-        { date: "Fri", requests: 28 },
-        { date: "Sat", requests: 18 },
-        { date: "Sun", requests: 22 },
-      ];
-    }
     return list;
   }, [reservations, dateRange]);
 
@@ -324,7 +313,7 @@ export default function AnalyticsPage() {
       const dateObj = new Date(year, month, d);
       const dateStr = toCalendarDay(dateObj);
       const realCount = countMap.get(dateStr);
-      const count = realCount !== undefined ? realCount : (d % 7 === 0 || d % 6 === 0 ? 26 : (d * 4) % 17 + 6);
+      const count = realCount !== undefined ? realCount : 0;
 
       days.push({
         id: dateStr,

@@ -44,3 +44,6 @@ next-env.d.ts
 .expo/
 .agents/skills
 stitch_fleetops_driver_companion/
+
+# Obsidian local configuration
+Capstone/.obsidian/

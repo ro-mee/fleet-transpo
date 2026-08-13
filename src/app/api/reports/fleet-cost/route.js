@@ -7,21 +7,33 @@ export async function GET(req) {
     const sp = new URL(req.url).searchParams;
     const from = sp.get("from") || "1970-01-01";
     const to = sp.get("to") || "2100-01-01";
+    // Three correlated subqueries, not three LEFT JOINs.
+    //
+    // Joining fuelrecords, vehiclemaintenance and trips onto the same vehicle
+    // row multiplies them: a vehicle with F fuel rows, M maintenance rows and T
+    // trips produces F×M×T result rows, so SUM(f.amount) came back as the real
+    // total times M×T. With the demo data (7 fuel, 3 maintenance, 33 trips per
+    // vehicle) fuel_cost read 12,042,038.87 against a true 95,343.32 — a 126×
+    // overstatement. Each subquery now aggregates its own table in isolation.
+    //
+    // `to` is compared as `< (to::date + 1)` rather than `<= to`: start_time is
+    // a timestamptz, so `<= '2026-08-10'` means "before midnight on the 10th"
+    // and silently drops that whole day. The date columns get the same
+    // treatment for consistency, where it is a no-op.
     const { rows } = await query(
-      `SELECT v.vehicle_id, v.plate_number, COALESCE(v.vehicle_name,'') AS vehicle_name, COALESCE(v.manufacturer,'') AS manufacturer, COALESCE(v.model,'') AS model,
-              COALESCE(SUM(f.amount), 0) AS fuel_cost,
-              COALESCE(SUM(m.cost), 0) AS maintenance_cost,
-              COALESCE(SUM(t.distance), 0) AS distance
+      `SELECT v.vehicle_id, v.plate_number, COALESCE(v.vehicle_name,'') AS vehicle_name,
+              COALESCE(v.manufacturer,'') AS manufacturer, COALESCE(v.model,'') AS model,
+              (SELECT COALESCE(SUM(f.amount), 0) FROM fuelrecords f
+                WHERE f.vehicle_id = v.vehicle_id
+                  AND f.fuel_date >= $1::date AND f.fuel_date < ($2::date + 1)) AS fuel_cost,
+              (SELECT COALESCE(SUM(m.cost), 0) FROM vehiclemaintenance m
+                WHERE m.vehicle_id = v.vehicle_id
+                  AND m.maintenance_date >= $1::date AND m.maintenance_date < ($2::date + 1)) AS maintenance_cost,
+              (SELECT COALESCE(SUM(t.distance), 0) FROM trips t
+                WHERE t.vehicle_id = v.vehicle_id AND t.deleted_at IS NULL
+                  AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)) AS distance
          FROM vehicles v
-         LEFT JOIN fuelrecords f ON f.vehicle_id = v.vehicle_id
-           AND f.fuel_date >= $1 AND f.fuel_date <= $2
-         LEFT JOIN vehiclemaintenance m ON m.vehicle_id = v.vehicle_id
-           AND m.maintenance_date >= $1 AND m.maintenance_date <= $2
-         LEFT JOIN trips t ON t.vehicle_id = v.vehicle_id
-           AND t.start_time >= $1 AND t.start_time <= $2
-           AND t.deleted_at IS NULL
         WHERE v.deleted_at IS NULL
-        GROUP BY v.vehicle_id, v.plate_number, v.vehicle_name, v.manufacturer, v.model
         ORDER BY v.plate_number`,
       [from, to]
     );

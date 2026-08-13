@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { setDispatchStatus } from "@/services/transition.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { assertDispatchOwnership } from "@/lib/api/ownership";
@@ -96,7 +96,6 @@ export async function GET(req, { params }) {
 }
 
 const WRITABLE_COLUMNS = [
-  "reservation_id",
   "vehicle_id",
   "driver_id",
   "route_id",
@@ -119,7 +118,6 @@ export async function PUT(req, { params }) {
     const errors = validateBody(body, {
       vehicle_id: { type: "id", label: "Vehicle" },
       driver_id: { type: "id", label: "Driver" },
-      reservation_id: { type: "id", label: "Reservation" },
       route_id: { type: "id", label: "Route" },
       scheduled_departure: { type: "date", label: "Scheduled departure" },
       scheduled_arrival: { type: "date", label: "Scheduled arrival" },
@@ -248,7 +246,7 @@ export async function PUT(req, { params }) {
     }
 
     const vid = body.vehicle_id || before[0]?.vehicle_id, did = body.driver_id || before[0]?.driver_id;
-    const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.reservation_id) p.push(syncDispatchReservation(id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);
+    const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }
 }

@@ -7,14 +7,17 @@
 //       (the DEFAULT_ROLES list, which excludes `driver`), so a driver cannot
 //       reach this endpoint at all; the non-ops actor here is `management`,
 //       which exercises the same caller-scoping branch.
-//   (b) Legacy reservation lockdown (task 14): POST /api/reservations returns
-//       410.
-//   (c) Report date range (task 16): GET /api/reports/driver-performance?from&to
+//   (b) Report date range (task 16): GET /api/reports/driver-performance?from&to
 //       returns the same response shape as before (totalDrivers / avgScore /
 //       topDrivers) — shape-only, since it cannot be meaningfully exercised
 //       without seeded completed trips.
 //
-// All three go through the REAL route handlers against the live database.
+// A third check used to live here: that POST /api/reservations returned 410
+// (task 14's legacy lockdown). Phase 3 deleted that route surface outright along
+// with the `vehiclereservations` table it served, so there is no longer an
+// endpoint to assert against.
+//
+// Both go through the REAL route handlers against the live database.
 // Two throwaway employees are seeded (with one notification each) and soft-
 // deleted at the end; the notifications themselves are hard-deleted (the table
 // has no deleted_at) — scoped to the ids this run created.
@@ -42,7 +45,6 @@ function check(label, condition, detail) {
 // Routes under test.
 // ---------------------------------------------------------------------------
 const notifications = await app("app/api/notifications/route.js");
-const reservations = await app("app/api/reservations/route.js");
 const driverPerformance = await app("app/api/reports/driver-performance/route.js");
 
 function setSession(session) {
@@ -113,7 +115,7 @@ async function cleanup() {
   }
 }
 
-console.log("\n=== Quick wins: notification scoping / legacy lockdown / report shape ===\n");
+console.log("\n=== Quick wins: notification scoping / report shape ===\n");
 
 try {
   const empA = await seedEmployee("A");
@@ -152,20 +154,9 @@ try {
   check("driver scoped read returns 403", driverScoped.status === 403, `got ${driverScoped.status}`);
 
   // -------------------------------------------------------------------------
-  // (b) Legacy reservation writes are locked down.
+  // (b) Report date-range regression: shape must be preserved.
   // -------------------------------------------------------------------------
-  console.log("5. POST /api/reservations is locked down");
-  setSession({ user: { employeeId: 8, role: "admin", email: "admin@harness" } });
-  const legacy = await expectStatus(
-    reservations.POST,
-    makeRequest("POST", "http://localhost:3000/api/harness/reservations", { pickup_location: "x" })
-  );
-  check("legacy reservation POST returns 410", legacy.status === 410, `got ${legacy.status}`);
-
-  // -------------------------------------------------------------------------
-  // (c) Report date-range regression: shape must be preserved.
-  // -------------------------------------------------------------------------
-  console.log("6. GET driver-performance honors from/to (shape regression)");
+  console.log("5. GET driver-performance honors from/to (shape regression)");
   setSession({ user: { employeeId: 8, role: "admin", email: "admin@harness" } });
   const report = await expectStatus(
     driverPerformance.GET,

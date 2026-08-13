@@ -25,8 +25,8 @@ export async function PUT(req, { params }) {
     const { rows: dispatches } = await query(
       `SELECT dispatch_id FROM dispatchschedules
         WHERE deleted_at IS NULL AND status IN ('Scheduled', 'In Progress')
-          AND (request_id = $1 OR (request_id IS NULL AND reservation_id = $2))`,
-      [id, before.reservation_id]
+          AND request_id = $1`,
+      [id]
     );
     for (const d of dispatches) {
       await query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [d.dispatch_id]);

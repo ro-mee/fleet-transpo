@@ -16,6 +16,7 @@ import {
   assignResources,
   cancelRequest,
   pullTransportRequests,
+  setRequestFlags,
 } from "@/services/transport.service";
 import { groupQueue, QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { cn } from "@/lib/utils";

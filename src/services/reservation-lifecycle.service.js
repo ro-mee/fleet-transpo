@@ -31,7 +31,6 @@ const PATCHABLE = new Set([
   "approved_at",
   "vehicle_id",
   "driver_id",
-  "reservation_id",
   "pickup_datetime",
   "priority",
   "ai_vehicle_recommendation",
@@ -52,10 +51,11 @@ async function loadRequest(requestId) {
 /**
  * Resolve the transportation request behind a dispatch, if any.
  *
- * Trips reach a request indirectly: trip → dispatch → request. Dispatches
- * created after migration 015 carry `request_id` directly; older ones only have
- * `reservation_id`, so the legacy path is kept as a fallback. Both trip routes
- * need this, so it lives here rather than being copied into each.
+ * Trips reach a request indirectly: trip → dispatch → request, joined on
+ * `request_id`. A pre-015 fallback on `reservation_id` used to sit here; that
+ * column was dropped from both tables by migration 036 along with
+ * `vehiclereservations`, and no live row ever used it.
+ * Both trip routes need this, so it lives here rather than being copied.
  *
  * @param {number|string} dispatchId
  * @returns {Promise<object|null>}
@@ -64,9 +64,7 @@ async function findRequestForDispatch(dispatchId) {
   if (!dispatchId) return null;
   const { rows } = await query(
     `SELECT tr.* FROM transportation_requests tr
-       JOIN dispatchschedules ds
-         ON ds.request_id = tr.request_id
-         OR (ds.request_id IS NULL AND ds.reservation_id = tr.reservation_id)
+       JOIN dispatchschedules ds ON ds.request_id = tr.request_id
       WHERE ds.dispatch_id = $1 AND tr.deleted_at IS NULL
       LIMIT 1`,
     [dispatchId]

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canTransitionDispatch } from "@/lib/scheduling/dispatch-state";
+import { canTransitionDispatch, isValidDispatchStatus } from "@/lib/scheduling/dispatch-state";
 
 describe("canTransitionDispatch", () => {
   it("moves forward Scheduled -> In Progress -> Completed", () => {

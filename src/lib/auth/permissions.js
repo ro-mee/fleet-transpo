@@ -23,6 +23,7 @@ export const NAV_ROLES = {
   "/driver/profile": ["driver"],
   "/fleet": ["admin", "system_admin", "fleet_manager"],
   "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
+  "/fleet/availability": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/fleet/documents": ["admin", "system_admin", "fleet_manager"],
   "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
   "/reservations": ["*"],
@@ -31,6 +32,7 @@ export const NAV_ROLES = {
   "/incidents": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "system_admin", "fleet_manager"],
+  "/drivers/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],
   "/executive": ["admin", "management"],
   "/trips": ["admin", "system_admin", "fleet_manager", "dispatcher"],
@@ -73,10 +75,12 @@ export function hasRole(employee, roleOrRoles) {
 // Beyond CRUD, `reservations` carries lifecycle verbs — approve, assign,
 // dispatch, cancel, reschedule. They are separate from `update` because moving a
 // request through its lifecycle is a different authority than editing its
-// fields: front-desk roles author requests but must never approve or assign one,
-// and management observes without acting. Those denials are written out
+// fields. The split was originally drawn for the front-desk roles, which
+// authored requests but were never allowed to approve or assign one; those roles
+// were removed in migration 022 and the distinction is now carried by
+// management, which observes without acting. Its denials are written out
 // explicitly rather than left to an omitted key, so the boundary is readable
-// here.
+// here — as is `driver: reservations.read = false`.
 const MATRIX = {
   admin: {
     vehicles: { create: true, read: true, update: true, delete: true },

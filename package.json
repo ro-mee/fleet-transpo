@@ -8,7 +8,14 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "db:status": "node scripts/migrate.mjs status",
+    "db:up": "node scripts/migrate.mjs up",
+    "db:dump": "node scripts/dump-schema.mjs",
+    "seed:status": "node scripts/seed-demo.mjs status",
+    "seed:plan": "node scripts/seed-demo.mjs plan",
+    "seed:up": "node scripts/seed-demo.mjs up",
+    "seed:down": "node scripts/seed-demo.mjs down"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
@@ -58,6 +65,7 @@
     "@types/leaflet": "^1.9.22",
     "eslint": "^9",
     "eslint-config-next": "16.2.11",
+    "globals": "^17.9.0",
     "tailwindcss": "^4",
     "vitest": "^3.2.7"
   },

@@ -17,6 +17,9 @@ export async function GET(req) {
               ROUND(SUM(t.distance)::numeric, 1) AS total_distance,
               ROUND(AVG(CASE WHEN t.on_time_completion THEN 1 ELSE 0 END)::numeric, 2) AS on_time_rate,
               ROUND(AVG(t.cost_per_km)::numeric, 2) AS cost_per_km,
+              (SELECT COUNT(*)::int FROM driverincidents di
+                WHERE di.driver_id = d.driver_id
+                  AND di.incident_date >= $1::date AND di.incident_date < ($2::date + 1)) AS incidents,
               d.driver_status
          FROM drivers d
          LEFT JOIN employees e ON d.employee_id = e.employee_id
@@ -45,7 +48,7 @@ export async function GET(req) {
       performance_score: Number(d.performance_score) || 0,
       total_distance: Number(d.total_distance) || 0,
       on_time_rate: Number(d.on_time_rate) || 0,
-      incidents: 0,
+      incidents: Number(d.incidents) || 0,
       cost_per_km: Number(d.cost_per_km) || 0,
       driver_status: d.driver_status,
     })).sort((a, b) => b.performance_score - a.performance_score);

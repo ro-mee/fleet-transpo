@@ -3,8 +3,9 @@ import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { REPORT_TYPES } from "@/lib/ai/report-narrative";
 
-export async function GET() {
+export async function GET(req) {
   try {
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const base = join(process.cwd(), "resources", "ai");
     const mainPath = join(base, "instructions.md");
     const [content, reportFiles] = await Promise.all([
@@ -27,6 +28,6 @@ export async function GET() {
       reports.push({ report: type, exists, content: reportContent });
     }
 
-    return ok({ content, reports });
+    return ok({ content, reports, actor: { employeeId: session.user.employeeId } });
   } catch (e) { return handleError(e); }
 }
