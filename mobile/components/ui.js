@@ -88,7 +88,7 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
       style={({ pressed }) => [
         styles.button,
         isSmall && styles.buttonSmall,
-        { 
+        {
           backgroundColor: isDisabled ? colors.surfaceContainer : colors.secondaryContainer,
           borderWidth: 1,
           borderColor: isDisabled ? "transparent" : colors.secondary
@@ -198,7 +198,7 @@ export function CriticalTonalButton({ label, icon, onPress, loading, disabled, s
       style={({ pressed }) => [
         styles.button,
         isSmall && styles.buttonSmall,
-        { 
+        {
           backgroundColor: isDisabled ? colors.surfaceContainer : colors.errorContainer,
           borderWidth: 1,
           borderColor: isDisabled ? "transparent" : colors.error
@@ -281,14 +281,15 @@ export function Chip({ label, selected, onPress, disabled, style }) {
 }
 
 /** Status expressed as text + colour + shape, never colour alone. */
-export function StatusPill({ label, tone = "neutral" }) {
+export function StatusPill({ label, status, tone = "neutral" }) {
   const { colors, statusSurfaces } = useTheme();
+  const text = label || status || "Unknown";
   const bg = statusSurfaces[tone] || statusSurfaces.neutral;
   const fg = tone === "neutral" ? colors.onSurfaceVariant : colors[tone] || colors.onSurfaceVariant;
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
       <View style={[styles.dot, { backgroundColor: fg }]} />
-      <Text style={[styles.pillText, { color: fg }]}>{label}</Text>
+      <Text style={[styles.pillText, { color: fg }]}>{text}</Text>
     </View>
   );
 }
@@ -487,13 +488,18 @@ export function Snackbar({ visible, message, onDismiss, actionLabel, onAction })
 
 export const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
     borderRadius: radius.card,
-    padding: space.base,
-    gap: space.sm,
+    borderWidth: 1,
+    overflow: "hidden",
   },
-  cardWithEdge: { paddingTop: space.base + space.xs, overflow: "hidden" },
-  cardEdge: { position: "absolute", top: 0, left: 0, right: 0, height: 3 },
+  cardWithEdge: { paddingTop: space.md },
+  cardEdge: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 4,
+  },
   pill: {
     flexDirection: "row",
     alignItems: "center",
@@ -506,11 +512,10 @@ export const styles = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3 },
   pillText: { fontFamily: fonts.data, fontSize: 12, lineHeight: 16 },
   button: {
-    flexDirection: "row",
+    minHeight: 52,
+    borderRadius: radius.control,
     alignItems: "center",
     justifyContent: "center",
-    gap: space.sm,
-    minHeight: TOUCH_TARGET,
     paddingHorizontal: space.base,
     paddingVertical: space.base,
     borderRadius: radius.control,

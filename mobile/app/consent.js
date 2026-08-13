@@ -1,3 +1,4 @@
+import { moderateScale } from '../lib/scaling';
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -141,24 +142,24 @@ export default function ConsentScreen() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
+  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: moderateScale(720), alignSelf: "center" },
   policyCard: { gap: space.base },
   versionLine: {
     fontFamily: fonts.data,
-    fontSize: 11,
-    lineHeight: 14,
+    fontSize: moderateScale(11),
+    lineHeight: moderateScale(14),
     letterSpacing: 1,
     textTransform: "uppercase",
   },
   section: { gap: space.xs },
   sectionHeading: {
     fontFamily: fonts.display,
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: moderateScale(16),
+    lineHeight: moderateScale(22),
   },
   note: {
     fontFamily: fonts.body,
-    fontSize: 13,
-    lineHeight: 19,
+    fontSize: moderateScale(13),
+    lineHeight: moderateScale(19),
   },
 });

@@ -2,33 +2,29 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 
 // Transportation-request (Fleet Reservation Queue) state machine.
 //
-// A request arrives from Booking, Fleet reviews it, approves or rejects, then
-// it flows through dispatch → trip → completion. This module is the single
-// authority on which fleet_status transitions are legal. The set of statuses
-// mirrors the chk_transport_fleet_status CHECK in migration 016.
+// A request arrives from Booking and flows through scheduling → dispatch →
+// trip → completion. This module is the single authority on which fleet_status
+// transitions are legal. The set of statuses mirrors the chk_transport_fleet_status
+// CHECK in migration 016.
 //
 // STRICT LINEAR CHAIN (no parallel assignment branches):
-//   Pending → Under Review → Approved|Rejected → Scheduled → Assigned
-//          → In Progress → Completed
+//   Pending → Scheduled → Assigned → In Progress → Completed
 // Cancellation is allowed from any non-terminal state and is handled separately
 // so it doesn't have to be repeated in every entry.
 
 // Allowed forward transitions. The chain is linear: each state has exactly one
-// or two outward edges (review branches to approve|reject; the rest are single).
+// outward edge.
 const NEXT = {
-  [L.PENDING]: [L.UNDER_REVIEW],
-  [L.UNDER_REVIEW]: [L.APPROVED, L.REJECTED],
-  [L.APPROVED]: [L.SCHEDULED],
+  [L.PENDING]: [L.SCHEDULED],
   [L.SCHEDULED]: [L.ASSIGNED],
   [L.ASSIGNED]: [L.IN_PROGRESS],
   [L.IN_PROGRESS]: [L.COMPLETED],
   // Terminal states — no outgoing transitions.
-  [L.REJECTED]: [],
   [L.COMPLETED]: [],
   [L.CANCELLED]: [],
 };
 
-const TERMINAL = new Set([L.REJECTED, L.COMPLETED, L.CANCELLED]);
+const TERMINAL = new Set([L.COMPLETED, L.CANCELLED]);
 const ALL = new Set(Object.values(L));
 
 export function isValidReservationStatus(status) {

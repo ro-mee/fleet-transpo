@@ -49,11 +49,10 @@ const ENTITY_MAPS = {
   },
   // Shared by two tables with different vocabularies: `vehiclereservations`
   // (migration 012: Pending/Approved/Dispatched/Completed/Cancelled/Rejected)
-  // and `transportation_requests` (migration 016: the 9-status lifecycle).
+  // and `transportation_requests` (migration 016: the 6-status chain).
   // Both are kept here so one badge renders either.
   reservation: {
     pending: "warning",
-    "under review": "info",
     approved: "success",
     rejected: "danger",
     confirmed: "success",

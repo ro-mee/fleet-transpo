@@ -79,8 +79,8 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
  *   Conflict Detected    — something blocking was found; the dispatcher must look.
  *   Check Assignment     — advisory findings only; worth a glance, not a stop.
  *   AI Ready             — an advisor recommendation is cached and still applicable.
- *   Needs Review         — genuinely un-triaged: Pending or Under Review.
- *   Awaiting Assignment  — reviewed and approved, no vehicle/driver yet.
+ *   Needs Assignment     — arrived and not yet crewed: Pending.
+ *   Awaiting Assignment  — scheduled, no vehicle/driver yet.
  *   (nothing)            — assigned or terminal; the status badge already says it.
  *
  * Conflict wins over AI Ready deliberately: a cached recommendation that predates
@@ -93,11 +93,11 @@ export function ConflictChips({ conflicts = [], max = 3, className }) {
  * ignore the chip that means a dispatch will actually be refused.
  *
  * `status` is what stops this from contradicting the status badge beside it. The
- * chip used to fall through to "Needs Review" whenever there was no conflict and
- * no recommendation — which rendered "Needs Review" directly under an `Approved`
- * or `Scheduled` badge, telling the dispatcher to review something they had
- * already reviewed. Readiness only has a useful answer before assignment, so past
- * that point the chip stays out of the way.
+ * chip used to fall through to a review-driven label whenever there was no
+ * conflict and no recommendation — which rendered it under a `Scheduled` badge,
+ * telling the dispatcher to review something they had already accepted.
+ * Readiness only has a useful answer before assignment, so past that point the
+ * chip stays out of the way.
  */
 export function ReadinessChip({ conflicts = [], hasRecommendation = false, status }) {
   if (conflicts.some(isBlocking)) {
@@ -125,18 +125,18 @@ export function ReadinessChip({ conflicts = [], hasRecommendation = false, statu
     );
   }
 
-  // Undecided: nobody has ruled on this request yet.
-  if (status === L.PENDING || status === L.UNDER_REVIEW) {
+  // Undecided: nobody has crewed this request yet.
+  if (status === L.PENDING) {
     return (
       <Badge variant="secondary" className="gap-1">
         <Sparkles className="w-3 h-3" aria-hidden="true" />
-        Needs Review
+        Needs Assignment
       </Badge>
     );
   }
 
   // Decided, not yet crewed. The gap is the actionable fact.
-  if (status === L.APPROVED || status === L.SCHEDULED) {
+  if (status === L.SCHEDULED) {
     return (
       <Badge variant="warning" className="gap-1">
         <UserX className="w-3 h-3" aria-hidden="true" />
@@ -145,6 +145,6 @@ export function ReadinessChip({ conflicts = [], hasRecommendation = false, statu
     );
   }
 
-  // Assigned / In Progress / Completed / Rejected / Cancelled — nothing to add.
+  // Assigned / In Progress / Completed / Cancelled — nothing to add.
   return null;
 }

@@ -13,6 +13,7 @@ export async function apiFetch(path, options = {}) {
     method: method || (body ? "POST" : "GET"),
     headers: { "Content-Type": "application/json", ...rest.headers },
     body: jsonBody,
+    cache: "no-store",
     ...rest,
   });
   if (!res.ok) {

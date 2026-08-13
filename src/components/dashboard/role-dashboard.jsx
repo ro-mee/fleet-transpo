@@ -65,7 +65,7 @@ const PIE_COLORS = {
   Unknown: "#9ca3af",
 };
 
-const OPEN_STATUSES = ["pending", "under review", "approved", "scheduled", "assigned", "in progress"];
+const OPEN_STATUSES = ["pending", "scheduled", "assigned", "in progress"];
 
 const LiveLocationsMap = dynamic(
   () => import("@/components/maps/live-locations-map"),

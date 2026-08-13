@@ -218,52 +218,49 @@ export default function FuelPage() {
     {
       key: "actions",
       label: "",
-      render: (_, row) => (
-        <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
-          <Tooltip content="Inspect Receipt">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
-              onClick={() => setInspectRecord(row)}
-            >
-              <Eye className="w-3.5 h-3.5" />
-            </Button>
-          </Tooltip>
+      render: (_, row) => {
+        const isPending = (row.status || "Pending").toLowerCase() === "pending";
+        return (
+          <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
+            <Tooltip content="Inspect Receipt">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+                onClick={() => setInspectRecord(row)}
+              >
+                <Eye className="w-3.5 h-3.5" />
+              </Button>
+            </Tooltip>
 
-          <Tooltip content="Edit Details">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
-              onClick={() => {
-                setEditRecord(row);
-                setEditForm({
-                  station_name: row.station_name || "",
-                  liters: row.liters != null ? String(row.liters) : "",
-                  amount: row.amount != null ? String(row.amount) : "",
-                  price_per_liter: row.price_per_liter != null ? String(row.price_per_liter) : "",
-                  odometer: row.odometer != null ? String(row.odometer) : "",
-                  fuel_date: row.fuel_date ? row.fuel_date.substring(0, 10) : "",
-                });
-              }}
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </Button>
-          </Tooltip>
+            {isPending && (
+              <>
+                <Tooltip content="Approve">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 cursor-pointer"
+                    onClick={() => handleApprove(row)}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  </Button>
+                </Tooltip>
 
-          <Tooltip content="Archive">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
-              onClick={() => setArchivingRecord(row)}
-            >
-              <Archive className="w-3.5 h-3.5" />
-            </Button>
-          </Tooltip>
-        </div>
-      ),
+                <Tooltip content="Reject">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-red-600 hover:bg-red-500/10 hover:text-red-700 cursor-pointer"
+                    onClick={() => openRejectPrompt(row)}
+                  >
+                    <XCircle className="w-3.5 h-3.5" />
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        );
+      },
     },
   ];
 

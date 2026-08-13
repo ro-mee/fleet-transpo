@@ -1,153 +1,181 @@
+import { moderateScale } from './scaling';
 /**
- * FleetOps Mobile — Material Design 3 design tokens adapted for "Premium Hospitality".
+ * FleetOps Driver Companion — Design Tokens
+ * Based exactly on Stitch FleetOps Tactical design system.
  *
- * Midnight Emerald & Warm Sand Theme.
+ * Primary: #000666 (Deep Indigo)
+ * Primary Container: #1A237E
+ * Secondary: #046B5E (Tactical Teal)
+ * Background: #FCF9F8 (Warm White)
  */
 
 // ---- 8-point spacing grid ----
 export const space = {
-  xs: 4,
-  sm: 8,
-  md: 12,
-  base: 16,
-  lg: 20,
-  xl: 24,
-  xxl: 32,
-  xxxl: 40,
+  xs: moderateScale(4),
+  sm: moderateScale(8),
+  md: moderateScale(12),
+  base: moderateScale(16),
+  lg: moderateScale(20),
+  xl: moderateScale(24),
+  xxl: moderateScale(32),
+  xxxl: moderateScale(40),
 };
 
 // ---- Shape (dp) ----
 export const radius = {
   none: 0,
-  xs: 4,
-  sm: 6,
-  control: 8, // Sharpened from 12 for a more ticket/editorial look
-  card: 8,    // Sharpened from 16
-  lg: 16,     // Sharpened from 24
+  xs: moderateScale(2),
+  sm: moderateScale(4),
+  control: moderateScale(8),
+  card: moderateScale(12),
+  lg: moderateScale(16),
+  xl: moderateScale(20),
   pill: 999,
 };
 
-// ---- Typefaces ----
+// ---- Typefaces (Inter matches Stitch spec) ----
 export const fonts = {
-  display: "Archivo_600SemiBold",
-  displayBold: "Archivo_700Bold",
-  body: "IBMPlexSans_400Regular",
-  bodyMedium: "IBMPlexSans_500Medium",
-  bodySemiBold: "IBMPlexSans_600SemiBold",
-  data: "IBMPlexMono_500Medium",
-  dataSemiBold: "IBMPlexMono_600SemiBold",
+  display: "Inter_700Bold",
+  displayBold: "Inter_700Bold",
+  body: "Inter_400Regular",
+  bodyMedium: "Inter_500Medium",
+  bodySemiBold: "Inter_600SemiBold",
+  data: "Inter_500Medium",
+  dataSemiBold: "Inter_600SemiBold",
 };
 
-// ---- The Midnight Emerald Palette ----
+// ---- Stitch FleetOps Tactical Palette — Light Mode ----
 const light = {
-  // Midnight Emerald Theme
-  primary: "#0A2A26",         // Midnight Emerald
+  // Primary — Deep Indigo
+  primary: "#000666",
   onPrimary: "#FFFFFF",
-  primaryContainer: "#E6EFEE",
-  onPrimaryContainer: "#0A2A26",
-  
-  secondary: "#00D4FF",       // Electric Cyan
-  onSecondary: "#0A2A26",
-  secondaryContainer: "#E0FAFF",
-  onSecondaryContainer: "#005566",
+  primaryContainer: "#1A237E",
+  onPrimaryContainer: "#8690EE",
 
-  tertiary: "#8C8377",        // Muted Taupe
+  // Secondary — Tactical Teal
+  secondary: "#046B5E",
+  onSecondary: "#FFFFFF",
+  secondaryContainer: "#9DEFDE",
+  onSecondaryContainer: "#0F6F62",
+
+  // Tertiary — Dark Neutral
+  tertiary: "#191B1C",
   onTertiary: "#FFFFFF",
-  tertiaryContainer: "#EAE5DF",
-  onTertiaryContainer: "#3D3833",
+  tertiaryContainer: "#2D3031",
+  onTertiaryContainer: "#969899",
 
-  error: "#FF3B30",           // Signal Red
+  // Error / SOS
+  error: "#BA1A1A",
   onError: "#FFFFFF",
-  errorContainer: "#FFEBEA",
-  onErrorContainer: "#80120C",
+  errorContainer: "#FFDAD6",
+  onErrorContainer: "#93000A",
 
-  background: "#F7F6F2",      // Warm Sand
-  onBackground: "#0A2A26",    // Deep Green Text
-  
-  surface: "#FFFFFF",         // Pure White Cards
-  onSurface: "#0A2A26",
-  surfaceVariant: "#EFECE5",  // Slightly darker sand for accents
-  onSurfaceVariant: "#596664",
-  
-  surfaceContainerLow: "#FFFFFF",
-  surfaceContainer: "#F7F6F2",
-  surfaceContainerHigh: "#EFECE5",
-  
-  outline: "#D8D4CC",         // Crisp dividers
-  outlineVariant: "#E6E2D8",
-  
-  inverseSurface: "#0A2A26",
-  inverseOnSurface: "#F7F6F2",
-  inversePrimary: "#00D4FF",
-  
-  shadow: "#0A2A26",          // Colored shadow for elegance
+  // Background & Surface
+  background: "#FCF9F8",
+  onBackground: "#1B1C1C",
+
+  surface: "#FCF9F8",
+  onSurface: "#1B1C1C",
+  surfaceBright: "#FCF9F8",
+  surfaceDim: "#DCD9D9",
+
+  surfaceVariant: "#E5E2E1",
+  onSurfaceVariant: "#454652",
+
+  surfaceContainerLowest: "#FFFFFF",
+  surfaceContainerLow: "#F6F3F2",
+  surfaceContainer: "#F0EDED",
+  surfaceContainerHigh: "#EAE7E7",
+  surfaceContainerHighest: "#E5E2E1",
+
+  // Outline
+  outline: "#767683",
+  outlineVariant: "#C6C5D4",
+
+  // Inverse
+  inverseSurface: "#303030",
+  inverseOnSurface: "#F3F0EF",
+  inversePrimary: "#BDC2FF",
+
+  shadow: "#000666",
   scrim: "#000000",
-  surfaceTint: "#0A2A26",
+  surfaceTint: "#4C56AF",
 
-  // Semantic roles
-  foreground: "#0A2A26",
-  foregroundSecondary: "#596664",
-  foregroundMuted: "#889491",
-  border: "#D8D4CC",
-  borderStrong: "#B0ACA3",
-  hover: "#F2F0E9",
-  success: "#10B981",
-  warning: "#F59E0B",
-  danger: "#FF3B30",
-  info: "#00D4FF",
-  edge: "#0A2A26",
+  // Semantic
+  foreground: "#1B1C1C",
+  foregroundSecondary: "#454652",
+  foregroundMuted: "#767683",
+  border: "#C6C5D4",
+  borderStrong: "#767683",
+  hover: "#F0EDED",
+  success: "#046B5E",
+  warning: "#D97706",
+  danger: "#BA1A1A",
+  info: "#000666",
+  edge: "#000666",
 };
 
+// ---- Dark Mode ----
 const dark = {
-  primary: "#00D4FF",         // Electric Cyan pops on dark
-  onPrimary: "#041412",
-  primaryContainer: "#0A2A26",
-  onPrimaryContainer: "#00D4FF",
-  
-  secondary: "#0A2A26",
-  onSecondary: "#FFFFFF",
-  secondaryContainer: "#113A35",
-  onSecondaryContainer: "#BBEBE6",
+  primary: "#BDC2FF",
+  onPrimary: "#000767",
+  primaryContainer: "#1A237E",
+  onPrimaryContainer: "#E0E0FF",
 
-  error: "#FF453A",
-  onError: "#041412",
-  errorContainer: "#4A0E0A",
-  onErrorContainer: "#FFB4AB",
+  secondary: "#84D5C5",
+  onSecondary: "#003730",
+  secondaryContainer: "#005046",
+  onSecondaryContainer: "#9DEFDE",
 
-  background: "#08100F",      // Very deep black/green
-  onBackground: "#F7F6F2",
-  
-  surface: "#0D1B19",         // Slightly lifted
-  onSurface: "#F7F6F2",
-  surfaceVariant: "#162825",
-  onSurfaceVariant: "#A5B5B2",
-  
-  surfaceContainerLow: "#08100F",
-  surfaceContainer: "#0D1B19",
-  surfaceContainerHigh: "#162825",
-  
-  outline: "#2A3A38",
-  outlineVariant: "#1B2A28",
-  
-  inverseSurface: "#F7F6F2",
-  inverseOnSurface: "#08100F",
-  inversePrimary: "#0A2A26",
-  
+  tertiary: "#C5C7C8",
+  onTertiary: "#2D3031",
+  tertiaryContainer: "#444748",
+  onTertiaryContainer: "#E1E3E4",
+
+  error: "#FFB4AB",
+  onError: "#690005",
+  errorContainer: "#93000A",
+  onErrorContainer: "#FFDAD6",
+
+  background: "#141415",
+  onBackground: "#E5E2E1",
+
+  surface: "#1B1C1E",
+  onSurface: "#E5E2E1",
+  surfaceBright: "#393939",
+  surfaceDim: "#141415",
+
+  surfaceVariant: "#454652",
+  onSurfaceVariant: "#C6C5D4",
+
+  surfaceContainerLowest: "#0F0F10",
+  surfaceContainerLow: "#1B1C1E",
+  surfaceContainer: "#1F2023",
+  surfaceContainerHigh: "#2A2B2D",
+  surfaceContainerHighest: "#353638",
+
+  outline: "#8F909A",
+  outlineVariant: "#454652",
+
+  inverseSurface: "#E5E2E1",
+  inverseOnSurface: "#303031",
+  inversePrimary: "#000666",
+
   shadow: "#000000",
   scrim: "#000000",
-  surfaceTint: "#00D4FF",
+  surfaceTint: "#BDC2FF",
 
-  foreground: "#F7F6F2",
-  foregroundSecondary: "#A5B5B2",
-  foregroundMuted: "#6B7D7A",
-  border: "#2A3A38",
-  borderStrong: "#455956",
-  hover: "#1A2C2A",
-  success: "#10B981",
-  warning: "#F59E0B",
-  danger: "#FF453A",
-  info: "#00D4FF",
-  edge: "#00D4FF",
+  foreground: "#E5E2E1",
+  foregroundSecondary: "#C6C5D4",
+  foregroundMuted: "#8F909A",
+  border: "#454652",
+  borderStrong: "#8F909A",
+  hover: "#2A2B2D",
+  success: "#84D5C5",
+  warning: "#FBBF24",
+  danger: "#FFB4AB",
+  info: "#BDC2FF",
+  edge: "#BDC2FF",
 };
 
 export const palettes = { light, dark };
@@ -186,12 +214,13 @@ export const m3 = (c) => ({
 });
 
 export function statusSurfaces(c = colors) {
+  const isDark = c === dark;
   return {
-    success: c === dark ? "#023D26" : "#E5F7ED",
-    warning: c === dark ? "#4A2F00" : "#FFF7E0",
-    info: c === dark ? "#003A4A" : "#E0F9FF",
-    danger: c === dark ? "#4A0E0A" : "#FFEBEA",
-    neutral: c === dark ? "#162825" : "#EFECE5",
+    success: isDark ? "#003730" : "#D6F5EC",
+    warning: isDark ? "#4A2F00" : "#FEF3C7",
+    info: isDark ? "#1A237E" : "#E0E0FF",
+    danger: isDark ? "#690005" : "#FFDAD6",
+    neutral: isDark ? "#2A2B2D" : "#F0EDED",
   };
 }
 
@@ -201,77 +230,112 @@ export function typeFor(c = colors) {
   return {
     display: {
       fontFamily: fonts.displayBold,
-      fontSize: 32,
-      lineHeight: 38,
-      letterSpacing: -1, // Tighter editorial tracking
+      fontSize: moderateScale(44),
+      lineHeight: moderateScale(52),
+      letterSpacing: -1,
       color: c.onBackground,
     },
-    headline: {
+    headlineLg: {
       fontFamily: fonts.displayBold,
-      fontSize: 28,
-      lineHeight: 34,
-      letterSpacing: -0.8,
+      fontSize: moderateScale(32),
+      lineHeight: moderateScale(40),
       color: c.onBackground,
     },
-    pageTitle: {
+    headlineLgMobile: {
       fontFamily: fonts.displayBold,
-      fontSize: 24,
-      lineHeight: 30,
-      letterSpacing: -0.5,
+      fontSize: moderateScale(28),
+      lineHeight: moderateScale(36),
       color: c.onBackground,
     },
-    titleLarge: {
-      fontFamily: fonts.display,
-      fontSize: 20,
-      lineHeight: 26,
-      letterSpacing: -0.2,
+    headlineMd: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: moderateScale(24),
+      lineHeight: moderateScale(32),
       color: c.onBackground,
     },
-    sectionTitle: {
-      fontFamily: fonts.display,
-      fontSize: 16,
-      lineHeight: 20,
-      letterSpacing: 0,
-      textTransform: "uppercase",
+    titleLg: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: moderateScale(20),
+      lineHeight: moderateScale(28),
       color: c.onBackground,
     },
-    cardTitle: {
-      fontFamily: fonts.display,
-      fontSize: 16,
-      lineHeight: 22,
-      color: c.onBackground,
+    bodyLg: {
+      fontFamily: fonts.body,
+      fontSize: moderateScale(18),
+      lineHeight: moderateScale(28),
+      color: c.onSurface,
     },
+    bodyMd: {
+      fontFamily: fonts.body,
+      fontSize: moderateScale(16),
+      lineHeight: moderateScale(24),
+      color: c.onSurface,
+    },
+    labelLg: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: moderateScale(14),
+      lineHeight: moderateScale(20),
+      letterSpacing: 0.1,
+      color: c.onSurface,
+    },
+    labelMd: {
+      fontFamily: fonts.bodyMedium,
+      fontSize: moderateScale(12),
+      lineHeight: moderateScale(16),
+      color: c.onSurfaceVariant,
+    },
+    // Legacy aliases
     body: {
       fontFamily: fonts.body,
-      fontSize: 15,
-      lineHeight: 22,
+      fontSize: moderateScale(16),
+      lineHeight: moderateScale(24),
       color: c.onSurfaceVariant,
     },
     supporting: {
       fontFamily: fonts.body,
-      fontSize: 13,
-      lineHeight: 19,
+      fontSize: moderateScale(14),
+      lineHeight: moderateScale(20),
       color: c.onSurfaceVariant,
     },
     data: {
       fontFamily: fonts.data,
-      fontSize: 13,
-      lineHeight: 18,
+      fontSize: moderateScale(14),
+      lineHeight: moderateScale(20),
       color: c.onSurface,
       fontVariant: ["tabular-nums"],
     },
     label: {
-      fontFamily: fonts.data,
-      fontSize: 11,
-      lineHeight: 14,
-      letterSpacing: 1,
+      fontFamily: fonts.dataSemiBold,
+      fontSize: moderateScale(12),
+      lineHeight: moderateScale(16),
+      letterSpacing: 0.5,
       textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
     caption: {
       fontFamily: fonts.bodyMedium,
-      fontSize: 12,
-      lineHeight: 16,
+      fontSize: moderateScale(12),
+      lineHeight: moderateScale(16),
+      color: c.onSurfaceVariant,
+    },
+    pageTitle: {
+      fontFamily: fonts.displayBold,
+      fontSize: moderateScale(24),
+      lineHeight: moderateScale(32),
+      color: c.onBackground,
+    },
+    cardTitle: {
+      fontFamily: fonts.bodySemiBold,
+      fontSize: moderateScale(16),
+      lineHeight: moderateScale(22),
+      color: c.onSurface,
+    },
+    sectionTitle: {
+      fontFamily: fonts.dataSemiBold,
+      fontSize: moderateScale(12),
+      lineHeight: moderateScale(16),
+      letterSpacing: 1,
+      textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
   };
@@ -281,26 +345,26 @@ export const type = typeFor(light);
 
 export function elevationFor(isDark = false) {
   return {
-    level0: { shadowColor: "#0A2A26", shadowOpacity: 0, elevation: 0 },
+    level0: { shadowColor: "#000", shadowOpacity: 0, elevation: 0 },
     level1: {
-      shadowColor: "#0A2A26",
-      shadowOpacity: isDark ? 0.4 : 0.04, // Much softer shadows for premium feel
-      shadowRadius: 12,
-      shadowOffset: { width: 0, height: 4 },
+      shadowColor: "#000",
+      shadowOpacity: isDark ? 0.3 : 0.05,
+      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 1 },
       elevation: 2,
     },
     level2: {
-      shadowColor: "#0A2A26",
-      shadowOpacity: isDark ? 0.5 : 0.08,
-      shadowRadius: 16,
-      shadowOffset: { width: 0, height: 8 },
+      shadowColor: "#000",
+      shadowOpacity: isDark ? 0.4 : 0.08,
+      shadowRadius: 10,
+      shadowOffset: { width: 0, height: 4 },
       elevation: 4,
     },
     level3: {
-      shadowColor: "#0A2A26",
-      shadowOpacity: isDark ? 0.6 : 0.12,
-      shadowRadius: 24,
-      shadowOffset: { width: 0, height: 12 },
+      shadowColor: "#000",
+      shadowOpacity: isDark ? 0.5 : 0.12,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 8 },
       elevation: 8,
     },
   };
@@ -317,7 +381,10 @@ export function tripStatusTone(status) {
     case "Completed":
       return "success";
     case "Trip Started":
+    case "At Pickup":
+    case "Passenger Onboard":
     case "En Route":
+    case "Drop-off":
     case "Arrived":
     case "In Progress":
     case "Driver Accepted":
@@ -336,4 +403,4 @@ export function tripStatusTone(status) {
   }
 }
 
-export const TOUCH_TARGET = 48;
+export const TOUCH_TARGET = moderateScale(48);

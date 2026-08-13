@@ -53,10 +53,16 @@ export async function PUT(req, { params }) {
     // to 1 and `[]` to 0, either of which would sail through as a reading.
     const rawOdometer =
       typeof body.odometer === "number" || typeof body.odometer === "string" ? body.odometer : null;
-    const odo = validateOdometerReading({
-      reading: rawOdometer,
-      currentMileage: vehicleMileage,
-    });
+    // Odometer is OPTIONAL at start — a driver may begin without a reading, in
+    // which case start_odometer stays NULL (same as legacy starts). Only a
+    // PRESENT reading is validated, so a bad one is still rejected.
+    const hasOdometer = rawOdometer !== null && rawOdometer !== undefined && rawOdometer !== "";
+    const odo = hasOdometer
+      ? validateOdometerReading({
+          reading: rawOdometer,
+          currentMileage: vehicleMileage,
+        })
+      : { ok: true, error: null, flagged: false, reason: null };
     if (!odo.ok) return err(odo.error, 400);
 
     // The trip row, its vehicle mileage and the dispatch are authoritative —
@@ -83,6 +89,14 @@ export async function PUT(req, { params }) {
       return r;
     });
     if (!rows[0]) return err("Trip not found", 404);
+    // Audit the start transition itself (follow-up: every transition is audited).
+    await writeAudit(req, session, {
+      action: "update",
+      resource: "trips",
+      resourceId: id,
+      oldValues: { trip_status: trip.trip_status },
+      newValues: { trip_status: "Trip Started" },
+    });
     // Derived statuses — recomputed on demand, self-heal on the next sync.
     const p = [];
     if (trip?.vehicle_id) p.push(syncVehicleStatus(trip.vehicle_id));

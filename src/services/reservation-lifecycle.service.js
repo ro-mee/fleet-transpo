@@ -226,12 +226,6 @@ export async function advanceReservation({
 /** Default timeline event type for a status, used for intermediate hops. */
 function eventForStatus(status) {
   switch (status) {
-    case L.UNDER_REVIEW:
-      return E.REVIEWED;
-    case L.APPROVED:
-      return E.APPROVED;
-    case L.REJECTED:
-      return E.REJECTED;
     case L.SCHEDULED:
       return E.DISPATCH_CREATED;
     case L.ASSIGNED:

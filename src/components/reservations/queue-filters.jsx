@@ -24,7 +24,7 @@ import { Search, X } from "lucide-react";
 // anyway. Mapping ANY -> undefined at the page boundary keeps both happy.
 export const ANY = "any";
 
-export const DEFAULT_ACTIVE_STATUSES = "Pending,Under Review,Approved,Scheduled,Assigned,In Progress";
+export const DEFAULT_ACTIVE_STATUSES = "Pending,Scheduled,Assigned,In Progress";
 
 export const EMPTY_FILTERS = {
   search: "",
@@ -118,13 +118,10 @@ export function QueueFilters({ filters, onChange, resultCount, isFetching }) {
           options={[
             { value: ANY, label: "Active Queue (Hide Finished)" },
             { value: L.PENDING, label: "Pending" },
-            { value: L.UNDER_REVIEW, label: "Under Review" },
-            { value: L.APPROVED, label: "Approved" },
             { value: L.SCHEDULED, label: "Scheduled" },
             { value: L.ASSIGNED, label: "Assigned" },
             { value: L.IN_PROGRESS, label: "In Progress" },
             { value: L.COMPLETED, label: "Completed (Archived)" },
-            { value: L.REJECTED, label: "Rejected (Archived)" },
             { value: L.CANCELLED, label: "Cancelled (Archived)" },
             { value: "all_history", label: "All History (Including Archived)" },
           ]}

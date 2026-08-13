@@ -6,7 +6,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -26,13 +25,10 @@ import { AlertCircle } from "lucide-react";
 import { ConflictChips } from "@/components/reservations/conflict-chips";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
-import { AssignDialog } from "@/components/reservations/assign-dialog";
+import { AiAssignDialog } from "@/components/reservations/ai-assign-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequest,
-  startReview,
-  approveTransportRequest,
-  rejectTransportRequest,
   assignResources,
   cancelRequest,
   rescheduleRequest,
@@ -60,16 +56,14 @@ import {
   TriangleAlert,
   UserCheck,
   Users,
-  XCircle,
 } from "lucide-react";
 
-const STEPS = [L.PENDING, L.UNDER_REVIEW, L.APPROVED, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS, L.COMPLETED];
+const STEPS = [L.PENDING, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS, L.COMPLETED];
 
-const ABORTED = { [L.REJECTED]: "Rejected", [L.CANCELLED]: "Cancelled" };
+const ABORTED = { [L.CANCELLED]: "Cancelled" };
 
-const isReviewable = (s) => s === L.PENDING || s === L.UNDER_REVIEW;
-const isAssignable = (s) => s === L.APPROVED || s === L.SCHEDULED || s === L.ASSIGNED;
-const isCancellable = (s) => ![L.REJECTED, L.CANCELLED, L.COMPLETED].includes(s);
+const isAssignable = (s) => s === L.PENDING || s === L.SCHEDULED || s === L.ASSIGNED;
+const isCancellable = (s) => ![L.CANCELLED, L.COMPLETED].includes(s);
 
 const num = (v) => (v == null || v === "" || Number.isNaN(Number(v)) ? null : Number(v));
 
@@ -199,7 +193,6 @@ export default function ReservationDetailPage() {
 
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState(null);
-  const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -229,29 +222,6 @@ export default function ReservationDetailPage() {
     queryClient.invalidateQueries({ queryKey: ["dispatches"] });
     queryClient.invalidateQueries({ queryKey: ["dispatches-status"] });
   };
-
-  const reviewMutation = useMutation({
-    mutationFn: () => startReview(requestId),
-    onSuccess: () => { toast.success("Review started"); invalidate(); },
-    onError: (e) => toast.error(e.message || "Failed to start review"),
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: () => approveTransportRequest(requestId),
-    onSuccess: () => { toast.success("Request approved — ready to assign"); invalidate(); },
-    onError: (e) => toast.error(e.message || "Failed to approve request"),
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: () => rejectTransportRequest(requestId, reason || null),
-    onSuccess: () => {
-      toast.success("Request rejected — Booking will be notified");
-      setRejecting(false);
-      setReason("");
-      invalidate();
-    },
-    onError: (e) => toast.error(e.message || "Failed to reject request"),
-  });
 
   const cancelMutation = useMutation({
     mutationFn: () => cancelRequest(requestId, reason || null),
@@ -349,37 +319,6 @@ export default function ReservationDetailPage() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {status === L.PENDING && permissions.update && (
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={reviewMutation.isPending}
-              onClick={() => reviewMutation.mutate()}
-              className="rounded-xl text-xs"
-            >
-              <Clock className="w-3.5 h-3.5 mr-1" /> Start Review
-            </Button>
-          )}
-          {isReviewable(status) && permissions.approve && (
-            <>
-              <Button
-                size="sm"
-                disabled={approveMutation.isPending}
-                onClick={() => approveMutation.mutate()}
-                className="rounded-xl text-xs bg-success text-success-foreground hover:bg-success/90"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Approve Request
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="rounded-xl text-xs text-danger border-danger/30 hover:bg-danger/10"
-                onClick={() => { setReason(""); setRejecting(true); }}
-              >
-                <XCircle className="w-3.5 h-3.5 mr-1" /> Reject
-              </Button>
-            </>
-          )}
           {isAssignable(status) && permissions.assign && (
             <Button
               size="sm"
@@ -596,53 +535,16 @@ export default function ReservationDetailPage() {
       </div>
 
       {/* ── Dialogs ── */}
-      {assigning && (
-        <AssignDialog
-          request={r}
-          onClose={() => { setAssigning(false); setAssignError(null); }}
-          conflictError={assignError}
-          onAssign={({ vehicleId, driverId, force }) =>
-            assignMutation.mutateAsync({ vehicleId, driverId, force })
-          }
-          isPending={assignMutation.isPending}
-        />
-      )}
-
-      <Dialog open={rejecting} onOpenChange={setRejecting}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">Reject Transport Request</DialogTitle>
-            <DialogDescription className="text-xs">
-              This will mark the request rejected and notify the originating Booking system.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-2 pt-3">
-            <FloatingField label="Rejection Reason (Optional)" icon={AlertCircle}>
-              <input
-                id="reject-reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. No vehicles available at requested time"
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
-              />
-            </FloatingField>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setRejecting(false)} className="rounded-xl">
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={rejectMutation.isPending}
-              onClick={() => rejectMutation.mutate()}
-              className="rounded-xl"
-            >
-              Reject Request
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AiAssignDialog
+        request={r}
+        isOpen={assigning}
+        onClose={() => { setAssigning(false); setAssignError(null); }}
+        onAssign={({ vehicleId, driverId, force }) =>
+          assignMutation.mutateAsync({ vehicleId, driverId, force })
+        }
+        isPending={assignMutation.isPending}
+        conflictError={assignError}
+      />
 
       <Dialog open={cancelling} onOpenChange={setCancelling}>
         <DialogContent className="rounded-2xl">

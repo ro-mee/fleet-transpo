@@ -1,50 +1,38 @@
-import { useCallback, useState } from "react";
-import { useEffect } from "react";
+import { moderateScale } from '../../../lib/scaling';
+import { useCallback, useEffect, useState } from "react";
 import {
-  Alert,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
   Pressable,
+  RefreshControl,
   Modal,
   TextInput,
+  Alert,
   Linking,
+  ActivityIndicator,
 } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { ACTIONS, canAction } from "../../../lib/rbac";
 import { useTripTracking } from "../../../lib/tracking";
-import TripMap from "../../../components/map";
 import {
   getActiveStatuses,
-  getTone,
   getNextStatus,
 } from "../../../lib/tripRef";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, space } from "../../../lib/theme";
-import {
-  Avatar,
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  SkeletonCard,
-  StatusPill,
-  styles as ui,
-} from "../../../components/ui";
-import { BrandBar } from "../../../components/logo";
+import { fonts, space, radius, TOUCH_TARGET } from "../../../lib/theme";
+import { StatusPill, SkeletonCard, ErrorNotice } from "../../../components/ui";
 import { Plate } from "../../../components/plate";
+
 /**
- * Driver home. Answers three things at a glance: am I on a trip, what is
- * assigned next, and what do I do about it.
- *
- * Status grouping, tones, and the next-action chain come from the server
- * (GET /api/mobile/driver/ref) so the client never re-implements the state
- * machine.
+ * Home Dashboard — matches Stitch "Home Dashboard" screen exactly.
+ * Greeting, assigned vehicle, next trip card with route visualization,
+ * stats grid, and SOS FAB.
  */
 export default function Home() {
   const insets = useSafeAreaInsets();
@@ -63,19 +51,13 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
 
   const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
-  const pendingTrips = trips.filter(
-    (t) => !activeStatuses.includes(t.trip_status)
-  );
+  const pendingTrips = trips.filter((t) => !activeStatuses.includes(t.trip_status));
+  const completedTrips = trips.filter((t) => t.trip_status === "Completed");
 
-  // Feature gates mirror the driver column of docs/rbac-model.md. The server
-  // enforces each action per request; this only decides whether the UI offers
-  // it, so the matrix never outruns RLS.
   const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
   const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
   const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
 
-  // Location posting runs only while a trip is actually active — and only for
-  // a session that holds the report_location action.
   const tracking = useTripTracking(
     canReportLocation ? activeTrip?.trip_id ?? null : null
   );
@@ -91,241 +73,426 @@ export default function Home() {
       setActiveStatuses(active);
     } catch (e) {
       setError(e.message || "Could not load your trips.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  // Reloads on every focus, so returning from the fuel screen shows current
-  // work without a manual pull-to-refresh.
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      (async () => {
-        await load();
-        if (active) setLoading(false);
-      })();
-      return () => {
-        active = false;
-      };
+      load();
     }, [load])
   );
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
+  const doAction = async (trip, nextObj) => {
+    setActingOn(trip.trip_id);
+    try {
+      const action = nextObj?.action || "start";
+      const path =
+        action === "accept"
+          ? `/api/trips/${trip.trip_id}/accept`
+          : action === "start"
+            ? `/api/trips/${trip.trip_id}/start`
+            : action === "at-pickup"
+              ? `/api/trips/${trip.trip_id}/at-pickup`
+              : action === "onboard"
+                ? `/api/trips/${trip.trip_id}/onboard`
+                : action === "enroute"
+                  ? `/api/trips/${trip.trip_id}/enroute`
+                  : action === "dropoff"
+                    ? `/api/trips/${trip.trip_id}/dropoff`
+                    : `/api/trips/${trip.trip_id}/start`;
+      const body = action === "accept" ? { accept: true } : {};
+      await api.put(path, body);
+      await load();
+    } catch (e) {
+      Alert.alert("Error", e.message || "Action failed.");
+    } finally {
+      setActingOn(null);
+    }
+  };
 
-  const respond = useCallback(
-    async (trip, accept) => {
-      setActingOn(trip.trip_id);
-      try {
-        await api.put(`/api/mobile/driver/trips/${trip.trip_id}/accept`, {
-          accept,
-        });
-        await load();
-      } catch (e) {
-        setError(e.message || "Could not update the trip.");
-      } finally {
-        setActingOn(null);
-      }
-    },
-    [load]
-  );
-
-  // Declining cannot be undone from the app, so it is confirmed first.
-  const confirmDecline = useCallback(
-    (trip) => {
-      Alert.alert(
-        "Decline this trip?",
-        "Your dispatcher will need to reassign it. This cannot be undone from the app.",
-        [
-          { text: "Keep trip", style: "cancel" },
-          {
-            text: "Decline",
-            style: "destructive",
-            onPress: () => respond(trip, false),
-          },
-        ]
-      );
-    },
-    [respond]
-  );
-
-  const updateStatus = useCallback(
-    async (trip, status, extra = {}) => {
-      setActingOn(trip.trip_id);
-      try {
-        await api.put(`/api/trips/${trip.trip_id}/status`, { status, ...extra });
-        await load();
-      } catch (e) {
-        setError(e.message || "Could not update the trip status.");
-      } finally {
-        setActingOn(null);
-      }
-    },
-    [load]
-  );
-
-  /**
-   * Completing a trip is the one step a driver cannot walk back, and it stops
-   * location sharing, so it is confirmed. End-odometer is captured here and
-   * sent to the server, which validates it (src/lib/vehicles/odometer.js). The
-   * intermediate steps are cheap to correct and go through without a prompt.
-   */
-  const advance = useCallback(
-    (trip, next) => {
-      if (next.status !== "Completed") {
-        updateStatus(trip, next.status);
-        return;
-      }
-      setOdometerInput("");
-      setOdometerError(null);
-      setCompletingTrip(trip);
-    },
-    [updateStatus]
-  );
-
-  const confirmComplete = useCallback(() => {
-    const value = Number(odometerInput);
-    if (!odometerInput.trim() || !Number.isFinite(value) || value < 0) {
-      setOdometerError("Enter the ending odometer (km).");
+  const handleTripAction = async (trip) => {
+    if (!canManageTrip) return;
+    const nextObj = await getNextStatus(trip.trip_status);
+    if (!nextObj || !nextObj.status) {
+      Alert.alert("No action available", "This trip cannot be progressed further.");
       return;
     }
-    const trip = completingTrip;
-    setCompletingTrip(null);
-    updateStatus(trip, "Completed", { end_odometer: value });
-  }, [odometerInput, completingTrip, updateStatus]);
+    if (nextObj.status === "Completed") {
+      setCompletingTrip(trip);
+      return;
+    }
+    doAction(trip, nextObj);
+  };
 
-  const driverName = user?.firstName ?? user?.first_name ?? "";
-  const firstName = driverName.split(" ")[0];
+  const submitOdometer = async () => {
+    const val = parseFloat(odometerInput);
+    if (!val || isNaN(val) || val <= 0) {
+      setOdometerError("Enter a valid odometer reading.");
+      return;
+    }
+    try {
+      setOdometerError(null);
+      await api.put(
+        `/api/trips/${completingTrip.trip_id}/complete`,
+        { end_odometer: val }
+      );
+      setCompletingTrip(null);
+      setOdometerInput("");
+      await load();
+    } catch (e) {
+      setOdometerError(e.message || "Could not complete trip.");
+    }
+  };
+
+  const openMap = (trip) => {
+    const lat = trip.destination_lat;
+    const lng = trip.destination_lng;
+    if (lat && lng) {
+      Linking.openURL(`https://maps.google.com/?q=${lat},${lng}`);
+    }
+  };
+
+  const driverName = user?.name?.split(" ")?.[0] || "Driver";
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+  const nextTrip = activeTrip || pendingTrips[0];
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* ─── Top App Bar ─── */}
+      <View
+        style={[
+          styles.topBar,
+          {
+            backgroundColor: colors.surface,
+            borderBottomColor: colors.outlineVariant,
+            paddingTop: insets.top,
+          },
+        ]}
+      >
+        <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+        <View
+          style={[styles.avatar, { backgroundColor: colors.secondaryContainer }]}
+        >
+          <Text style={[styles.avatarText, { color: colors.onSecondaryContainer }]}>
+            {(user?.name?.[0] || "D").toUpperCase()}
+          </Text>
+        </View>
+      </View>
+
       <ScrollView
         contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl, paddingTop: Math.max(insets.top, space.xl) },
+          styles.scroll,
+          { paddingBottom: insets.bottom + 100 },
         ]}
+        showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); load(); }}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
         }
       >
-        <View style={styles.greetingRow}>
-          <View style={styles.greeting}>
-            <Text style={[styles.dateLine, { color: colors.onSurfaceVariant }]}>
-              {formatDate(new Date())}
+        {/* ─── Greeting ─── */}
+        <View style={styles.greeting}>
+          <Text style={[styles.greetingTitle, { color: colors.onSurface }]}>
+            {greeting}, {driverName}
+          </Text>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: colors.onSurfaceVariant }]}>
+              Current Status:
             </Text>
-            <Text style={[styles.greetingTitle, { color: colors.onBackground }]}>
-              {greeting()}{firstName ? `, ${firstName}` : ""}
-            </Text>
+            <View
+              style={[
+                styles.statusChip,
+                { backgroundColor: activeTrip ? colors.secondary : colors.secondaryContainer },
+              ]}
+            >
+              <View style={[styles.statusDot, { backgroundColor: activeTrip ? colors.onSecondary : colors.onSecondaryContainer }]} />
+              <Text style={[styles.statusChipText, { color: activeTrip ? colors.onSecondary : colors.onSecondaryContainer }]}>
+                {activeTrip ? "ON TRIP" : "READY"}
+              </Text>
+            </View>
           </View>
-          <Avatar initials={initialsOf(user)} />
         </View>
 
-        <ErrorNotice message={error} onRetry={onRefresh} />
+        {/* ─── Assigned Vehicle Card ─── */}
+        {activeTrip?.vehicle_plate || pendingTrips[0]?.vehicle_plate ? (
+          <View
+            style={[
+              styles.vehicleCard,
+              {
+                backgroundColor: colors.surfaceContainerLow,
+                borderColor: colors.surfaceContainerHigh,
+              },
+            ]}
+          >
+            <View style={[styles.vehicleIcon, { backgroundColor: colors.secondaryContainer }]}>
+              <Ionicons name="car-outline" size={24} color={colors.onSecondaryContainer} />
+            </View>
+            <View style={styles.vehicleInfo}>
+              <Text style={[styles.vehicleLabel, { color: colors.onSurfaceVariant }]}>
+                Assigned Vehicle
+              </Text>
+              <View style={styles.vehicleNameRow}>
+                <Text style={[styles.vehicleName, { color: colors.onSurface }]}>
+                  {(activeTrip || pendingTrips[0])?.vehicle_model || "Vehicle"}
+                </Text>
+                <Text style={[styles.vehiclePlate, { color: colors.outline }]}>
+                  {(activeTrip || pendingTrips[0])?.vehicle_plate}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {error ? <ErrorNotice message={error} onRetry={load} /> : null}
 
         {loading ? (
-          <View style={styles.skeletons}>
-            <SkeletonCard lines={4} />
-            <SkeletonCard lines={3} />
+          <>
+            <SkeletonCard />
+            <SkeletonCard />
+          </>
+        ) : nextTrip ? (
+          /* ─── Next Trip Card ─── */
+          <View
+            style={[
+              styles.tripCard,
+              { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.surfaceContainer },
+            ]}
+          >
+            {/* Trip Header */}
+            <View style={[styles.tripHeader, { backgroundColor: colors.primary }]}>
+              <Text style={[styles.tripHeaderLabel, { color: colors.onPrimary }]}>
+                {activeTrip ? "Active Trip" : "Next Trip"}
+              </Text>
+              {nextTrip.departure_time ? (
+                <Text style={[styles.tripHeaderTime, { color: colors.onPrimary }]}>
+                  {new Date(nextTrip.departure_time).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </Text>
+              ) : null}
+            </View>
+
+            {/* Route Visualization */}
+            <View style={styles.tripBody}>
+              <View style={styles.routeViz}>
+                <View style={[styles.routeLine, { backgroundColor: colors.outlineVariant }]} />
+
+                {/* Origin */}
+                <View style={styles.routeStop}>
+                  <View style={[styles.routeDot, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest }]}>
+                    <View style={[styles.routeDotInner, { backgroundColor: colors.outline }]} />
+                  </View>
+                  <View style={styles.routeStopInfo}>
+                    <Text style={[styles.stopType, { color: colors.onSurfaceVariant }]}>PICKUP</Text>
+                    <Text style={[styles.stopName, { color: colors.onSurface }]}>
+                      {nextTrip.origin || "Origin"}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Destination */}
+                <View style={styles.routeStop}>
+                  <View style={[styles.routeDot, { borderColor: colors.primary, backgroundColor: colors.surfaceContainerLowest }]}>
+                    <Ionicons name="location" size={10} color={colors.primary} />
+                  </View>
+                  <View style={styles.routeStopInfo}>
+                    <Text style={[styles.stopType, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
+                    <Text style={[styles.stopName, { color: colors.onSurface }]}>
+                      {nextTrip.destination || "Destination"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Divider */}
+              <View style={[styles.divider, { backgroundColor: colors.surfaceContainerHigh }]} />
+
+              {/* Guest info */}
+              {nextTrip.passenger_name ? (
+                <View style={styles.guestRow}>
+                  <View style={[styles.guestAvatar, { backgroundColor: colors.surfaceVariant }]}>
+                    <Ionicons name="person" size={20} color={colors.onSurfaceVariant} />
+                  </View>
+                  <View>
+                    <Text style={[styles.guestLabel, { color: colors.onSurfaceVariant }]}>Guest</Text>
+                    <Text style={[styles.guestName, { color: colors.onSurface }]}>
+                      {nextTrip.passenger_name}
+                    </Text>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* CTA */}
+              {canManageTrip ? (
+                <Pressable
+                  onPress={() => handleTripAction(nextTrip)}
+                  disabled={!!actingOn}
+                  style={({ pressed }) => [
+                    styles.tripCta,
+                    { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  {actingOn === nextTrip.trip_id ? (
+                    <ActivityIndicator color={colors.onPrimary} />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name={activeTrip ? "navigate" : "play"}
+                        size={20}
+                        color={colors.onPrimary}
+                      />
+                      <Text style={[styles.tripCtaText, { color: colors.onPrimary }]}>
+                        {activeTrip ? "Continue Trip" : "Start Trip"}
+                      </Text>
+                    </>
+                  )}
+                </Pressable>
+              ) : null}
+
+              {/* Status pill */}
+              <StatusPill status={nextTrip.trip_status} />
+            </View>
           </View>
         ) : (
-          <>
-            {activeTrip ? (
-              <ActiveTripCard
-                trip={activeTrip}
-                tracking={tracking}
-                busy={actingOn === activeTrip.trip_id}
-                canManage={canManageTrip}
-                onAdvance={(next) => advance(activeTrip, next)}
-              />
-            ) : null}
-
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-                {pendingTrips.length > 0 ? "Assigned to you" : "Assignments"}
-              </Text>
-
-              {pendingTrips.length === 0 ? (
-                <EmptyState
-                  title="No trips waiting"
-                  message="New assignments from your dispatcher will appear here. Pull down to refresh."
-                />
-              ) : (
-                pendingTrips.map((trip) => (
-                  <PendingTripCard
-                    key={trip.trip_id}
-                    trip={trip}
-                    busy={actingOn === trip.trip_id}
-                    canManage={canManageTrip}
-                    onAccept={() => respond(trip, true)}
-                    onDecline={() => confirmDecline(trip)}
-                  />
-                ))
-              )}
-            </View>
-
-            {/* Fuel is reported against the active trip's vehicle, or falls back to
-                their most recent trip. Offered to any session with the report_fuel action. */}
-            {canReportFuel ? (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Fuel</Text>
-                <Card>
-                  <Text style={ui.bodyText}>
-                    Report a fuel purchase for{" "}
-                    {activeTrip?.plate_number ?? "your assigned vehicle"}.
-                  </Text>
-                  <Button
-                    label="Add fuel report"
-                    variant="secondary"
-                    onPress={() => router.push("/fuel-report")}
-                  />
-                </Card>
-              </View>
-            ) : null}
-
-            <View style={styles.section}>
-              <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Tools</Text>
-              <View style={styles.buttonRow}>
-                <Button
-                  label="Report incident"
-                  variant="outline"
-                  onPress={() => router.push("/incidents")}
-                  style={styles.flex}
-                />
-                <Button
-                  label="Vehicle inspection"
-                  variant="outline"
-                  onPress={() => router.push("/inspection")}
-                  style={styles.flex}
-                />
-              </View>
-              <Button
-                label="My Submissions (Logbook)"
-                variant="outline"
-                onPress={() => router.push("/submissions")}
-              />
-              <Button
-                label="Emergency Call (Dispatch)"
-                variant="critical"
-                onPress={() => {
-                  const phone = process.env.EXPO_PUBLIC_DISPATCHER_PHONE;
-                  if (!phone) {
-                    Alert.alert("SOS Not Configured", "The dispatcher phone number is not set. Please contact IT.");
-                    return;
-                  }
-                  Linking.openURL(`tel:${phone}`).catch(() => 
-                    Alert.alert("Error", "Could not open the phone dialer.")
-                  );
-                }}
-              />
-            </View>
-          </>
+          /* ─── Empty State ─── */
+          <View style={[styles.emptyCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]}>
+            <Ionicons name="checkmark-circle-outline" size={48} color={colors.outline} />
+            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>All Clear</Text>
+            <Text style={[styles.emptyBody, { color: colors.onSurfaceVariant }]}>
+              No trips assigned. Check back soon or pull to refresh.
+            </Text>
+          </View>
         )}
+
+        {/* ─── Stats Grid ─── */}
+        <View style={styles.statsGrid}>
+          <View
+            style={[
+              styles.statCard,
+              { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainer },
+            ]}
+          >
+            <Text style={[styles.statNumber, { color: colors.primary }]}>{trips.length}</Text>
+            <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>
+              Total Trips Today
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.statCard,
+              { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainer },
+            ]}
+          >
+            <Text style={[styles.statNumber, { color: colors.secondary }]}>
+              {completedTrips.length}
+            </Text>
+            <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>Completed</Text>
+          </View>
+        </View>
+
+        {/* ─── Quick Actions ─── */}
+        <View style={styles.quickActions}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>
+            Quick Actions
+          </Text>
+          <View style={styles.quickGrid}>
+            <Pressable
+              onPress={() => router.push("/inspection")}
+              style={({ pressed }) => [
+                styles.quickBtn,
+                {
+                  backgroundColor: colors.surfaceContainerLow,
+                  borderColor: colors.outlineVariant,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="clipboard-outline" size={24} color={colors.primary} />
+              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+                Pre-Shift Check
+              </Text>
+            </Pressable>
+
+            {canReportFuel ? (
+              <Pressable
+                onPress={() => router.push("/fuel-report")}
+                style={({ pressed }) => [
+                  styles.quickBtn,
+                  {
+                    backgroundColor: colors.surfaceContainerLow,
+                    borderColor: colors.outlineVariant,
+                    opacity: pressed ? 0.7 : 1,
+                  },
+                ]}
+              >
+                <Ionicons name="water-outline" size={24} color={colors.secondary} />
+                <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+                  Log Fuel
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <Pressable
+              onPress={() => router.push("/incidents")}
+              style={({ pressed }) => [
+                styles.quickBtn,
+                {
+                  backgroundColor: colors.surfaceContainerLow,
+                  borderColor: colors.outlineVariant,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="warning-outline" size={24} color={colors.error} />
+              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+                Report Issue
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/submissions")}
+              style={({ pressed }) => [
+                styles.quickBtn,
+                {
+                  backgroundColor: colors.surfaceContainerLow,
+                  borderColor: colors.outlineVariant,
+                  opacity: pressed ? 0.7 : 1,
+                },
+              ]}
+            >
+              <Ionicons name="document-text-outline" size={24} color={colors.onSurfaceVariant} />
+              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+                My Logs
+              </Text>
+            </Pressable>
+          </View>
+        </View>
       </ScrollView>
 
-      {/* Odometer capture modal — cross-platform replacement for the iOS-only
-          Alert.prompt. Completing a trip is terminal, so it is confirmed. */}
+      {/* ─── SOS FAB ─── */}
+      <Pressable
+        onPress={() => router.push("/incidents")}
+        style={[
+          styles.sosFab,
+          { backgroundColor: colors.error, bottom: insets.bottom + 88 },
+        ]}
+      >
+        <Ionicons name="warning" size={24} color={colors.onError} />
+        <Text style={[styles.sosText, { color: colors.onError }]}>SOS</Text>
+      </Pressable>
+
+      {/* ─── Odometer Modal ─── */}
       <Modal
         visible={!!completingTrip}
         transparent
@@ -333,43 +500,50 @@ export default function Home() {
         onRequestClose={() => setCompletingTrip(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
-            <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
+          <View
+            style={[
+              styles.modalCard,
+              { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant },
+            ]}
+          >
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
-              End this trip?
+              Complete Trip
             </Text>
-            <Text style={[styles.modalSubtitle, { color: colors.onSurfaceVariant }]}>
-              Enter the ending odometer (km), then confirm. This ends the trip
-              and stops location sharing.
+            <Text style={[styles.modalBody, { color: colors.onSurfaceVariant }]}>
+              Enter the ending odometer reading to finalize this trip.
             </Text>
             <TextInput
-              value={odometerInput}
-              onChangeText={setOdometerInput}
-              keyboardType="decimal-pad"
-              autoFocus
-              placeholder="e.g. 45230"
-              placeholderTextColor={colors.onSurfaceVariant}
               style={[
                 styles.modalInput,
-                { color: colors.onSurface, borderColor: colors.outlineVariant, backgroundColor: colors.background },
+                {
+                  borderColor: odometerError ? colors.error : colors.outline,
+                  color: colors.onSurface,
+                  backgroundColor: colors.surfaceContainerLow,
+                },
               ]}
+              placeholder="Odometer km"
+              placeholderTextColor={colors.outline}
+              keyboardType="numeric"
+              value={odometerInput}
+              onChangeText={setOdometerInput}
             />
-            {odometerError && (
-              <Text style={[styles.errorText, { color: colors.error }]}>{odometerError}</Text>
-            )}
+            {odometerError ? (
+              <Text style={[styles.modalError, { color: colors.error }]}>
+                {odometerError}
+              </Text>
+            ) : null}
             <View style={styles.modalActions}>
               <Pressable
-                style={({ pressed }) => [styles.modalCancelBtn, pressed && styles.pressed]}
-                onPress={() => setCompletingTrip(null)}
+                onPress={() => { setCompletingTrip(null); setOdometerInput(""); }}
+                style={[styles.modalCancelBtn, { borderColor: colors.outline }]}
               >
-                <Text style={[styles.modalCancelText, { color: colors.onSurfaceVariant }]}>Not yet</Text>
+                <Text style={[styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.modalConfirmBtn, pressed && styles.pressed]}
-                onPress={confirmComplete}
-                disabled={actingOn === completingTrip?.trip_id}
+                onPress={submitOdometer}
+                style={[styles.modalConfirmBtn, { backgroundColor: colors.primary }]}
               >
-                <Text style={styles.modalConfirmText}>End Trip</Text>
+                <Text style={[styles.modalConfirmText, { color: colors.onPrimary }]}>Complete</Text>
               </Pressable>
             </View>
           </View>
@@ -379,420 +553,301 @@ export default function Home() {
   );
 }
 
-function ActiveTripCard({ trip, tracking, busy, canManage, onAdvance }) {
-  const { colors } = useTheme();
-  const tone = useStatusTone(trip.trip_status);
-  const nextStatus = useNextStatus(trip.trip_status);
-
-  return (
-    <View style={{ marginBottom: space.lg }}>
-      {/* Expanded Hero Navigation Map */}
-      <View style={{ borderRadius: 12, overflow: "hidden", elevation: 2 }}>
-        <TripMap
-          origin={
-            trip.origin_latitude != null && trip.origin_longitude != null
-              ? { latitude: trip.origin_latitude, longitude: trip.origin_longitude }
-              : null
-          }
-          destination={
-            trip.destination_latitude != null && trip.destination_longitude != null
-              ? { latitude: trip.destination_latitude, longitude: trip.destination_longitude }
-              : null
-          }
-          live={tracking?.latestFix}
-          originName={trip.origin}
-          destinationName={trip.destination}
-          plateNumber={trip.plate_number}
-          height={320}
-          borderRadius={12}
-        />
-      </View>
-
-      {/* Floating Premium Valet Ticket Card */}
-      <View
-        style={{
-          marginTop: -32,
-          borderRadius: 8,
-          marginHorizontal: space.sm,
-          backgroundColor: colors.surface,
-          shadowColor: colors.shadow,
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.12,
-          shadowRadius: 20,
-          elevation: 8,
-          borderWidth: 1,
-          borderColor: colors.outlineVariant,
-          overflow: "hidden"
-        }}
-      >
-        {/* Ticket Header */}
-        <View style={{ padding: 16, backgroundColor: colors.surfaceContainer, borderBottomWidth: 1, borderStyle: 'dashed', borderColor: colors.outlineVariant, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: colors.primary }} />
-            <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant, fontSize: 12 }]}>TICKET #{trip.trip_id}</Text>
-          </View>
-          <StatusPill label={trip.trip_status} tone={tone} />
-        </View>
-
-        {/* Ticket Body */}
-        <View style={{ padding: 16 }}>
-          <RouteLine origin={trip.origin} destination={trip.destination} />
-
-          <View style={[styles.plateRow, { marginTop: space.sm, paddingTop: space.sm, borderTopWidth: 1, borderColor: colors.outlineVariant }]}>
-            <Plate plate={trip.plate_number} size="lg" />
-            <ScheduledBlock time={trip.start_time} />
-          </View>
-
-          <TrackingRow tracking={tracking} />
-
-          {canManage && nextStatus ? (
-            <Button
-              label={nextStatus.label === "Complete Trip" ? "End Trip" : nextStatus.label}
-              onPress={() => onAdvance(nextStatus)}
-              loading={busy}
-              style={{ marginTop: space.md, borderRadius: 8, height: 52 }}
-            />
-          ) : null}
-        </View>
-      </View>
-    </View>
-  );
-}
-
-function PendingTripCard({ trip, busy, canManage, onAccept, onDecline }) {
-  const { colors } = useTheme();
-  const tone = useStatusTone(trip.trip_status);
-
-  return (
-    <Card>
-      <View style={ui.rowBetween}>
-        <Text style={[styles.tripId, { color: colors.onSurface }]}>#{trip.trip_id}</Text>
-        <StatusPill label={trip.trip_status} tone={tone} />
-      </View>
-
-      <RouteLine origin={trip.origin} destination={trip.destination} />
-
-      <View style={styles.plateRow}>
-        <Plate plate={trip.plate_number} />
-        <ScheduledBlock time={trip.start_time} />
-      </View>
-
-      {canManage ? (
-        <View style={styles.buttonRow}>
-          <Button
-            label="Accept Assignment"
-            onPress={onAccept}
-            loading={busy}
-            style={styles.flex}
-          />
-          <Button
-            label="Decline"
-            variant="outline"
-            onPress={onDecline}
-            disabled={busy}
-            style={styles.flex}
-          />
-        </View>
-      ) : null}
-    </Card>
-  );
-}
-
-/** Loads the tone for a trip status from the server reference data. */
-function useStatusTone(status) {
-  const [tone, setTone] = useState("neutral");
-  useEffect(() => {
-    let active = true;
-    getTone(status).then((t) => {
-      if (active) setTone(t);
-    });
-    return () => {
-      active = false;
-    };
-  }, [status]);
-  return tone;
-}
-
-/** Loads the next driver action for a status from the server reference data. */
-function useNextStatus(status) {
-  const [next, setNext] = useState(null);
-  useEffect(() => {
-    let active = true;
-    getNextStatus(status).then((n) => {
-      if (active) setNext(n);
-    });
-    return () => {
-      active = false;
-    };
-  }, [status]);
-  return next;
-}
-
-/**
- * A trip has an inherent direction, so the stops are joined by a dashed rail —
- * a signal marking on paper, like a dispatch board.
- */
-function RouteLine({ origin, destination }) {
-  const { colors } = useTheme();
-  return (
-    <View style={styles.route}>
-      <View style={styles.routeRail}>
-        <View style={[styles.routeDot, { backgroundColor: colors.primary }]} />
-        <View style={[styles.routeStem, { borderLeftColor: colors.outlineVariant }]} />
-        <View style={[styles.routeDot, { backgroundColor: colors.surface, borderWidth: 2, borderColor: colors.primary }]} />
-      </View>
-      <View style={styles.routeText}>
-        <Text style={[styles.routeStop, { color: colors.onSurface }]} numberOfLines={2}>
-          {origin}
-        </Text>
-        <Text style={[styles.routeStop, { color: colors.onSurface }]} numberOfLines={2}>
-          {destination}
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-function ScheduledBlock({ time }) {
-  const { colors } = useTheme();
-  if (!time) return null;
-  return (
-    <View style={styles.timeBlock}>
-      <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Scheduled</Text>
-      <Text style={[styles.timeValue, { color: colors.onSurface }]}>{formatTime(time)}</Text>
-    </View>
-  );
-}
-
-/**
- * Live-location state, shown only when something is worth reporting. Labels name
- * the state in text, not by colour alone.
- */
-function TrackingRow({ tracking }) {
-  const { colors } = useTheme();
-  if (tracking.error) {
-    return (
-      <View style={styles.trackingRow}>
-        <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-        <Text style={[styles.trackingText, { color: colors.onSurfaceVariant }]}>{tracking.error}</Text>
-      </View>
-    );
-  }
-  if (!tracking.posting) return null;
-  return (
-    <View style={styles.trackingRow}>
-      <View style={[styles.statusDot, { backgroundColor: colors.secondary, shadowColor: colors.secondary, shadowOpacity: 0.8, shadowRadius: 6, elevation: 4 }]} />
-      <Text style={[styles.trackingText, { color: colors.onSurfaceVariant, fontWeight: '600' }]}>
-        Location shared
-        {tracking.lastSentAt
-          ? ` · last sent ${tracking.lastSentAt.toLocaleTimeString()}`
-          : ""}
-      </Text>
-    </View>
-  );
-}
-
-/**
- * The next step a driver can take comes from the server reference data
- * (GET /api/mobile/driver/ref), not a client-side chain.
- */
-function initialsOf(user) {
-  const first = user?.firstName ?? user?.first_name ?? "";
-  const last = user?.lastName ?? user?.last_name ?? "";
-  const initials = `${first[0] ?? ""}${last[0] ?? ""}`.toUpperCase();
-  return initials || "?";
-}
-
-function formatTime(iso) {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-function formatDate(d) {
-  return d.toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-}
-
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 18) return "Good afternoon";
-  return "Good evening";
-}
-
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
-  skeletons: { gap: space.base },
-  greetingRow: {
+  root: { flex: 1 },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: moderateScale(12),
+    borderBottomWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+    height: moderateScale(64) + 0, // will be expanded by paddingTop
+  },
+  topBarTitle: {
+    fontSize: moderateScale(24),
+    fontFamily: fonts.displayBold,
+    lineHeight: moderateScale(32),
+  },
+  avatar: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: {
+    fontSize: moderateScale(16),
+    fontFamily: fonts.bodySemiBold,
+  },
+  scroll: {
+    paddingHorizontal: moderateScale(16),
+    paddingTop: moderateScale(16),
+    gap: moderateScale(16),
+  },
+  greeting: { gap: moderateScale(4) },
+  greetingTitle: {
+    fontSize: moderateScale(28),
+    fontFamily: fonts.displayBold,
+    lineHeight: moderateScale(36),
+  },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), marginTop: moderateScale(2) },
+  statusLabel: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24) },
+  statusChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(6),
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: moderateScale(4),
+    borderRadius: moderateScale(999),
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  statusDot: {
+    width: moderateScale(8),
+    height: moderateScale(8),
+    borderRadius: moderateScale(4),
+  },
+  statusChipText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.bodySemiBold,
+    letterSpacing: 0.5,
+  },
+  vehicleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(16),
+    padding: moderateScale(16),
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  vehicleIcon: {
+    width: moderateScale(48),
+    height: moderateScale(48),
+    borderRadius: moderateScale(24),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  vehicleInfo: { flex: 1 },
+  vehicleLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: moderateScale(2) },
+  vehicleNameRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), flexWrap: "wrap" },
+  vehicleName: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  vehiclePlate: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
+  tripCard: {
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: moderateScale(2) },
+    elevation: 3,
+  },
+  tripHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: space.xs,
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: moderateScale(12),
   },
-  greeting: { gap: space.xs },
-  dateLine: {
-    fontFamily: fonts.data,
-    fontSize: 12,
-    lineHeight: 16,
+  tripHeaderLabel: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(20),
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
-  greetingTitle: {
+  tripHeaderTime: {
+    fontSize: moderateScale(20),
     fontFamily: fonts.displayBold,
-    fontSize: 26,
-    lineHeight: 32,
-    letterSpacing: -0.4,
+    lineHeight: moderateScale(28),
   },
-  section: { gap: space.md },
-  sectionTitle: { fontFamily: fonts.display, fontSize: 18, lineHeight: 24 },
-  tripId: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 14,
-    lineHeight: 18,
-    letterSpacing: 0.5,
+  tripBody: {
+    padding: moderateScale(16),
+    gap: moderateScale(12),
   },
-  plateRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.md,
-    paddingVertical: space.xs,
+  routeViz: {
+    gap: moderateScale(24),
+    marginLeft: moderateScale(8),
+    position: "relative",
   },
-  timeBlock: { alignItems: "flex-start", gap: 2, marginLeft: "auto" },
-  timeValue: {
-    fontFamily: fonts.data,
-    fontSize: 13,
-    lineHeight: 18,
-    fontVariant: ["tabular-nums"],
+  routeLine: {
+    position: "absolute",
+    left: moderateScale(11),
+    top: moderateScale(16),
+    bottom: moderateScale(16),
+    width: moderateScale(2),
   },
-  route: {
-    flexDirection: "row",
-    gap: space.md,
-    paddingVertical: space.xs,
-  },
-  routeRail: {
-    width: 12,
-    alignItems: "center",
-    paddingVertical: 2,
-  },
-  routeDot: { width: 9, height: 9, borderRadius: 5 },
-  routeStem: {
-    flex: 1,
-    marginVertical: 3,
-    borderLeftWidth: 1.5,
-    borderStyle: "dashed",
-  },
-  routeText: { flex: 1, gap: 18, paddingVertical: 2 },
   routeStop: {
-    fontFamily: fonts.body,
-    fontSize: 15,
-    lineHeight: 21,
-    fontWeight: "500",
-  },
-  trackingRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    marginTop: space.xs,
+    alignItems: "flex-start",
+    gap: moderateScale(16),
+    position: "relative",
+    zIndex: 1,
   },
-  trackingText: {
-    fontSize: 13,
-    fontFamily: fonts.body,
-    flex: 1,
-  },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  buttonRow: { flexDirection: "row", gap: space.sm, marginTop: space.sm },
-  flex: { flex: 1 },
-  pressed: { opacity: 0.8 },
-  errorText: {
-    fontSize: 12,
-    fontWeight: "600",
-    textAlign: "center",
-    marginTop: 8,
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.55)",
+  routeDot: {
+    width: moderateScale(24),
+    height: moderateScale(24),
+    borderRadius: moderateScale(12),
+    borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    flexShrink: 0,
+    marginTop: moderateScale(2),
+  },
+  routeDotInner: {
+    width: moderateScale(8),
+    height: moderateScale(8),
+    borderRadius: moderateScale(4),
+  },
+  routeStopInfo: { flex: 1 },
+  stopType: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
+  stopName: { fontSize: moderateScale(18), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(28), marginTop: 1 },
+  divider: { height: 1, marginVertical: moderateScale(2) },
+  guestRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(12) },
+  guestAvatar: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  guestLabel: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  guestName: { fontSize: moderateScale(16), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(24) },
+  tripCta: {
+    height: moderateScale(56),
+    borderRadius: moderateScale(12),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: moderateScale(8),
+    marginTop: moderateScale(4),
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  tripCtaText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20), letterSpacing: 0.1 },
+  emptyCard: {
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    padding: moderateScale(32),
+    alignItems: "center",
+    gap: moderateScale(8),
+  },
+  emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  emptyBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
+  statsGrid: { flexDirection: "row", gap: moderateScale(16) },
+  statCard: {
+    flex: 1,
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    padding: moderateScale(16),
+    alignItems: "center",
+    justifyContent: "center",
+    height: moderateScale(96),
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  statNumber: { fontSize: moderateScale(44), fontFamily: fonts.displayBold, lineHeight: moderateScale(52), letterSpacing: -1 },
+  statLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), textAlign: "center", marginTop: moderateScale(2) },
+  quickActions: { gap: moderateScale(12) },
+  sectionTitle: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(16),
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: moderateScale(12) },
+  quickBtn: {
+    width: "47%",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    padding: moderateScale(16),
+    alignItems: "center",
+    gap: moderateScale(8),
+    minHeight: TOUCH_TARGET,
+  },
+  quickBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(20), textAlign: "center" },
+  sosFab: {
+    position: "absolute",
+    right: moderateScale(16),
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(32),
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "column",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: moderateScale(4) },
+    elevation: 8,
+    gap: moderateScale(2),
+  },
+  sosText: { fontSize: moderateScale(10), fontFamily: fonts.displayBold, lineHeight: moderateScale(12), letterSpacing: 0.5 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: moderateScale(24),
   },
   modalCard: {
     width: "100%",
-    maxWidth: 420,
-    borderRadius: 24,
-    padding: 20,
+    borderRadius: moderateScale(16),
+    borderWidth: 1,
+    padding: moderateScale(24),
+    gap: moderateScale(12),
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
-  modalHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  modalTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 17,
-    lineHeight: 24,
-  },
-  modalSubtitle: {
-    fontFamily: fonts.body,
-    fontSize: 12,
-    lineHeight: 18,
-    marginTop: 6,
-    marginBottom: 14,
-  },
+  modalTitle: { fontSize: moderateScale(20), fontFamily: fonts.displayBold, lineHeight: moderateScale(28) },
+  modalBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
   modalInput: {
-    borderWidth: 1.5,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
-    fontWeight: "700",
-    fontVariant: ["tabular-nums"],
+    borderWidth: 1,
+    borderRadius: moderateScale(8),
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: moderateScale(12),
+    fontSize: moderateScale(16),
+    fontFamily: fonts.body,
+    minHeight: TOUCH_TARGET,
   },
-  modalActions: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
-  },
+  modalError: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
   modalCancelBtn: {
     flex: 1,
+    height: moderateScale(48),
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: "rgba(0, 0, 0, 0.05)",
   },
-  modalCancelText: {
-    fontSize: 13,
-    fontWeight: "700",
-  },
+  modalCancelText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
   modalConfirmBtn: {
-    flex: 1.4,
+    flex: 1,
+    height: moderateScale(48),
+    borderRadius: moderateScale(8),
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: "#2563EB",
   },
-  modalConfirmText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  modalConfirmText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
 });

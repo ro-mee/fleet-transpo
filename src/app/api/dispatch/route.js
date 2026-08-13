@@ -48,12 +48,12 @@ export async function POST(req) {
       );
       transportRequest = trRows[0];
       if (!transportRequest) return err("Transportation request not found", 404);
-      // Dispatch requires a request that has cleared review. Scheduled/Assigned
+      // Dispatch requires an active (non-terminal) request. Scheduled/Assigned
       // are also accepted because the assign endpoint may have already moved it
       // there — dispatching such a request is a re-dispatch, not an error.
-      if (![L.APPROVED, L.SCHEDULED, L.ASSIGNED].includes(transportRequest.fleet_status)) {
+      if (![L.PENDING, L.SCHEDULED, L.ASSIGNED].includes(transportRequest.fleet_status)) {
         return err(
-          `This request is '${transportRequest.fleet_status}'. Only Approved requests can be dispatched.`,
+          `This request is '${transportRequest.fleet_status}'. Only active requests can be dispatched.`,
           409
         );
       }

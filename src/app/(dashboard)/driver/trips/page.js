@@ -17,7 +17,7 @@ import { Route, Truck, CheckCircle2, TriangleAlert } from "lucide-react";
 
 const columnHelper = createColumnHelper();
 
-const ACTIVE_STATUSES = ["In Progress", "Trip Started", "En Route", "Arrived", "Driver Accepted"];
+const ACTIVE_STATUSES = ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"];
 
 export default function DriverTripsPage() {
   useRequireRole(["driver"]);

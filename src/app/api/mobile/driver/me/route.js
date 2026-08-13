@@ -37,7 +37,7 @@ export async function GET(req) {
          LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
          LEFT JOIN routes r   ON r.route_id = t.route_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
-          AND t.trip_status IN ('Driver Accepted', 'Trip Started', 'En Route', 'Arrived', 'In Progress')
+          AND t.trip_status IN ('Driver Accepted', 'Trip Started', 'At Pickup', 'Passenger Onboard', 'En Route', 'Drop-off', 'Arrived', 'In Progress')
         ORDER BY t.start_time DESC NULLS LAST
         LIMIT 1`,
       [session.user.driverId]

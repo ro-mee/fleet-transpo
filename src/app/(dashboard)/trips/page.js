@@ -45,7 +45,7 @@ export default function TripsPage() {
   const displayTrips = useMemo(() => {
     if (statusFilter === "Active")
       return trips.filter((t) =>
-        ["In Progress", "Trip Started", "En Route", "Arrived", "Driver Accepted"].includes(t.trip_status)
+        ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"].includes(t.trip_status)
       );
     if (statusFilter === "Completed") return trips.filter((t) => t.trip_status === "Completed");
     return trips;
@@ -188,7 +188,7 @@ export default function TripsPage() {
   const activeCount = useMemo(
     () =>
       trips.filter((t) =>
-        ["In Progress", "Trip Started", "En Route", "Arrived", "Driver Accepted"].includes(t.trip_status)
+        ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"].includes(t.trip_status)
       ).length,
     [trips]
   );

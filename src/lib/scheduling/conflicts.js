@@ -4,6 +4,9 @@ import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-type
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
 import { resolveSubstituteForDate } from "@/lib/ai/pair-scoring";
+import { getDispatchPolicy } from "@/services/dispatch-settings.service";
+import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
+import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
 
 // Double-booking prevention.
 //
@@ -179,6 +182,50 @@ function maintenanceCoversDay(row, day) {
 }
 
 /**
+ * Travel-time + safety-buffer rule (SYSTEM.md §4.8.3). BLOCKING when a
+ * resource's previous commitment ends too close to the pickup for it to get
+ * there in time. Only fires when the caller attaches the two signals
+ * (`_previous_busy_end` + `_eta_to_pickup_min`); a missing signal fails open so
+ * the gate never fabricates a conflict from absent data. The buffer is the
+ * configured safety offset (not a fixed 30 min).
+ */
+function travelBufferFindings(request, resource, kind, cfg) {
+  if (!resource || !cfg || cfg.travelBufferEnabled === false) return [];
+  if (resource._previous_busy_end == null || resource._eta_to_pickup_min == null) return [];
+
+  const r = travelBufferBlocked({
+    pickup: request?.pickup_datetime,
+    previousEnd: resource._previous_busy_end,
+    etaMinutes: resource._eta_to_pickup_min,
+    safetyBufferMinutes: cfg.safetyBufferMinutes,
+    bufferFloorMinutes: cfg.bufferFloorMinutes,
+  });
+  if (!r.blocked || !r.earliest) return [];
+
+  const idKey = kind === "vehicle" ? "vehicle_id" : "driver_id";
+  const label =
+    kind === "vehicle"
+      ? resource.plate_number || `vehicle #${resource.vehicle_id}`
+      : `${resource.first_name || ""} ${resource.last_name || ""}`.trim() || `driver #${resource.driver_id}`;
+
+  return [
+    {
+      type: CONFLICT_TYPE.TRAVEL_BUFFER,
+      severity: SEVERITY.BLOCKING,
+      message: `${label} is only available at ${r.earliest.toISOString()} — the pickup is too soon after the previous trip (${resource._eta_to_pickup_min} min travel + ${cfg.safetyBufferMinutes} min buffer).`,
+      detail: {
+        [idKey]: resource[idKey],
+        earliest_next_available: r.earliest.toISOString(),
+        previous_scheduled_end: resource._previous_busy_end,
+        eta_to_pickup_min: resource._eta_to_pickup_min,
+        safety_buffer_min: cfg.safetyBufferMinutes,
+        buffer_floor_min: cfg.bufferFloorMinutes,
+      },
+    },
+  ];
+}
+
+/**
  * Apply every conflict rule to one request against pre-fetched context.
  *
  * @param {object} request  transportation_requests row
@@ -190,7 +237,7 @@ function maintenanceCoversDay(row, day) {
  * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
   const findings = [];
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
@@ -340,6 +387,17 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
     }
   }
 
+  // Travel-time + safety-buffer rule (§4.8.3). Read-only unless the caller
+  // attached the signals (the assign gate does); defaults keep the rule active
+  // but fail-open when the ETA/previous-end data is absent.
+  const cfg = {
+    travelBufferEnabled: travelBufferEnabled ?? DEFAULT_DISPATCH_POLICY.travelBufferEnabled,
+    safetyBufferMinutes: safetyBufferMinutes ?? DEFAULT_DISPATCH_POLICY.safetyBufferMinutes,
+    bufferFloorMinutes: bufferFloorMinutes ?? DEFAULT_DISPATCH_POLICY.bufferFloorMinutes,
+  };
+  findings.push(...travelBufferFindings(request, driver, "driver", cfg));
+  findings.push(...travelBufferFindings(request, vehicle, "vehicle", cfg));
+
   return findings;
 }
 
@@ -389,7 +447,7 @@ export async function detectRequestConflicts(request, opts = {}) {
   const pickup = request.pickup_datetime || null;
 
   // Run every probe concurrently; each resolves to rows or a null/[] fallback.
-  const [overlap, vehicleRow, driverRow, maintenance, assignments, substitutes] = await Promise.all([
+  const [overlap, vehicleRow, driverRow, maintenance, assignments, substitutes, prevEnds] = await Promise.all([
     // 1+2. Vehicle / driver already committed to an overlapping dispatch.
     pickup && (vehicleId || driverId)
       ? findDispatchConflicts({
@@ -465,11 +523,41 @@ export async function detectRequestConflicts(request, opts = {}) {
           .then((r) => r.rows)
           .catch(() => [])
       : Promise.resolve([]),
+
+    // §4.8.3 — the resource's most recent active commitment that ENDS before the
+    // pickup (a "just finished" dispatch). This is the base for the travel+buffer
+    // gate; overlap above answers a DIFFERENT question (a dispatch inside the
+    // window). Attached to the resource rows and consumed by the pure evaluator.
+    (vehicleId || driverId) && pickup
+      ? query(
+          `SELECT
+             (SELECT max(scheduled_arrival) FROM dispatchschedules
+               WHERE deleted_at IS NULL AND status = ANY($3::text[])
+                 AND vehicle_id = $1 AND scheduled_arrival < $4::timestamptz) AS vehicle_end,
+             (SELECT max(scheduled_arrival) FROM dispatchschedules
+               WHERE deleted_at IS NULL AND status = ANY($3::text[])
+                 AND driver_id = $2 AND scheduled_arrival < $4::timestamptz) AS driver_end`,
+          [vehicleId, driverId, ACTIVE_DISPATCH_STATUSES, pickup]
+        )
+          .then((r) => r.rows[0] || null)
+          .catch(() => null)
+      : Promise.resolve(null),
   ]);
 
   // findDispatchConflicts has already applied the overlap window in SQL, so the
   // rows handed to the evaluator are pre-filtered; re-checking there is
   // harmless and keeps the batch path (which fetches a wider window) honest.
+  const policy = await getDispatchPolicy().catch(() => null);
+
+  // Attach the §4.8.3 signals so the pure evaluator can run the travel+buffer
+  // gate. ETA to pickup is supplied by the caller (the assign route passes a
+  // TomTom/heuristic value); when absent the gate fails open (no conflict).
+  const travel = opts.travel || {};
+  if (vehicleRow && prevEnds) vehicleRow._previous_busy_end = prevEnds.vehicle_end ?? null;
+  if (driverRow && prevEnds) driverRow._previous_busy_end = prevEnds.driver_end ?? null;
+  if (vehicleRow && travel.vehicle?.etaMinutes != null) vehicleRow._eta_to_pickup_min = travel.vehicle.etaMinutes;
+  if (driverRow && travel.driver?.etaMinutes != null) driverRow._eta_to_pickup_min = travel.driver.etaMinutes;
+
   return evaluateRequestConflicts(request, {
     vehicle: vehicleRow,
     driver: driverRow,
@@ -478,6 +566,9 @@ export async function detectRequestConflicts(request, opts = {}) {
     assignments,
     substitutes,
     uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime),
+    travelBufferEnabled: policy?.travelBufferEnabled,
+    safetyBufferMinutes: policy?.safetyBufferMinutes,
+    bufferFloorMinutes: policy?.bufferFloorMinutes,
   });
 }
 
@@ -582,6 +673,8 @@ export async function detectConflictsForRequests(requests = []) {
   const exemptVehicleIds = uvvrpPolicy?.enabled
     ? await getExemptVehicleIds().catch(() => new Set())
     : new Set();
+  // §4.8.3 safety-buffer config — passed to the evaluator for consistency.
+  const dispatchPolicy = await getDispatchPolicy().catch(() => null);
 
   for (const r of requests) {
     const vehicle = r.vehicle_id ? vehicleById.get(r.vehicle_id) ?? null : null;
@@ -613,7 +706,22 @@ export async function detectConflictsForRequests(requests = []) {
       r.request_id,
       // `assignments` is passed whole: the evaluator looks pairings up by exact
       // driver_id/vehicle_id, so unlike `dispatches` there is nothing to narrow.
-      evaluateRequestConflicts(r, { vehicle, driver, dispatches: relevant, maintenance, assignments, substitutes, uvvrp })
+      // The travel+buffer rule (§4.8.3) is NOT attached here (the per-resource
+      // previous-end/ETA signals would be an N+1 fetch); it stays advisory on
+      // the queue and is enforced hard at the assign gate, which is the
+      // authoritative 409 — matching how the queue chips never block.
+      evaluateRequestConflicts(r, {
+        vehicle,
+        driver,
+        dispatches: relevant,
+        maintenance,
+        assignments,
+        substitutes,
+        uvvrp,
+        travelBufferEnabled: dispatchPolicy?.travelBufferEnabled,
+        safetyBufferMinutes: dispatchPolicy?.safetyBufferMinutes,
+        bufferFloorMinutes: dispatchPolicy?.bufferFloorMinutes,
+      })
     );
   }
 

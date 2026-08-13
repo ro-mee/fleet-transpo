@@ -8,21 +8,6 @@ function isBeforeToday(dateStr) {
   return !Number.isNaN(d.getTime()) && d.getTime() < today.getTime();
 }
 
-// Last instant of the current local day — the horizon past which a booking is
-// too far off to hold the vehicle. Local, not UTC: the fleet is read in local
-// days, and `toISOString()` on a local midnight lands on the wrong date east
-// of Greenwich.
-function endOfTodayIso() {
-  const d = new Date();
-  d.setHours(23, 59, 59, 999);
-  return d.toISOString();
-}
-
-function localDateStr(d = new Date()) {
-  const pad = (n) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
 export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminClient();
 
   const { data: vehicle } = await supabase
@@ -54,7 +39,7 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     .from("trips")
     .select("trip_id")
     .eq("vehicle_id", vehicleId)
-    .in("trip_status", ["Trip Started", "En Route", "Arrived", "In Progress"])
+    .in("trip_status", ["Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"])
     .is("deleted_at", null)
     .limit(1);
   if (trip?.length) {
@@ -67,47 +52,14 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     return;
   }
 
-  // A booking only holds the vehicle once it is close enough to matter. Both
-  // checks below used to fire on ANY open row with no time bound, so a vehicle
-  // booked for next Friday read as `Reserved` every day until then, and every
-  // availability search that trusted the status flag dropped it from all other
-  // dates. The horizon is the end of the current local day: today's bookings
-  // hold the vehicle, later ones leave it Available.
-  //
-  // There is deliberately no lower bound. An open dispatch whose departure has
-  // already passed still holds the vehicle — it is either out on the road or
-  // the row is stale, and neither state makes the vehicle grabbable. Releasing
-  // it is trip completion's job, not a status sweep's. A row with no departure
-  // recorded holds it too, for the same reason: unknown is not "free".
-  const horizon = endOfTodayIso();
-
-  const { data: dispatch } = await supabase
-    .from("dispatchschedules")
-    .select("dispatch_id")
-    .eq("vehicle_id", vehicleId)
-    .in("status", ["Scheduled", "In Progress"])
-    .or(`scheduled_departure.is.null,scheduled_departure.lte.${horizon}`)
-    .is("deleted_at", null)
-    .limit(1);
-  if (dispatch?.length) {
-    await supabase.from("vehicles").update({ vehicle_status: "Reserved" }).eq("vehicle_id", vehicleId);
-    return;
-  }
-
-  const todayStr = localDateStr();
-  const { data: reservation } = await supabase
-    .from("vehiclereservations")
-    .select("reservation_id")
-    .eq("vehicle_id", vehicleId)
-    .in("status", ["Approved", "Dispatched"])
-    .or(`reservation_date.is.null,reservation_date.lte.${todayStr}`)
-    .is("deleted_at", null)
-    .limit(1);
-  if (reservation?.length) {
-    await supabase.from("vehicles").update({ vehicle_status: "Reserved" }).eq("vehicle_id", vehicleId);
-    return;
-  }
-
+  // NOTE: there is deliberately NO "Reserved" state. A coarse whole-day flag
+  // cannot express "busy 1am–2am, free 3am" — it pinned a car `Reserved` for a
+  // single booking and made every strict-`Available` picker hide it for all
+  // other times and days. Time-slot availability is answered precisely by the
+  // windowed searches (vehicles/available slot overlap, findDispatchConflicts,
+  // findReservationConflicts), so an open dispatch/booking on the row below
+  // never flips the flag. A vehicle is Available unless it is conditionally
+  // grounded (maintenance above, live trip above, expired registration above).
   await supabase.from("vehicles").update({ vehicle_status: "Available" }).eq("vehicle_id", vehicleId);
 }
 
@@ -264,6 +216,12 @@ export async function syncComplianceNotifications() {
 export async function syncDriverStatus(driverId) {
   const supabase = getAdminClient();
 
+  // Driver availability is separate from trip activity. driver_status is a
+  // human-set availability flag (Available / Off Duty / On Leave / Suspended);
+  // being mid-trip is captured by the windowed conflict checks, not by flipping
+  // this column to "On Trip". The only automatic write here is a compliance one:
+  // an expired license grounds the driver regardless of anything else. On Leave
+  // is never overridden.
   const { data: driver } = await supabase
     .from("drivers")
     .select("driver_status, license_expiry")
@@ -272,36 +230,10 @@ export async function syncDriverStatus(driverId) {
   if (!driver) return;
   if (driver.driver_status === "On Leave") return;
 
-  const { data: trip } = await supabase
-    .from("trips")
-    .select("trip_id")
-    .eq("driver_id", driverId)
-    .in("trip_status", ["Trip Started", "En Route", "Arrived", "In Progress"])
-    .is("deleted_at", null)
-    .limit(1);
-  if (trip?.length) {
-    await supabase.from("drivers").update({ driver_status: "On Trip" }).eq("driver_id", driverId);
-    return;
-  }
-
   if (isBeforeToday(driver.license_expiry)) {
     await supabase.from("drivers").update({ driver_status: "Suspended" }).eq("driver_id", driverId);
     return;
   }
-
-  const { data: dispatch } = await supabase
-    .from("dispatchschedules")
-    .select("dispatch_id")
-    .eq("driver_id", driverId)
-    .in("status", ["Scheduled", "In Progress"])
-    .is("deleted_at", null)
-    .limit(1);
-  if (dispatch?.length) {
-    await supabase.from("drivers").update({ driver_status: "On Trip" }).eq("driver_id", driverId);
-    return;
-  }
-
-  await supabase.from("drivers").update({ driver_status: "Available" }).eq("driver_id", driverId);
 }
 
 export async function syncReservationStatus(reservationId) {
@@ -326,7 +258,7 @@ export async function syncReservationStatus(reservationId) {
     .from("trips")
     .select("trip_id")
     .eq("dispatch_id", dispatch.dispatch_id)
-    .in("trip_status", ["Trip Started", "En Route", "Arrived", "In Progress"])
+    .in("trip_status", ["Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"])
     .is("deleted_at", null)
     .limit(1)
     .maybeSingle();

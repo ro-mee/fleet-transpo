@@ -16,7 +16,7 @@ export async function GET(req) {
     const driverFilter = scoped ? `AND t.driver_id = $1` : "";
 
     const { rows } = await query(
-      `SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE t.trip_status IN ('Dispatched','Driver Accepted','Trip Started','En Route','Arrived') AND t.deleted_at IS NULL ${driverFilter} ORDER BY t.start_time DESC`,
+      `SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE t.trip_status IN ('Dispatched','Driver Accepted','Trip Started','At Pickup','Passenger Onboard','En Route','Drop-off','Arrived','In Progress') AND t.deleted_at IS NULL ${driverFilter} ORDER BY t.start_time DESC`,
       params
     );
     return ok(rows);

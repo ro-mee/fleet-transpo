@@ -19,11 +19,11 @@ describe("bucketRequest", () => {
   });
 
   it("a same-day non-terminal request is Today", () => {
-    expect(bucketRequest(mk({ fleet_status: L.APPROVED, pickup_datetime: todayISO }), NOW)).toBe("today");
+    expect(bucketRequest(mk({ fleet_status: L.SCHEDULED, pickup_datetime: todayISO }), NOW)).toBe("today");
   });
 
   it("a different-day non-terminal request is Upcoming", () => {
-    expect(bucketRequest(mk({ fleet_status: L.APPROVED, pickup_datetime: tomorrowISO }), NOW)).toBe("upcoming");
+    expect(bucketRequest(mk({ fleet_status: L.SCHEDULED, pickup_datetime: tomorrowISO }), NOW)).toBe("upcoming");
   });
 
   it("Overdue same-day stays Today", () => {
@@ -33,10 +33,6 @@ describe("bucketRequest", () => {
   it("Assigned goes to its own lane regardless of pickup date", () => {
     expect(bucketRequest(mk({ fleet_status: L.ASSIGNED, pickup_datetime: todayISO }), NOW)).toBe("assigned");
     expect(bucketRequest(mk({ fleet_status: L.ASSIGNED, pickup_datetime: tomorrowISO }), NOW)).toBe("assigned");
-  });
-
-  it("Rejected goes to cancelled bucket fallback", () => {
-    expect(bucketRequest(mk({ fleet_status: L.REJECTED }), NOW)).toBe("today");
   });
 });
 
@@ -66,11 +62,11 @@ describe("groupQueue", () => {
   it("buckets and sorts each tab", () => {
     const reqs = [
       mk({ request_id: 1, fleet_status: L.PENDING, derived_priority: DERIVED_PRIORITY.OVERDUE }),
-      mk({ request_id: 2, fleet_status: L.APPROVED, pickup_datetime: tomorrowISO, derived_priority: DERIVED_PRIORITY.HIGH }),
+      mk({ request_id: 2, fleet_status: L.SCHEDULED, pickup_datetime: tomorrowISO, derived_priority: DERIVED_PRIORITY.HIGH }),
       mk({ request_id: 3, fleet_status: L.IN_PROGRESS }),
       mk({ request_id: 4, fleet_status: L.COMPLETED }),
       mk({ request_id: 5, fleet_status: L.CANCELLED }),
-      mk({ request_id: 6, fleet_status: L.APPROVED, derived_priority: DERIVED_PRIORITY.CRITICAL }),
+      mk({ request_id: 6, fleet_status: L.SCHEDULED, derived_priority: DERIVED_PRIORITY.CRITICAL }),
       mk({ request_id: 7, fleet_status: L.ASSIGNED }),
       mk({ request_id: 8, fleet_status: L.ASSIGNED, pickup_datetime: tomorrowISO }),
     ];

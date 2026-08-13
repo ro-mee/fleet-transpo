@@ -4,11 +4,34 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
+import { tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { createDispatchForRequest, syncDispatchSideEffects } from "@/services/dispatch-autocreate.service";
 import { writeAudit } from "@/lib/audit";
 
-// ASSIGN a vehicle and/or driver to an approved request.
+// §4.8.3 travel+buffer signals for the conflict gate. The caller may supply the
+// per-resource ETA directly, or a TomTom origin/destination pair to compute it;
+// when neither is present the gate fails OPEN (no fabricated block), so this
+// never refuses a valid assignment just because a coordinate is missing.
+async function buildTravelSignals(body) {
+  const t = body?.travel;
+  const forRes = async (key) => {
+    if (t?.[key]?.etaMinutes != null) return { etaMinutes: Number(t[key].etaMinutes) };
+    const o = t?.[key]?.origin;
+    const d = t?.[key]?.destination;
+    if (o && d) {
+      const etaMinutes = await tomtomEtaMinutes({ origin: o, destination: d }).catch(() => null);
+      return etaMinutes != null ? { etaMinutes } : null;
+    }
+    return null;
+  };
+  return {
+    vehicle: (await forRes("vehicle")) ?? undefined,
+    driver: (await forRes("driver")) ?? undefined,
+  };
+}
+
+// ASSIGN a vehicle and/or driver to a request.
 //
 // This is the step where Fleet commits real resources, so unlike the advisory
 // conflict chips in the queue, blocking conflicts here are a hard 409. The
@@ -16,7 +39,7 @@ import { writeAudit } from "@/lib/audit";
 // dispatcher who knows something the data doesn't — and the override is written
 // into the timeline metadata so it is never silent.
 //
-// Assignment walks Approved → Scheduled → Assigned via advanceReservation, so
+// Assignment walks Pending → Scheduled → Assigned via advanceReservation, so
 // each hop is validated and recorded rather than jumping the chain.
 export async function PUT(req, { params }) {
   try {
@@ -34,12 +57,13 @@ export async function PUT(req, { params }) {
       return err("At least one of vehicle_id or driver_id is required.", 400);
     }
 
-    // A request must clear review before resources can be committed to it.
-    if (![L.APPROVED, L.SCHEDULED, L.ASSIGNED].includes(before.fleet_status)) {
+    // A request must be past-terminal before resources can be committed to it.
+    if (![L.PENDING, L.SCHEDULED, L.ASSIGNED].includes(before.fleet_status)) {
       return err(`Cannot assign resources to a request that is ${before.fleet_status}.`, 409);
     }
 
-    const conflicts = await detectRequestConflicts(before, { vehicleId, driverId });
+    const travel = await buildTravelSignals(body);
+    const conflicts = await detectRequestConflicts(before, { vehicleId, driverId, travel });
     const blocking = conflicts.filter((c) => c.severity === "blocking");
     const force = body?.force === true;
 

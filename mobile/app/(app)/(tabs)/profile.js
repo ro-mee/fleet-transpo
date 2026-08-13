@@ -1,38 +1,40 @@
+import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useEffect, useState } from "react";
 import {
-  Image,
-  Modal,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  Pressable,
+  TextInput,
+  Alert,
+  Modal,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { api, apiFetch } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, space } from "../../../lib/theme";
-import {
-  Button,
-  Card,
-  Detail,
-  EmptyState,
-  ErrorNotice,
-  Field,
-  Metric,
-  MetricRow,
-  ScreenTitle,
-  SkeletonCard,
-  styles as ui,
-} from "../../../components/ui";
-import { BrandBar } from "../../../components/logo";
+import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 
-/**
- * Driver profile: contact info, license, and consent status. Editable fields
- * are limited to what the server allows (PATCH /api/driver/me whitelists
- * phone, face_image_url, license scans); the server remains the authority.
- */
+function InfoRow({ label, value, colors }) {
+  return (
+    <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh }]}>
+      <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
+    </View>
+  );
+}
+
+function Section({ title, children, colors }) {
+  return (
+    <View style={[styles.section, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant }]}>
+      <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>{title}</Text>
+      {children}
+    </View>
+  );
+}
+
 export default function Profile() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
@@ -40,367 +42,318 @@ export default function Profile() {
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [phone, setPhone] = useState("");
+  const [editingPhone, setEditingPhone] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  // Full-screen license scan viewer. View-only: the driver can inspect the scan
-  // the office holds on file, but re-uploads stay gated behind the server.
-  const [viewingScan, setViewingScan] = useState(null);
+  const [logoutModal, setLogoutModal] = useState(false);
 
   const load = useCallback(async () => {
     try {
-      setError(null);
       const me = await api.get("/api/driver/me");
       setProfile(me);
       setPhone(me?.phone ?? "");
-    } catch (e) {
-      setError(e.message || "Could not load your profile.");
+    } catch {
+      // use fallback from auth context
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const savePhone = useCallback(async () => {
-    if (!phone.trim()) {
-      setError("Phone number cannot be empty.");
-      return;
-    }
+  const savePhone = async () => {
+    if (!phone.trim()) return;
     setSaving(true);
-    setError(null);
-    setSaved(false);
     try {
       await apiFetch("/api/driver/me", {
         method: "PATCH",
         body: JSON.stringify({ phone: phone.trim() }),
       });
-      setSaved(true);
+      setEditingPhone(false);
+      Alert.alert("Saved", "Phone number updated.");
     } catch (e) {
-      setError(e.message || "Could not save your profile.");
+      Alert.alert("Error", e.message || "Could not save phone.");
     } finally {
       setSaving(false);
     }
-  }, [phone]);
+  };
 
-  const consent = profile?.consent;
-  const license = profile?.license;
-  const perf = profile?.performance;
-  const vehicle = profile?.assignedVehicle;
+  const currentUser = profile || user;
+  const driverName = currentUser?.name || currentUser?.full_name || "Driver";
+  const initials = driverName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .substring(0, 2)
+    .toUpperCase();
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
-
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl },
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Top App Bar */}
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant, paddingTop: insets.top },
         ]}
       >
-        <ScreenTitle title="Your profile" />
-        <ErrorNotice message={error} />
+        <Text style={[styles.topBarBrand, { color: colors.primary }]}>FleetOps</Text>
+        <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Profile</Text>
+      </View>
 
-        {loading ? (
-          <View style={styles.skeletons}>
-            <SkeletonCard lines={2} />
-            <SkeletonCard lines={3} />
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 40 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Avatar Card */}
+        <View
+          style={[
+            styles.avatarCard,
+            { backgroundColor: colors.primary },
+          ]}
+        >
+          <View style={[styles.avatarCircle, { backgroundColor: colors.primaryContainer }]}>
+            <Text style={[styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
           </View>
-        ) : !profile ? (
-          <EmptyState title="No profile" message="Could not load your details." />
-        ) : (
-          <>
-            <Card>
-              <View style={styles.identity}>
-                <View style={[styles.avatarBlock, { backgroundColor: colors.primary }]}>
-                  <Text style={[styles.avatarText, { color: colors.onPrimary }]}>
-                    {initialsOf(profile.firstName, profile.lastName)}
-                  </Text>
-                </View>
-                <View style={styles.identityText}>
-                  <Text style={[styles.identityName, { color: colors.onSurface }]}>
-                    {profile.firstName} {profile.lastName}
-                  </Text>
-                  <Text style={[styles.identityMeta, { color: colors.onSurfaceVariant }]}>{profile.email}</Text>
-                </View>
-              </View>
-            </Card>
+          <Text style={[styles.profileName, { color: colors.onPrimary }]}>{driverName}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: colors.primaryContainer }]}>
+            <Text style={[styles.roleBadgeText, { color: colors.onPrimaryContainer }]}>
+              DRIVER
+            </Text>
+          </View>
+        </View>
 
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Assigned Vehicle</Text>
-              {vehicle ? (
-                <>
-                  <Detail
-                    label="Plate number"
-                    value={vehicle.plateNumber ?? "—"}
-                    mono
-                  />
-                  <Detail
-                    label="Vehicle"
-                    value={[vehicle.name, vehicle.model].filter(Boolean).join(" · ") || "—"}
-                  />
-                  {vehicle.seatingCapacity ? (
-                    <Detail label="Seats" value={String(vehicle.seatingCapacity)} />
-                  ) : null}
-                  {vehicle.assignedFrom ? (
-                    <Detail
-                      label="Assigned since"
-                      value={new Date(vehicle.assignedFrom).toLocaleDateString()}
-                    />
-                  ) : null}
-                  {vehicle.vehicleStatus ? (
-                    <Detail label="Status" value={vehicle.vehicleStatus} />
-                  ) : null}
-                </>
-              ) : (
-                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>
-                  No vehicle is currently assigned to you. Dispatchers will assign a
-                  vehicle when a trip is scheduled.
-                </Text>
-              )}
-            </Card>
-
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Performance</Text>
-              <MetricRow>
-                <Metric value={String(perf?.total_trips ?? "—")} label="Trips" />
-                <Metric value={String(perf?.total_distance ?? "—")} label="Km" />
-                <Metric value={perf?.rating != null ? `${perf.rating}` : "—"} label="Rating" />
-              </MetricRow>
-            </Card>
-
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Contact</Text>
-              <Detail label="Phone" value={profile.phone ?? "—"} />
-              <Field
-                label="Update phone"
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                editable={!saving}
-              />
-              <Button
-                label={saving ? "Saving…" : "Save phone"}
-                onPress={savePhone}
-                loading={saving}
-                variant="secondary"
-              />
-              {saved ? (
-                <Text style={[styles.saved, { color: colors.success }]}>Phone updated.</Text>
-              ) : null}
-            </Card>
-
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>License</Text>
-              <View style={styles.licenseRow}>
-                <View style={styles.licenseFields}>
-                  <Detail label="License number" value={license?.number ?? "—"} />
-                  <Detail label="Class" value={license?.class ?? "—"} />
-                  <Detail label="Type" value={license?.type ?? "—"} />
-                  <Detail label="Expires" value={license?.expiry ? new Date(license.expiry).toLocaleDateString() : "—"} />
-                </View>
-                {/* Only shown once the office has at least one scan on file —
-                    otherwise the card keeps its plain details-only layout. */}
-                {license?.frontScanImageUrl || license?.backScanImageUrl ? (
-                  <View style={styles.licenseScans}>
-                    <LicenseScan
-                      label="Front"
-                      uri={license?.frontScanImageUrl}
-                      onPress={() =>
-                        setViewingScan({ uri: license.frontScanImageUrl, label: "License — front" })
-                      }
-                    />
-                    <LicenseScan
-                      label="Back"
-                      uri={license?.backScanImageUrl}
-                      onPress={() =>
-                        setViewingScan({ uri: license.backScanImageUrl, label: "License — back" })
-                      }
-                    />
-                  </View>
-                ) : null}
-              </View>
-            </Card>
-
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Consent</Text>
-              <Detail
-                label="Policy accepted"
-                value={consent?.accepted ? "Yes" : "No"}
-              />
-              {consent?.acceptedAt ? (
-                <Detail
-                  label="Accepted on"
-                  value={new Date(consent.acceptedAt).toLocaleDateString()}
+        {/* Personal Info */}
+        <Section title="PERSONAL INFORMATION" colors={colors}>
+          <InfoRow label="Full Name" value={currentUser?.name || currentUser?.full_name} colors={colors} />
+          <InfoRow label="Employee ID" value={currentUser?.driver_id || currentUser?.id} colors={colors} />
+          <InfoRow label="Email" value={currentUser?.email} colors={colors} />
+          {/* Phone — editable */}
+          <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh }]}>
+            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Phone</Text>
+            {editingPhone ? (
+              <View style={styles.phoneEdit}>
+                <TextInput
+                  style={[styles.phoneInput, { borderColor: colors.outline, color: colors.onSurface }]}
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
+                  placeholder="Phone number"
+                  placeholderTextColor={colors.outline}
                 />
-              ) : null}
-              <Detail label="Via" value={consent?.acceptedVia ?? "—"} />
-            </Card>
+                <Pressable onPress={savePhone} disabled={saving}>
+                  <Ionicons name="checkmark-circle" size={24} color={colors.secondary} />
+                </Pressable>
+                <Pressable onPress={() => setEditingPhone(false)}>
+                  <Ionicons name="close-circle" size={24} color={colors.outline} />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable style={styles.phoneRow} onPress={() => setEditingPhone(true)}>
+                <Text style={[styles.infoValue, { color: colors.onSurface }]}>
+                  {phone || "—"}
+                </Text>
+                <Ionicons name="pencil-outline" size={16} color={colors.primary} />
+              </Pressable>
+            )}
+          </View>
+        </Section>
 
-            <Button label="Sign out" variant="critical-tonal" onPress={signOut} />
-          </>
-        )}
+        {/* License Info */}
+        <Section title="LICENSE & COMPLIANCE" colors={colors}>
+          <InfoRow label="License No." value={currentUser?.license_number} colors={colors} />
+          <InfoRow label="License Class" value={currentUser?.license_class} colors={colors} />
+          <InfoRow
+            label="Expiry"
+            value={
+              currentUser?.license_expiry
+                ? new Date(currentUser.license_expiry).toLocaleDateString()
+                : null
+            }
+            colors={colors}
+          />
+        </Section>
+
+        {/* Consent Status */}
+        <Section title="PRIVACY CONSENT" colors={colors}>
+          <View style={[styles.infoRow, { borderBottomColor: "transparent" }]}>
+            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>
+              Data Consent
+            </Text>
+            <View
+              style={[
+                styles.consentBadge,
+                {
+                  backgroundColor:
+                    currentUser?.data_consent_given ? colors.secondaryContainer : colors.errorContainer,
+                },
+              ]}
+            >
+              <Ionicons
+                name={currentUser?.data_consent_given ? "checkmark-circle" : "close-circle"}
+                size={14}
+                color={
+                  currentUser?.data_consent_given
+                    ? colors.onSecondaryContainer
+                    : colors.onErrorContainer
+                }
+              />
+              <Text
+                style={[
+                  styles.consentText,
+                  {
+                    color: currentUser?.data_consent_given
+                      ? colors.onSecondaryContainer
+                      : colors.onErrorContainer,
+                  },
+                ]}
+              >
+                {currentUser?.data_consent_given ? "GIVEN" : "NOT GIVEN"}
+              </Text>
+            </View>
+          </View>
+        </Section>
+
+        {/* Sign Out */}
+        <Pressable
+          onPress={() => setLogoutModal(true)}
+          style={({ pressed }) => [
+            styles.logoutBtn,
+            { borderColor: colors.error, opacity: pressed ? 0.7 : 1 },
+          ]}
+        >
+          <Ionicons name="log-out-outline" size={20} color={colors.error} />
+          <Text style={[styles.logoutText, { color: colors.error }]}>Sign Out</Text>
+        </Pressable>
       </ScrollView>
 
-      {/* View-only full-screen scan. Tap anywhere (or Close) to dismiss. */}
-      <Modal
-        visible={!!viewingScan}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setViewingScan(null)}
-      >
-        <Pressable style={styles.viewerBackdrop} onPress={() => setViewingScan(null)}>
-          <View style={[styles.viewerBar, { paddingTop: insets.top + space.base }]}>
-            <Text style={styles.viewerTitle}>{viewingScan?.label}</Text>
+      {/* Logout Confirm Modal */}
+      <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
+            <Text style={[styles.modalBody, { color: colors.onSurfaceVariant }]}>
+              You will be returned to the login screen.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setLogoutModal(false)} style={[styles.modalCancelBtn, { borderColor: colors.outline }]}>
+                <Text style={[styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={signOut} style={[styles.modalConfirmBtn, { backgroundColor: colors.error }]}>
+                <Text style={[styles.modalConfirmText, { color: colors.onError }]}>Sign Out</Text>
+              </Pressable>
+            </View>
           </View>
-          <Image
-            source={{ uri: viewingScan?.uri }}
-            style={styles.viewerImage}
-            resizeMode="contain"
-            alt={viewingScan?.label ?? "License scan"}
-            accessibilityLabel={viewingScan?.label}
-          />
-          <View style={[styles.viewerFooter, { paddingBottom: insets.bottom + space.xl }]}>
-            <Text style={styles.viewerHint}>Tap anywhere to close</Text>
-          </View>
-        </Pressable>
+        </View>
       </Modal>
     </View>
   );
 }
 
-/**
- * A license scan thumbnail. Read-only by design — tapping opens the full-screen
- * view; there is no edit affordance here because re-uploads are server-gated
- * (see canUpdateLicenseScan in the driver-visibility config).
- */
-function LicenseScan({ label, uri, onPress }) {
-  const { colors } = useTheme();
-  if (!uri) {
-    return (
-      <View
-        style={[
-          styles.scanThumb,
-          styles.scanEmpty,
-          { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainer },
-        ]}
-      >
-        <Text style={[styles.scanEmptyText, { color: colors.onSurfaceVariant }]}>
-          No {label.toLowerCase()}
-        </Text>
-      </View>
-    );
-  }
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="imagebutton"
-      accessibilityLabel={`View license ${label.toLowerCase()} in full screen`}
-      style={({ pressed }) => [pressed && { opacity: 0.7 }]}
-    >
-      <Image
-        source={{ uri }}
-        style={[styles.scanThumb, { borderColor: colors.outlineVariant }]}
-        resizeMode="cover"
-        alt={`License ${label.toLowerCase()}`}
-      />
-      <Text style={[styles.scanCaption, { color: colors.onSurfaceVariant }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
-  skeletons: { gap: space.base },
-  saved: { fontFamily: fonts.body, fontSize: 13, marginTop: space.xs },
-  identity: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.base,
+  root: { flex: 1 },
+  topBar: {
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: moderateScale(12),
+    borderBottomWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  avatarBlock: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  topBarBrand: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
+  pageTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  scroll: { gap: moderateScale(16), paddingHorizontal: moderateScale(16), paddingTop: moderateScale(20) },
+  avatarCard: {
+    borderRadius: moderateScale(16),
+    padding: moderateScale(24),
+    alignItems: "center",
+    gap: moderateScale(8),
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  avatarCircle: {
+    width: moderateScale(80),
+    height: moderateScale(80),
+    borderRadius: moderateScale(40),
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarText: {
-    fontFamily: fonts.displayBold,
-    fontSize: 22,
-  },
-  identityText: { flex: 1, gap: 2 },
-  identityName: {
-    fontFamily: fonts.displayBold,
-    fontSize: 20,
-    lineHeight: 24,
-  },
-  identityMeta: {
-    fontFamily: fonts.body,
-    fontSize: 13,
-  },
-  // License card: details on the left, scan thumbnails stacked on the right.
-  licenseRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: space.base,
-  },
-  licenseFields: { flex: 1, minWidth: 0 },
-  licenseScans: { gap: space.sm },
-  scanThumb: {
-    width: 96,
-    height: 62,
-    borderRadius: 8,
+  avatarInitials: { fontSize: moderateScale(32), fontFamily: fonts.displayBold },
+  profileName: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  roleBadge: { paddingHorizontal: moderateScale(16), paddingVertical: moderateScale(4), borderRadius: moderateScale(999) },
+  roleBadgeText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16), letterSpacing: 0.5 },
+  section: {
+    borderRadius: moderateScale(12),
     borderWidth: 1,
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  scanEmpty: { alignItems: "center", justifyContent: "center" },
-  scanEmptyText: {
-    fontFamily: fonts.body,
-    fontSize: 11,
-    textAlign: "center",
+  sectionTitle: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(16),
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    padding: moderateScale(16),
+    paddingBottom: moderateScale(12),
   },
-  scanCaption: {
-    fontFamily: fonts.body,
-    fontSize: 11,
-    marginTop: 2,
-    textAlign: "center",
-  },
-  viewerBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.94)",
-    justifyContent: "center",
-  },
-  viewerBar: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: space.xl,
-    paddingBottom: space.base,
-  },
-  viewerTitle: {
-    fontFamily: fonts.displayBold,
-    fontSize: 16,
-    color: "#fff",
-  },
-  viewerImage: { width: "100%", height: "70%" },
-  viewerFooter: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: moderateScale(12),
+    borderBottomWidth: 1,
+    minHeight: TOUCH_TARGET,
   },
-  viewerHint: {
+  infoLabel: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), flex: 1 },
+  infoValue: { fontSize: moderateScale(14), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(20), textAlign: "right", flex: 1 },
+  phoneEdit: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), flex: 1 },
+  phoneInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: moderateScale(8),
+    paddingHorizontal: moderateScale(8),
+    paddingVertical: moderateScale(6),
+    fontSize: moderateScale(14),
     fontFamily: fonts.body,
-    fontSize: 13,
-    color: "rgba(255,255,255,0.6)",
+    height: moderateScale(36),
   },
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), flex: 1, justifyContent: "flex-end" },
+  consentBadge: { flexDirection: "row", alignItems: "center", gap: moderateScale(4), paddingHorizontal: moderateScale(10), paddingVertical: moderateScale(3), borderRadius: moderateScale(999) },
+  consentText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
+  logoutBtn: {
+    height: moderateScale(56),
+    borderRadius: moderateScale(12),
+    borderWidth: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: moderateScale(8),
+  },
+  logoutText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: moderateScale(24) },
+  modalCard: {
+    width: "100%",
+    borderRadius: moderateScale(16),
+    borderWidth: 1,
+    padding: moderateScale(24),
+    gap: moderateScale(12),
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  modalTitle: { fontSize: moderateScale(20), fontFamily: fonts.displayBold, lineHeight: moderateScale(28) },
+  modalBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
+  modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
+  modalCancelBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  modalCancelText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },
+  modalConfirmBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), alignItems: "center", justifyContent: "center" },
+  modalConfirmText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },
 });
-
-function initialsOf(first, last) {
-  return `${(first || "")[0] || ""}${(last || "")[0] || ""}`.toUpperCase() || "?";
-}

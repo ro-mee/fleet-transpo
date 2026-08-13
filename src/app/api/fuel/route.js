@@ -5,6 +5,8 @@ import { resolveDriverScope } from "@/lib/api/ownership";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { writeAudit } from "@/lib/audit";
 
+export const dynamic = 'force-dynamic';
+
 const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
 
 const fuelWriteSchema = {

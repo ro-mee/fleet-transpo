@@ -11,17 +11,15 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 //
 // SHARED (outbound) vocabulary sent to Booking:
 //   RECEIVED   — Fleet has the request, not yet acted on
-//   ACCEPTED   — Fleet approved and will fulfill it
-//   REJECTED   — Fleet declined it
+//   ACCEPTED   — Fleet will fulfill it
 //   SCHEDULED  — a vehicle/driver is assigned and it's on the schedule
 //   IN_TRANSIT — the trip is underway
 //   COMPLETED  — the trip finished
-//   CANCELLED  — cancelled after acceptance
+//   CANCELLED  — cancelled before or after assignment
 
 export const EXTERNAL_STATUS = {
   RECEIVED: "RECEIVED",
   ACCEPTED: "ACCEPTED",
-  REJECTED: "REJECTED",
   SCHEDULED: "SCHEDULED",
   IN_TRANSIT: "IN_TRANSIT",
   COMPLETED: "COMPLETED",
@@ -30,9 +28,6 @@ export const EXTERNAL_STATUS = {
 
 const FLEET_TO_EXTERNAL = {
   [L.PENDING]: EXTERNAL_STATUS.RECEIVED,
-  [L.UNDER_REVIEW]: EXTERNAL_STATUS.RECEIVED,
-  [L.APPROVED]: EXTERNAL_STATUS.ACCEPTED,
-  [L.REJECTED]: EXTERNAL_STATUS.REJECTED,
   [L.SCHEDULED]: EXTERNAL_STATUS.SCHEDULED,
   [L.ASSIGNED]: EXTERNAL_STATUS.SCHEDULED,
   [L.IN_PROGRESS]: EXTERNAL_STATUS.IN_TRANSIT,
@@ -55,6 +50,6 @@ export function toExternalStatus(fleetStatus) {
 export function fleetStatusFromBooking(bookingStatus) {
   const normalized = String(bookingStatus || "").toLowerCase();
   if (normalized === "cancelled" || normalized === "canceled") return L.CANCELLED;
-  if (normalized === "rejected") return L.REJECTED;
+  if (normalized === "rejected") return L.CANCELLED;
   return L.PENDING;
 }

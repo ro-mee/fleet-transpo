@@ -1,115 +1,394 @@
-import { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../lib/api";
-import { useTheme } from "../../lib/theme-context";
-import { fonts, space } from "../../lib/theme";
+import { moderateScale } from '../../lib/scaling';
+import { useState, useCallback } from "react";
 import {
-  Card,
-  Detail,
-  EmptyState,
-  ErrorNotice,
-  ScreenTitle,
-  SkeletonCard,
-  styles as ui,
-} from "../../components/ui";
-import { BrandBar } from "../../components/logo";
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Pressable,
+  Alert,
+  TextInput,
+} from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../../lib/theme-context";
+import { fonts, space, radius, TOUCH_TARGET } from "../../lib/theme";
+import { api } from "../../lib/api";
 
-/**
- * Vehicle inspection: the latest inspection snapshot for the vehicle currently
- * assigned to this driver (GET /api/driver/vehicle-inspection). Read-only — the
- * inspection lifecycle is managed on the web.
- */
-export default function Inspection() {
+const CHECKLIST = [
+  { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
+  { id: "aircon", label: "Air Conditioning & Ventilation" },
+  { id: "dashboard", label: "Dashboard Warning Lights", passLabel: "NO LIGHTS", failLabel: "WARNING" },
+  { id: "exterior", label: "Exterior & Basic Safety" },
+  { id: "brakes", label: "Brake System & Responsiveness" },
+  { id: "tires", label: "Tire Pressure & Condition" },
+  { id: "fuel", label: "Fuel Level Check" },
+];
+
+export default function PreShiftInspection() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { tripId } = useLocalSearchParams();
   const { colors } = useTheme();
 
-  const [inspection, setInspection] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [statuses, setStatuses] = useState(
+    CHECKLIST.reduce((acc, item) => ({ ...acc, [item.id]: null }), {})
+  );
+  const [remarks, setRemarks] = useState({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const load = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await api.get("/api/driver/vehicle-inspection");
-      setInspection(data || null);
-    } catch (e) {
-      setError(e.message || "Could not load the vehicle inspection.");
-    } finally {
-      setLoading(false);
+  const allAnswered = CHECKLIST.every((item) => statuses[item.id] !== null);
+  const passCount = Object.values(statuses).filter((s) => s === "PASS").length;
+
+  const setStatus = (id, val) => {
+    setStatuses((prev) => ({ ...prev, [id]: val }));
+  };
+
+  const handleSubmit = async () => {
+    if (!allAnswered) {
+      Alert.alert("Incomplete", "Please answer all checklist items before proceeding.");
+      return;
     }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const checklist = inspection?.checklist;
+    try {
+      setSubmitting(true);
+      await api.post("/api/mobile/driver/inspections", {
+        trip_id: tripId ? parseInt(tripId, 10) : null,
+        items: CHECKLIST.map((item) => ({
+          item_id: item.id,
+          label: item.label,
+          status: statuses[item.id],
+          remarks: remarks[item.id] || "",
+        })),
+        inspected_at: new Date().toISOString(),
+      });
+      Alert.alert("Shift Started", "Pre-shift check complete. Drive safely!", [
+        { text: "OK", onPress: () => router.back() },
+      ]);
+    } catch (e) {
+      Alert.alert("Error", e.message || "Could not submit inspection.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
-
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl },
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Top App Bar */}
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: colors.surfaceContainerHigh, paddingTop: insets.top },
         ]}
       >
-        <ScreenTitle title="Vehicle inspection" />
-        <ErrorNotice message={error} />
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
+          <Ionicons name="menu" size={24} color={colors.onSurfaceVariant} />
+        </Pressable>
+        <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+        <View style={[styles.topAvatar, { backgroundColor: colors.surfaceVariant }]}>
+          <Ionicons name="person" size={20} color={colors.onSurfaceVariant} />
+        </View>
+      </View>
 
-        {loading ? (
-          <SkeletonCard lines={4} />
-        ) : !inspection ? (
-          <EmptyState
-            title="No inspection on record"
-            message="Your dispatcher will record inspections for your assigned vehicle."
-          />
-        ) : (
-          <>
-            <Card>
-              <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Latest inspection</Text>
-              <Detail label="Vehicle" value={inspection.plate_number ?? "—"} />
-              <Detail label="Type" value={inspection.inspection_type ?? "—"} />
-              <Detail
-                label="Date"
-                value={inspection.inspection_date ? new Date(inspection.inspection_date).toLocaleDateString() : "—"}
-              />
-              <Detail label="Status" value={inspection.status ?? "—"} />
-              <Detail label="Severity" value={inspection.severity ?? "—"} />
-              <Detail label="Vehicle status" value={inspection.vehicle_status ?? "—"} />
-            </Card>
+      <ScrollView
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 120 }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Heading */}
+        <View style={styles.heading}>
+          <Text style={[styles.headingTitle, { color: colors.onSurface }]}>
+            Start Your Shift
+          </Text>
+          <Text style={[styles.headingSub, { color: colors.onSurfaceVariant }]}>
+            1-Minute Pre-Shift Check
+          </Text>
+        </View>
 
-            {checklist ? (
-              <Card>
-                <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Checklist</Text>
-                <Text style={[styles.checklist, { color: colors.onSurface }]}>
-                  {typeof checklist === "string"
-                    ? checklist
-                    : JSON.stringify(checklist, null, 2)}
+        {/* Vehicle Info Card */}
+        <View
+          style={[
+            styles.vehicleCard,
+            { backgroundColor: colors.surfaceContainerHighest },
+          ]}
+        >
+          <View style={[styles.vehicleImgPlaceholder, { backgroundColor: colors.surfaceVariant }]}>
+            <Ionicons name="car" size={36} color={colors.onSurfaceVariant} />
+          </View>
+          <View>
+            <Text style={[styles.vehicleCardLabel, { color: colors.onSurfaceVariant }]}>
+              Vehicle & Driver
+            </Text>
+            <Text style={[styles.vehicleCardName, { color: colors.onSurface }]}>
+              Assigned Vehicle
+            </Text>
+            <Text style={[styles.vehicleCardDriver, { color: colors.onSurface }]}>
+              Current Driver
+            </Text>
+          </View>
+        </View>
+
+        {/* Checklist */}
+        <View style={styles.checklist}>
+          {CHECKLIST.map((item, idx) => {
+            const status = statuses[item.id];
+            const isPass = status === "PASS";
+            const isFail = status === "FAIL";
+
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.checkItem,
+                  { backgroundColor: colors.surfaceContainer },
+                ]}
+              >
+                <Text style={[styles.checkItemLabel, { color: colors.onSurface }]}>
+                  {idx + 1}. {item.label}
                 </Text>
-              </Card>
-            ) : null}
+                <View style={styles.checkBtnRow}>
+                  {/* PASS button */}
+                  <Pressable
+                    onPress={() => setStatus(item.id, "PASS")}
+                    style={[
+                      styles.checkBtn,
+                      {
+                        backgroundColor: isPass
+                          ? colors.secondaryContainer
+                          : colors.surfaceContainerHighest,
+                        borderColor: isPass ? colors.secondary : colors.outlineVariant,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={20}
+                      color={isPass ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                    />
+                    <Text
+                      style={[
+                        styles.checkBtnText,
+                        { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
+                      ]}
+                    >
+                      {item.passLabel || "PASS"}
+                    </Text>
+                  </Pressable>
 
-            {inspection.findings ? (
-              <Card>
-                <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>Findings</Text>
-                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>{inspection.findings}</Text>
-              </Card>
-            ) : null}
-          </>
-        )}
+                  {/* FAIL button */}
+                  <Pressable
+                    onPress={() => setStatus(item.id, "FAIL")}
+                    style={[
+                      styles.checkBtn,
+                      {
+                        backgroundColor: isFail
+                          ? colors.errorContainer
+                          : colors.surfaceContainerHighest,
+                        borderColor: isFail ? colors.error : colors.outlineVariant,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.failLabel === "WARNING" ? "warning" : "close-circle"}
+                      size={20}
+                      color={isFail ? colors.onErrorContainer : colors.onSurfaceVariant}
+                    />
+                    <Text
+                      style={[
+                        styles.checkBtnText,
+                        { color: isFail ? colors.onErrorContainer : colors.onSurface },
+                      ]}
+                    >
+                      {item.failLabel || "FAIL"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Remarks input when failed */}
+                {isFail && (
+                  <TextInput
+                    placeholder="Describe issue..."
+                    placeholderTextColor={colors.outline}
+                    value={remarks[item.id] || ""}
+                    onChangeText={(text) =>
+                      setRemarks((prev) => ({ ...prev, [item.id]: text }))
+                    }
+                    style={[
+                      styles.remarkInput,
+                      {
+                        borderColor: colors.outlineVariant,
+                        color: colors.onSurface,
+                        backgroundColor: colors.surfaceContainerLow,
+                      },
+                    ]}
+                    multiline
+                  />
+                )}
+              </View>
+            );
+          })}
+        </View>
       </ScrollView>
+
+      {/* Start Shift CTA */}
+      <View
+        style={[
+          styles.footer,
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.outlineVariant,
+            paddingBottom: insets.bottom + 16,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={handleSubmit}
+          disabled={!allAnswered || submitting}
+          style={({ pressed }) => [
+            styles.startBtn,
+            {
+              backgroundColor:
+                allAnswered && !submitting
+                  ? colors.primary
+                  : colors.surfaceVariant,
+              opacity: pressed ? 0.9 : 1,
+            },
+          ]}
+        >
+          <Ionicons
+            name={allAnswered ? "play" : "lock-closed"}
+            size={20}
+            color={allAnswered ? colors.onPrimary : colors.onSurfaceVariant}
+          />
+          <Text
+            style={[
+              styles.startBtnText,
+              { color: allAnswered ? colors.onPrimary : colors.onSurfaceVariant },
+            ]}
+          >
+            {submitting ? "SUBMITTING..." : "START SHIFT"}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
-  checklist: {
-    fontFamily: fonts.data,
-    fontSize: 13,
-    lineHeight: 18,
+  root: { flex: 1 },
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: moderateScale(12),
+    height: moderateScale(48) + 0,
+  },
+  backBtn: {
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: TOUCH_TARGET / 2,
+  },
+  topBarTitle: {
+    fontSize: moderateScale(24),
+    fontFamily: fonts.displayBold,
+    lineHeight: moderateScale(32),
+  },
+  topAvatar: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scroll: {
+    alignItems: "center",
+    paddingHorizontal: moderateScale(16),
+    paddingTop: moderateScale(24),
+    gap: moderateScale(16),
+  },
+  heading: { alignItems: "center", gap: moderateScale(4), width: "100%" },
+  headingTitle: { fontSize: moderateScale(28), fontFamily: fonts.displayBold, lineHeight: moderateScale(36), textAlign: "center" },
+  headingSub: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24), textAlign: "center" },
+  vehicleCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(12),
+    padding: moderateScale(12),
+    borderRadius: moderateScale(12),
+    width: "100%",
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  vehicleImgPlaceholder: {
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(8),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  vehicleCardLabel: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  vehicleCardName: { fontSize: moderateScale(20), fontFamily: fonts.displayBold, lineHeight: moderateScale(28) },
+  vehicleCardDriver: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24) },
+  checklist: { gap: moderateScale(12), width: "100%" },
+  checkItem: {
+    borderRadius: moderateScale(12),
+    padding: moderateScale(12),
+    gap: moderateScale(8),
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+    minHeight: moderateScale(72),
+  },
+  checkItemLabel: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(20),
+  },
+  checkBtnRow: { flexDirection: "row", gap: moderateScale(8) },
+  checkBtn: {
+    flex: 1,
+    height: TOUCH_TARGET,
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: moderateScale(6),
+  },
+  checkBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  remarkInput: {
+    borderWidth: 1,
+    borderRadius: moderateScale(8),
+    padding: moderateScale(10),
+    fontSize: moderateScale(14),
+    fontFamily: fonts.body,
+    lineHeight: moderateScale(20),
+    minHeight: moderateScale(60),
+    textAlignVertical: "top",
+  },
+  footer: {
+    paddingHorizontal: moderateScale(16),
+    paddingTop: moderateScale(12),
+    borderTopWidth: 1,
+  },
+  startBtn: {
+    height: moderateScale(56),
+    borderRadius: moderateScale(12),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: moderateScale(8),
+  },
+  startBtnText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.displayBold,
+    lineHeight: moderateScale(20),
+    letterSpacing: 0.5,
   },
 });

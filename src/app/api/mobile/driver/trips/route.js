@@ -22,7 +22,7 @@ const STATUS_GROUPS = {
     "Driver Assigned",
     "Dispatched",
   ],
-  active: ["Driver Accepted", "Trip Started", "En Route", "Arrived", "In Progress"],
+  active: ["Driver Accepted", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"],
   completed: ["Completed", "Cancelled"],
 };
 

@@ -3,35 +3,20 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import {
   ReservationCard,
   ReservationCardSkeleton,
 } from "@/components/reservations/reservation-card";
-import { AssignDialog } from "@/components/reservations/assign-dialog";
-import { ReviewDialog } from "@/components/reservations/review-dialog";
+import { AiAssignDialog } from "@/components/reservations/ai-assign-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequests,
-  startReview,
-  approveTransportRequest,
-  rejectTransportRequest,
   assignResources,
+  cancelRequest,
   pullTransportRequests,
 } from "@/services/transport.service";
-import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { groupQueue, QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { cn } from "@/lib/utils";
 import {
@@ -53,7 +38,7 @@ import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header"
 // (Today / Upcoming / In Progress / Completed / Cancelled) are derived from each
 // request's fleet_status and pickup time, and every active tab is auto-sorted by
 // derived_priority (the priority engine's output — never a human choice). The
-// same review / approve / reject / assign dialogs back the whole surface.
+// same AI-assisted assign / manual assign / cancel dialogs back the whole surface.
 const REFETCH_MS = 30_000;
 
 const TAB_META = {
@@ -72,16 +57,11 @@ const TAB_ACTIVE = {
   secondary: "border-border bg-hover text-foreground",
 };
 
-const isReviewable = (status) => status === L.PENDING || status === L.UNDER_REVIEW;
-
 export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
   const [tab, setTab] = useState("today");
   const [search, setSearch] = useState("");
-  const [reviewing, setReviewing] = useState(null);
-  const [rejecting, setRejecting] = useState(null);
-  const [rejectReason, setRejectReason] = useState("");
   const [assigning, setAssigning] = useState(null);
   const [assignError, setAssignError] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -130,38 +110,15 @@ export default function UnifiedQueuePage() {
     onError: (e) => toast.error(e.message || "Failed to pull requests"),
   });
 
-  const reviewMutation = useMutation({
-    mutationFn: (r) => startReview(r.request_id),
-    onMutate: (r) => setBusyId(r.request_id),
-    onSuccess: (data, r) => {
-      toast.success("Review started — opening workspace");
-      setReviewing(r);
-      invalidate();
-    },
-    onError: (e) => toast.error(e.message || "Failed to start review"),
-    onSettled: () => setBusyId(null),
-  });
-
-  const approveMutation = useMutation({
-    mutationFn: (r) => approveTransportRequest(r.request_id),
+  const cancelMutation = useMutation({
+    mutationFn: (r) => cancelRequest(r.request_id),
     onMutate: (r) => setBusyId(r.request_id),
     onSuccess: () => {
-      toast.success("Request approved — ready to assign");
+      toast.success("Request cancelled — Booking will be notified");
       invalidate();
     },
-    onError: (e) => toast.error(e.message || "Failed to approve request"),
+    onError: (e) => toast.error(e.message || "Failed to cancel request"),
     onSettled: () => setBusyId(null),
-  });
-
-  const rejectMutation = useMutation({
-    mutationFn: ({ id, reason }) => rejectTransportRequest(id, reason),
-    onSuccess: () => {
-      toast.success("Request rejected — Booking will be notified");
-      setRejecting(null);
-      setRejectReason("");
-      invalidate();
-    },
-    onError: (e) => toast.error(e.message || "Failed to reject request"),
   });
 
   const assignMutation = useMutation({
@@ -187,16 +144,6 @@ export default function UnifiedQueuePage() {
         setAssignError(e);
       } else toast.error(e.message || "Failed to assign resources");
     },
-  });
-
-  const flagsMutation = useMutation({
-    mutationFn: ({ request, isVip, isEmergency }) =>
-      setRequestFlags(request.request_id, { isVip, isEmergency }),
-    onSuccess: (_res, { request }) => {
-      toast.success("Flags updated — priority recomputed");
-      invalidate();
-    },
-    onError: (e) => toast.error(e.message || "Failed to update flags"),
   });
 
   // Group into the five tabs, each auto-sorted by derived_priority.
@@ -452,12 +399,7 @@ export default function UnifiedQueuePage() {
               request={r}
               permissions={permissions}
               isBusy={busyId === r.request_id}
-              onReview={(req) => reviewMutation.mutate(req)}
-              onApprove={(req) => approveMutation.mutate(req)}
-              onReject={(req) => {
-                setRejectReason("");
-                setRejecting(req);
-              }}
+              onCancel={(req) => cancelMutation.mutate(req)}
               onAssign={(req) => {
                 setAssignError(null);
                 setAssigning(req);
@@ -467,106 +409,17 @@ export default function UnifiedQueuePage() {
         </div>
       )}
 
-      <Dialog
-        open={!!rejecting}
-        onOpenChange={(open) => {
-          if (!open) {
-            setRejecting(null);
-            setRejectReason("");
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Reject Request?</DialogTitle>
-            <DialogDescription>
-              Booking will be notified so the guest can be re-routed. This cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="px-6 pt-4">
-            <label className="text-sm font-medium text-foreground" htmlFor="reject-reason">
-              Reason (optional)
-            </label>
-            <Input
-              id="reject-reason"
-              className="mt-1.5"
-              placeholder="e.g. No vehicle available for that window"
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setRejecting(null);
-                setRejectReason("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={rejectMutation.isPending}
-              onClick={() =>
-                rejecting &&
-                rejectMutation.mutate({ id: rejecting.request_id, reason: rejectReason || null })
-              }
-            >
-              Reject Request
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {Boolean(reviewing) && (
-        <ReviewDialog
-          key={reviewing?.request_id || "review-workspace"}
-          request={reviewing}
-          isOpen={Boolean(reviewing)}
-          onClose={() => setReviewing(null)}
-          onApprove={(req) => {
-            setReviewing(null);
-            approveMutation.mutate(req);
-          }}
-          onReject={(req) => {
-            setReviewing(null);
-            setRejectReason("");
-            setRejecting(req);
-          }}
-          onAssign={async (req, recommended) => {
-            setReviewing(null);
-            // "Approve & Assign Now": one click should commit, not bounce to the
-            // dialog. The assign endpoint refuses anything that has not cleared
-            // APPROVED and refuses a bad pair it would have to override, so this
-            // chain approves first, then assigns the recommended pair, and only
-            // falls back to the manual assign dialog when there is nothing to
-            // auto-assign (no eligible pair) or the server blocked it.
-            try {
-              await approveMutation.mutateAsync(req);
-            } catch {
-              return;
-            }
-            if (recommended && (recommended.vehicleId || recommended.driverId)) {
-              assignMutation.mutate({ request: req, ...recommended, force: false });
-            } else {
-              setAssignError(null);
-              setAssigning(req);
-            }
-          }}
-          isPending={approveMutation.isPending || rejectMutation.isPending || assignMutation.isPending}
-        />
-      )}
-
-      <AssignDialog
+      <AiAssignDialog
+        key={assigning?.request_id || "assign-workspace"}
         request={assigning}
-        conflictError={assignError}
-        isPending={assignMutation.isPending}
+        isOpen={Boolean(assigning)}
         onClose={() => {
           setAssigning(null);
           setAssignError(null);
         }}
-        onSubmit={(payload) => assignMutation.mutate(payload)}
+        onAssign={(payload) => assignMutation.mutate(payload)}
+        isPending={assignMutation.isPending}
+        conflictError={assignError}
       />
     </div>
   );

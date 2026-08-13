@@ -35,9 +35,11 @@ import {
 // rather than an error.
 const EVENT_STYLE = {
   [E.CREATED]: { icon: CircleDot, tone: "secondary", label: "Created" },
-  [E.REVIEWED]: { icon: Clock, tone: "info", label: "Review started" },
-  [E.APPROVED]: { icon: CheckCircle2, tone: "success", label: "Approved" },
-  [E.REJECTED]: { icon: XCircle, tone: "danger", label: "Rejected" },
+  // Legacy event types (pre-removal of the review step) kept as literal strings
+  // so historical timeline rows still render readably.
+  reviewed: { icon: Clock, tone: "info", label: "Review started" },
+  approved: { icon: CheckCircle2, tone: "success", label: "Approved" },
+  rejected: { icon: XCircle, tone: "danger", label: "Rejected" },
   [E.VEHICLE_RECOMMENDED]: { icon: Sparkles, tone: "info", label: "Vehicle recommended" },
   [E.DRIVER_RECOMMENDED]: { icon: Sparkles, tone: "info", label: "Driver recommended" },
   [E.VEHICLE_ASSIGNED]: { icon: CarFront, tone: "primary", label: "Vehicle assigned" },

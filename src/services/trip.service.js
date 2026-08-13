@@ -20,10 +20,6 @@ export async function updateTrip(id, trip) {
   return apiFetch(`/api/trips/${id}`, { method: "PUT", body: trip });
 }
 
-export async function updateTripStatus(id, status) {
-  return apiFetch(`/api/trips/${id}/status`, { method: "PUT", body: { status } });
-}
-
 export async function getTripLocations(tripId) {
   return apiFetch(`/api/trips/${tripId}/locations`);
 }

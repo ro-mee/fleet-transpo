@@ -16,7 +16,12 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ],
+      "package": "com.fleet.mobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -36,6 +41,12 @@
         }
       ],
       "expo-font"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6c79b4f9-0061-4eb5-a07f-b7b0be559f43"
+      }
+    }
   }
 }

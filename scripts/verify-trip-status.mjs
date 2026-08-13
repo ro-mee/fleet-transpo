@@ -1,15 +1,15 @@
 // DB-backed verification harness for the trip-status sync (task 17 / plan steps).
 //
 // Tasks 8-13 closed the trip-status sync holes: completing or cancelling a trip
-// through PUT /api/trips/[id]/status now reconciles the dispatch, the vehicle,
-// the driver and the underlying Booking request, and writes the timeline. This
-// harness proves that end-to-end against the live database through the REAL
-// route handler:
+// now reconciles the dispatch, the vehicle, the driver and the underlying
+// Booking request, and writes the timeline. This harness proves that
+// end-to-end against the live database through the REAL semantic route
+// handlers (the generic /status route was removed):
 //
-//   (a) PUT {status:"Completed", end_odometer} -> dispatch Completed, vehicle
+//   (a) PUT /complete {end_odometer} -> dispatch Completed, vehicle
 //       and driver re-synced, request Completed, a `trip_completed` event on
 //       the timeline.
-//   (b) PUT {status:"Cancelled"} on a fresh trip -> dispatch Cancelled,
+//   (b) PUT /cancel on a fresh trip -> dispatch Cancelled,
 //       resources released, request Cancelled.
 //   (c) `management` gets 403 on the route (role dropped in task 11).
 //   (d) a driver calling start/complete on another driver's trip gets 404.
@@ -18,8 +18,8 @@
 // query (transportation_request at `Assigned`, an In Progress dispatch linked
 // by request_id, and a Trip Started trip), because driving every hop through
 // the integration webhook + approve/dispatch routes is out of scope. The ACT
-// under test — PUT /api/trips/[id]/status — is the real handler, and its
-// downstream sync (status.service / trip-lifecycle.service) runs as shipped.
+// under test — complete/cancel — is the real handler, and its downstream sync
+// (status.service / trip-lifecycle.service) runs as shipped.
 //
 // Every row this run creates is soft-deleted at the end; reservation_events
 // (append-only) and integration_log rows for our own requests are removed by
@@ -45,9 +45,12 @@ function check(label, condition, detail) {
 }
 
 // ---------------------------------------------------------------------------
-// Route under test: PUT /api/trips/[id]/status (+ start for the ownership 404).
+// Routes under test: complete / cancel (+ start for the ownership 404).
+// The generic /status route was removed; transitions go through semantic
+// endpoints that all delegate to the transition layer.
 // ---------------------------------------------------------------------------
-const tripStatus = await app("app/api/trips/[id]/status/route.js");
+const tripComplete = await app("app/api/trips/[id]/complete/route.js");
+const tripCancel = await app("app/api/trips/[id]/cancel/route.js");
 const tripStart = await app("app/api/trips/[id]/start/route.js");
 
 const ADMIN = { user: { employeeId: 8, role: "admin", email: "admin@harness" } };
@@ -202,11 +205,11 @@ try {
   // -------------------------------------------------------------------------
   // (a) Complete the trip via the real status route.
   // -------------------------------------------------------------------------
-  console.log("2. PUT status Completed");
+  console.log("2. PUT complete");
   setSession();
   const complete = await expectStatus(
-    tripStatus.PUT,
-    makeRequest("PUT", tripUrl(chainA.tripId), { status: "Completed", end_odometer: 1010 }),
+    tripComplete.PUT,
+    makeRequest("PUT", tripUrl(chainA.tripId), { end_odometer: 1010 }),
     putParams(chainA.tripId)
   );
   check("complete returns 200", complete.status === 200, `got ${complete.status}`);
@@ -243,11 +246,11 @@ try {
   const chainB = await seedChain();
   console.log(`3. Seeded request #${chainB.requestId} -> dispatch #${chainB.dispatchId} -> trip #${chainB.tripId} (cancel chain)`);
 
-  console.log("4. PUT status Cancelled");
+  console.log("4. PUT cancel");
   setSession();
   const cancel = await expectStatus(
-    tripStatus.PUT,
-    makeRequest("PUT", tripUrl(chainB.tripId), { status: "Cancelled", reason: "harness" }),
+    tripCancel.PUT,
+    makeRequest("PUT", tripUrl(chainB.tripId), { reason: "harness" }),
     putParams(chainB.tripId)
   );
   check("cancel returns 200", cancel.status === 200, `got ${cancel.status}`);
@@ -276,11 +279,11 @@ try {
   console.log("5. management gets 403");
   setSession({ user: { employeeId: 8, role: "management", email: "mgmt@harness" } });
   const mgmt = await expectStatus(
-    tripStatus.PUT,
-    makeRequest("PUT", tripUrl(chainA.tripId), { status: "Completed", end_odometer: 1100 }),
+    tripComplete.PUT,
+    makeRequest("PUT", tripUrl(chainA.tripId), { end_odometer: 1100 }),
     putParams(chainA.tripId)
   );
-  check("management returns 403 on status", mgmt.status === 403, `got ${mgmt.status}`);
+  check("management returns 403 on complete", mgmt.status === 403, `got ${mgmt.status}`);
 
   // -------------------------------------------------------------------------
   // (d) a driver probing another driver's trip gets 404 (start route).

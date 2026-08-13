@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Building2,
   CarFront,
-  CheckCircle2,
   Clock,
   Eye,
   MapPin,
@@ -24,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 
-const isReviewable = (status) => status === L.PENDING || status === L.UNDER_REVIEW;
+const isTerminal = (status) => status === L.COMPLETED || status === L.CANCELLED;
 
 const PRIORITY_RAIL = {
   Urgent: "border-l-danger",
@@ -57,9 +56,7 @@ function driverName(driver) {
 export function ReservationCard({
   request,
   permissions = {},
-  onReview,
-  onApprove,
-  onReject,
+  onCancel,
   onAssign,
   isBusy = false,
 }) {
@@ -74,8 +71,7 @@ export function ReservationCard({
   const vehicleClass = category || r.requested_vehicle_type || null;
   const unresolved = !category && Boolean(r.requested_vehicle_type);
 
-  const reviewable = isReviewable(status);
-  const assignable = status === L.APPROVED || status === L.SCHEDULED;
+  const assignable = status === L.PENDING || status === L.SCHEDULED;
 
   return (
     <Card
@@ -231,41 +227,17 @@ export function ReservationCard({
             View
           </Link>
 
-          {status === L.PENDING && permissions.update && (
+          {!isTerminal(status) && permissions.update && (
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
+              className="h-8 px-3 rounded-full text-danger hover:bg-danger/10 font-bold text-xs cursor-pointer"
               disabled={isBusy}
-              onClick={() => onReview?.(r)}
-              className="h-8 px-4 rounded-full border-primary/40 text-primary font-bold text-xs hover:bg-primary/10 cursor-pointer shadow-2xs"
+              onClick={() => onCancel?.(r)}
             >
-              Start Review
+              <XCircle className="w-3.5 h-3.5 mr-1" />
+              Cancel
             </Button>
-          )}
-
-          {reviewable && permissions.approve && (
-            <>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-8 px-3 rounded-full text-danger hover:bg-danger/10 font-bold text-xs cursor-pointer"
-                disabled={isBusy}
-                onClick={() => onReject?.(r)}
-              >
-                <XCircle className="w-3.5 h-3.5 mr-1" />
-                Reject
-              </Button>
-              <Button
-                variant="success"
-                size="sm"
-                className="h-8 px-4 rounded-full font-bold text-xs cursor-pointer shadow-2xs"
-                disabled={isBusy}
-                onClick={() => onApprove?.(r)}
-              >
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                Approve
-              </Button>
-            </>
           )}
 
           {assignable && permissions.assign && (
@@ -276,7 +248,7 @@ export function ReservationCard({
               className="h-8 px-4 rounded-full bg-primary text-white dark:text-slate-950 font-bold text-xs shadow-2xs hover:bg-primary/90 cursor-pointer"
             >
               <Send className="w-3.5 h-3.5 mr-1" />
-              {r.vehicle_id && r.driver_id ? "Reassign" : "Assign"}
+              Assign
             </Button>
           )}
         </div>

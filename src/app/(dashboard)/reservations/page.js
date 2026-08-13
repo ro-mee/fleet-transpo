@@ -54,7 +54,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 const columnHelper = createColumnHelper();
 
 // Statuses that still need someone to do something, for the "Open" stat.
-const OPEN_STATUSES = [L.PENDING, L.UNDER_REVIEW, L.APPROVED, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS];
+const OPEN_STATUSES = [L.PENDING, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS];
 
 const isSameLocalDay = (value, day) => {
   if (!value) return false;
@@ -212,7 +212,7 @@ export default function ReservationsPage() {
 
   const displayRequests = useMemo(() => {
     if (activeFilter === "open") return requests.filter((r) => OPEN_STATUSES.includes(r.fleet_status));
-    if (activeFilter === "review") return requests.filter((r) => r.fleet_status === L.PENDING || r.fleet_status === L.UNDER_REVIEW);
+    if (activeFilter === "review") return requests.filter((r) => r.fleet_status === L.PENDING);
     if (activeFilter === "today") return requests.filter((r) => isSameLocalDay(r.pickup_datetime, today));
     return requests;
   }, [requests, activeFilter, today]);
@@ -237,8 +237,8 @@ export default function ReservationsPage() {
       onClick: () => setActiveFilter("open"),
     },
     {
-      label: "Awaiting Review",
-      value: requests.filter((r) => r.fleet_status === L.PENDING || r.fleet_status === L.UNDER_REVIEW).length,
+      label: "Awaiting Assignment",
+      value: requests.filter((r) => r.fleet_status === L.PENDING).length,
       icon: Inbox,
       tone: "info",
       trend: "needs a decision",
@@ -259,7 +259,7 @@ export default function ReservationsPage() {
   const filters = [
     { value: "all", label: "All requests" },
     { value: "open", label: "Open" },
-    { value: "review", label: "Needs review" },
+    { value: "review", label: "Needs assignment" },
     { value: "today", label: "Today" },
   ];
 

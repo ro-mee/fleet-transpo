@@ -9,7 +9,7 @@
 //   (a) PUT /api/integration/transport-requests/[id]/cancel on a request that
 //       has an open dispatch + trip -> dispatch Cancelled AND trip Cancelled
 //       AND request Cancelled.
-//   (b) PUT /api/dispatch/[id]/status {status:"Cancelled"} -> trip Cancelled AND
+//   (b) PUT /api/dispatch/[id]/cancel -> trip Cancelled AND
 //       (request-driven dispatch) request Cancelled.
 //
 // Seeding note: the request -> dispatch -> trip chain is seeded DIRECTLY via
@@ -44,7 +44,7 @@ function check(label, condition, detail) {
 // Routes under test.
 // ---------------------------------------------------------------------------
 const requestCancel = await app("app/api/integration/transport-requests/[id]/cancel/route.js");
-const dispatchStatus = await app("app/api/dispatch/[id]/status/route.js");
+const dispatchCancel = await app("app/api/dispatch/[id]/cancel/route.js");
 
 const ADMIN = { user: { employeeId: 8, role: "admin", email: "admin@harness" } };
 
@@ -222,11 +222,11 @@ try {
 
   setSession();
   const dispRes = await expectStatus(
-    dispatchStatus.PUT,
-    makeRequest("PUT", `http://localhost:3000/api/harness/dispatch/${chainB.dispatchId}/status`, { status: "Cancelled" }),
+    dispatchCancel.PUT,
+    makeRequest("PUT", `http://localhost:3000/api/harness/dispatch/${chainB.dispatchId}/cancel`, { reason: "harness" }),
     putParams(chainB.dispatchId)
   );
-  check("dispatch status PUT returns 200", dispRes.status === 200, `got ${dispRes.status}`);
+  check("dispatch cancel PUT returns 200", dispRes.status === 200, `got ${dispRes.status}`);
 
   const { rows: b } = await query(
     `SELECT d.status AS dispatch_status, t.trip_status, r.fleet_status AS request_status
@@ -243,8 +243,8 @@ try {
   // The dispatch route guards its own transition machine — a terminal dispatch
   // cannot be cancelled again.
   const again = await expectStatus(
-    dispatchStatus.PUT,
-    makeRequest("PUT", `http://localhost:3000/api/harness/dispatch/${chainB.dispatchId}/status`, { status: "Cancelled" }),
+    dispatchCancel.PUT,
+    makeRequest("PUT", `http://localhost:3000/api/harness/dispatch/${chainB.dispatchId}/cancel`, { reason: "harness" }),
     putParams(chainB.dispatchId)
   );
   check("re-cancelling a Cancelled dispatch is refused", again.status === 409, `got ${again.status}`);

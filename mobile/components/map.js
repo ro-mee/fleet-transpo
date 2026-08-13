@@ -54,9 +54,9 @@ export default function TripMap({
     () =>
       known.length > 0
         ? [
-            known.reduce((s, p) => s + p[0], 0) / known.length,
-            known.reduce((s, p) => s + p[1], 0) / known.length,
-          ]
+          known.reduce((s, p) => s + p[0], 0) / known.length,
+          known.reduce((s, p) => s + p[1], 0) / known.length,
+        ]
         : [14.5159, 120.9953],
     [known]
   );
@@ -126,7 +126,7 @@ export default function TripMap({
   const handleOpenGoogleMaps = () => {
     if (destValid) {
       const gurl = `https://www.google.com/maps/dir/?api=1&destination=${destination.latitude},${destination.longitude}`;
-      Linking.openURL(gurl).catch(() => {});
+      Linking.openURL(gurl).catch(() => { });
     }
   };
 

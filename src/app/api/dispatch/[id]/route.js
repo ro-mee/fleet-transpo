@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
+import { setDispatchStatus } from "@/services/transition.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { assertDispatchOwnership } from "@/lib/api/ownership";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
@@ -105,7 +106,6 @@ const WRITABLE_COLUMNS = [
   "actual_arrival",
   "estimated_distance",
   "estimated_duration",
-  "status",
   "priority",
   "notes",
 ];
@@ -147,13 +147,12 @@ export async function PUT(req, { params }) {
       }
     }
 
-    // Auto-transition from Pending Reassignment back to Scheduled if reassigning vehicle or driver
-    if (before[0]?.status === "Pending Reassignment" && body.status === undefined) {
-      if (body.vehicle_id !== undefined || body.driver_id !== undefined) {
-        columns.push("status");
-        values.push("Scheduled");
-      }
-    }
+    // Status is not a free-form field here (removed from WRITABLE_COLUMNS) —
+    // it only moves through the transition service. The one structural case is
+    // reassigning a Pending Reassignment dispatch: committing a vehicle and/or
+    // driver flips it back to Scheduled.
+    const reassigning = before[0]?.status === "Pending Reassignment"
+      && (body.vehicle_id !== undefined || body.driver_id !== undefined);
 
     if (columns.length === 0) return err("No updatable fields provided", 400);
 
@@ -241,6 +240,13 @@ export async function PUT(req, { params }) {
       [...values, id]
     );
     if (!rows[0]) return err("Dispatch not found", 404);
+
+    // Reassigning a Pending Reassignment dispatch moves it back to Scheduled
+    // through the state machine (validated, side-effects + audit).
+    if (reassigning && rows[0].status === "Pending Reassignment") {
+      await setDispatchStatus({ dispatchId: id, to: "Scheduled", session });
+    }
+
     const vid = body.vehicle_id || before[0]?.vehicle_id, did = body.driver_id || before[0]?.driver_id;
     const p = []; if (vid) p.push(syncVehicleStatus(vid)); if (did) p.push(syncDriverStatus(did)); if (rows[0]?.reservation_id) p.push(syncDispatchReservation(id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(id)); await Promise.all(p);
     return ok(rows[0]);

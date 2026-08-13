@@ -115,8 +115,10 @@ grants (see §5).
 
 ### 1.5 Verified-consistent (no change needed)
 
-- Reservation lifecycle (review/approve/reject/assign/cancel/reschedule) routes
-  refuse exactly the roles `can()` denies; `scripts/verify-rbac.mjs` pins this.
+- Reservation lifecycle (assign/cancel/reschedule) routes — the review/approve/
+  reject endpoints were withdrawn in migration 037 (request is assignable from
+  Pending) — refuse exactly the roles `can()` denies; `scripts/verify-rbac.mjs`
+  pins this.
 - Fuel read/write split (driver may log fuel + read own; dispatcher read-only).
 - Driver portal (`/driver`, `/api/driver/*`) is driver-only end to end.
 - Notification *write* is restricted to `[system_admin, admin, fleet_manager,

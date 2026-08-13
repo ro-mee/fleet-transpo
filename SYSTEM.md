@@ -177,12 +177,64 @@ capstone/
 - M2M endpoints use `verifyServiceToken` (`src/lib/api/service-auth.js`, constant-time compare, Bearer or `?token=`, fail-closed when secret unset) — used by `/api/cron/sync` and the integration POST.
 - Ownership scoping: `src/lib/api/ownership.js` — `assertTripOwnership`, `assertDispatchOwnership` (404 for other drivers' rows), `resolveDriverScope` (403 if a driver requests another driver's data).
 
-### 4.3 State machines
-Centralized lifecycle logic lives in `src/lib/scheduling/` and server services:
-- **Reservation lifecycle** (`reservation-lifecycle.service.js` + `lib/scheduling/reservation-state.js`): strict 9-state chain `Pending → Under Review → Approved|Rejected → Scheduled → Assigned → In Progress → Completed`; `Cancelled` from any non-terminal. `advanceReservation()` is the *only* place `fleet_status` changes; it validates the hop, persists, appends a timeline event, and notifies Booking.
-- **Dispatch** (`dispatch-state.js`): `Scheduled → In Progress → Completed | Cancelled`.
-- **Trip** (`trip-state.js`): 13-state `chk_trip_status`; `canTransitionTrip` gates; Completed/Cancelled delegate to `completeTrip`/`cancelTrip` which cascade to vehicle/driver/dispatch/request.
-- `trip-lifecycle.service.js` — `completeTrip`, `cancelTrip`, `syncBusyTrip` (odometer validation, single UPDATE, cascades, audit).
+### 4.3 State machines — one job, three legs, then a loop
+The three lifecycle machines are **one continuous chain**, not three separate lists.
+The same job moves through them: **Transportation Request → Reservation → Dispatch →
+Trip**, and when the trip finishes the resources loop back into the pool. See
+§4.8 for the operative sequence; the diagram below shows the hand-offs.
+
+```
+TRANSPORTATION REQUEST (Booking) ──► RESERVATION ──► DISPATCH ──► TRIP
+   (external ingest)                   9-state      5-state      16-state
+                                             │          │            │
+                                             ▼          ▼            ▼
+                                       Scheduled   Scheduled     Assigned
+                                                          │      (live chain)
+                                                          ▼            ▼
+                                                   In Progress   Driver Accepted
+                                                          │            ▼
+                                                          ▼        Trip Started
+                                                   Completed ◄── En Route ──► Drop-off
+                                                          │            │
+                                                          ▼            ▼
+                               TRIP COMPLETED ◄──────────┴────────── Completed
+                                          │
+                                          ▼
+                     Re-evaluate driver + vehicle (see §4.8/§9)
+                     ─► Available / Next Scheduled Assignment /
+                        Restricted / Under Maintenance / Incident
+                                          │
+                                          └──► back to the available pool
+```
+
+Centralized lifecycle logic lives in `src/lib/scheduling/` and server services.
+The machinery (kept, plus the actual state counts):
+- **Reservation** — `reservation-lifecycle.service.js` + `lib/scheduling/reservation-state.js`.
+  `advanceReservation()` is the *only* place `fleet_status` changes; it validates the
+  hop, persists, appends a timeline event, and notifies Booking. Legal transitions:
+  `Pending → Under Review → Approved|Rejected → Scheduled → Assigned → In Progress →
+  Completed`; `Cancelled` from any non-terminal. Terminal states are locked.
+- **Dispatch** — `dispatch-state.js` (`chk_dispatch_status` CHECK + explicit
+  `Pending Reassignment`). Edges: `Scheduled ⇄ Pending Reassignment → Cancelled`;
+  `Scheduled → In Progress`; `In Progress → Completed / Pending Reassignment /
+  Cancelled`; `Completed / Cancelled` terminal. `Pending Reassignment` is a first-class
+  state: a committed-then-released resource (incident, stand-down, driver/vehicle swap)
+  sits there until reassigned (→ `Scheduled`) or cancelled. Dispatch is created for a
+  request automatically (`dispatch-autocreate.service.js`) once a vehicle **and** a
+  driver are both committed.
+- **Trip** — `trip-state.js` (16-state graph, mirrors `chk_trip_status`).
+  `canTransitionTrip` gates single forward hops; two vocabularies coexist — a loose
+  legacy ingest cluster and the strict live driver chain (`Assigned → Driver Accepted →
+  Trip Started → At Pickup → Passenger Onboard → En Route → Drop-off → Completed`).
+  Cancellation is allowed from any non-terminal; `Completed` / `Cancelled` are locked.
+  `trip-lifecycle.service.js` (`completeTrip`, `cancelTrip`, `syncBusyTrip`) validates
+  the odometer, cascades status to vehicle/driver/dispatch/request, and writes the audit.
+
+> Ownership rule: the **transportation request** carries the booking intent, the
+> **dispatch** is the committed schedule on the board, and the **trip** is the executed
+> drive. Requests do not advance to `Assigned` until both halves (vehicle + driver) are
+> committed; dispatch is the entity that owns the operational timeline; trip completion
+> closes the loop and releases the resources.
 
 ### 4.4 Booking integration (anti-corruption layer)
 The external **Booking** subsystem owns guest data + approval. Fleet:
@@ -222,6 +274,109 @@ over the NextAuth cookie (see 4.2).
   immutable pair records (`pair_json`, score, reasons, validity window). The
   saved-recommendation card reads the active snapshot; unconsumed/past-`valid_until`
   is surfaced as expired with `?regenerate=1`.
+
+### 4.8 Dispatch eligibility, future availability & travel buffer
+
+These are the **formal eligibility rules**. SYSTEM.md is the spec of record; the
+two rules that were previously documented-only (future availability and the
+travel/safety-buffer gate) are now **enforced** in code — see the inline notes
+in 4.8.2 / 4.8.3 and §10.
+
+#### 4.8.1 The dispatchable predicate
+
+A **driver** is dispatchable for a requested trip when **all** hold:
+
+1. **Active availability** — not `Suspended`, `On Leave`, or `Off Duty`. Being
+   mid-trip is **not** itself "unavailable" for a *future* request (see 4.8.2),
+   so `On Trip` is excluded from the disqualifying set.
+2. **Qualified** — driver's license is valid on the pickup date (not expired).
+3. **Compatible with the vehicle** — appropriate class / seating fit for the
+   passenger count.
+4. **No overlapping assignment** — no active reservation or dispatch already
+   committed to this driver inside the requested window.
+5. **Enough travel + safety buffer** — the previous scheduled commitment clears
+   the requested pickup with the ETA + buffer rule of 4.8.3.
+6. **No blocker** — not on leave, no active incident / restriction, etc.
+
+A **vehicle** is dispatchable when **all** hold:
+
+1. **Operationally dispatchable** — status not `Under Maintenance`,
+   `Decommissioned`, or `Registration Expired`. `In Use` is **not** a blocker
+   for a *future* request (see 4.8.2); `Reserved` (a whole-day label) never
+   hides a genuinely free window.
+2. **Not grounded** — not grounded by an incident / not under an open maintenance
+   window on the pickup date.
+3. **Documents valid** — registration and insurance valid on the pickup date.
+4. **Free in the window** — no overlapping dispatch / reservation.
+5. **Right size** — seating capacity ≥ passenger count.
+
+#### 4.8.2 Future availability (current status ≠ future availability)
+
+Eligibility is evaluated against the **requested trip's time window**, not solely
+against the driver's or vehicle's **current** status label. A resource currently
+marked `On Trip` / `In Use` may still be eligible for a future booking if its
+current and scheduled assignments end early enough to satisfy the required travel
+time and safety buffer.
+
+- Example: *Juan is `On Trip` printing 2:00–5:00 PM today. A new booking starts
+  tomorrow 8:00 AM. His current trip ends long before that window, so he is
+  eligible.*
+- The time-aware authority is **window overlap** (`lib/scheduling/conflicts.js`),
+  which already implements the half-open rule for dispatches/reservations; the
+  status label must not short-circuit it for future windows.
+- **Enforced:** `lib/ai/pair-scoring.js` no longer disqualifies `On Trip` / `In Use`
+  unconditionally (removed from `UNAVAILABLE_STATUSES` /
+  `NON_DISPATCHABLE_VEHICLE_STATUSES`); a currently-busy-but-future-free resource
+  is offered unless an overlapping `_schedule_load` marks it genuinely busy.
+
+#### 4.8.3 Dynamic travel + safety buffer (spec)
+
+```
+earliest_next_available =
+    previous_scheduled_end
+  + travel_time_to_next_pickup      (TomTom travelTimeMin, /api/tomtom/route)
+  + safety_buffer
+```
+
+Decision rule:
+
+- requested `pickup_datetime >= earliest_next_available` → **eligible** ✅
+- requested `pickup_datetime <  earliest_next_available` → **ineligible** ❌
+
+- The safety buffer is **derived, not a fixed 30 minutes**: it scales with the
+  trip via a configurable offset on top of TomTom `travelTimeMin`, with a
+  configurable floor for very short hops and no blanket minimum forced on every
+  trip. **Enforced** — config `safetyBufferMinutes` / `bufferFloorMinutes` /
+  `travelBufferEnabled` (defaults in `src/lib/dispatch-policy.js`, editable at
+  `/settings/dispatch`); the rule lives in `src/lib/scheduling/travel-buffer.js`
+  (`earliest_next_available`) and is a **hard BLOCKING** gate at assign time via
+  `detectRequestConflicts` when the ETA + previous-commitment signals are present
+  (the assign route accepts a per-resource ETA, computed from TomTom coordinates
+  when supplied, else failing open). The queue-chip (batch) path stays advisory —
+  matching how chips never block while the assign gate is the authoritative 409.
+- The buffer reserves slack so one late finish cannot cascade into the next
+  pickup.
+
+#### 4.8.4 The operative sequence (booking → assignment → execution → re-evaluate)
+
+1. Booking / trip request enters (external ingest, §4.4).
+2. **Pending dispatch** — find eligible drivers (**4.8.1**) and eligible vehicles
+   (**4.8.1**) for the requested window.
+3. Check **driver ↔ vehicle compatibility**.
+4. Check **schedule conflicts** (`conflicts.js`).
+5. Check **travel time + safety buffer** (**4.8.3**).
+6. **Show valid assignments** (assign dialog / pair recommendations).
+7. Dispatcher **selects driver + vehicle**.
+8. **Final backend validation** — re-run the conflict gate; blocking findings 409
+   unless the dispatcher overrides with `force` (see `assign` route).
+9. **`Assigned`** — the transportation request advances.
+10. **Driver accepts**.
+11. **`Dispatched`** → **pre-trip verification** → **en route to pickup** →
+    **arrived at pickup** → **pickup started/completed** → **en route to
+    destination** → **arrived** → **drop-off completed** → **Trip completed**.
+12. **Re-evaluate driver + vehicle status** → `Available` / `Next Scheduled
+    Assignment` / `Restricted` / `Under Maintenance` (incident/grounding §7.3),
+    then return to the available pool for the next request (loop to step 1).
 
 ---
 
@@ -586,6 +741,17 @@ controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
   GET); `notifications/[id]` DELETE allows staff to delete any row, others only their own.
 - **`shouldGroundVehicle` is a stub** (see §7.3): always grounds when a `vehicleId` is
   present, ignoring the breakdown-regex/severity gating the comments describe.
+- **Future-availability is enforced** (§4.8.2): a driver on `On Trip` or a vehicle
+  on `In Use` is no longer excluded by status alone; `pair-scoring.js` now treats
+  window overlap (`_schedule_load`) as the authority, so a busy-now-but-free-tomorrow
+  resource is correctly offered. Removed `On Trip` from `UNAVAILABLE_STATUSES` and
+  `In Use` from `NON_DISPATCHABLE_VEHICLE_STATUSES`; tests updated.
+- **Travel + safety-buffer is enforced** (§4.8.3): `earliest_next_available` lives
+  in `src/lib/scheduling/travel-buffer.js` and is a hard `TRAVEL_BUFFER` BLOCKING
+  conflict at assign time when the ETA + previous-commitment signals are present
+  (TomTom coordinates when supplied, else fails open). Buffer config in
+  `dispatch-policy.js`. The `distance/25*60` value in `dispatch-advisor.js` remains
+  a scoring heuristic only.
 - **Mobile demo-driver mode was removed** — login is interactive only; `EXPO_PUBLIC_ENABLE_DEMO` is orphaned config in `mobile/.env`.
 - Route protection is via root `layout.js` → `DashboardLayout` → `RouteGuard` (client) + per-route API checks.
 - A driver hitting `/dashboard` directly would render it (UI-only exposure; data APIs still enforce roles).

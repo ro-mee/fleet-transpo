@@ -1,156 +1,206 @@
-import { useCallback, useEffect, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
-import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../../../lib/api";
-import { useTheme } from "../../../lib/theme-context";
-import { fonts, space } from "../../../lib/theme";
-import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
-import { mobileNotificationMeta } from "../../../lib/notifications/presentation";
+import { moderateScale } from '../../../lib/scaling';
+import { useCallback, useState } from "react";
 import {
-  Button,
-  Card,
-  EmptyState,
-  ErrorNotice,
-  ScreenTitle,
-  SkeletonCard,
-  StatusPill,
-} from "../../../components/ui";
-import { BrandBar } from "../../../components/logo";
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  Pressable,
+  RefreshControl,
+} from "react-native";
+import { useFocusEffect } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../../../lib/theme-context";
+import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { api } from "../../../lib/api";
 
-/**
- * In-app notifications feed (GET /api/notifications, self-scoped). Tapping an
- * unread notification marks it read and, when the row references an entity the
- * driver can act on, deep-links to the relevant tab (new dispatches land on
- * Home). Push notifications are a separate, later workstream — this is the
- * in-app inbox.
- */
-export default function Notifications() {
+const NOTIF_TYPE_ICONS = {
+  trip_assigned: { icon: "car", color: "primary" },
+  trip_cancelled: { icon: "close-circle", color: "error" },
+  trip_updated: { icon: "refresh-circle", color: "secondary" },
+  fuel_alert: { icon: "water", color: "warning" },
+  sos_acknowledged: { icon: "checkmark-circle", color: "secondary" },
+  dispatch_message: { icon: "megaphone", color: "primary" },
+};
+
+function NotifCard({ notif, colors, onPress }) {
+  const typeInfo = NOTIF_TYPE_ICONS[notif.type] || { icon: "notifications", color: "primary" };
+  const iconColor =
+    typeInfo.color === "error"
+      ? colors.error
+      : typeInfo.color === "secondary"
+      ? colors.secondary
+      : typeInfo.color === "warning"
+      ? colors.warning || "#D97706"
+      : colors.primary;
+  const bgColor =
+    typeInfo.color === "error"
+      ? colors.errorContainer
+      : typeInfo.color === "secondary"
+      ? colors.secondaryContainer
+      : "#E0E0FF";
+
+  const timeStr = notif.created_at
+    ? new Date(notif.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+
+  return (
+    <Pressable
+      onPress={() => onPress && onPress(notif)}
+      style={({ pressed }) => [
+        styles.notifCard,
+        {
+          backgroundColor: notif.is_read
+            ? colors.surfaceContainerLowest
+            : colors.surfaceContainerLow,
+          borderColor: notif.is_read ? colors.outlineVariant : colors.outline,
+          opacity: pressed ? 0.8 : 1,
+        },
+      ]}
+    >
+      {!notif.is_read && (
+        <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
+      )}
+      <View style={[styles.notifIconBox, { backgroundColor: bgColor }]}>
+        <Ionicons name={typeInfo.icon} size={22} color={iconColor} />
+      </View>
+      <View style={styles.notifContent}>
+        <View style={styles.notifRow}>
+          <Text style={[styles.notifTitle, { color: colors.onSurface }]} numberOfLines={1}>
+            {notif.title || "Notification"}
+          </Text>
+          <Text style={[styles.notifTime, { color: colors.onSurfaceVariant }]}>{timeStr}</Text>
+        </View>
+        <Text style={[styles.notifBody, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
+          {notif.message || notif.body}
+        </Text>
+      </View>
+    </Pressable>
+  );
+}
+
+export default function NotificationsTab() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
   const { colors } = useTheme();
 
-  const [items, setItems] = useState([]);
+  const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
     try {
-      setError(null);
       const data = await api.get("/api/notifications");
-      setItems(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e.message || "Could not load notifications.");
+      setNotifications(Array.isArray(data) ? data : []);
+    } catch {
+      // non-critical
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }, [load]);
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
 
-  const markRead = useCallback(async (id) => {
+  const markAllRead = async () => {
     try {
-      await api.put(`/api/notifications/${id}/read`);
-      setItems((prev) =>
-        prev.map((n) =>
-          n.notification_id === id ? { ...n, is_read: true } : n
-        )
-      );
-    } catch {
-      // Non-blocking; the row stays unread.
-    }
-  }, []);
+      await api.patch("/api/notifications/read-all");
+      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    } catch { /* ignore */ }
+  };
 
-  const open = useCallback(
-    (n) => {
-      markRead(n.notification_id);
-      const target = mobileNotificationTarget(n);
-      if (target) router.push(target);
-    },
-    [markRead, router]
+  // Group by date
+  const today = new Date().toDateString();
+  const todayNotifs = notifications.filter(
+    (n) => n.created_at && new Date(n.created_at).toDateString() === today
+  );
+  const earlierNotifs = notifications.filter(
+    (n) => !n.created_at || new Date(n.created_at).toDateString() !== today
   );
 
-  const markAllRead = useCallback(async () => {
-    try {
-      await api.put("/api/notifications/read-all");
-      setItems((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    } catch {
-      // ignore
+  const handleNotifPress = async (notif) => {
+    const id = notif.notification_id || notif.id;
+    if (!notif.is_read && id) {
+      try {
+        await api.patch(`/api/notifications/${id}/read`);
+        setNotifications((prev) =>
+          prev.map((n) => ((n.notification_id || n.id) === id ? { ...n, is_read: true } : n))
+        );
+      } catch { /* ignore */ }
     }
-  }, []);
+  };
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
+      {/* Top App Bar */}
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant, paddingTop: insets.top },
+        ]}
+      >
+        <View style={styles.topBarLeft}>
+          <Text style={[styles.topBarBrand, { color: colors.primary }]}>FleetOps</Text>
+          <View style={styles.titleBlock}>
+            <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Alerts</Text>
+            {unreadCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: colors.error }]}>
+                <Text style={[styles.badgeText, { color: colors.onError }]}>{unreadCount}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+        {unreadCount > 0 && (
+          <Pressable onPress={markAllRead} hitSlop={8}>
+            <Text style={[styles.markRead, { color: colors.primary }]}>Mark all read</Text>
+          </Pressable>
+        )}
+      </View>
 
       <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); load(); }}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
         }
       >
-        <View style={styles.header}>
-          <ScreenTitle title="Notifications" />
-          <Button
-            label="Mark all read"
-            variant="text"
-            size="sm"
-            onPress={markAllRead}
-          />
-        </View>
-        <ErrorNotice message={error} />
-
         {loading ? (
-          <View style={styles.skeletons}>
-            <SkeletonCard lines={3} />
-            <SkeletonCard lines={2} />
+          <View style={styles.emptyBox}>
+            <Text style={[styles.emptyText, { color: colors.onSurfaceVariant }]}>Loading...</Text>
           </View>
-        ) : items.length === 0 ? (
-          <EmptyState title="No notifications" message="Updates will appear here." />
+        ) : notifications.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="notifications-off-outline" size={48} color={colors.outline} />
+            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>All Caught Up</Text>
+            <Text style={[styles.emptyText, { color: colors.onSurfaceVariant }]}>
+              No notifications at this time.
+            </Text>
+          </View>
         ) : (
-          items.map((n) => (
-            <Pressable
-              key={n.notification_id}
-              onPress={() => open(n)}
-              accessibilityRole="button"
-            >
-              <Card tone={!n.is_read ? "info" : null}>
-                <View style={styles.cardTop}>
-                  <Text style={[styles.title, { color: colors.onSurface }]}>{n.title}</Text>
-                  {!n.is_read ? <View style={[styles.dot, { backgroundColor: colors.info }]} /> : null}
-                </View>
-                <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>{n.message}</Text>
-                {(() => {
-                  const meta = mobileNotificationMeta(n);
-                  const chips = [
-                    meta.category ? { label: meta.category.label + (meta.referenceId ? ` #${meta.referenceId}` : ""), tone: meta.category.tone } : null,
-                    meta.severity ? { label: meta.severity.label, tone: meta.severity.tone } : null,
-                  ].filter(Boolean);
-                  return chips.length ? (
-                    <View style={styles.chipRow}>
-                      {chips.map((c) => (
-                        <StatusPill key={c.label} label={c.label} tone={c.tone} />
-                      ))}
-                    </View>
-                  ) : null;
-                })()}
-                {n.sent_at ? (
-                  <Text style={[styles.time, { color: colors.onSurfaceVariant }]}>{new Date(n.sent_at).toLocaleString()}</Text>
-                ) : null}
-              </Card>
-            </Pressable>
-          ))
+          <>
+            {todayNotifs.length > 0 && (
+              <>
+                <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
+                {todayNotifs.map((n) => (
+                  <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                ))}
+              </>
+            )}
+            {earlierNotifs.length > 0 && (
+              <>
+                <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
+                {earlierNotifs.map((n) => (
+                  <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                ))}
+              </>
+            )}
+          </>
         )}
       </ScrollView>
     </View>
@@ -158,19 +208,78 @@ export default function Notifications() {
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
-  skeletons: { gap: space.base },
-  header: {
+  root: { flex: 1 },
+  topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: space.md,
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: moderateScale(12),
+    borderBottomWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
   },
-  cardTop: { flexDirection: "row", alignItems: "center", gap: space.sm },
-  title: { fontFamily: fonts.bodySemiBold, fontSize: 15, flex: 1 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  message: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21 },
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: space.xs, marginTop: space.sm },
-  time: { fontFamily: fonts.data, fontSize: 11, marginTop: space.xs },
+  topBarLeft: { gap: moderateScale(2) },
+  topBarBrand: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
+  titleBlock: { flexDirection: "row", alignItems: "center", gap: moderateScale(8) },
+  pageTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  badge: {
+    paddingHorizontal: moderateScale(8),
+    paddingVertical: moderateScale(2),
+    borderRadius: moderateScale(999),
+    minWidth: moderateScale(20),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
+  markRead: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(8) },
+  groupLabel: {
+    fontSize: moderateScale(12),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(16),
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginTop: moderateScale(8),
+    marginBottom: moderateScale(4),
+  },
+  emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(8) },
+  emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  emptyText: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
+  notifCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    padding: moderateScale(14),
+    gap: moderateScale(12),
+    shadowColor: "#000",
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+    position: "relative",
+  },
+  unreadDot: {
+    position: "absolute",
+    top: moderateScale(14),
+    left: moderateScale(8),
+    width: moderateScale(6),
+    height: moderateScale(6),
+    borderRadius: moderateScale(3),
+  },
+  notifIconBox: {
+    width: moderateScale(44),
+    height: moderateScale(44),
+    borderRadius: moderateScale(22),
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  notifContent: { flex: 1, gap: moderateScale(4) },
+  notifRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  notifTitle: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  notifTime: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16), marginLeft: moderateScale(8) },
+  notifBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
 });

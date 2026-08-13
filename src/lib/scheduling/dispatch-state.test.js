@@ -18,4 +18,12 @@ describe("canTransitionDispatch", () => {
     expect(canTransitionDispatch("Completed", "Cancelled").ok).toBe(false);
     expect(canTransitionDispatch("Cancelled", "Scheduled").ok).toBe(false);
   });
+  it("treats Pending Reassignment as a first-class state", () => {
+    expect(canTransitionDispatch("Scheduled", "Pending Reassignment").ok).toBe(true);
+    expect(canTransitionDispatch("In Progress", "Pending Reassignment").ok).toBe(true);
+    expect(canTransitionDispatch("Pending Reassignment", "Scheduled").ok).toBe(true);
+    expect(canTransitionDispatch("Pending Reassignment", "Cancelled").ok).toBe(true);
+    expect(canTransitionDispatch("Pending Reassignment", "In Progress").ok).toBe(false);
+    expect(canTransitionDispatch("Completed", "Pending Reassignment").ok).toBe(false);
+  });
 });

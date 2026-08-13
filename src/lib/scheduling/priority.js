@@ -28,8 +28,6 @@ export function priorityRank(level) {
 /** A request is "not yet started" when it can still become overdue in the queue. */
 const ACTIVE_NOT_STARTED = new Set([
   L.PENDING,
-  L.UNDER_REVIEW,
-  L.APPROVED,
   L.SCHEDULED,
   L.ASSIGNED,
 ]);
@@ -85,7 +83,7 @@ export function derivePriority({
   now = new Date(),
   thresholds = DEFAULT_THRESHOLDS,
 } = {}) {
-  if (fleetStatus && [L.COMPLETED, L.CANCELLED, L.REJECTED].includes(fleetStatus)) {
+  if (fleetStatus && [L.COMPLETED, L.CANCELLED].includes(fleetStatus)) {
     return null;
   }
 

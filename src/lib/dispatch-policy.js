@@ -21,6 +21,14 @@ export const DEFAULT_DISPATCH_POLICY = {
   // src/lib/scheduling/departure-alerts.js for how they are matched.
   departureAlertsEnabled: true,
   departureAlertTiers: [30, 20, 10],
+  // Travel-time + safety-buffer eligibility (SYSTEM.md §4.8.3): when a resource
+  // has a previous commitment ending near the next pickup, the pickup must be at
+  // or after `prev_end + travel_time_to_pickup + buffer` to be eligible. The
+  // buffer is a configurable offset on TOP of TomTom travel time (not a fixed 30
+  // minutes), with a separate floor for very short hops.
+  travelBufferEnabled: true,
+  safetyBufferMinutes: 10,
+  bufferFloorMinutes: 5,
 };
 
 /** Upper bound on tier count — the settings UI and the card both stay legible. */
@@ -51,6 +59,10 @@ export function mergeDispatchPolicy(stored) {
   base.departureAlertTiers =
     normalizeTiers(s.departureAlertTiers)?.slice(0, MAX_DEPARTURE_TIERS) ??
     DEFAULT_DISPATCH_POLICY.departureAlertTiers;
+  base.travelBufferEnabled =
+    s.travelBufferEnabled === undefined ? DEFAULT_DISPATCH_POLICY.travelBufferEnabled : s.travelBufferEnabled === true;
+  base.safetyBufferMinutes = POSITIVE_MINUTES(s.safetyBufferMinutes) ?? DEFAULT_DISPATCH_POLICY.safetyBufferMinutes;
+  base.bufferFloorMinutes = POSITIVE_MINUTES(s.bufferFloorMinutes) ?? DEFAULT_DISPATCH_POLICY.bufferFloorMinutes;
   return base;
 }
 
@@ -89,6 +101,13 @@ export function validateDispatchPolicy(policy) {
     }
     if (new Set(tiers.map(Number)).size !== tiers.length) {
       return { ok: false, error: "departure alert thresholds must be distinct" };
+    }
+  }
+  for (const key of ["safetyBufferMinutes", "bufferFloorMinutes"]) {
+    const v = policy?.[key];
+    if (v === undefined || v === null) continue;
+    if (!Number.isFinite(Number(v)) || Number(v) <= 0) {
+      return { ok: false, error: `${key} must be a positive number` };
     }
   }
   return { ok: true };

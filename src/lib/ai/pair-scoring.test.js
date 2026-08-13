@@ -65,11 +65,16 @@ describe("resolveDesignatedDriver", () => {
 });
 
 describe("isDriverUnavailableFor", () => {
-  it("flags leave / suspended / off duty / on trip", () => {
-    for (const s of [DRIVER_STATUS.ON_LEAVE, DRIVER_STATUS.SUSPENDED, DRIVER_STATUS.OFF_DUTY, DRIVER_STATUS.ON_TRIP]) {
+  it("flags leave / suspended / off duty (but NOT on trip)", () => {
+    for (const s of [DRIVER_STATUS.ON_LEAVE, DRIVER_STATUS.SUSPENDED, DRIVER_STATUS.OFF_DUTY]) {
       const r = isDriverUnavailableFor(mkDriver({ driver_status: s }), NOW);
       expect(r.unavailable).toBe(true);
     }
+    // Future availability (§4.8.2): a driver mid-trip is still eligible for a
+    // future window — overlap is judged by _schedule_load, not the status label.
+    const onTrip = isDriverUnavailableFor(mkDriver({ driver_status: DRIVER_STATUS.ON_TRIP }), NOW);
+    expect(onTrip.unavailable).toBe(false);
+    expect(onTrip.reason).toBeNull();
   });
 
   it("flags an expired license", () => {
@@ -606,13 +611,17 @@ describe("assignment readiness — vehicle × driver pairing", () => {
     expect(res.pairs).toHaveLength(0);
   });
 
-  it("Reserved is dispatchable; the grounding statuses are not", () => {
+  it("Reserved and In Use are dispatchable; the grounding statuses are not", () => {
     expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.AVAILABLE })).toBe(true);
     expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.RESERVED })).toBe(true);
+    // Future availability (§4.8.2): a vehicle currently driving is still free for
+    // a later window; overlap is judged by _schedule_load, not the status label.
+    expect(vehicleOperationallyAvailable({ vehicle_status: VEHICLE_STATUS.IN_USE })).toBe(true);
     for (const s of NON_DISPATCHABLE_VEHICLE_STATUSES) {
       expect(vehicleOperationallyAvailable({ vehicle_status: s })).toBe(false);
     }
     expect(NON_DISPATCHABLE_VEHICLE_STATUSES).not.toContain(VEHICLE_STATUS.RESERVED);
+    expect(NON_DISPATCHABLE_VEHICLE_STATUSES).not.toContain(VEHICLE_STATUS.IN_USE);
   });
 
   it("does not penalise a Reserved-but-free vehicle against an identical Available one", () => {

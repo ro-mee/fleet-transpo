@@ -1,337 +1,343 @@
-import { useCallback, useEffect, useState } from "react";
+import { moderateScale } from '../../lib/scaling';
+import { useState } from "react";
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
   View,
+  Pressable,
+  Alert,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Location from "expo-location";
-import { api } from "../../lib/api";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
-import { fonts, space } from "../../lib/theme";
-import {
-  Button,
-  Card,
-  Chip,
-  EmptyState,
-  ErrorNotice,
-  Field,
-  ScreenTitle,
-  SkeletonCard,
-  styles as ui,
-} from "../../components/ui";
-import { BrandBar } from "../../components/logo";
-import TripMap from "../../components/map";
+import { fonts, TOUCH_TARGET } from "../../lib/theme";
+import { api } from "../../lib/api";
 
-const SEVERITIES = ["Minor", "Moderate", "Major", "Critical"];
-const ASSISTANCE_OPTIONS = ["Tow", "Ambulance", "Police", "Mechanic"];
+const INCIDENT_TYPES = [
+  { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
+  { id: "accident", label: "Traffic Accident", icon: "warning" },
+  { id: "weather", label: "Severe Weather", icon: "thunderstorm" },
+  { id: "cargo", label: "Cargo Issue", icon: "cube" },
+  { id: "medical", label: "Medical Emergency", icon: "medkit" },
+  { id: "other", label: "Other Incident", icon: "ellipsis-horizontal" },
+];
 
-function severityTone(severity) {
-  switch (severity) {
-    case "Critical":
-    case "Major":
-      return "danger";
-    case "Moderate":
-      return "warning";
-    default:
-      return "info";
-  }
-}
-
-/**
- * Driver incident / emergency reporting. Posting a breakdown-type report takes
- * the vehicle out of service and notifies dispatch — handled server-side by
- * POST /api/driver/incidents. This screen only collects the details.
- */
-export default function Incidents() {
+export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { tripId } = useLocalSearchParams();
   const { colors } = useTheme();
 
-  const [incidents, setIncidents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const [type, setType] = useState("");
-  const [severity, setSeverity] = useState("Minor");
+  const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
   const [location, setLocation] = useState("");
-  const [assistance, setAssistance] = useState([]);
-  const [expenseAmount, setExpenseAmount] = useState("");
+  const [severity, setSeverity] = useState("medium");
   const [submitting, setSubmitting] = useState(false);
 
-  const toggleAssistance = (item) => {
-    setAssistance((prev) =>
-      prev.includes(item) ? prev.filter((i) => i !== item) : [...prev, item]
-    );
-  };
-
-  // GPS auto-capture. The server accepts incidents without coordinates when
-  // permission is denied, so a failed fix never blocks a report.
-  const [fix, setFix] = useState(null);
-  const [locError, setLocError] = useState(null);
-
-  const captureFix = useCallback(async () => {
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
-        setLocError("Location permission off — report will not include coordinates.");
-        return;
-      }
-      const pos = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      setFix({
-        latitude: pos.coords.latitude,
-        longitude: pos.coords.longitude,
-      });
-      setLocError(null);
-
-      try {
-        const [address] = await Location.reverseGeocodeAsync(pos.coords);
-        if (address) {
-          const parts = [];
-          if (address.street) parts.push(`${address.streetNumber ? address.streetNumber + " " : ""}${address.street}`);
-          else if (address.name) parts.push(address.name);
-          
-          if (address.city) parts.push(address.city);
-          else if (address.subregion) parts.push(address.subregion);
-          
-          if (parts.length > 0) {
-            setLocation(parts.join(", "));
-          }
-        }
-      } catch (e) {
-        // non-fatal, user can still type location manually
-      }
-    } catch (e) {
-      setLocError("Could not read your location — reporting without coordinates.");
-    }
-  }, []);
-
-  // Pre-fetch a fix on mount so the submit path is fast.
-  useEffect(() => {
-    captureFix();
-  }, [captureFix]);
-
-  const load = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await api.get("/api/driver/incidents");
-      setIncidents(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e.message || "Could not load your incidents.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  const submit = useCallback(async () => {
-    if (!type.trim() || !description.trim()) {
-      setError("Incident type and description are required.");
+  const handleSubmit = async () => {
+    if (!type) {
+      Alert.alert("Missing Type", "Please select an incident type.");
       return;
     }
-    setError(null);
-    setSubmitting(true);
+    if (!description.trim()) {
+      Alert.alert("Required", "Please describe the incident.");
+      return;
+    }
     try {
-      // Best-effort live fix at submit time; the mount-time fix covers the
-      // common case, this covers long-dwell forms.
-      let coords = fix;
-      if (!coords) {
-        try {
-          const pos = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-        } catch {
-          coords = null;
-        }
-      }
+      setSubmitting(true);
       await api.post("/api/driver/incidents", {
-        incident_type: type.trim(),
+        trip_id: tripId ? parseInt(tripId, 10) : null,
+        incident_type: type,
+        description,
+        location: location || "Current location",
         severity,
-        description: description.trim(),
-        location: location.trim() || undefined,
-        assistance_needed: assistance.length > 0 ? assistance : undefined,
         incident_date: new Date().toISOString(),
-        ...(expenseAmount.trim() ? { expense_amount: parseFloat(expenseAmount) } : {}),
-        ...(coords ? { latitude: coords.latitude, longitude: coords.longitude } : {}),
       });
-      Alert.alert("Report submitted", "Your dispatcher has been notified.", [
-        { text: "Done" },
-      ]);
-      setType("");
-      setDescription("");
-      setLocation("");
-      setAssistance([]);
-      setExpenseAmount("");
-      setFix(null);
-      setLocError(null);
-      await load();
+      Alert.alert(
+        "Incident Reported",
+        "Dispatch has been notified. Stay safe.",
+        [{ text: "OK", onPress: () => router.back() }]
+      );
     } catch (e) {
-      setError(e.message || "Could not submit the report.");
+      Alert.alert("Error", e.message || "Could not submit report.");
     } finally {
       setSubmitting(false);
     }
-  }, [type, severity, description, location, fix, load]);
+  };
 
   return (
-    <View style={[styles.flex, { backgroundColor: colors.background }]}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      style={[styles.root, { backgroundColor: colors.background }]}
+    >
+      {/* Top App Bar */}
+      <View
+        style={[
+          styles.topBar,
+          { backgroundColor: colors.errorContainer, paddingTop: insets.top },
+        ]}
+      >
+        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.closeBtn}>
+          <Ionicons name="arrow-back" size={24} color={colors.onErrorContainer} />
+        </Pressable>
+        <Text style={[styles.topBarTitle, { color: colors.onErrorContainer }]}>
+          Report Incident
+        </Text>
+        <Ionicons name="warning" size={24} color={colors.onErrorContainer} />
+      </View>
+
+      {/* Emergency Banner */}
+      <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
+        <Ionicons name="radio-outline" size={18} color={colors.onError} />
+        <Text style={[styles.emergencyText, { color: colors.onError }]}>
+          Dispatching alert to fleet coordinator immediately upon submission
+        </Text>
+      </View>
 
       <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: insets.bottom + space.xxl },
-        ]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 100 }]}
         keyboardShouldPersistTaps="handled"
       >
-        <ScreenTitle title="Report an incident" />
-        <ErrorNotice message={error} />
+        {/* Incident Type */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Incident Type
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+            Select the category that best describes the situation
+          </Text>
+          <View style={styles.typeGrid}>
+            {INCIDENT_TYPES.map((t) => {
+              const selected = type === t.id;
+              return (
+                <Pressable
+                  key={t.id}
+                  onPress={() => setType(t.id)}
+                  style={({ pressed }) => [
+                    styles.typeCard,
+                    {
+                      backgroundColor: selected
+                        ? colors.errorContainer
+                        : colors.surfaceContainerLow,
+                      borderColor: selected ? colors.error : colors.outlineVariant,
+                      opacity: pressed ? 0.7 : 1,
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={t.icon}
+                    size={24}
+                    color={selected ? colors.onErrorContainer : colors.onSurfaceVariant}
+                  />
+                  <Text
+                    style={[
+                      styles.typeCardText,
+                      { color: selected ? colors.onErrorContainer : colors.onSurface },
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
 
-        <Card>
-          <Text style={[ui.eyebrow, { color: colors.onSurfaceVariant }]}>New report</Text>
-          <Field
-            label="Incident type"
-            required
-            value={type}
-            onChangeText={setType}
-            placeholder="e.g. Flat tire, Engine trouble"
-            editable={!submitting}
-          />
-          <Text style={[styles.label, { color: colors.onSurfaceVariant }]}>Severity</Text>
+        {/* Severity */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity</Text>
           <View style={styles.severityRow}>
-            {SEVERITIES.map((s) => (
-              <Chip
-                key={s}
-                label={s}
-                selected={s === severity}
-                onPress={() => setSeverity(s)}
-                disabled={submitting}
-              />
-            ))}
+            {["low", "medium", "high"].map((s) => {
+              const selected = severity === s;
+              const c =
+                s === "low"
+                  ? colors.secondary
+                  : s === "medium"
+                  ? colors.warning || "#D97706"
+                  : colors.error;
+              return (
+                <Pressable
+                  key={s}
+                  onPress={() => setSeverity(s)}
+                  style={[
+                    styles.severityBtn,
+                    {
+                      backgroundColor: selected ? c : colors.surfaceContainerLow,
+                      borderColor: selected ? c : colors.outlineVariant,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.severityText,
+                      {
+                        color: selected
+                          ? "#FFFFFF"
+                          : colors.onSurface,
+                      },
+                    ]}
+                  >
+                    {s.toUpperCase()}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
-          <Text style={[styles.label, { color: colors.onSurfaceVariant, marginTop: space.sm }]}>Assistance Needed (Optional)</Text>
-          <View style={styles.severityRow}>
-            {ASSISTANCE_OPTIONS.map((item) => (
-              <Chip
-                key={item}
-                label={item}
-                selected={assistance.includes(item)}
-                onPress={() => toggleAssistance(item)}
-                disabled={submitting}
-              />
-            ))}
-          </View>
-          <Field
-            label="Out-of-Pocket Expense (₱) - Optional"
-            value={expenseAmount}
-            onChangeText={setExpenseAmount}
-            placeholder="e.g. 500"
-            keyboardType="numeric"
-            editable={!submitting}
-          />
-          <Field
-            label="Description"
-            required
-            value={description}
-            onChangeText={setDescription}
-            placeholder="What happened?"
-            multiline
-            editable={!submitting}
-          />
-          <Field
-            label="Location"
+        </View>
+
+        {/* Location */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Current Location
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
+            ]}
+            placeholder="e.g. KM 42 NLEX, near Petron station"
+            placeholderTextColor={colors.outline}
             value={location}
             onChangeText={setLocation}
-            placeholder="Where?"
-            editable={!submitting}
           />
-          {fix && (
-            <View style={styles.mapPreview}>
-              <TripMap
-                origin={{ latitude: fix.latitude, longitude: fix.longitude }}
-                destination={null}
-                live={fix}
-                height={140}
-                showControls={false}
-              />
-              <Text style={[styles.label, { color: colors.onSurfaceVariant, marginTop: space.xs }]}>
-                Current location captured — will be attached to this report
-              </Text>
-            </View>
-          )}
-          {locError && (
-            <Text style={[styles.locError, { color: colors.warning }]}>{locError}</Text>
-          )}
-          <Button
-            label={submitting ? "Submitting…" : "Submit report"}
-            onPress={submit}
-            loading={submitting}
-          />
-        </Card>
+        </View>
 
+        {/* Description */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Past reports</Text>
-          {loading ? (
-            <SkeletonCard lines={2} />
-          ) : incidents.length === 0 ? (
-            <EmptyState
-              title="No incidents reported"
-              message="Your incident reports will appear here."
-            />
-          ) : (
-            incidents.map((inc) => (
-              <Card key={inc.incident_id} tone={severityTone(inc.severity)}>
-                <Text style={[styles.incidentType, { color: colors.onSurface }]}>{inc.incident_type}</Text>
-                <Text style={[ui.bodyText, { color: colors.onSurfaceVariant }]}>{inc.description}</Text>
-                <Text style={[styles.meta, { color: colors.onSurfaceVariant }]}>
-                  {inc.severity} · {inc.incident_date ? new Date(inc.incident_date).toLocaleDateString() : ""}
-                  {inc.plate_number ? ` · ${inc.plate_number}` : ""}
-                </Text>
-              </Card>
-            ))
-          )}
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Description
+          </Text>
+          <TextInput
+            style={[
+              styles.input,
+              styles.textarea,
+              { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
+            ]}
+            placeholder="Describe what happened, current situation, and any immediate needs..."
+            placeholderTextColor={colors.outline}
+            multiline
+            numberOfLines={5}
+            value={description}
+            onChangeText={setDescription}
+          />
         </View>
       </ScrollView>
-    </View>
+
+      {/* Submit Footer */}
+      <View
+        style={[
+          styles.footer,
+          {
+            backgroundColor: colors.surface,
+            borderTopColor: colors.outlineVariant,
+            paddingBottom: insets.bottom + 16,
+          },
+        ]}
+      >
+        <Pressable
+          onPress={handleSubmit}
+          disabled={submitting}
+          style={({ pressed }) => [
+            styles.submitBtn,
+            {
+              backgroundColor: colors.error,
+              opacity: pressed ? 0.9 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="radio" size={20} color={colors.onError} />
+          <Text style={[styles.submitBtnText, { color: colors.onError }]}>
+            {submitting ? "Sending Alert..." : "Send Emergency Report"}
+          </Text>
+        </Pressable>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  content: { paddingHorizontal: space.xl, paddingTop: space.xl, gap: space.lg, width: "100%", maxWidth: 720, alignSelf: "center" },
-  label: {
-    fontFamily: fonts.data,
-    fontSize: 11,
-    lineHeight: 14,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: space.xs,
-  },
-  severityRow: {
+  root: { flex: 1 },
+  topBar: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: space.sm,
-    marginBottom: space.base,
+    alignItems: "center",
+    paddingHorizontal: moderateScale(16),
+    paddingBottom: moderateScale(12),
+    gap: moderateScale(12),
+    height: TOUCH_TARGET + 0,
   },
-  severityBtn: { minHeight: 36, paddingVertical: space.sm },
-  section: { gap: space.md },
-  sectionTitle: { fontFamily: fonts.display, fontSize: 18, lineHeight: 24 },
-  incidentType: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 15,
+  closeBtn: {
+    width: moderateScale(40),
+    height: moderateScale(40),
+    borderRadius: moderateScale(20),
+    alignItems: "center",
+    justifyContent: "center",
   },
-  meta: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19, marginTop: space.xs },
-  mapPreview: { marginBottom: space.base },
-  locError: {
+  topBarTitle: { flex: 1, fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  emergencyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(8),
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: moderateScale(10),
+  },
+  emergencyText: { flex: 1, fontSize: moderateScale(13), fontFamily: fonts.body, lineHeight: moderateScale(18) },
+  scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(20), gap: moderateScale(24) },
+  section: { gap: moderateScale(10) },
+  sectionTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  sectionSub: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), marginTop: moderateScale(-4) },
+  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: moderateScale(12) },
+  typeCard: {
+    width: "47%",
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
+    padding: moderateScale(16),
+    alignItems: "center",
+    gap: moderateScale(8),
+    minHeight: TOUCH_TARGET,
+  },
+  typeCardText: { fontSize: moderateScale(13), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(18), textAlign: "center" },
+  severityRow: { flexDirection: "row", gap: moderateScale(12) },
+  severityBtn: {
+    flex: 1,
+    height: TOUCH_TARGET,
+    borderRadius: moderateScale(8),
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  severityText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  input: {
+    borderWidth: 1,
+    borderRadius: moderateScale(8),
+    paddingHorizontal: moderateScale(12),
+    paddingVertical: moderateScale(12),
+    fontSize: moderateScale(16),
     fontFamily: fonts.body,
-    fontSize: 12,
-    lineHeight: 17,
-    marginBottom: space.base,
+    lineHeight: moderateScale(24),
+    minHeight: TOUCH_TARGET,
   },
+  textarea: { minHeight: moderateScale(120), textAlignVertical: "top" },
+  footer: {
+    paddingHorizontal: moderateScale(16),
+    paddingTop: moderateScale(12),
+    borderTopWidth: 1,
+  },
+  submitBtn: {
+    height: moderateScale(56),
+    borderRadius: moderateScale(12),
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: moderateScale(8),
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  submitBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
 });

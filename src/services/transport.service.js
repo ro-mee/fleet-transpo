@@ -15,23 +15,7 @@ export async function getTransportRequest(id) {
   return apiFetch(`/api/integration/transport-requests/${id}`);
 }
 
-// Fleet review — claim a Pending request (Pending -> Under Review).
-export async function startReview(id) {
-  return apiFetch(`/api/integration/transport-requests/${id}/review`, { method: "PUT" });
-}
-
-export async function approveTransportRequest(id) {
-  return apiFetch(`/api/integration/transport-requests/${id}/approve`, { method: "PUT" });
-}
-
-export async function rejectTransportRequest(id, reason = null) {
-  return apiFetch(`/api/integration/transport-requests/${id}/reject`, {
-    method: "PUT",
-    body: { reason },
-  });
-}
-
-// Commit resources to an approved request (Approved -> Scheduled -> Assigned).
+// Commit resources to a request (Pending -> Scheduled -> Assigned).
 // Either id may be omitted to assign one half at a time; the server keeps the
 // value already on the request. Blocking conflicts return 409 unless `force` is
 // set, which is recorded on the timeline as an override.
@@ -54,8 +38,8 @@ export async function assignDriver(id, driverId, { force = false } = {}) {
   return assignResources(id, { driverId, force });
 }
 
-// Abort a request already past intake. Distinct from reject, which is the
-// review decision at intake.
+// Abort a request already past intake. Requests go to Cancelled (there is no
+// separate reject state).
 export async function cancelRequest(id, reason = null) {
   return apiFetch(`/api/integration/transport-requests/${id}/cancel`, {
     method: "PUT",

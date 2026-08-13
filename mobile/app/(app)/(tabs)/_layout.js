@@ -1,78 +1,80 @@
 import { Tabs } from "expo-router";
-import { StyleSheet, View, Text } from "react-native";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, space } from "../../../lib/theme";
+import { useAuth } from "../../../lib/auth";
+import { fonts } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 
-function TabIcon({ active, color, iconName, badge }) {
-  const { colors } = useTheme();
-  const activeIcon = iconName;
-  const inactiveIcon = `${iconName}-outline`;
-
-  return (
-    <View>
-      <Ionicons name={active ? activeIcon : inactiveIcon} size={24} color={color} />
-      {badge ? (
-        <View style={[tab.badge, { backgroundColor: colors.error }]}>
-          <Text style={[tab.badgeText, { color: colors.onError }]}>{badge}</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-/**
- * MD3 bottom navigation for the driver app with Home, Trips, Vehicle, Alerts, and Profile.
- */
 export default function TabsLayout() {
   const { colors } = useTheme();
-  const active = colors.primary;
-  const idle = colors.onSurfaceVariant;
+  const { user } = useAuth();
 
   return (
     <Tabs
-      screenOptions={{
+      screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: active,
-        tabBarInactiveTintColor: idle,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopColor: colors.outlineVariant,
-          borderTopWidth: 1,
-          height: 68,
-          paddingTop: 8,
+          borderTopWidth: 0,
+          height: 64,
           paddingBottom: 8,
+          paddingTop: 4,
+          shadowColor: "#000",
+          shadowOpacity: 0.08,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: -2 },
+          elevation: 8,
+          borderTopLeftRadius: 12,
+          borderTopRightRadius: 12,
         },
-        tabBarLabelStyle: tab.label,
-      }}
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.onSurfaceVariant,
+        tabBarLabelStyle: {
+          fontFamily: fonts.bodyMedium,
+          fontSize: 12,
+          lineHeight: 16,
+          marginTop: 2,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 4,
+        },
+      })}
     >
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarLabel: "Home",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon active={focused} color={color} iconName="home" />
+            <Ionicons
+              name={focused ? "home" : "home-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
       <Tabs.Screen
-        name="trips"
+        name="map"
         options={{
-          title: "Trips",
-          tabBarLabel: "Trips",
+          title: "Live Map",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon active={focused} color={color} iconName="document-text" />
+            <Ionicons
+              name={focused ? "map" : "map-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
       <Tabs.Screen
-        name="vehicle"
+        name="history"
         options={{
-          title: "Vehicle",
-          tabBarLabel: "Vehicle",
+          title: "History",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon active={focused} color={color} iconName="car" />
+            <Ionicons
+              name={focused ? "time" : "time-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -80,9 +82,12 @@ export default function TabsLayout() {
         name="notifications"
         options={{
           title: "Alerts",
-          tabBarLabel: "Alerts",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon active={focused} color={color} iconName="notifications" />
+            <Ionicons
+              name={focused ? "notifications" : "notifications-outline"}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -90,28 +95,21 @@ export default function TabsLayout() {
         name="profile"
         options={{
           title: "Profile",
-          tabBarLabel: "Profile",
           tabBarIcon: ({ focused, color }) => (
-            <TabIcon active={focused} color={color} iconName="person" />
+            <Ionicons
+              name={focused ? "person" : "person-outline"}
+              size={24}
+              color={color}
+            />
           ),
+        }}
+      />
+      <Tabs.Screen
+        name="vehicle"
+        options={{
+          href: null, // Hide vehicle from bottom tabs as we just need the 5 main ones
         }}
       />
     </Tabs>
   );
 }
-
-const tab = StyleSheet.create({
-  label: { fontFamily: fonts.bodySemiBold, fontSize: 10, marginTop: 4 },
-  badge: {
-    position: "absolute",
-    top: -4,
-    right: -6,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    paddingHorizontal: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeText: { fontFamily: fonts.bodySemiBold, fontSize: 10 },
-});

@@ -1,112 +1,95 @@
-import { StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { View, Text, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
-import { fonts, space } from "../lib/theme";
+import { fonts } from "../lib/theme";
 
 /**
- * FleetOps brand mark: a dark rounded square with a white car silhouette,
- * inherited from the web sidebar and login logos. Drawn with Views so the app
- * carries no icon dependency.
+ * FleetOps Logo — matches Stitch FleetOps prototype branding:
+ * Deep Indigo badge with truck icon, "FleetOps" in Inter Bold
  */
-export function LogoMark({ variant = "app", size = "sm" }) {
+export function Logo({ size = 48, showText = true, style }) {
   const { colors } = useTheme();
-  const large = size === "lg";
-  const bg = variant === "login" ? colors.primary : colors.foreground;
 
   return (
-    <View
-      style={[
-        styles.mark,
-        { backgroundColor: bg, borderRadius: large ? 18 : 8 },
-        large ? styles.markLg : styles.markSm,
-      ]}
-      accessibilityLabel="FleetOps"
-    >
-      <View style={[styles.cabin, { backgroundColor: colors.surface }, large ? styles.cabinLg : styles.cabinSm]} />
-      <View style={[styles.body, { backgroundColor: colors.surface }, large ? styles.bodyLg : styles.bodySm]} />
+    <View style={[styles.container, style]}>
       <View
         style={[
-          styles.wheel,
-          { backgroundColor: colors.foreground },
-          large ? styles.wheelLg : styles.wheelSm,
-          large ? styles.wheelLgPosL : styles.wheelPosL,
+          styles.badge,
+          {
+            width: size,
+            height: size,
+            borderRadius: size * 0.25,
+            backgroundColor: colors.primary,
+          },
         ]}
-      />
-      <View
-        style={[
-          styles.wheel,
-          { backgroundColor: colors.foreground },
-          large ? styles.wheelLg : styles.wheelSm,
-          large ? styles.wheelLgPosR : styles.wheelPosR,
-        ]}
-      />
+      >
+        <Ionicons name="car-sport" size={size * 0.55} color={colors.onPrimary} />
+      </View>
+
+      {showText && (
+        <View style={styles.textGroup}>
+          <Text style={[styles.brandText, { color: colors.primary }]}>
+            FleetOps
+          </Text>
+          <Text style={[styles.subText, { color: colors.onSurfaceVariant }]}>
+            DRIVER COMPANION
+          </Text>
+        </View>
+      )}
     </View>
   );
 }
 
-/** Signed-in top bar: brand mark + wordmark, with an optional right slot. */
-export function BrandBar({ right }) {
+/**
+ * BrandBar — top brand header strip used on the consent and auth screens.
+ * Matches the Stitch FleetOps TopAppBar design.
+ */
+export function BrandBar() {
   const { colors } = useTheme();
   return (
     <View style={[styles.bar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-      <View style={styles.barBrand}>
-        <LogoMark size="sm" />
-        <Text style={[styles.barName, { color: colors.onSurface }]}>FleetOps</Text>
-      </View>
-      {right}
+      <Logo size={40} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  mark: {
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  badge: {
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
+    elevation: 4,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 3 },
   },
-  markSm: { width: 28, height: 28 },
-  markLg: { width: 64, height: 64 },
-  // Cabin sits above and overlapping the body, front view.
-  cabin: {
-    position: "absolute",
-    borderRadius: 2,
+  textGroup: { justifyContent: "center" },
+  brandText: {
+    fontSize: 20,
+    fontFamily: fonts.displayBold,
+    lineHeight: 28,
+    letterSpacing: -0.5,
   },
-  cabinSm: { top: 8, left: 9, width: 10, height: 5 },
-  cabinLg: { top: 18, left: 20, width: 23, height: 12, borderRadius: 4 },
-  body: {
-    position: "absolute",
-    borderRadius: 2,
+  subText: {
+    fontSize: 10,
+    fontFamily: fonts.bodySemiBold,
+    letterSpacing: 1.5,
+    textTransform: "uppercase",
   },
-  bodySm: { top: 12, left: 5, width: 18, height: 6 },
-  bodyLg: { top: 27, left: 11, width: 42, height: 14, borderRadius: 4 },
-  // Wheels punch through the glyph in the mark's background colour.
-  wheel: {
-    position: "absolute",
-    borderRadius: 99,
-  },
-  wheelSm: { width: 4, height: 4 },
-  wheelLg: { width: 9, height: 9 },
-  wheelPosL: { top: 16, left: 5.5 },
-  wheelPosR: { top: 16, right: 5.5 },
-  wheelLgPosL: { top: 37, left: 13 },
-  wheelLgPosR: { top: 37, right: 13 },
-
   bar: {
-    height: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: space.xl,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
-  },
-  barBrand: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: space.sm,
-  },
-  barName: {
-    fontFamily: fonts.display,
-    fontSize: 16,
-    lineHeight: 20,
+    shadowColor: "#000",
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
 });
-

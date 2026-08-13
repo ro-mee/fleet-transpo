@@ -1,3 +1,4 @@
+import { moderateScale } from '../../../lib/scaling';
 import React, { useState, useCallback, useEffect } from "react";
 import {
   StyleSheet,
@@ -75,17 +76,38 @@ export default function FullMapTab() {
   const handleOpenGoogleMaps = (destLat, destLng) => {
     if (destLat && destLng) {
       const gurl = `https://www.google.com/maps/dir/?api=1&destination=${destLat},${destLng}`;
-      Linking.openURL(gurl).catch(() => {});
+      Linking.openURL(gurl).catch(() => { });
     }
   };
 
   const advanceTrip = async (trip, next) => {
     setActingOn(trip.trip_id);
     try {
-      await api.put(`/api/trips/${trip.trip_id}/status`, {
-        status: next.status,
-        end_odometer: next.endOdometer,
-      });
+      const isComplete = next?.status === "Completed";
+      const action = isComplete ? "complete" : next?.action || "start";
+      const path =
+        action === "accept"
+          ? `/api/trips/${trip.trip_id}/accept`
+          : action === "start"
+            ? `/api/trips/${trip.trip_id}/start`
+            : action === "at-pickup"
+              ? `/api/trips/${trip.trip_id}/at-pickup`
+              : action === "onboard"
+                ? `/api/trips/${trip.trip_id}/onboard`
+                : action === "enroute"
+                  ? `/api/trips/${trip.trip_id}/enroute`
+                  : action === "dropoff"
+                    ? `/api/trips/${trip.trip_id}/dropoff`
+                    : action === "complete"
+                      ? `/api/trips/${trip.trip_id}/complete`
+                      : `/api/trips/${trip.trip_id}/start`;
+      const body =
+        action === "accept"
+          ? { accept: true }
+          : action === "complete"
+            ? { end_odometer: next.endOdometer }
+            : {};
+      await api.put(path, body);
       setError(null);
       await load();
     } catch (e) {
@@ -234,7 +256,7 @@ export default function FullMapTab() {
           <Text style={[styles.destinationTitle, { color: colors.onSurface, textAlign: "center" }]}>
             No Active Trip En Route
           </Text>
-          <Text style={[styles.pickupSub, { color: colors.onSurfaceVariant, textAlign: "center", marginTop: 4 }]}>
+          <Text style={[styles.pickupSub, { color: colors.onSurfaceVariant, textAlign: "center", marginTop: moderateScale(4) }]}>
             New trip assignments from your dispatcher will automatically plot your live GPS route here.
           </Text>
         </View>
@@ -313,22 +335,22 @@ function useNextStatus(status) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: "#141415",
     position: "relative",
   },
   topFloatingBar: {
     position: "absolute",
     top: 0,
-    left: 16,
-    right: 16,
+    left: moderateScale(16),
+    right: moderateScale(16),
     zIndex: 20,
   },
   topGlassCard: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 24,
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: moderateScale(12),
+    borderRadius: moderateScale(16),
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: moderateScale(4) },
     shadowOpacity: 0.15,
     shadowRadius: 10,
     elevation: 6,
@@ -338,18 +360,20 @@ const styles = StyleSheet.create({
   driverRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: moderateScale(12),
   },
   driverInfo: {
     flex: 1,
   },
   driverNameText: {
-    fontSize: 15,
-    fontWeight: "700",
+    fontSize: moderateScale(16),
+    fontFamily: "Inter_600SemiBold",
+    lineHeight: moderateScale(22),
   },
   driverStatusSub: {
-    fontSize: 11,
-    fontWeight: "600",
+    fontSize: moderateScale(12),
+    fontFamily: "Inter_400Regular",
+    lineHeight: moderateScale(16),
     marginTop: 1,
   },
   bottomSheet: {
@@ -357,69 +381,69 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingHorizontal: 20,
-    paddingTop: 12,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: moderateScale(20),
+    paddingTop: moderateScale(12),
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -6 },
+    shadowOffset: { width: 0, height: moderateScale(-6) },
     shadowOpacity: 0.18,
     shadowRadius: 16,
     elevation: 12,
     borderTopWidth: 1,
-    borderTopColor: "rgba(0, 0, 0, 0.08)",
+    borderTopColor: "rgba(0, 0, 0, 0.05)",
     zIndex: 20,
   },
   sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(0, 0, 0, 0.2)",
+    width: moderateScale(36),
+    height: moderateScale(4),
+    borderRadius: moderateScale(2),
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: moderateScale(16),
   },
   routeHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 16,
+    gap: moderateScale(12),
+    marginBottom: moderateScale(16),
   },
   routeIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: moderateScale(42),
+    height: moderateScale(42),
+    borderRadius: moderateScale(21),
     backgroundColor: "rgba(37, 99, 235, 0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
   routeIcon: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
   },
   routeDetails: {
     flex: 1,
   },
   routeLabel: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontWeight: "700",
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   destinationTitle: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontWeight: "800",
-    marginTop: 2,
+    marginTop: moderateScale(2),
   },
   pickupSub: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: "500",
-    marginTop: 2,
+    marginTop: moderateScale(2),
   },
   plateContainer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
-    paddingTop: 12,
+    marginBottom: moderateScale(16),
+    paddingTop: moderateScale(12),
     borderTopWidth: 1,
     borderTopColor: "rgba(0, 0, 0, 0.06)",
   },
@@ -427,105 +451,105 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#2563EB",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 16,
-    gap: 6,
+    paddingHorizontal: moderateScale(14),
+    paddingVertical: moderateScale(8),
+    borderRadius: moderateScale(16),
+    gap: moderateScale(6),
   },
   navQuickBtnPressed: {
     opacity: 0.85,
   },
   navQuickIcon: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
   },
   navQuickText: {
     color: "#FFFFFF",
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: "700",
   },
   primaryActionButton: {
-    height: 52,
-    borderRadius: 20,
+    height: moderateScale(52),
+    borderRadius: moderateScale(20),
   },
   errorText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: "600",
     textAlign: "center",
-    marginTop: 8,
+    marginTop: moderateScale(8),
   },
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.55)",
     alignItems: "center",
     justifyContent: "center",
-    padding: 24,
+    padding: moderateScale(24),
   },
   modalCard: {
     width: "100%",
-    maxWidth: 420,
-    borderRadius: 24,
-    padding: 20,
+    maxWidth: moderateScale(420),
+    borderRadius: moderateScale(24),
+    padding: moderateScale(20),
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: moderateScale(8) },
     shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 12,
   },
   modalHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
+    width: moderateScale(36),
+    height: moderateScale(4),
+    borderRadius: moderateScale(2),
     alignSelf: "center",
-    marginBottom: 16,
+    marginBottom: moderateScale(16),
   },
   modalTitle: {
-    fontSize: 17,
+    fontSize: moderateScale(17),
     fontWeight: "800",
   },
   modalSubtitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontWeight: "500",
-    lineHeight: 18,
-    marginTop: 6,
-    marginBottom: 14,
+    lineHeight: moderateScale(18),
+    marginTop: moderateScale(6),
+    marginBottom: moderateScale(14),
   },
   modalInput: {
     borderWidth: 1.5,
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: moderateScale(14),
+    paddingHorizontal: moderateScale(14),
+    paddingVertical: moderateScale(12),
+    fontSize: moderateScale(16),
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
   },
   modalActions: {
     flexDirection: "row",
-    gap: 10,
-    marginTop: 16,
+    gap: moderateScale(10),
+    marginTop: moderateScale(16),
   },
   modalCancelBtn: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: moderateScale(12),
+    borderRadius: moderateScale(14),
     backgroundColor: "rgba(0, 0, 0, 0.05)",
   },
   modalCancelText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontWeight: "700",
   },
   modalConfirmBtn: {
     flex: 1.4,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
-    borderRadius: 14,
+    paddingVertical: moderateScale(12),
+    borderRadius: moderateScale(14),
     backgroundColor: "#2563EB",
   },
   modalConfirmText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontWeight: "800",
   },
 });

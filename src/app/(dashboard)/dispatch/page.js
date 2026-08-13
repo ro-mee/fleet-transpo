@@ -25,7 +25,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import {
   getDispatchesByStatus,
   updateDispatch,
-  updateDispatchStatus,
+  cancelDispatch,
 } from "@/services/dispatch.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
 import { alertMessage } from "@/lib/scheduling/departure-alerts";
@@ -176,7 +176,7 @@ export default function DispatchPage() {
   // Cancelling stands the dispatch down without touching a trip, so it is the
   // one verb that still moves the dispatch row directly.
   const cancelMutation = useMutation({
-    mutationFn: ({ dispatch, reason }) => updateDispatchStatus(dispatch.dispatch_id, D.CANCELLED, reason),
+    mutationFn: ({ dispatch, reason }) => cancelDispatch(dispatch.dispatch_id, reason),
     onMutate: ({ dispatch }) => setBusyId(dispatch.dispatch_id),
     onSuccess: () => {
       toast.success("Dispatch cancelled");

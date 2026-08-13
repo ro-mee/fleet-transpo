@@ -4,7 +4,7 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 export async function GET(req) {
   try {
     await requireAuth(req);
-    const { rows: activeTrips } = await query(`SELECT trip_id, vehicle_id, driver_id, trip_status FROM trips WHERE trip_status IN ('Trip Started','En Route','Arrived')`);
+    const { rows: activeTrips } = await query(`SELECT trip_id, vehicle_id, driver_id, trip_status FROM trips WHERE trip_status IN ('Trip Started','At Pickup','Passenger Onboard','En Route','Drop-off','Arrived','In Progress')`);
     if (!activeTrips?.length) return ok([]);
     const ids = activeTrips.map(t => t.vehicle_id);
     try {

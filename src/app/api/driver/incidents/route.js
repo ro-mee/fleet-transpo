@@ -3,6 +3,8 @@ import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { getAdminClient } from "@/lib/db";
 import { shouldGroundVehicle } from "@/lib/driver/grounding";
+import { setDispatchStatus } from "@/services/transition.service";
+import { TRIP_STATUS } from "@/lib/constants";
 
 // A breakdown-type incident triggers automation (see POST): the vehicle is set
 // to Under Maintenance and dispatchers are notified, so it stops receiving
@@ -161,21 +163,15 @@ export async function POST(req) {
 
         if (activeDispatches?.rows?.length > 0) {
           for (const ds of activeDispatches.rows) {
-            // 1. Cancel active trips for this dispatch
-            await query(
-              `UPDATE trips 
-                  SET trip_status = 'Cancelled', updated_at = NOW()
-                WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`,
-              [ds.dispatch_id]
-            );
-
-            // 2. Unassign vehicle/driver and reset dispatch to Pending Reassignment
-            await query(
-              `UPDATE dispatchschedules
-                  SET vehicle_id = NULL, driver_id = NULL, status = 'Pending Reassignment', updated_at = NOW()
-                WHERE dispatch_id = $1`,
-              [ds.dispatch_id]
-            );
+            // Transition the dispatch into Pending Reassignment through the state
+            // machine — this stands down the vehicle/driver and cancels the
+            // dispatch's open trips + booking request via the transition service.
+            await setDispatchStatus({
+              dispatchId: ds.dispatch_id,
+              to: "Pending Reassignment",
+              session,
+              reason: `Incident #${incident.incident_id} grounded the vehicle.`,
+            });
 
             // 3. Create specialized urgent notification for dispatchers
             const guestName = ds.guest_name || "Unknown Guest";

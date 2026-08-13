@@ -277,26 +277,21 @@ without touching Fleet.
 
 ### 8.2 The `fleet_status` lifecycle
 
-**Nine** statuses (migration `016_reservation_module.sql`). The single authority on
-legal transitions is `src/lib/scheduling/reservation-state.js`
-(`canTransitionReservation`); the DB `chk_transport_fleet_status` CHECK and
-`RESERVATION_LIFECYCLE` in `src/lib/constants.js` mirror the same vocabulary.
-016 retired the 015 spellings: `Waiting for Fleet Review → Under Review`, and the
-split `Driver Assigned` / `Vehicle Assigned` collapsed into one `Assigned`.
+**Six** statuses (migration `037_remove_review_statuses.sql`, originally
+`016_reservation_module.sql`). The single authority on legal transitions is
+`src/lib/scheduling/reservation-state.js` (`canTransitionReservation`); the DB
+`chk_transport_fleet_status` CHECK and `RESERVATION_LIFECYCLE` in
+`src/lib/constants.js` mirror the same vocabulary. 037 retired the Fleet review
+step (`Under Review` / `Approved` / `Rejected`): a request is assignable straight
+from `Pending`, and declined requests fold into `Cancelled`. 016 had previously
+retired the 015 spellings (`Waiting for Fleet Review`, split `Driver Assigned` /
+`Vehicle Assigned`).
 
 ```
-  Pending                     (fresh ingest, not yet claimed)
+  Pending                     (fresh ingest, ready to assign)
      │
      ▼
-  Under Review                (a dispatcher has claimed it)
-     │
-     ├──────────────► Rejected      (terminal) ─► notify Booking
-     │
-     ▼
-  Approved                    (dispatchable) ─► notify Booking
-     │
-     ▼
-  Scheduled                   (dispatch raised)
+  Scheduled                   (dispatch raised) ─► notify Booking
      │
      ▼
   Assigned                    (vehicle AND driver committed) ─► notify Booking
@@ -311,13 +306,13 @@ split `Driver Assigned` / `Vehicle Assigned` collapsed into one `Assigned`.
 ```
 
 The chain is strictly linear — no jumps. A multi-step operator action walks it one
-validated, logged hop at a time via `transitionPath()`: dispatching an approved
-request with both a vehicle and a driver executes `Approved → Scheduled → Assigned`
-as two transitions, not one leap, so the timeline shows both.
+validated, logged hop at a time via `transitionPath()`: assigning both a vehicle
+and a driver executes `Pending → Scheduled → Assigned` as two transitions, not one
+leap, so the timeline shows both.
 
 `In Progress` is no longer aspirational. `PUT /api/trips/[id]/start` advances the
 request into it and `…/complete` closes it out, which is what makes the state
-reachable — before 016 nothing wrote it.
+reachable.
 
 **Reschedule is not a lifecycle step.** Moving `pickup_datetime` is a property
 change: it writes a `rescheduled` event and leaves `fleet_status` where it was.
@@ -334,35 +329,28 @@ Booking subsystem
 [integration_log]          direction='inbound', status='processed'
      │
      │  Dispatcher works the queue at /reservations/queue
-     ├── Start Review ─► PUT …/[id]/review ─► Under Review
+     ├── Assign (AI-assisted) ─► PUT …/[id]/assign {vehicle_id, driver_id}
+     │      │   AI advises (GET …/[id]/recommendation); a human always confirms.
+     │      │   Pending → Scheduled → Assigned (two logged hops)
+     │      │   blocking conflicts → 409 unless {force:true},
+     │      │   which is recorded on the timeline as an override
+     │      ▼
+     │   POST /api/dispatch  (gated: request must be Pending/Scheduled/
+     │      │   Assigned; 409 otherwise)
+     │      │   dispatchschedules.request_id ← request
+     │      ▼
+     │   Trip generated (ensureTripForDispatch)
      │      │
-     │      ├── Reject ─► PUT …/[id]/reject ─► Rejected  (terminal) ─► emit → Booking
+     │      ├─► PUT /api/trips/[id]/start
+     │      │      fleet_status = In Progress ─► emit → Booking
      │      │
-     │      └── Approve ─► PUT …/[id]/approve ─► Approved ─► emit → Booking
-     │             │
-     │             │  Commit resources. AI advises; a human always confirms.
-     │             ▼
-     │         PUT …/[id]/assign   {vehicle_id, driver_id}
-     │             │   Approved → Scheduled → Assigned (two logged hops)
-     │             │   blocking conflicts → 409 unless {force:true},
-     │             │   which is recorded on the timeline as an override
-     │             ▼
-     │         POST /api/dispatch  (gated: request must be Approved/Scheduled/
-     │             │   Assigned; 409 otherwise)
-     │             │   dispatchschedules.request_id ← request
-     │             ▼
-     │         Trip generated (ensureTripForDispatch)
-     │             │
-     │             ├─► PUT /api/trips/[id]/start
-     │             │      fleet_status = In Progress ─► emit → Booking
-     │             │
-     │             └─► PUT /api/trips/[id]/complete
-     │                    trip → dispatch → request  (join on request_id,
-     │                    falling back to reservation_id for legacy rows)
-     │                    fleet_status = Completed ─► emit → Booking
-     │                        │
-     │                        ▼
-     │                    Booking updates its record (e.g. for billing)
+     │      └─► PUT /api/trips/[id]/complete
+     │             trip → dispatch → request  (join on request_id,
+     │             falling back to reservation_id for legacy rows)
+     │             fleet_status = Completed ─► emit → Booking
+     │                 │
+     │                 ▼
+     │             Booking updates its record (e.g. for billing)
      │
      └── Cancel ─► PUT …/[id]/cancel ─► Cancelled (from any non-terminal state)
              (also closes the request's open dispatches and trips, releasing
@@ -380,12 +368,12 @@ failure is logged (`status='failed'`) but never rolls back the Fleet operation
 that triggered it, so a future reconciliation job can retry from the log.
 
 One outbound row is emitted per **operator action**, not per internal hop. The
-two-hop assign (`Approved → Scheduled → Assigned`) emits once, because both Fleet
+two-hop assign (`Pending → Scheduled → Assigned`) emits once, because both Fleet
 states map to the same external `SCHEDULED` (§8.2, `FLEET_TO_EXTERNAL`) — a second
 delivery would tell Booking nothing new. The internal granularity is preserved in
 `reservation_events`, which is where per-hop history belongs.
 
-### 8.4 Idempotency
+### 8.4 Idempotency (unchanged)
 
 Inbound ingest is keyed on `external_booking_id`. Re-delivering the same
 Booking event does not create a duplicate request — the second POST returns the
@@ -399,9 +387,7 @@ retries and poller overlap safe.
 | `/api/integration/transport-requests` | GET | List the queue. Joins vehicle/driver/category; supports search + the Phase 12 filters; `?with_conflicts=true` attaches advisory findings (batched, not N+1) |
 | `/api/integration/transport-requests` | POST | Ingest a Booking request (webhook, idempotent) |
 | `/api/integration/transport-requests/[id]` | GET | One request + its dispatches, resolved reviewer/approver names, and advisory conflicts — what the detail page loads |
-| `/api/integration/transport-requests/[id]/review` | PUT | Claim it: Pending → Under Review |
-| `/api/integration/transport-requests/[id]/approve` | PUT | Approve → dispatchable |
-| `/api/integration/transport-requests/[id]/reject` | PUT | Reject (records reason) |
+| `/api/integration/transport-requests/[id]/recommendation` | GET/POST | AI advisory: deterministic scored pair + optional LLM rationale; POST persists a snapshot (no assign side effects) |
 | `/api/integration/transport-requests/[id]/assign` | PUT | Commit vehicle and/or driver; 409 on blocking conflict unless `{force:true}` |
 | `/api/integration/transport-requests/[id]/cancel` | PUT | Cancel from any non-terminal state (records reason) |
 | `/api/integration/transport-requests/[id]/reschedule` | PUT | Move `pickup_datetime`; does not change `fleet_status` |

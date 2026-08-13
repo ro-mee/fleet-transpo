@@ -6,7 +6,7 @@ import { AlertTriangle } from "lucide-react";
 // The "here is what blocks this assignment" surface.
 //
 // The assign endpoint answers a blocking conflict with 409 and the findings on
-// `data.conflicts`; both the queue's AssignDialog and the AI panel need to show
+// `data.conflicts`; both the queue's assign dialog and the AI panel need to show
 // those findings next to an explicit override. Extracted here so there is exactly
 // one rendering of an override decision — the dispatcher sees the same messages,
 // worded by the server, wherever the override is offered.

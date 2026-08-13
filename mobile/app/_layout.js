@@ -3,13 +3,13 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import { Archivo_600SemiBold } from "@expo-google-fonts/archivo/600SemiBold";
-import { Archivo_700Bold } from "@expo-google-fonts/archivo/700Bold";
-import { IBMPlexSans_400Regular } from "@expo-google-fonts/ibm-plex-sans/400Regular";
-import { IBMPlexSans_500Medium } from "@expo-google-fonts/ibm-plex-sans/500Medium";
-import { IBMPlexSans_600SemiBold } from "@expo-google-fonts/ibm-plex-sans/600SemiBold";
-import { IBMPlexMono_500Medium } from "@expo-google-fonts/ibm-plex-mono/500Medium";
-import { IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono/600SemiBold";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+} from "@expo-google-fonts/inter";
+// ^ All Inter weights are exported from the root package index
 import { AuthProvider } from "../lib/auth";
 import { ErrorBoundary } from "../components/error-boundary";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
@@ -42,13 +42,10 @@ function ThemedApp() {
  */
 export default function RootLayout() {
   const [loaded, error] = useFonts({
-    Archivo_600SemiBold,
-    Archivo_700Bold,
-    IBMPlexSans_400Regular,
-    IBMPlexSans_500Medium,
-    IBMPlexSans_600SemiBold,
-    IBMPlexMono_500Medium,
-    IBMPlexMono_600SemiBold,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
   });
 
   const ready = loaded || error;

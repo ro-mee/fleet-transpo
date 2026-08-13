@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   Dialog,
@@ -12,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ConflictChips, ReadinessChip } from "@/components/reservations/conflict-chips";
+import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { getRecommendation } from "@/services/transport.service";
 import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
@@ -25,7 +27,6 @@ import {
   Users,
   CarFront,
   CheckCircle2,
-  XCircle,
   Send,
   StickyNote,
   Building2,
@@ -34,18 +35,37 @@ import {
   ShieldCheck,
   UserCheck,
   AlertTriangle,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  Info,
 } from "lucide-react";
 
-export function ReviewDialog({
+// AI-Assisted Assignment — the one action for accepting a request.
+//
+// There is no standalone review/approve step anymore: a request opens straight
+// into assignment, backed by the deterministic Smart Dispatch scorer. The scorer
+// picks the best eligible vehicle+driver pair, the LLM writes a short rationale
+// behind it (best-effort, nullable), and a single "Assign Now" commits the pair
+// (Pending → Scheduled → Assigned, auto-creating the dispatch). The dispatcher
+// can also drive the pair from the plain assign dialog when they want to pick
+// something other than the recommended pairing.
+export function AiAssignDialog({
   request,
   isOpen,
   onClose,
-  onApprove,
-  onReject,
   onAssign,
   isPending = false,
+  conflictError = null,
 }) {
   const requestId = request?.request_id;
+
+  // Manual override state: the recommended pair is the default, but the
+  // dispatcher can pick any valid vehicle+driver pair from the collapsible
+  // list below, which then wins for the commit.
+  const [selection, setSelection] = useState("");
+  const [showManual, setShowManual] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // AI recommendation — deterministic scoring, fast.
   const { data: aiRec, isLoading: isAiLoading } = useQuery({
@@ -59,7 +79,7 @@ export function ReviewDialog({
 
   // Real custodial pairs — same three queries the assign dialog uses.
   // These are database-backed and always show even when the AI returns nothing.
-  const { data: vehiclesData } = useQuery({
+  const { data: vehiclesData, isLoading: vehiclesLoading } = useQuery({
     queryKey: ["available-vehicles", request?.pickup_datetime],
     queryFn: () => getAvailableVehicles(
       request?.pickup_datetime
@@ -68,7 +88,7 @@ export function ReviewDialog({
     ),
     enabled: isOpen,
   });
-  const { data: driversData } = useQuery({
+  const { data: driversData, isLoading: driversLoading } = useQuery({
     queryKey: ["drivers", { status: "Available", pickup_at: request?.pickup_datetime }],
     queryFn: () => getDrivers({
       status: "Available",
@@ -79,7 +99,7 @@ export function ReviewDialog({
   });
   const vehicles = vehiclesData ?? [];
   const drivers = driversData ?? [];
-  const { data: pairingData } = useQuery({
+  const { data: pairingData, isLoading: pairingLoading } = useQuery({
     queryKey: ["driver-assignments", "active"],
     queryFn: () => getDriverAssignments(),
     enabled: isOpen,
@@ -90,7 +110,7 @@ export function ReviewDialog({
   // assign dialog so the DB-backed "best pair" fallback never sells the dispatcher
   // short when an eligible substitute exists.
   const subDate = request?.pickup_datetime ? String(request.pickup_datetime).slice(0, 10) : null;
-  const { data: subData } = useQuery({
+  const { data: subData, isLoading: subsLoading } = useQuery({
     queryKey: ["substitute-schedules", subDate],
     queryFn: () => getSubstituteSchedules(subDate ? { date: subDate } : {}),
     enabled: isOpen && !!subDate,
@@ -232,17 +252,144 @@ export function ReviewDialog({
   const driverCount  = drivers.length;
   const pairScore   = displayVehicle?.score ?? displayDriver?.score ?? null;
 
-  // The pair "Approve & Assign Now" commits: the DB-backed best eligible pair
-  // first, falling back to the AI-recommended pair's ids when a real pairing
-  // could not be assembled. Null when nothing is eligible — the button then
-  // sends the request without ids so the parent can fall back to the manual
-  // dialog instead of guessing.
+  // The pair "Assign Now" commits: the DB-backed best eligible pair first,
+  // falling back to the AI-recommended pair's ids when a real pairing could not
+  // be assembled. When a manual pair is selected it wins over both.
   const recommended = bestPairing
     ? { vehicleId: bestPairing.vehicle_id, driverId: bestPairing.driver_id }
     : {
         vehicleId: aiVehicle?.vehicle_id ?? null,
         driverId: aiDriver?.driver_id ?? null,
       };
+
+  // ── Manual pair picker ──
+  //
+  // The exact same eligible-pair list the former separate Assign Resources dialog
+  // offered: custodial pairings (or their substitute coverage) whose vehicle is
+  // free in the window, big enough, of the booked class, and whose driver is on
+  // duty. Live-sources everything from the queries the AI card already runs, so
+  // the manual list and the recommended-pair card never disagree.
+  const rows = pairingData?.assignments ?? [];
+  const seatsTooFew = (v) => {
+    const seats = Number(v?.seating_capacity) || 0;
+    return seats > 0 && seats < passengers;
+  };
+
+  const custodian = rows
+    .filter((a) => {
+      const v = vById.get(a.vehicle_id);
+      return (
+        v &&
+        onDuty.has(a.driver_id) &&
+        !seatsTooFew(v) &&
+        (reqCategoryId == null || v.category_id === reqCategoryId)
+      );
+    })
+    .map((a) => {
+      const v = vById.get(a.vehicle_id);
+      return {
+        value: `${a.vehicle_id}:${a.driver_id}`,
+        vehicleId: a.vehicle_id,
+        driverId: a.driver_id,
+        plate: v.plate_number,
+        model: v.model,
+        seats: v.seating_capacity,
+        driverName: personName(a),
+      };
+    })
+    .sort((a, b) => (a.plate || "").localeCompare(b.plate || ""));
+
+  const custodianVehicleIds = new Set(custodian.map((o) => o.vehicleId));
+  const substitute = substituteRows
+    .filter((s) => {
+      const v = vById.get(s.vehicle_id);
+      return (
+        v &&
+        !custodianVehicleIds.has(s.vehicle_id) &&
+        onDuty.has(s.substitute_driver_id) &&
+        !seatsTooFew(v) &&
+        (reqCategoryId == null || v.category_id === reqCategoryId)
+      );
+    })
+    .map((s) => {
+      const v = vById.get(s.vehicle_id);
+      const subName =
+        `${s.first_name || ""} ${s.last_name || ""}`.trim() ||
+        (s.substitute_driver_id ? `Driver #${s.substitute_driver_id}` : "substitute");
+      return {
+        value: `${s.vehicle_id}:${s.substitute_driver_id}`,
+        vehicleId: s.vehicle_id,
+        driverId: s.substitute_driver_id,
+        plate: v.plate_number,
+        model: v.model,
+        seats: v.seating_capacity,
+        driverName: subName,
+        note: "substitute",
+      };
+    })
+    .sort((a, b) => (a.plate || "").localeCompare(b.plate || ""));
+
+  const options = [...custodian, ...substitute];
+
+  // A request may already hold a combination that is no longer an eligible pair;
+  // keep showing it so a reopened picker never silently drops the current state.
+  const pinned = useMemo(() => {
+    if (!request?.vehicle_id && !request?.driver_id) return null;
+    const key = `${request.vehicle_id ?? ""}:${request.driver_id ?? ""}`;
+    if (options.some((o) => o.value === key)) return null;
+    const v = vehicles.find((x) => x.vehicle_id === request.vehicle_id);
+    const d = drivers.find((x) => x.driver_id === request.driver_id);
+    const sourceLoading = vehiclesLoading || driversLoading || pairingLoading || subsLoading;
+    if (sourceLoading) return null;
+    return {
+      value: key,
+      vehicleId: request.vehicle_id ?? null,
+      driverId: request.driver_id ?? null,
+      plate: v?.plate_number || request.plate_number || (request.vehicle_id ? `Vehicle #${request.vehicle_id}` : "No vehicle"),
+      model: v?.model,
+      seats: v?.seating_capacity,
+      driverName: request.driver_id ? (personName(d ?? { driver_id: request.driver_id }) || "No driver") : "No driver",
+      isPinned: true,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, options, vehicles, drivers, vehiclesLoading, driversLoading, pairingLoading, subsLoading]);
+
+  const allOptions = pinned ? [pinned, ...options] : options;
+  const manualSelected = selection
+    ? (allOptions.find((o) => o.value === selection) ?? null)
+    : null;
+
+  // The booked class, named so a short list explains itself.
+  const requiredClass =
+    reqCategoryId != null
+      ? request?.vehiclecategories?.category_name || request?.requested_vehicle_type || "Requested class"
+      : null;
+
+  // Vehicles free in this window that no row offers — nobody is designated to
+  // them, or their designated driver is unavailable and no substitute is
+  // assigned for this date. Reported as a footnote.
+  const manualOfferedVehicleIds = new Set(allOptions.map((o) => o.vehicleId));
+  const hiddenCount = vehicles.filter((v) => !manualOfferedVehicleIds.has(v.vehicle_id)).length;
+
+  const searchTerm = searchQuery.trim().toLowerCase();
+  const filteredOptions = allOptions.filter((o) => {
+    if (!searchTerm) return true;
+    return [o.plate, o.model, o.driverName].filter(Boolean).some((f) =>
+      String(f).toLowerCase().includes(searchTerm)
+    );
+  });
+
+  const manualLoading = vehiclesLoading || driversLoading || pairingLoading || subsLoading;
+
+  // The pair the commit uses: a manual pick wins, else the AI recommendation.
+  const commitVehicleId = manualSelected ? manualSelected.vehicleId : recommended.vehicleId;
+  const commitDriverId  = manualSelected ? manualSelected.driverId  : recommended.driverId;
+  const canCommit = Boolean(commitVehicleId || commitDriverId);
+
+  const blocking = conflictError?.data?.conflicts || [];
+
+  const commit = (force) =>
+    onAssign?.({ request: r, vehicleId: commitVehicleId, driverId: commitDriverId, force });
 
   // Pre-compute the diagnostic card for the no-pair-available state.
   // Computed here (not inside JSX) to avoid IIFE which breaks the JSX parser.
@@ -313,10 +460,10 @@ export function ReviewDialog({
           <div className="flex items-center justify-between gap-3">
             <div>
               <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
-                <Sparkles className="w-5 h-5 text-primary shrink-0" /> Request Review &amp; Decision Workspace
+                <Sparkles className="w-5 h-5 text-primary shrink-0" /> AI-Assisted Assignment
               </DialogTitle>
               <DialogDescription className="text-xs text-foreground-secondary mt-0.5">
-                Review guest details and fleet readiness for <span className="font-mono font-semibold">{r.reservation_number || `REQ-#${r.request_id}`}</span>
+                Assign resources to <span className="font-mono font-semibold">{r.reservation_number || `REQ-#${r.request_id}`}</span> with the Smart Dispatch recommendation
               </DialogDescription>
             </div>
             <StatusBadge status={r.priority} entity="priority" />
@@ -481,7 +628,7 @@ export function ReviewDialog({
                           </span>
                         )}
                       </div>
-                      
+
                       {isNarrating ? (
                         <div className="flex items-center gap-2 text-[11px] text-foreground-muted py-1">
                           <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
@@ -524,39 +671,199 @@ export function ReviewDialog({
               <p className="text-xs text-foreground font-medium">{r.special_requests}</p>
             </div>
           )}
+
+          {/* Choose manually — the dispatcher can override the recommendation */}
+          <div className="rounded-xl border border-border bg-surface overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowManual((v) => !v)}
+              className="w-full flex items-center justify-between gap-2 px-3.5 py-3 text-left hover:bg-hover/50 transition-colors"
+            >
+              <span className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                <Search className="w-4 h-4 text-foreground-muted shrink-0" />
+                Choose manually
+                {manualSelected && (
+                  <span className="text-[11px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                    {manualSelected.plate}
+                  </span>
+                )}
+              </span>
+              {showManual ? (
+                <ChevronUp className="w-4 h-4 text-foreground-muted" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-foreground-muted" />
+              )}
+            </button>
+
+            {showManual && (
+              <div className="border-t border-border/60 p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
+                    Vehicle &amp; Driver Assignment
+                  </span>
+                  {requiredClass && (
+                    <Badge variant="outline" className="text-[10px] font-semibold text-primary">
+                      {requiredClass} only
+                    </Badge>
+                  )}
+                </div>
+
+                {allOptions.length > 3 && (
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-foreground-muted" />
+                    <input
+                      type="text"
+                      placeholder="Search by plate, model, or driver..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-8 pr-3 text-xs h-9 bg-surface/80 border border-border/80 rounded-xl focus:border-primary focus:outline-hidden"
+                    />
+                  </div>
+                )}
+
+                <div className="max-h-[220px] space-y-2 overflow-y-auto pr-1">
+                  {manualLoading ? (
+                    <div className="flex h-20 w-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/20 text-xs font-medium text-foreground-muted">
+                      Loading available vehicles...
+                    </div>
+                  ) : filteredOptions.length === 0 ? (
+                    <div className="flex h-20 w-full flex-col items-center justify-center rounded-xl border border-dashed border-border/60 bg-muted/20 p-3 text-center">
+                      <p className="text-xs font-semibold text-foreground">
+                        {allOptions.length > 0 ? "No pairs match your search" : "No valid pairs found"}
+                      </p>
+                      <p className="text-[11px] text-foreground-muted mt-0.5">
+                        {allOptions.length > 0
+                          ? "Clear the search to see every assignable pair."
+                          : "A vehicle is only offered with its designated driver — or a substitute assigned to it for this date. Assign a substitute first, then reopen."}
+                      </p>
+                    </div>
+                  ) : (
+                    filteredOptions.map((o) => {
+                      const isSelected = selection === o.value;
+                      return (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => {
+                            setSelection(o.value);
+                            setShowManual(false);
+                          }}
+                          className={`w-full text-left p-2.5 rounded-xl border transition-all duration-200 flex items-center justify-between ${
+                            isSelected
+                              ? "border-primary bg-primary/10 ring-2 ring-primary/20 shadow-xs"
+                              : "border-border/60 bg-surface/60 hover:bg-hover hover:border-border"
+                          }`}
+                        >
+                          <div className="space-y-1 min-w-0 pr-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="inline-flex items-center rounded-lg border border-border/80 bg-surface px-2 py-0.5 font-data text-xs font-bold text-foreground shadow-2xs">
+                                {o.plate}
+                              </span>
+                              {o.model && (
+                                <span className="text-xs font-bold text-foreground truncate max-w-[150px]">
+                                  {o.model}
+                                </span>
+                              )}
+                              {o.seats && (
+                                <span className="text-[10px] font-semibold text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded-full">
+                                  {o.seats} seats
+                                </span>
+                              )}
+                              {o.isPinned && (
+                                <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded-full">
+                                  Current Assignment
+                                </span>
+                              )}
+                            </div>
+                            <span className="flex items-center gap-1.5 text-xs text-foreground-secondary">
+                              <UserCheck className="w-3 h-3 text-primary shrink-0" />
+                              <span className="font-semibold truncate">{o.driverName}</span>
+                              {o.note && (
+                                <span className="shrink-0 text-[10px] font-semibold text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded-full">
+                                  {o.note}
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <div className="shrink-0 pl-2">
+                            {isSelected ? (
+                              <CheckCircle2 className="w-4 h-4 text-primary" />
+                            ) : (
+                              <div className="w-4 h-4 rounded-full border border-border/80" />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {!manualLoading && hiddenCount > 0 && (
+                  <p className="text-[11px] leading-relaxed text-foreground-muted">
+                    {hiddenCount === 1
+                      ? "1 vehicle is free for this window but has no driver cleared to take it."
+                      : `${hiddenCount} vehicles are free for this window but have no driver cleared to take them.`}{" "}
+                    Assign a designated or substitute driver to offer them here.
+                  </p>
+                )}
+
+                {manualSelected?.isPinned && (
+                  <div className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 p-2.5">
+                    <Info className="mt-0.5 w-3.5 h-3.5 shrink-0 text-warning" aria-hidden="true" />
+                    <p className="min-w-0 text-[11px] text-foreground-secondary leading-relaxed">
+                      {manualSelected.driverId
+                        ? `${manualSelected.plate} and ${manualSelected.driverName} are not a current valid pairing.`
+                        : `${manualSelected.plate} has no driver assigned.`}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Blocking conflicts surfaced by the server (409) */}
+          <ConflictBlock conflicts={blocking} />
         </div>
 
-        {/* Clean, Non-Truncated Action Decision Footer */}
+        {/* Action Footer */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3.5 border-t border-border mt-2">
-          <Button
-            variant="outline"
-            className="text-danger border-danger/30 hover:bg-danger/10 hover:text-danger text-xs font-semibold px-3 h-9 shrink-0 w-full sm:w-auto"
-            disabled={isPending}
-            onClick={() => onReject(r)}
-          >
-            <XCircle className="w-4 h-4 mr-1.5" />
-            Reject Request
-          </Button>
-
+          <p className="text-[11px] text-foreground-muted leading-snug">
+            {blocking.length > 0
+              ? "Overriding records the override on the request timeline."
+              : manualSelected
+                ? `Assigning commits ${manualSelected.plate} with ${manualSelected.driverName} and schedules the dispatch.`
+                : "Assigning commits the recommended vehicle & driver and schedules the dispatch automatically."}
+          </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 shrink-0 w-full sm:w-auto">
             <Button
-              variant="success"
+              variant="outline"
               className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
               disabled={isPending}
-              onClick={() => onApprove(r)}
+              onClick={onClose}
             >
-              {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
-              Approve Request
+              Not now
             </Button>
-            <Button
-              variant="default"
-              className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
-              disabled={isPending}
-              onClick={() => onAssign(r, recommended)}
-            >
-              <Send className="w-4 h-4 mr-1.5" />
-              Approve &amp; Assign Now
-            </Button>
+            {blocking.length > 0 ? (
+              <Button
+                variant="destructive"
+                className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
+                disabled={isPending}
+                onClick={() => commit(true)}
+              >
+                {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Send className="w-4 h-4 mr-1.5" />}
+                Override &amp; Assign
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                className="text-xs font-semibold px-3.5 h-9 w-full sm:w-auto"
+                disabled={isPending || !canCommit}
+                onClick={() => commit(false)}
+              >
+                {isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <Send className="w-4 h-4 mr-1.5" />}
+                {isPending ? "Assigning…" : manualSelected ? "Assign Selected" : "Assign Now"}
+              </Button>
+            )}
           </div>
         </div>
       </DialogContent>

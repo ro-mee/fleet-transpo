@@ -82,6 +82,7 @@ export async function assertDispatchOwnership(session, dispatchId) {
  */
 export function resolveDriverScope(session, requested) {
   if (!isDriver(session)) {
+    if (requested === null || requested === undefined || requested === "") return null;
     const id = Number(requested);
     return Number.isInteger(id) ? id : null;
   }

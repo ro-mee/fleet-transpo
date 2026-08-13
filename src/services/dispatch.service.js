@@ -31,6 +31,7 @@ export async function updateDispatch(id, dispatch) {
   return apiFetch(`/api/dispatch/${id}`, { method: "PUT", body: dispatch });
 }
 
-export async function updateDispatchStatus(id, status, reason) {
-  return apiFetch(`/api/dispatch/${id}/status`, { method: "PUT", body: { status, reason } });
+/** Stand a dispatch down through the transition service. */
+export async function cancelDispatch(id, reason) {
+  return apiFetch(`/api/dispatch/${id}/cancel`, { method: "PUT", body: { reason } });
 }

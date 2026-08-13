@@ -21,11 +21,17 @@ export const REASON_TYPE = {
   REPLACEMENT: "replacement",
 };
 
+// Statuses that truly rule a driver out, regardless of when the trip is.
+// `On Trip` is deliberately absent (see NON_DISPATCHABLE_VEHICLE_STATUSES for
+// the vehicle-side reasoning): a driver busy now is still provably eligible for
+// a future window once their current and scheduled assignments clear it. The
+// time-aware `_schedule_load` signal is the authority on overlap, so a driver
+// mid-trip with an overlapping dispatch IS caught there, while a mid-trip
+// driver who is free in the requested window is correctly offered.
 const UNAVAILABLE_STATUSES = new Set([
   DRIVER_STATUS.ON_LEAVE,
   DRIVER_STATUS.SUSPENDED,
   DRIVER_STATUS.OFF_DUTY,
-  DRIVER_STATUS.ON_TRIP,
 ]);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -142,12 +148,12 @@ export function isDriverUnavailableFor(driver, now = new Date()) {
  * (see status.service.js) meaning "this vehicle has a booking today" — not
  * "this vehicle is taken at the time you asked about". A vehicle booked 10-11am
  * is genuinely free at 2pm, so treating Reserved as unavailable hides usable
- * capacity. Time-specific availability is answered by real schedule-overlap,
- * which remains the authority; this set only removes vehicles that cannot go
- * out at all.
+ * capacity. `In Use` is deliberately absent for the same reason: a vehicle
+ * currently driving is free for a later window. Time-specific availability is
+ * answered by real schedule-overlap (`_schedule_load`), which remains the
+ * authority; this set only removes vehicles that cannot go out at all.
  */
 export const NON_DISPATCHABLE_VEHICLE_STATUSES = [
-  VEHICLE_STATUS.IN_USE,
   VEHICLE_STATUS.UNDER_MAINTENANCE,
   VEHICLE_STATUS.DECOMMISSIONED,
   VEHICLE_STATUS.REGISTRATION_EXPIRED,

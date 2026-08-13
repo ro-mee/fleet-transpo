@@ -19,8 +19,8 @@ describe("priorityRank", () => {
 });
 
 describe("derivePriority — terminal states", () => {
-  it("returns null for completed/cancelled/rejected requests", () => {
-    for (const st of [L.COMPLETED, L.CANCELLED, L.REJECTED]) {
+  it("returns null for completed/cancelled requests", () => {
+    for (const st of [L.COMPLETED, L.CANCELLED]) {
       expect(derivePriority({ pickupDatetime: atMinutes(-5), fleetStatus: st, now: NOW })).toBeNull();
     }
   });
@@ -28,7 +28,7 @@ describe("derivePriority — terminal states", () => {
 
 describe("derivePriority — overdue", () => {
   it("marks an unstarted, past pickup as Overdue", () => {
-    for (const st of [L.PENDING, L.UNDER_REVIEW, L.APPROVED, L.SCHEDULED, L.ASSIGNED, null]) {
+    for (const st of [L.PENDING, L.SCHEDULED, L.ASSIGNED, null]) {
       expect(derivePriority({ pickupDatetime: atMinutes(-10), fleetStatus: st, now: NOW }))
         .toBe(DERIVED_PRIORITY.OVERDUE);
     }

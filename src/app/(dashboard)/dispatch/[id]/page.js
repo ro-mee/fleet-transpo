@@ -31,7 +31,7 @@ import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { getDispatch, updateDispatch, updateDispatchStatus } from "@/services/dispatch.service";
+import { getDispatch, updateDispatch, cancelDispatch } from "@/services/dispatch.service";
 import { DISPATCH_STATUS as D } from "@/lib/constants";
 import { formatDateTime, formatDistance, formatDuration, cn } from "@/lib/utils";
 import {
@@ -64,7 +64,7 @@ import {
 // rendered at all. Both now come from the originating transportation request.
 //
 // Actions mirror the board exactly, and for the same reason: Start and Complete go
-// through the TRIP endpoints, never PUT /api/dispatch/[id]/status. Only the trip
+// through the TRIP endpoints, never a raw dispatch status write. Only the trip
 // routes advance the originating request and append its reservation_events row —
 // moving the dispatch column alone would leave the request behind and punch a hole
 // in the timeline rendered further down this very page.
@@ -192,7 +192,7 @@ export default function DispatchDetailPage() {
   };
 
   const cancelMutation = useMutation({
-    mutationFn: () => updateDispatchStatus(dispatchId, D.CANCELLED, cancelReason.trim() || null),
+    mutationFn: () => cancelDispatch(dispatchId, cancelReason.trim() || null),
     onSuccess: () => {
       toast.success("Dispatch cancelled");
       setConfirmCancel(false);

@@ -16,7 +16,7 @@ import { DERIVED_PRIORITY, DERIVED_PRIORITY_RANK, RESERVATION_LIFECYCLE as L } f
 export const QUEUE_TABS = ["today", "upcoming", "assigned", "inProgress", "completed", "cancelled"];
 
 const IN_PROGRESS = new Set([L.IN_PROGRESS]);
-const TERMINAL = new Set([L.COMPLETED, L.CANCELLED, L.REJECTED]);
+const TERMINAL = new Set([L.COMPLETED, L.CANCELLED]);
 
 function isToday(d, now) {
   return (

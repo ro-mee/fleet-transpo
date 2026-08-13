@@ -52,14 +52,10 @@ export const RESERVATION_STATUS = {
 // src/lib/scheduling/reservation-state.js.
 //
 // Strict linear chain:
-//   Pending → Under Review → Approved|Rejected → Scheduled → Assigned
-//           → In Progress → Completed
+//   Pending → Scheduled → Assigned → In Progress → Completed
 // Cancelled is reachable from any non-terminal state.
 export const RESERVATION_LIFECYCLE = {
   PENDING: "Pending",
-  UNDER_REVIEW: "Under Review",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
   SCHEDULED: "Scheduled",
   ASSIGNED: "Assigned",
   IN_PROGRESS: "In Progress",
@@ -107,9 +103,6 @@ export const DERIVED_PRIORITY_RANK = {
 // recordReservationEvent() in src/services/reservation-events.service.js.
 export const RESERVATION_EVENT = {
   CREATED: "created",
-  REVIEWED: "reviewed",
-  APPROVED: "approved",
-  REJECTED: "rejected",
   VEHICLE_RECOMMENDED: "vehicle_recommended",
   DRIVER_RECOMMENDED: "driver_recommended",
   VEHICLE_ASSIGNED: "vehicle_assigned",
@@ -141,7 +134,10 @@ export const TRIP_STATUS = {
   DISPATCHED: "Dispatched",
   DRIVER_ACCEPTED: "Driver Accepted",
   TRIP_STARTED: "Trip Started",
+  AT_PICKUP: "At Pickup",
+  PASSENGER_ONBOARD: "Passenger Onboard",
   EN_ROUTE: "En Route",
+  DROP_OFF: "Drop-off",
   ARRIVED: "Arrived",
   IN_PROGRESS: "In Progress",
   COMPLETED: "Completed",
