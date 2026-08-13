@@ -66,25 +66,46 @@ export default function MapTab() {
 
           // 2. Map Marker Update
           setDriverLocation(prev => {
-            // Prevent map spinning/glitching when stopped: only update heading if driving > 1 m/s
             let updatedHeading = prev?.heading;
-            if (newLoc.coords.speed > 1 && newLoc.coords.heading >= 0) {
-              updatedHeading = newLoc.coords.heading;
-            } else if (!prev && newLoc.coords.heading >= 0) {
+            
+            // If driving fast (> 2 m/s), prioritize GPS Course Over Ground heading!
+            if (newLoc.coords.speed > 2 && newLoc.coords.heading >= 0) {
               updatedHeading = newLoc.coords.heading;
             }
 
             return { 
               lat: newLoc.coords.latitude, 
               lng: newLoc.coords.longitude,
-              heading: updatedHeading
+              heading: updatedHeading,
+              speed: newLoc.coords.speed
             };
           });
         }
       );
+      // 3. Compass/Gyroscope Subscription for when the car is stopped
+      let headingSubscription = null;
+      try {
+          headingSubscription = await Location.watchHeadingAsync((headingObj) => {
+              const compassHeading = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
+              
+              setDriverLocation(prev => {
+                  if (!prev) return prev;
+                  // Only use the physical compass if the car is stopped or moving very slowly (< 2 m/s)
+                  // If we are driving fast, we trust the GPS course-over-ground instead so the map doesn't spin if you grab your phone!
+                  if (prev.speed === undefined || prev.speed < 2) {
+                      return { ...prev, heading: compassHeading };
+                  }
+                  return prev;
+              });
+          });
+      } catch (e) {
+          console.warn("Compass not available on this device", e);
+      }
+
     })();
     return () => {
       if (subscription) subscription.remove();
+      if (headingSubscription) headingSubscription.remove();
     };
   }, []);
 

@@ -37,7 +37,15 @@ export default function TomTomMap({
               .tt-popup-panel { background: white; }
               .popup-title { font-family: sans-serif; font-size: 14px; font-weight: bold; color: #0f172a; margin: 0; }
               
-              .origin-marker-car { width: 36px; height: 36px; background-image: url('https://cdn-icons-png.flaticon.com/512/3202/3202926.png'); background-size: cover; background-position: center; drop-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+              .origin-marker-car { 
+                  width: 36px; 
+                  height: 72px; 
+                  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="%23475569"/><stop offset="50%" stop-color="%23cbd5e1"/><stop offset="100%" stop-color="%23475569"/></linearGradient><linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="%230f172a"/><stop offset="100%" stop-color="%231e293b"/></linearGradient></defs><rect x="4" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="4" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="8" y="8" width="48" height="112" rx="16" fill="url(%23grad)"/><path d="M 14 40 L 50 40 L 46 90 L 18 90 Z" fill="%2394a3b8"/><path d="M 12 40 Q 32 28 52 40 L 50 48 L 14 48 Z" fill="url(%23glass)"/><path d="M 16 90 Q 32 100 48 90 L 46 84 L 18 84 Z" fill="url(%23glass)"/><path d="M 12 8 Q 16 6 20 8 L 20 12 L 12 12 Z" fill="%23fcd34d"/><path d="M 52 8 Q 48 6 44 8 L 44 12 L 52 12 Z" fill="%23fcd34d"/><rect x="12" y="116" width="14" height="4" rx="2" fill="%23ef4444"/><rect x="38" y="116" width="14" height="4" rx="2" fill="%23ef4444"/></svg>'); 
+                  background-size: contain; 
+                  background-repeat: no-repeat; 
+                  background-position: center; 
+                  filter: drop-shadow(0 6px 10px rgba(0,0,0,0.4)); 
+              }
               .origin-marker-dot { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
               .origin-dot-outer { width: 20px; height: 20px; border-radius: 10px; background: rgba(30, 58, 138, 0.2); display: flex; align-items: center; justify-content: center; position: absolute; top: -14px; }
               .origin-dot-inner { width: 8px; height: 8px; border-radius: 4px; background: #1e3a8a; }
@@ -54,14 +62,145 @@ export default function TomTomMap({
               /* On-Route Delay Badge */
               .on-route-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; font-family: sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,0.3); border: 2px solid white; white-space: nowrap; pointer-events: none; }
               .on-route-badge.yellow { background: #eab308; }
+
+              /* Ultra Premium Glassmorphic Navigation Header */
+              .nav-header { position: absolute; top: 20px; left: 20px; right: 20px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; pointer-events: none; }
+              
+              .nav-main-banner { 
+                  background: rgba(15, 23, 42, 0.85); 
+                  backdrop-filter: blur(16px); 
+                  -webkit-backdrop-filter: blur(16px);
+                  border: 1px solid rgba(255, 255, 255, 0.15);
+                  border-radius: 32px; 
+                  padding: 8px 24px 8px 8px; 
+                  display: flex; 
+                  align-items: center; 
+                  color: white; 
+                  box-shadow: 0 16px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1); 
+                  position: relative; 
+                  max-width: 400px;
+                  width: 100%;
+              }
+              
+              .nav-icon-wrapper { 
+                  width: 56px; 
+                  height: 56px; 
+                  border-radius: 28px; 
+                  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+                  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+                  display: flex; 
+                  align-items: center; 
+                  justify-content: center; 
+                  flex-shrink: 0; 
+                  position: relative;
+              }
+              
+              .nav-icon-wrapper::after {
+                  content: '';
+                  position: absolute;
+                  inset: 0;
+                  border-radius: 50%;
+                  box-shadow: inset 0 2px 4px rgba(255,255,255,0.4);
+              }
+              
+              .nav-icon { width: 28px; height: 28px; fill: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2)); }
+              
+              .nav-info { margin-left: 16px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; }
+              
+              .nav-dist-row { display: flex; align-items: baseline; gap: 6px; }
+              .nav-dist { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(to right, #ffffff, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+              .nav-dist-unit { font-size: 13px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
+              
+              .nav-street { font-size: 16px; font-weight: 500; color: #f8fafc; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; letter-spacing: 0.2px; }
+              
+              .nav-then-badge { 
+                  background: rgba(15, 23, 42, 0.7); 
+                  border: 1px solid rgba(255, 255, 255, 0.1);
+                  border-radius: 20px; 
+                  padding: 6px 16px; 
+                  display: inline-flex; 
+                  align-items: center; 
+                  color: #e2e8f0; 
+                  margin-top: 12px;
+                  font-weight: 600; 
+                  font-size: 12px; 
+                  box-shadow: 0 8px 16px rgba(0,0,0,0.2); 
+                  backdrop-filter: blur(8px);
+                  -webkit-backdrop-filter: blur(8px);
+                  letter-spacing: 0.5px;
+                  text-transform: uppercase;
+              }
+              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: #e2e8f0; }
+
+              /* Map Controls */
+              .overview-btn { position: absolute; right: 16px; bottom: 32px; width: 48px; height: 48px; background: white; border-radius: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; z-index: 1000; cursor: pointer; border: 1px solid #e2e8f0; }
+              .overview-btn:active { background: #f1f5f9; }
+              
+              .recenter-btn { position: absolute; left: 16px; bottom: 32px; background: white; width: 48px; height: 48px; border-radius: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; align-items: center; justify-content: center; z-index: 1000; color: #0ea5e9; cursor: pointer; border: 1px solid #e2e8f0; }
+              .recenter-btn:active { background: #f1f5f9; }
+              
+              /* Car Customizer Modal */
+              .car-customizer-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+              .car-customizer-modal { background: white; padding: 24px; border-radius: 20px; width: 80%; max-width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); font-family: sans-serif; }
+              .car-customizer-modal h3 { margin: 0 0 16px 0; font-size: 18px; color: #0f172a; text-align: center; }
+              .car-customizer-modal label { font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 8px; display: block; text-transform: uppercase; text-align: center; }
+              .color-options { display: flex; gap: 12px; margin-bottom: 24px; justify-content: center; flex-wrap: wrap; }
+              .color-swatch { width: 40px; height: 40px; border-radius: 20px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 2px solid white; outline: 2px solid transparent; }
+              .customizer-close { width: 100%; padding: 14px; background: #0f172a; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; }
           </style>
       </head>
       <body>
           <div id="map"></div>
           
+          <div id="navHeader" class="nav-header">
+              <div class="nav-main-banner">
+                  <div class="nav-icon-wrapper">
+                      <div id="navIcon" class="nav-icon"></div>
+                  </div>
+                  <div class="nav-info">
+                      <div class="nav-dist-row">
+                          <span id="navDistVal" class="nav-dist">--</span>
+                          <span id="navDistUnit" class="nav-dist-unit">m</span>
+                      </div>
+                      <div id="navStreet" class="nav-street">Calculating...</div>
+                  </div>
+              </div>
+              <div id="navThenBanner" class="nav-then-badge">
+                  Next <div id="navThenIcon" class="nav-then-icon"></div>
+              </div>
+          </div>
+          
+          <div id="overviewBtn" class="overview-btn" onclick="window.showOverview()" style="display: none;">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="6" cy="18" r="3"/>
+                  <circle cx="18" cy="6" r="3"/>
+                  <path d="M6 15v-1a4 4 0 0 1 4-4h4a4 4 0 0 0 4-4V9"/>
+              </svg>
+          </div>
+          
+          <div id="recenterBtn" class="recenter-btn" onclick="window.recenterMap()">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
+          </div>
+
           <div id="etaBox" class="eta-box">
               <div id="etaTime" class="eta-time">ETA: -- min</div>
               <div id="etaDelay" class="eta-delay">⚠️ +-- min traffic</div>
+          </div>
+          
+          <!-- Car Customizer UI -->
+          <div id="carCustomizer" class="car-customizer-overlay" style="display: none;">
+              <div class="car-customizer-modal">
+                  <h3>Customize Vehicle</h3>
+                  <label>Color</label>
+                  <div class="color-options">
+                      <div class="color-swatch" style="background: #ef4444;" onclick="window.setCarColor('red')"></div>
+                      <div class="color-swatch" style="background: #3b82f6;" onclick="window.setCarColor('blue')"></div>
+                      <div class="color-swatch" style="background: #cbd5e1;" onclick="window.setCarColor('silver')"></div>
+                      <div class="color-swatch" style="background: #334155;" onclick="window.setCarColor('black')"></div>
+                      <div class="color-swatch" style="background: #ffffff; border: 1px solid #e2e8f0;" onclick="window.setCarColor('white')"></div>
+                  </div>
+                  <button class="customizer-close" onclick="document.getElementById('carCustomizer').style.display = 'none';">Done</button>
+              </div>
           </div>
 
           <script>
@@ -70,6 +209,355 @@ export default function TomTomMap({
               window.originMarker = null;
               window.destMarker = null;
               window.ttMap = null;
+              window.isFollowing = true;
+              
+              window.carColor = 'silver';
+
+              window.generateCarSvg = function(color) {
+                  let baseColor, lightColor;
+                  switch(color) {
+                      case 'red': baseColor = '%23b91c1c'; lightColor = '%23ef4444'; break;
+                      case 'blue': baseColor = '%231d4ed8'; lightColor = '%233b82f6'; break;
+                      case 'silver': baseColor = '%23475569'; lightColor = '%23cbd5e1'; break;
+                      case 'black': baseColor = '%230f172a'; lightColor = '%23334155'; break;
+                      case 'white': baseColor = '%23e2e8f0'; lightColor = '%23ffffff'; break;
+                      default: baseColor = '%23475569'; lightColor = '%23cbd5e1';
+                  }
+                  
+                  return \`url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="\${baseColor}"/><stop offset="50%" stop-color="\${lightColor}"/><stop offset="100%" stop-color="\${baseColor}"/></linearGradient><linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="%230f172a"/><stop offset="100%" stop-color="%231e293b"/></linearGradient></defs><rect x="4" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="4" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="8" y="8" width="48" height="112" rx="16" fill="url(%23grad)"/><path d="M 14 40 L 50 40 L 46 90 L 18 90 Z" fill="\${lightColor}"/><path d="M 12 40 Q 32 28 52 40 L 50 48 L 14 48 Z" fill="url(%23glass)"/><path d="M 16 90 Q 32 100 48 90 L 46 84 L 18 84 Z" fill="url(%23glass)"/><path d="M 12 8 Q 16 6 20 8 L 20 12 L 12 12 Z" fill="%23fcd34d"/><path d="M 52 8 Q 48 6 44 8 L 44 12 L 52 12 Z" fill="%23fcd34d"/><rect x="12" y="116" width="14" height="4" rx="2" fill="%23ef4444"/><rect x="38" y="116" width="14" height="4" rx="2" fill="%23ef4444"/></svg>')\`;
+              };
+
+              window.updateCarRotation = function(heading) {
+                  if (heading === undefined) {
+                      if (window.getRouteBearing && window.currentCarLng) {
+                          heading = window.getRouteBearing(window.currentCarLng, window.currentCarLat);
+                      } else {
+                          heading = window.lastHeading || 0;
+                      }
+                  }
+                  if (!window.ttMap) return;
+                  const mapBearing = window.ttMap.getBearing();
+                  const el = document.getElementById('carInnerIcon');
+                  if (el) {
+                      el.style.transform = 'rotate(' + (heading - mapBearing) + 'deg)';
+                  }
+              };
+
+              window.updateCarIcon = function() {
+                  const el = document.getElementById('carInnerIcon');
+                  if (el) {
+                      el.style.backgroundImage = window.generateCarSvg(window.carColor);
+                      el.style.width = '36px';
+                  }
+              };
+
+              window.setCarColor = function(color) {
+                  window.carColor = color;
+                  window.updateCarIcon();
+              };
+              
+              window.showOverview = function() {
+                  window.isFollowing = false;
+                  document.getElementById('recenterBtn').style.display = 'flex';
+                  
+                  if (window.routeCoords && window.routeCoords.length > 0) {
+                      const bounds = new tt.LngLatBounds();
+                      window.routeCoords.forEach(coord => {
+                          const lng = Array.isArray(coord) ? coord[0] : (coord.lng !== undefined ? coord.lng : coord.longitude);
+                          const lat = Array.isArray(coord) ? coord[1] : (coord.lat !== undefined ? coord.lat : coord.latitude);
+                          bounds.extend([lng, lat]);
+                      });
+                      window.ttMap.fitBounds(bounds, { padding: 50, pitch: 0, bearing: 0, duration: 800 });
+                  }
+              };
+
+              window.getRouteBearing = function(lng, lat) {
+                  if (!window.routeCoords || window.routeCoords.length < 2) return window.lastHeading || 0;
+                  const snap = window.getSnappedPosition ? window.getSnappedPosition(lng, lat) : { closestIdx: 0 };
+                  const idx1 = snap.closestIdx;
+                  
+                  const pt1 = window.routeCoords[idx1];
+                  let lng1 = Array.isArray(pt1) ? pt1[0] : (pt1.lng !== undefined ? pt1.lng : pt1.longitude);
+                  let lat1 = Array.isArray(pt1) ? pt1[1] : (pt1.lat !== undefined ? pt1.lat : pt1.latitude);
+                  
+                  // Haversine distance function
+                  function getDist(latA, lonA, latB, lonB) {
+                      const R = 6371e3;
+                      const p1 = latA * Math.PI/180;
+                      const p2 = latB * Math.PI/180;
+                      const dp = (latB-latA) * Math.PI/180;
+                      const dl = (lonB-lonA) * Math.PI/180;
+                      const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+                      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                      return R * c;
+                  }
+
+                  let pt2 = null;
+                  let lng2, lat2;
+                  
+                  // Look ahead at least 10 meters to get a stable bearing
+                  for (let i = idx1 + 1; i < window.routeCoords.length; i++) {
+                      const p = window.routeCoords[i];
+                      const ln = Array.isArray(p) ? p[0] : (p.lng !== undefined ? p.lng : p.longitude);
+                      const lt = Array.isArray(p) ? p[1] : (p.lat !== undefined ? p.lat : p.latitude);
+                      if (getDist(lat1, lng1, lt, ln) > 10) {
+                          pt2 = p;
+                          lng2 = ln;
+                          lat2 = lt;
+                          break;
+                      }
+                  }
+                  
+                  // If too close to the end, look backwards to get the final bearing
+                  if (!pt2) {
+                      for (let i = idx1 - 1; i >= 0; i--) {
+                          const p = window.routeCoords[i];
+                          const ln = Array.isArray(p) ? p[0] : (p.lng !== undefined ? p.lng : p.longitude);
+                          const lt = Array.isArray(p) ? p[1] : (p.lat !== undefined ? p.lat : p.latitude);
+                          if (getDist(lat1, lng1, lt, ln) > 10) {
+                              lng2 = lng1; lat2 = lat1; // Target is current point
+                              lng1 = ln; lat1 = lt; // Origin is a past point
+                              pt2 = p;
+                              break;
+                          }
+                      }
+                  }
+                  
+                  if (!pt2) return window.lastHeading || 0;
+                  
+                  const toRad = x => x * Math.PI / 180;
+                  const toDeg = x => x * 180 / Math.PI;
+                  const dLng = toRad(lng2 - lng1);
+                  const lat1R = toRad(lat1);
+                  const lat2R = toRad(lat2);
+                  const y = Math.sin(dLng) * Math.cos(lat2R);
+                  const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLng);
+                  let brng = toDeg(Math.atan2(y, x));
+                  return (brng + 360) % 360;
+              };
+
+              window.recenterMap = function() {
+                  window.isFollowing = true;
+                  document.getElementById('recenterBtn').style.display = 'none';
+                  
+                  if (window.currentCarLng && window.currentCarLat) {
+                      const routeBearing = window.getRouteBearing(window.currentCarLng, window.currentCarLat);
+                      window.ttMap.flyTo({ 
+                          center: [window.currentCarLng, window.currentCarLat], 
+                          zoom: 18.5, 
+                          pitch: 0, 
+                          bearing: routeBearing,
+                          duration: 800 
+                      });
+                  }
+              };
+              
+              const icons = {
+                  LEFT: '<svg viewBox="0 0 24 24"><path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>',
+                  RIGHT: '<svg viewBox="0 0 24 24"><path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"/></svg>',
+                  STRAIGHT: '<svg viewBox="0 0 24 24"><path d="M12 4l-7 7h4v9h6v-9h4z"/></svg>',
+                  ARRIVE: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line></svg>'
+              };
+
+              window.getManeuverIcon = function(maneuver) {
+                  if (!maneuver) return icons.STRAIGHT;
+                  if (maneuver.includes('LEFT')) return icons.LEFT;
+                  if (maneuver.includes('RIGHT')) return icons.RIGHT;
+                  if (maneuver.includes('ARRIVE')) return icons.ARRIVE;
+                  return icons.STRAIGHT;
+              };
+
+              window.getSnappedPosition = function(lng, lat) {
+                  if (!window.routeCoords || window.routeCoords.length === 0) return { lng, lat, isSnapped: false };
+                  
+                  function getDist(lat1, lon1, lat2, lon2) {
+                      const R = 6371e3;
+                      const p1 = lat1 * Math.PI/180;
+                      const p2 = lat2 * Math.PI/180;
+                      const dp = (lat2-lat1) * Math.PI/180;
+                      const dl = (lon2-lon1) * Math.PI/180;
+                      const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+                      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                      return R * c;
+                  }
+
+                  let minDist = Infinity;
+                  let closestIdx = 0;
+                  
+                  window.lastClosestIdx = window.lastClosestIdx || 0;
+                  const searchStart = Math.max(0, window.lastClosestIdx - 5);
+                  const searchEnd = Math.min(window.routeCoords.length, window.lastClosestIdx + 150);
+
+                  for (let i = searchStart; i < searchEnd; i++) {
+                      const pt = window.routeCoords[i];
+                      const ptLng = Array.isArray(pt) ? pt[0] : (pt.lng !== undefined ? pt.lng : pt.longitude);
+                      const ptLat = Array.isArray(pt) ? pt[1] : (pt.lat !== undefined ? pt.lat : pt.latitude);
+                      
+                      if (ptLat !== undefined && ptLng !== undefined) {
+                          const d = getDist(lat, lng, ptLat, ptLng);
+                          if (d < minDist) {
+                              minDist = d;
+                              closestIdx = i;
+                          }
+                      }
+                  }
+                  
+                  window.lastClosestIdx = closestIdx;
+                  
+                  // If we are within 35 meters of the road, snap to it!
+                  if (minDist < 35) {
+                      const pt = window.routeCoords[closestIdx];
+                      const snappedLng = Array.isArray(pt) ? pt[0] : (pt.lng !== undefined ? pt.lng : pt.longitude);
+                      const snappedLat = Array.isArray(pt) ? pt[1] : (pt.lat !== undefined ? pt.lat : pt.latitude);
+                      return { lng: snappedLng, lat: snappedLat, isSnapped: true, closestIdx, minDist };
+                  }
+                  
+                  return { lng, lat, isSnapped: false, closestIdx, minDist };
+              };
+
+              window.updateNavigationBanner = function(carLng, carLat, snapInfo = null) {
+                  if (!window.routeInstructions || !window.routeCoords || window.routeCoords.length === 0) return;
+                  
+                  function getDist(lat1, lon1, lat2, lon2) {
+                      const R = 6371e3;
+                      const p1 = lat1 * Math.PI/180;
+                      const p2 = lat2 * Math.PI/180;
+                      const dp = (lat2-lat1) * Math.PI/180;
+                      const dl = (lon2-lon1) * Math.PI/180;
+                      const a = Math.sin(dp/2) * Math.sin(dp/2) + Math.cos(p1) * Math.cos(p2) * Math.sin(dl/2) * Math.sin(dl/2);
+                      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                      return R * c;
+                  }
+
+                  let minDist = snapInfo ? snapInfo.minDist : 0;
+                  let closestIdx = snapInfo ? snapInfo.closestIdx : 0;
+                  
+                  if (!snapInfo) {
+                      const fallbackSnap = window.getSnappedPosition(carLng, carLat);
+                      minDist = fallbackSnap.minDist;
+                      closestIdx = fallbackSnap.closestIdx;
+                  }
+                  
+                  // Auto-Rerouting: If car is > 50m off the route, recalculate!
+                  if (minDist > 50 && !window.isRecalculating && window.currentDestLng) {
+                      window.isRecalculating = true;
+                      document.getElementById('navStreet').innerText = "Rerouting...";
+                      
+                      tt.services.calculateRoute({
+                          key: '${tomtomKey}',
+                          traffic: ${autoSwoop},
+                          computeTravelTimeFor: 'all',
+                          maxAlternatives: 0,
+                          sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
+                          instructionsType: 'text',
+                          locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
+                      }).then(response => {
+                          window.isRecalculating = false;
+                          const baseGeojson = response.toGeoJson();
+                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
+                          
+                          const mainFeature = baseGeojson.features[0];
+                          window.routeCoords = mainFeature.geometry.coordinates;
+                          window.routeInstructions = response.routes[0].guidance ? response.routes[0].guidance.instructions : [];
+                          
+                          // Reset cache
+                          window.cumDist = null;
+                          window.lastClosestIdx = 0;
+                          
+                          // Redraw the green line instantly without full map reload!
+                          const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
+                          
+                          if (window.ttMap && window.ttMap.getSource('route')) {
+                              window.ttMap.getSource('route').setData(mainGeojson);
+                          }
+                          
+                          window.updateNavigationBanner(carLng, carLat);
+                      }).catch(e => {
+                          window.isRecalculating = false;
+                      });
+                      return; // Stop updating banner while rerouting
+                  }
+                  
+                  // 2. Precompute exact segment distances for 100% accuracy
+                  if (!window.cumDist) {
+                      window.cumDist = [0];
+                      for (let i = 1; i < window.routeCoords.length; i++) {
+                          const p1 = window.routeCoords[i-1];
+                          const p2 = window.routeCoords[i];
+                          const l1 = Array.isArray(p1) ? p1[0] : (p1.lng !== undefined ? p1.lng : p1.longitude);
+                          const a1 = Array.isArray(p1) ? p1[1] : (p1.lat !== undefined ? p1.lat : p1.latitude);
+                          const l2 = Array.isArray(p2) ? p2[0] : (p2.lng !== undefined ? p2.lng : p2.longitude);
+                          const a2 = Array.isArray(p2) ? p2[1] : (p2.lat !== undefined ? p2.lat : p2.latitude);
+                          window.cumDist.push(window.cumDist[i-1] + getDist(a1, l1, a2, l2));
+                      }
+                  }
+                  
+                  const carOffset = window.cumDist[closestIdx];
+                  
+                  // Find instructions that are strictly AHEAD of the car (tolerance of 15m so we drop them right as we turn)
+                  const upcoming = window.routeInstructions.filter(inst => {
+                      const instOffset = inst.routeOffsetInMeters !== undefined ? inst.routeOffsetInMeters : window.cumDist[inst.pointIndex];
+                      return instOffset > carOffset + 15;
+                  });
+                  
+                  const navHeader = document.getElementById('navHeader');
+                  
+                  if (upcoming.length > 0) {
+                      const nextInst = upcoming[0];
+                      const thenInst = upcoming[1];
+                      
+                      navHeader.style.display = 'flex';
+                      
+                      let distToManeuver = 0;
+                      if (nextInst.routeOffsetInMeters !== undefined) {
+                          distToManeuver = nextInst.routeOffsetInMeters - carOffset;
+                      } else {
+                          distToManeuver = window.cumDist[nextInst.pointIndex] - carOffset;
+                      }
+                      
+                      let distVal = "--";
+                      let distUnit = "m";
+                      if (!isNaN(distToManeuver) && distToManeuver >= 0) {
+                          if (distToManeuver >= 1000) {
+                              distVal = (distToManeuver / 1000).toFixed(1);
+                              distUnit = "km";
+                          } else {
+                              // Exact meters (no more arbitrary 10m rounding!)
+                              distVal = Math.round(distToManeuver);
+                              distUnit = "m";
+                          }
+                      }
+                      
+                      document.getElementById('navDistVal').innerText = distVal;
+                      document.getElementById('navDistUnit').innerText = distUnit;
+                      
+                      let action = nextInst.message || "Continue";
+                      if (nextInst.street && !action.includes(nextInst.street)) {
+                          action += " onto " + nextInst.street;
+                      }
+                      document.getElementById('navStreet').innerText = action;
+                      document.getElementById('navIcon').innerHTML = window.getManeuverIcon(nextInst.maneuver);
+                      
+                      const thenBanner = document.getElementById('navThenBanner');
+                      if (thenInst) {
+                          thenBanner.style.display = 'inline-flex';
+                          document.getElementById('navThenIcon').innerHTML = window.getManeuverIcon(thenInst.maneuver);
+                      } else {
+                          thenBanner.style.display = 'none';
+                      }
+                  } else {
+                      if (minDist < 50) {
+                          document.getElementById('navStreet').innerText = "Arrived";
+                          document.getElementById('navDistVal').innerText = "";
+                          document.getElementById('navDistUnit').innerText = "";
+                          document.getElementById('navIcon').innerHTML = window.getManeuverIcon("ARRIVE");
+                          document.getElementById('navThenBanner').style.display = 'none';
+                          navHeader.style.display = 'flex';
+                      } else {
+                          navHeader.style.display = 'none';
+                      }
+                  }
+              };
 
               async function initMap() {
                   let originLat = ${origin?.lat || 'null'};
@@ -104,27 +592,71 @@ export default function TomTomMap({
                   originLng = originLng || 120.9842;
                   destLat = destLat || 14.5995;
                   destLng = destLng || 120.9842;
+                  
+                  // Store globally for rerouting
+                  window.currentDestLat = destLat;
+                  window.currentDestLng = destLng;
 
                   const map = tt.map({
                       key: '${tomtomKey}',
                       container: 'map',
                       center: [originLng, originLat],
-                      zoom: 15,
-                      pitch: ${autoSwoop ? 45 : 0},
+                      zoom: 12, // Start zoomed out so the route reveal is smooth
+                      pitch: 0, // Start flat for the full route overview
                       dragPan: ${scrollEnabled},
                       scrollZoom: ${scrollEnabled},
                       stylesVisibility: {
-                          trafficIncidents: false, // Turn off global traffic to keep background clean
+                          trafficIncidents: false,
                           trafficFlow: false
                       }
                   });
                   window.ttMap = map;
+                  
+                  map.on('dragstart', () => {
+                      if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
+                      if (window.isFollowing && ${showCarIcon}) {
+                          window.isFollowing = false;
+                          document.getElementById('recenterBtn').style.display = 'flex';
+                      }
+                  });
+                  map.on('rotate', () => {
+                      if (window.updateCarRotation) window.updateCarRotation();
+                  });
+                  map.on('zoomstart', (e) => {
+                      if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
+                      if (e.originalEvent && window.isFollowing && ${showCarIcon}) {
+                          window.isFollowing = false;
+                          document.getElementById('recenterBtn').style.display = 'flex';
+                      }
+                  });
+
+                  if (${showCarIcon}) {
+                      document.getElementById('navHeader').style.display = 'flex';
+                      document.getElementById('overviewBtn').style.display = 'flex';
+                      document.getElementById('navDistVal').innerText = "---";
+                      document.getElementById('navDistUnit').innerText = "";
+                      document.getElementById('navStreet').innerText = "Calculating route...";
+                  }
 
                   map.on('load', () => {
                       // Origin Marker
                       const originEl = document.createElement('div');
                       if (${showCarIcon}) {
-                          originEl.className = 'origin-marker-car';
+                          originEl.className = 'origin-marker-container';
+                          originEl.style.width = '40px';
+                          originEl.style.height = '72px';
+                          originEl.style.display = 'flex';
+                          originEl.style.alignItems = 'center';
+                          originEl.style.justifyContent = 'center';
+                          originEl.style.pointerEvents = 'auto';
+                          originEl.onclick = function() {
+                              document.getElementById('carCustomizer').style.display = 'flex';
+                          };
+                          
+                          const carInner = document.createElement('div');
+                          carInner.className = 'origin-marker-car';
+                          carInner.id = 'carInnerIcon';
+                          originEl.appendChild(carInner);
                       } else {
                           originEl.className = 'origin-marker-dot';
                           originEl.innerHTML = '<div class="origin-dot-outer"><div class="origin-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
@@ -159,14 +691,23 @@ export default function TomTomMap({
                           computeTravelTimeFor: 'all',
                           maxAlternatives: ${autoSwoop ? 1 : 0},
                           sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
+                          instructionsType: 'text',
                           locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
                       }).then(response => {
                           const baseGeojson = response.toGeoJson();
                           if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
                           
                           const mainFeature = baseGeojson.features[0];
-                          const mainCoords = mainFeature.geometry.coordinates;
+                          const mainCoords = mainFeature.geometry.coordinates; // Array of [lng, lat]
                           const mainProps = mainFeature.properties || {};
+                          
+                          const route = response.routes[0];
+                          window.routeInstructions = route.guidance ? route.guidance.instructions : [];
+                          window.routeCoords = mainCoords;
+                          
+                          if (${showCarIcon}) {
+                              window.updateNavigationBanner(originLng, originLat);
+                          }
                           
                           // Display Total ETA Badge
                           if (${autoSwoop} && mainProps.summary) {
@@ -189,7 +730,7 @@ export default function TomTomMap({
                           }
 
                           // Helper function to dynamically slice a route into colored traffic segments
-                          const buildTrafficSegments = (feature, isAltRoute) => {
+                          window.buildTrafficSegments = (feature, isAltRoute) => {
                               const coords = feature.geometry.coordinates;
                               const props = feature.properties || {};
                               const features = [];
@@ -242,7 +783,7 @@ export default function TomTomMap({
                           try {
                               // 1. Draw Alternative Route First (so it sits underneath)
                               if (${autoSwoop} && baseGeojson.features.length > 1) {
-                                  const altGeojson = buildTrafficSegments(baseGeojson.features[1], true);
+                                  const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], true);
                                   map.addLayer({
                                       'id': 'alt-route',
                                       'type': 'line',
@@ -256,7 +797,7 @@ export default function TomTomMap({
                               }
 
                               // 2. Draw Main Route on top
-                              const mainGeojson = buildTrafficSegments(mainFeature, false);
+                              const mainGeojson = window.buildTrafficSegments(mainFeature, false);
                               map.addLayer({
                                   'id': 'route',
                                   'type': 'line',
@@ -281,24 +822,31 @@ export default function TomTomMap({
                           coords.forEach(coord => {
                               bounds.extend(tt.LngLat.convert(coord));
                           });
-                          map.fitBounds(bounds, { padding: 40 });
+                          
+                          // Smoothly fit the entire route on screen
+                          map.fitBounds(bounds, { padding: 50, duration: 1200 });
                           
                           if (${autoSwoop}) {
-                              setTimeout(() => {
-                                  map.flyTo({ center: [originLng, originLat], zoom: 17, pitch: 60, speed: 1.2 });
-                              }, 3000);
+                              // Let the user look at the full route for 5 seconds before swooping in
+                              window.swoopTimeout = setTimeout(() => {
+                                  if (window.isFollowing) {
+                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
+                                  }
+                              }, 5000);
                           }
                       }).catch((e) => {
                           console.error("Routing error:", e);
                           const bounds = new tt.LngLatBounds();
                           bounds.extend([originLng, originLat]);
                           bounds.extend([destLng, destLat]);
-                          map.fitBounds(bounds, { padding: 40 });
+                          map.fitBounds(bounds, { padding: 50, duration: 1200 });
                           
                           if (${autoSwoop}) {
-                              setTimeout(() => {
-                                  map.flyTo({ center: [originLng, originLat], zoom: 17, pitch: 60, speed: 1.2 });
-                              }, 3000);
+                              window.swoopTimeout = setTimeout(() => {
+                                  if (window.isFollowing) {
+                                      map.flyTo({ center: [originLng, originLat], zoom: 18.5, pitch: 0, speed: 0.8 });
+                                  }
+                              }, 5000);
                           }
                       });
                   });
@@ -322,11 +870,43 @@ export default function TomTomMap({
           
       const script = `
         if (window.originMarker) {
-          window.originMarker.setLngLat([${origin.lng}, ${origin.lat}]);
-          if (window.ttMap) {
-             window.ttMap.easeTo({ center: [${origin.lng}, ${origin.lat}] ${bearingScript} });
+          let finalLng = ${origin.lng};
+          let finalLat = ${origin.lat};
+          
+          if (window.getSnappedPosition) {
+              const snap = window.getSnappedPosition(finalLng, finalLat);
+              finalLng = snap.lng;
+              finalLat = snap.lat;
+              
+              if (${showCarIcon} && window.updateNavigationBanner) {
+                  window.updateNavigationBanner(finalLng, finalLat, snap);
+              }
+          } else if (${showCarIcon} && window.updateNavigationBanner) {
+              window.updateNavigationBanner(finalLng, finalLat);
+          }
+
+          window.originMarker.setLngLat([finalLng, finalLat]);
+          window.currentCarLng = finalLng;
+          window.currentCarLat = finalLat;
+          window.lastHeading = ${origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 ? origin.heading : 'window.lastHeading'};
+          
+          if (window.updateCarRotation) window.updateCarRotation();
+          
+          if (window.ttMap && window.isFollowing) {
+             const distToCenter = Math.abs(window.ttMap.getCenter().lng - finalLng) + Math.abs(window.ttMap.getCenter().lat - finalLat);
+             if (distToCenter > 0.002) { 
+                 const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
+                 window.ttMap.easeTo({ 
+                     center: [finalLng, finalLat], 
+                     zoom: 18.5,
+                     pitch: 0,
+                     bearing: routeBearing,
+                     duration: 800 
+                 });
+             }
           }
         }
+        
         true;
       `;
       webViewRef.current.injectJavaScript(script);
