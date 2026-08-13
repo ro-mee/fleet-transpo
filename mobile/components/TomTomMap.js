@@ -157,20 +157,21 @@ export default function TomTomMap({
                           key: '${tomtomKey}',
                           traffic: ${autoSwoop},
                           computeTravelTimeFor: 'all',
+                          maxAlternatives: ${autoSwoop ? 1 : 0},
                           sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
                           locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
                       }).then(response => {
                           const baseGeojson = response.toGeoJson();
                           if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
                           
-                          const feature = baseGeojson.features[0];
-                          const coords = feature.geometry.coordinates;
-                          const props = feature.properties || {};
+                          const mainFeature = baseGeojson.features[0];
+                          const mainCoords = mainFeature.geometry.coordinates;
+                          const mainProps = mainFeature.properties || {};
                           
                           // Display Total ETA Badge
-                          if (${autoSwoop} && props.summary) {
-                              const travelTimeMin = Math.ceil((props.summary.travelTimeInSeconds || 0) / 60);
-                              const delayMin = Math.ceil((props.summary.trafficDelayInSeconds || 0) / 60);
+                          if (${autoSwoop} && mainProps.summary) {
+                              const travelTimeMin = Math.ceil((mainProps.summary.travelTimeInSeconds || 0) / 60);
+                              const delayMin = Math.ceil((mainProps.summary.trafficDelayInSeconds || 0) / 60);
                               
                               const etaBox = document.getElementById('etaBox');
                               const etaTime = document.getElementById('etaTime');
@@ -187,111 +188,92 @@ export default function TomTomMap({
                               }
                           }
 
-                          try {
+                          // Helper function to dynamically slice a route into colored traffic segments
+                          const buildTrafficSegments = (feature, isAltRoute) => {
+                              const coords = feature.geometry.coordinates;
+                              const props = feature.properties || {};
                               const features = [];
-                              // Slice route into colored segments based on traffic severity
+                              
                               if (${autoSwoop} && props.sections && props.sections.length > 0) {
                                   let lastIndex = 0;
                                   props.sections.forEach(sec => {
                                       if (sec.sectionType === 'TRAFFIC') {
-                                          // Green line for normal segment before traffic
                                           if (sec.startPointIndex > lastIndex) {
                                               const normalSegment = coords.slice(lastIndex, sec.startPointIndex + 1);
                                               if (normalSegment.length >= 2) {
-                                                  features.push({
-                                                      type: 'Feature',
-                                                      properties: { color: '#10b981' }, // Green
-                                                      geometry: { type: 'LineString', coordinates: normalSegment }
-                                                  });
+                                                  features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: normalSegment } });
                                               }
                                           }
                                           
-                                          // Determine traffic color
-                                          let color = '#ef4444'; // Red (Heavy)
+                                          let color = '#ef4444'; // Red
                                           let badgeClass = 'on-route-badge';
-                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '#eab308'; badgeClass += ' yellow'; } // Yellow
-                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '#eab308'; badgeClass += ' yellow'; } // Yellow
+                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '#eab308'; badgeClass += ' yellow'; }
+                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '#eab308'; badgeClass += ' yellow'; }
                                           
                                           const trafficSegment = coords.slice(sec.startPointIndex, sec.endPointIndex + 1);
                                           if (trafficSegment.length >= 2) {
-                                              features.push({
-                                                  type: 'Feature',
-                                                  properties: { color: color },
-                                                  geometry: { type: 'LineString', coordinates: trafficSegment }
-                                              });
+                                              features.push({ type: 'Feature', properties: { color: color }, geometry: { type: 'LineString', coordinates: trafficSegment } });
                                           }
                                           
-                                          // Spawn an on-route delay badge precisely in the middle of this jam!
-                                          const delayMin = Math.ceil((sec.delayInSeconds || 0) / 60);
-                                          if (delayMin > 0 && trafficSegment.length >= 2) {
-                                              const midIndex = Math.floor(trafficSegment.length / 2);
-                                              const midCoord = trafficSegment[midIndex];
-                                              
-                                              const badgeEl = document.createElement('div');
-                                              badgeEl.className = badgeClass;
-                                              badgeEl.innerHTML = '🚗 ' + delayMin + ' min';
-                                              
-                                              new tt.Marker({ element: badgeEl, anchor: 'center' })
-                                                  .setLngLat(midCoord)
-                                                  .addTo(map);
+                                          // Only put text badges on the main route, not the alternative
+                                          if (!isAltRoute) {
+                                              const delayMin = Math.ceil((sec.delayInSeconds || 0) / 60);
+                                              if (delayMin > 0 && trafficSegment.length >= 2) {
+                                                  const midIndex = Math.floor(trafficSegment.length / 2);
+                                                  const badgeEl = document.createElement('div');
+                                                  badgeEl.className = badgeClass;
+                                                  badgeEl.innerHTML = '🚗 ' + delayMin + ' min';
+                                                  new tt.Marker({ element: badgeEl, anchor: 'center' }).setLngLat(trafficSegment[midIndex]).addTo(map);
+                                              }
                                           }
-                                          
                                           lastIndex = sec.endPointIndex;
                                       }
                                   });
-                                  
-                                  // Remaining green line
                                   if (lastIndex < coords.length - 1) {
-                                      const remainingSegment = coords.slice(lastIndex, coords.length);
-                                      if (remainingSegment.length >= 2) {
-                                          features.push({
-                                              type: 'Feature',
-                                              properties: { color: '#10b981' }, // Green
-                                              geometry: { type: 'LineString', coordinates: remainingSegment }
-                                          });
-                                      }
+                                      const rem = coords.slice(lastIndex, coords.length);
+                                      if (rem.length >= 2) features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: rem } });
                                   }
                               } else {
-                                  // Static overview map (No traffic slice)
-                                  features.push({
-                                      type: 'Feature',
-                                      properties: { color: '#10b981' }, // Green
-                                      geometry: { type: 'LineString', coordinates: coords }
+                                  features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: coords } });
+                              }
+                              return { type: 'FeatureCollection', features: features };
+                          };
+
+                          try {
+                              // 1. Draw Alternative Route First (so it sits underneath)
+                              if (${autoSwoop} && baseGeojson.features.length > 1) {
+                                  const altGeojson = buildTrafficSegments(baseGeojson.features[1], true);
+                                  map.addLayer({
+                                      'id': 'alt-route',
+                                      'type': 'line',
+                                      'source': { 'type': 'geojson', 'data': altGeojson },
+                                      'paint': {
+                                          'line-color': ['get', 'color'],
+                                          'line-width': 6,
+                                          'line-opacity': 0.35 // Translucent!
+                                      }
                                   });
                               }
 
-                              const geojson = { type: 'FeatureCollection', features: features };
-
+                              // 2. Draw Main Route on top
+                              const mainGeojson = buildTrafficSegments(mainFeature, false);
                               map.addLayer({
                                   'id': 'route',
                                   'type': 'line',
-                                  'source': {
-                                      'type': 'geojson',
-                                      'data': geojson
-                                  },
+                                  'source': { 'type': 'geojson', 'data': mainGeojson },
                                   'paint': {
                                       'line-color': ['get', 'color'],
-                                      'line-width': 6
+                                      'line-width': 6,
+                                      'line-opacity': 1.0
                                   }
                               });
                           } catch (err) {
                               console.error("Traffic segmentation failed, falling back to basic route:", err);
-                              // Fallback: draw basic green route if segmentation fails
                               map.addLayer({
                                   'id': 'route',
                                   'type': 'line',
-                                  'source': {
-                                      'type': 'geojson',
-                                      'data': {
-                                          type: 'Feature',
-                                          properties: {},
-                                          geometry: { type: 'LineString', coordinates: coords }
-                                      }
-                                  },
-                                  'paint': {
-                                      'line-color': '#10b981',
-                                      'line-width': 6
-                                  }
+                                  'source': { 'type': 'geojson', 'data': { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: mainCoords } } },
+                                  'paint': { 'line-color': '#10b981', 'line-width': 6 }
                               });
                           }
 
