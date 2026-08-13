@@ -286,6 +286,7 @@ export default function ReportsPage() {
 
   const driverRoster = useMemo(() => {
     const raw = (driverReport?.topDrivers || []).slice(0, 5).map((d) => ({
+      id: d.driver_id,
       name: d.name || `Driver #${d.driver_id}`,
       score: d.score || 0,
       trips: d.trips || 0,
@@ -789,7 +790,7 @@ export default function ReportsPage() {
             <CardContent className="p-6">
               <div className="space-y-4">
                 {driverRoster.map((d, index) => (
-                  <div key={d.name} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-muted/40 transition-all">
+                  <div key={d.id ?? index} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-muted/40 transition-all">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className={cn(
                         "flex h-9 w-9 items-center justify-center rounded-xl font-data text-xs font-black shrink-0 border",
