@@ -45,10 +45,25 @@ export default function TomTomMap({
               .dest-marker { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
               .dest-dot-outer { width: 20px; height: 20px; border-radius: 10px; background: rgba(14, 165, 233, 0.2); display: flex; align-items: center; justify-content: center; position: absolute; top: -14px; }
               .dest-dot-inner { width: 8px; height: 8px; border-radius: 4px; background: #0ea5e9; }
+
+              /* ETA Box Styling */
+              .eta-box { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); background: white; padding: 12px 24px; border-radius: 30px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 999; font-family: sans-serif; border: 1px solid #e2e8f0; }
+              .eta-time { font-size: 18px; font-weight: 800; color: #0f172a; }
+              .eta-delay { font-size: 13px; font-weight: 700; color: #ef4444; margin-top: 2px; display: none; }
+              
+              /* On-Route Delay Badge */
+              .on-route-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; font-family: sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,0.3); border: 2px solid white; white-space: nowrap; pointer-events: none; }
+              .on-route-badge.yellow { background: #eab308; }
           </style>
       </head>
       <body>
           <div id="map"></div>
+          
+          <div id="etaBox" class="eta-box">
+              <div id="etaTime" class="eta-time">ETA: -- min</div>
+              <div id="etaDelay" class="eta-delay">⚠️ +-- min traffic</div>
+          </div>
+
           <script>
               tt.setProductInfo('fleetops', '1.0');
               
@@ -97,7 +112,11 @@ export default function TomTomMap({
                       zoom: 15,
                       pitch: ${autoSwoop ? 45 : 0},
                       dragPan: ${scrollEnabled},
-                      scrollZoom: ${scrollEnabled}
+                      scrollZoom: ${scrollEnabled},
+                      stylesVisibility: {
+                          trafficIncidents: false, // Turn off global traffic to keep background clean
+                          trafficFlow: false
+                      }
                   });
                   window.ttMap = map;
 
@@ -133,27 +152,151 @@ export default function TomTomMap({
 
                       if (originLat === destLat && originLng === destLng) return;
 
-                      // Draw route
+                      // Request traffic-sectioned routing
                       tt.services.calculateRoute({
                           key: '${tomtomKey}',
+                          traffic: ${autoSwoop},
+                          computeTravelTimeFor: 'all',
+                          sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
                           locations: originLng + ',' + originLat + ':' + destLng + ',' + destLat
                       }).then(response => {
-                          const geojson = response.toGeoJson();
-                          map.addLayer({
-                              'id': 'route',
-                              'type': 'line',
-                              'source': {
-                                  'type': 'geojson',
-                                  'data': geojson
-                              },
-                              'paint': {
-                                  'line-color': '#10b981',
-                                  'line-width': 6
+                          const baseGeojson = response.toGeoJson();
+                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
+                          
+                          const feature = baseGeojson.features[0];
+                          const coords = feature.geometry.coordinates;
+                          const props = feature.properties || {};
+                          
+                          // Display Total ETA Badge
+                          if (${autoSwoop} && props.summary) {
+                              const travelTimeMin = Math.ceil((props.summary.travelTimeInSeconds || 0) / 60);
+                              const delayMin = Math.ceil((props.summary.trafficDelayInSeconds || 0) / 60);
+                              
+                              const etaBox = document.getElementById('etaBox');
+                              const etaTime = document.getElementById('etaTime');
+                              const etaDelay = document.getElementById('etaDelay');
+                              
+                              etaBox.style.display = 'flex';
+                              etaTime.innerText = travelTimeMin + " min";
+                              
+                              if (delayMin > 0) {
+                                  etaDelay.style.display = 'block';
+                                  etaDelay.innerText = '⚠️ +' + delayMin + ' min traffic';
+                              } else {
+                                  etaDelay.style.display = 'none';
                               }
-                          });
+                          }
+
+                          try {
+                              const features = [];
+                              // Slice route into colored segments based on traffic severity
+                              if (${autoSwoop} && props.sections && props.sections.length > 0) {
+                                  let lastIndex = 0;
+                                  props.sections.forEach(sec => {
+                                      if (sec.sectionType === 'TRAFFIC') {
+                                          // Green line for normal segment before traffic
+                                          if (sec.startPointIndex > lastIndex) {
+                                              const normalSegment = coords.slice(lastIndex, sec.startPointIndex + 1);
+                                              if (normalSegment.length >= 2) {
+                                                  features.push({
+                                                      type: 'Feature',
+                                                      properties: { color: '#10b981' }, // Green
+                                                      geometry: { type: 'LineString', coordinates: normalSegment }
+                                                  });
+                                              }
+                                          }
+                                          
+                                          // Determine traffic color
+                                          let color = '#ef4444'; // Red (Heavy)
+                                          let badgeClass = 'on-route-badge';
+                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '#eab308'; badgeClass += ' yellow'; } // Yellow
+                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '#eab308'; badgeClass += ' yellow'; } // Yellow
+                                          
+                                          const trafficSegment = coords.slice(sec.startPointIndex, sec.endPointIndex + 1);
+                                          if (trafficSegment.length >= 2) {
+                                              features.push({
+                                                  type: 'Feature',
+                                                  properties: { color: color },
+                                                  geometry: { type: 'LineString', coordinates: trafficSegment }
+                                              });
+                                          }
+                                          
+                                          // Spawn an on-route delay badge precisely in the middle of this jam!
+                                          const delayMin = Math.ceil((sec.delayInSeconds || 0) / 60);
+                                          if (delayMin > 0 && trafficSegment.length >= 2) {
+                                              const midIndex = Math.floor(trafficSegment.length / 2);
+                                              const midCoord = trafficSegment[midIndex];
+                                              
+                                              const badgeEl = document.createElement('div');
+                                              badgeEl.className = badgeClass;
+                                              badgeEl.innerHTML = '🚗 ' + delayMin + ' min';
+                                              
+                                              new tt.Marker({ element: badgeEl, anchor: 'center' })
+                                                  .setLngLat(midCoord)
+                                                  .addTo(map);
+                                          }
+                                          
+                                          lastIndex = sec.endPointIndex;
+                                      }
+                                  });
+                                  
+                                  // Remaining green line
+                                  if (lastIndex < coords.length - 1) {
+                                      const remainingSegment = coords.slice(lastIndex, coords.length);
+                                      if (remainingSegment.length >= 2) {
+                                          features.push({
+                                              type: 'Feature',
+                                              properties: { color: '#10b981' }, // Green
+                                              geometry: { type: 'LineString', coordinates: remainingSegment }
+                                          });
+                                      }
+                                  }
+                              } else {
+                                  // Static overview map (No traffic slice)
+                                  features.push({
+                                      type: 'Feature',
+                                      properties: { color: '#10b981' }, // Green
+                                      geometry: { type: 'LineString', coordinates: coords }
+                                  });
+                              }
+
+                              const geojson = { type: 'FeatureCollection', features: features };
+
+                              map.addLayer({
+                                  'id': 'route',
+                                  'type': 'line',
+                                  'source': {
+                                      'type': 'geojson',
+                                      'data': geojson
+                                  },
+                                  'paint': {
+                                      'line-color': ['get', 'color'],
+                                      'line-width': 6
+                                  }
+                              });
+                          } catch (err) {
+                              console.error("Traffic segmentation failed, falling back to basic route:", err);
+                              // Fallback: draw basic green route if segmentation fails
+                              map.addLayer({
+                                  'id': 'route',
+                                  'type': 'line',
+                                  'source': {
+                                      'type': 'geojson',
+                                      'data': {
+                                          type: 'Feature',
+                                          properties: {},
+                                          geometry: { type: 'LineString', coordinates: coords }
+                                      }
+                                  },
+                                  'paint': {
+                                      'line-color': '#10b981',
+                                      'line-width': 6
+                                  }
+                              });
+                          }
 
                           const bounds = new tt.LngLatBounds();
-                          geojson.features[0].geometry.coordinates.forEach(coord => {
+                          coords.forEach(coord => {
                               bounds.extend(tt.LngLat.convert(coord));
                           });
                           map.fitBounds(bounds, { padding: 40 });
@@ -199,7 +342,7 @@ export default function TomTomMap({
         if (window.originMarker) {
           window.originMarker.setLngLat([${origin.lng}, ${origin.lat}]);
           if (window.ttMap) {
-             window.ttMap.easeTo({ center: [${origin.lng}, ${origin.lat}], pitch: 60, zoom: 17 ${bearingScript} });
+             window.ttMap.easeTo({ center: [${origin.lng}, ${origin.lat}] ${bearingScript} });
           }
         }
         true;

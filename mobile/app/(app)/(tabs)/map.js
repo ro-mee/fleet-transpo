@@ -33,18 +33,28 @@ export default function MapTab() {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
       
-      // Get initial location
-      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      // Get initial location with highest accuracy so it doesn't calculate the route from a wrong/approximate spot!
+      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
+      setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading });
 
       // Subscribe to real-time updates (every 5 meters or 3 seconds)
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
         (newLoc) => {
-          setDriverLocation({ 
-            lat: newLoc.coords.latitude, 
-            lng: newLoc.coords.longitude,
-            heading: newLoc.coords.heading
+          setDriverLocation(prev => {
+            // Prevent map spinning/glitching when stopped: only update heading if driving > 1 m/s
+            let updatedHeading = prev?.heading;
+            if (newLoc.coords.speed > 1 && newLoc.coords.heading >= 0) {
+              updatedHeading = newLoc.coords.heading;
+            } else if (!prev && newLoc.coords.heading >= 0) {
+              updatedHeading = newLoc.coords.heading;
+            }
+
+            return { 
+              lat: newLoc.coords.latitude, 
+              lng: newLoc.coords.longitude,
+              heading: updatedHeading
+            };
           });
         }
       );
@@ -68,8 +78,8 @@ export default function MapTab() {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <TomTomMap 
-          origin={driverLocation || { lat: 14.5995, lng: 120.9842 }}
-          destination={driverLocation || { lat: 14.5995, lng: 120.9842 }}
+          origin={{ lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading }}
+          destination={{ lat: driverLocation.lat, lng: driverLocation.lng }}
           scrollEnabled={true}
         />
         <View style={[styles.overlay, { backgroundColor: colors.surface }]}>
@@ -93,7 +103,7 @@ export default function MapTab() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TomTomMap 
-        origin={{ lat: startLat, lng: startLng }}
+        origin={{ lat: startLat, lng: startLng, heading: driverLocation?.heading }}
         destination={{ lat: destLat, lng: destLng }}
         originAddress={isEnRouteToPickup ? "My Location" : activeTrip.origin}
         destAddress={destName}
