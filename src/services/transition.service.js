@@ -2,7 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import { canTransitionTrip, isValidTripStatus } from "@/lib/scheduling/trip-state";
 import { canTransitionDispatch, isValidDispatchStatus } from "@/lib/scheduling/dispatch-state";
-import { syncVehicleStatus, syncDriverStatus, syncDispatchReservation, ensureTripForDispatch } from "@/services/status.service";
+import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { writeAudit } from "@/lib/audit";
 
 // Centralized state-transition layer for trips and dispatches.
@@ -66,7 +66,6 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
   if (before[0]?.vehicle_id) p.push(syncVehicleStatus(before[0].vehicle_id).catch(() => {}));
   if (before[0]?.driver_id) p.push(syncDriverStatus(before[0].driver_id).catch(() => {}));
   if (before[0]?.dispatch_id) {
-    p.push(syncDispatchReservation(before[0].dispatch_id).catch(() => {}));
     if (busy) {
       await withTransaction(async (tx) => {
         await tx.query(
@@ -126,7 +125,6 @@ export async function setDispatchStatus({ dispatchId, to, session, reason = null
   const p = [];
   if (rows[0]?.vehicle_id) p.push(syncVehicleStatus(rows[0].vehicle_id).catch(() => {}));
   if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id).catch(() => {}));
-  if (rows[0]?.reservation_id) p.push(syncDispatchReservation(dispatchId).catch(() => {}));
   if (to === "Scheduled" || to === "In Progress") p.push(ensureTripForDispatch(dispatchId).catch(() => {}));
   await Promise.all(p);
 
@@ -199,3 +197,4 @@ async function advanceRequest(dispatchId, session, tripId) {
     metadata: { trip_id: tripId, dispatch_id: dispatchId },
   });
 }
+
