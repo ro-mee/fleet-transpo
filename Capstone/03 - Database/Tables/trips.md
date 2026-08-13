@@ -20,11 +20,11 @@ transportation_requests → dispatchschedules → trips
 
 A dispatch is a *booking*; a trip is the *doing*. GPS pings, status progression, and arrival all attach here. → [[Request Lifecycle]]
 
-## Status — 13 values, rank-governed
+## Status — 16 values, adjacency graph
 
-Governed by `src/lib/scheduling/trip-state.js`, not by a check constraint in code you can grep for in one place. Legal moves are "rank must not decrease". → [[Trip State Machine]]
+Governed by `src/lib/scheduling/trip-state.js`. Legal moves are dictated by an explicit adjacency graph (`NEXT` map). → [[Trip State Machine]]
 
-With 2 rows, **at most 2 of the 13 statuses have ever occurred.** Which ones is answerable in one query:
+With 2 rows, **at most 2 of the 16 statuses have ever occurred.** Which ones is answerable in one query:
 
 ```sql
 SELECT status, count(*) FROM trips GROUP BY status;
@@ -32,9 +32,9 @@ SELECT status, count(*) FROM trips GROUP BY status;
 
 → [[Open Questions]]
 
-## Notable — no cancellation state
+## Notable — cancellation state
 
-`CANCELLED` is absent from the `RANK` map. [[Dispatch State Machine]] special-cases cancellation; this one doesn't. **UNKNOWN** whether trip cancellation happens elsewhere or isn't supported. The repository does not currently document why.
+`CANCELLED` is explicitly supported as a terminal state. Like `COMPLETED`, once a trip is `CANCELLED`, it cannot transition to any other status.
 
 ## Ownership check
 

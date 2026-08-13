@@ -14,7 +14,6 @@ Honest **UNKNOWN**s. Keeping this list is what stops an inference hardening into
 ## About the system's intent
 
 - **What rank `'Pending Reassignment'` should have.** Not *whether* it's real — it is, in six files. The hard part is that it's a *regression* from a partly-assigned state back toward `Scheduled`, and the dispatch module assumes rank monotonicity. → [[BUG Pending Reassignment Not In State Machine]]
-- **Why trips have no cancellation state.** [[Dispatch State Machine]] special-cases `Cancelled`; [[Trip State Machine]] has no such state at all. Deliberate or missing?
 - **Why RLS is enabled if it's inert.** Defence in depth for a future move to per-user connections, a Supabase-Auth remnant, or documentation-as-SQL. → [[Why RLS Is Not A Boundary]]
 - **Why notifications are database triggers.** Real trade-offs either way; no recorded reasoning. → [[ADR-005 Notifications In Database Triggers]]
 - **Whether NULL arrival should mean "zero-length" or "occupies indefinitely".** The `COALESCE` in migration 023 chose the first. It's a real product question. → [[Half Open Intervals]]

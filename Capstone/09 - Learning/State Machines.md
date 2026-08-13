@@ -25,7 +25,7 @@ Three machines, **three different designs**, and the difference is the interesti
 | Machine | States | Design | Where |
 |---|---|---|---|
 | Reservation | 9 | adjacency map + BFS `transitionPath` | `src/lib/reservations/` |
-| Trip | 13 | rank monotonicity | `src/lib/scheduling/trip-state.js` |
+| Trip | 16 | adjacency map | `src/lib/scheduling/trip-state.js` |
 | Dispatch | 5 live (3 ranks) | rank + explicit terminal set | `src/lib/scheduling/dispatch-state.js` |
 
 → [[Reservation State Machine]] · [[Trip State Machine]] · [[Dispatch State Machine]]
@@ -44,21 +44,19 @@ Useful when a caller wants an end state and the machine has to legally get there
 
 ### Rank monotonicity
 
-The trip machine assigns each status a number and permits a move only if rank does not decrease:
+The dispatch machine assigns each status a number and permits a move only if rank does not decrease:
 
 ```js
-ASSIGNED:0, PENDING:1, APPROVED:2, VEHICLE_ASSIGNED:3, DRIVER_ASSIGNED:4,
-DISPATCHED:5, DRIVER_ACCEPTED:6, TRIP_STARTED:7, IN_PROGRESS:7,
-EN_ROUTE:8, ARRIVED:9, COMPLETED:100
+const RANK = { Scheduled: 0, "In Progress": 1, Completed: 100 };
 ```
 
 Three things this buys, almost free:
 
 1. **No adjacency table** — one number per state expresses every rule
-2. **Equal ranks model aliases** — `TRIP_STARTED` and `IN_PROGRESS` are both `7`, so they're mutually reachable and neither can regress
+2. **Equal ranks model aliases** — if two states share a rank, they're mutually reachable and neither can regress
 3. **`COMPLETED: 100`** leaves room to insert states later without renumbering
 
-The cost: it cannot express "you may go from A to C but not from B to C" when B sits between them. Ranks encode *ordering*, not arbitrary graphs. Pick the design to fit the shape of the rules.
+The cost: it cannot express "you may go from A to C but not from B to C" when B sits between them. Ranks encode *ordering*, not arbitrary graphs. Pick the design to fit the shape of the rules. (The Trip machine used to use ranks, but as its lifecycle grew more complex with states like `AT_PICKUP`, it outgrew the pattern and was migrated to an explicit adjacency map).
 
 ## The gap worth knowing about — CONFIRMED
 
