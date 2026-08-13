@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
@@ -239,9 +239,11 @@ export default function LiveLocationsMap({
         center={center}
         zoom={13}
         scrollWheelZoom={false}
+        zoomControl={false}
         className="h-full w-full z-0"
         style={{ height: "100%", width: "100%" }}
       >
+        <ZoomControl position="bottomright" />
         <TileLayer attribution={activeTile.attribution} url={activeTile.url} />
         
         {trafficOn && (
