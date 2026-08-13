@@ -52,7 +52,7 @@ The pure/impure split is genuinely good, and it hands you high-value tests for a
 
 | Target | Test | Status |
 |---|---|---|
-| `trip-state.js` | rank never decreases; `COMPLETED` is terminal | not yet written → [[Trip State Machine]] |
+| `trip-state.js` | strict adjacency transitions; `COMPLETED` and `CANCELLED` are terminal | not yet written → [[Trip State Machine]] |
 | reservation adjacency | every `transitionPath` result is a legal walk | not yet written — BFS is easy to get subtly wrong |
 | `dispatch-state.js` | DB `chk_dispatch_status` values == `isValidDispatchStatus` | ✅ **written — 9 tests**; the drift it would have caught was fixed by migration 033 → [[BUG Pending Reassignment Not In State Machine]] |
 | UVVRP | each weekday × each plate ending | ✅ covered — 17 tests |

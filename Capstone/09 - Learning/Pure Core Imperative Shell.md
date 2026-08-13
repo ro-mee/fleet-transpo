@@ -33,7 +33,7 @@ It also makes rules **readable**. Business logic buried between `await` calls is
 
 The clearest example is `src/lib/ai/dispatch-advisor.js` — scoring is arithmetic over a passed-in candidate array. It never queries. The route fetches candidates, calls the scorer, returns the result. → [[AI Advisory]]
 
-Same for `src/lib/scheduling/trip-state.js`: a `RANK` map and comparisons. No `await` in the file. → [[Trip State Machine]]
+Same for `src/lib/scheduling/trip-state.js`: an adjacency graph (`NEXT` map) and comparisons. No `await` in the file. → [[Trip State Machine]]
 
 ## Where the pattern is broken — CONFIRMED
 

@@ -22,9 +22,7 @@ const nextConfig = {
       {
         source: "/api/:path*",
         headers: [
-          ...(ALLOWED_ORIGIN
-            ? [{ key: "Access-Control-Allow-Origin", value: ALLOWED_ORIGIN }]
-            : []),
+          { key: "Access-Control-Allow-Origin", value: "*" },
           { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
           { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
           { key: "Access-Control-Max-Age", value: "86400" },

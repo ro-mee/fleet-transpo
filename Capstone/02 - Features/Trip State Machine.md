@@ -4,75 +4,88 @@ title: Trip State Machine
 tags: [state-machine, trips, scheduling]
 source:
   - src/lib/scheduling/trip-state.js
-last_verified: 2026-08-11
+last_verified: 2026-08-13
 ---
 
 # Trip State Machine
 
-**13 statuses, ranked.** A transition is legal when the target rank is **not lower** than the current rank. There is no adjacency table — one number per status expresses every rule.
+**16 statuses, adjacency-based.** The trip state machine is a directed graph of allowed transitions. A trip moves FORWARD one edge at a time, or cancels. There is no longer a rank-based skipping mechanism; the application strictly enforces specific transition paths.
 
-## The ranks — CONFIRMED
+## The State Transitions
 
-```js
-ASSIGNED: 0,          PENDING: 1,           APPROVED: 2,
-VEHICLE_ASSIGNED: 3,  DRIVER_ASSIGNED: 4,   DISPATCHED: 5,
-DRIVER_ACCEPTED: 6,   TRIP_STARTED: 7,      IN_PROGRESS: 7,
-EN_ROUTE: 8,          ARRIVED: 9,           COMPLETED: 100
-```
-
-## What the numbers buy
-
-| Design choice | Effect |
-|---|---|
-| Rank comparison instead of edges | 13 states, no 13×13 table to maintain |
-| `TRIP_STARTED` and `IN_PROGRESS` both `7` | Aliases — mutually reachable, neither can regress |
-| `COMPLETED: 100` | Room to insert states later without renumbering |
-| Monotonic rule | A trip can never move backwards |
-
-→ [[State Machines]] for why rank monotonicity was the right fit here and what it can't express.
-
-## Diagram
+The state machine separates into two distinct chains connected by `ASSIGNED`.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ASSIGNED
-    ASSIGNED --> PENDING
-    PENDING --> APPROVED
-    APPROVED --> VEHICLE_ASSIGNED
-    VEHICLE_ASSIGNED --> DRIVER_ASSIGNED
-    DRIVER_ASSIGNED --> DISPATCHED
-    DISPATCHED --> DRIVER_ACCEPTED
-    DRIVER_ACCEPTED --> TRIP_STARTED
-    TRIP_STARTED --> IN_PROGRESS : same rank (7)
+    %% Legacy Ingest Cluster
+    state "Legacy Ingest Cluster" as Legacy {
+        [*] --> PENDING
+        PENDING --> APPROVED
+        PENDING --> ASSIGNED
+        APPROVED --> VEHICLE_ASSIGNED
+        APPROVED --> ASSIGNED
+        VEHICLE_ASSIGNED --> DRIVER_ASSIGNED
+        VEHICLE_ASSIGNED --> ASSIGNED
+        DRIVER_ASSIGNED --> DISPATCHED
+        DRIVER_ASSIGNED --> ASSIGNED
+        DISPATCHED --> ASSIGNED
+    }
+
+    %% Live Driver Chain
+    state "Live Driver Chain" as Live {
+        ASSIGNED --> DRIVER_ACCEPTED
+        DRIVER_ACCEPTED --> TRIP_STARTED
+        TRIP_STARTED --> AT_PICKUP
+        AT_PICKUP --> PASSENGER_ONBOARD
+        PASSENGER_ONBOARD --> EN_ROUTE
+        EN_ROUTE --> DROP_OFF
+        DROP_OFF --> COMPLETED
+        COMPLETED --> [*]
+        
+        %% Alternate / Legacy paths
+        EN_ROUTE --> ARRIVED
+        ARRIVED --> DROP_OFF
+        ARRIVED --> COMPLETED
+    }
+
+    %% In Progress overrides
+    TRIP_STARTED --> IN_PROGRESS
+    AT_PICKUP --> IN_PROGRESS
+    PASSENGER_ONBOARD --> IN_PROGRESS
+    
+    IN_PROGRESS --> AT_PICKUP
+    IN_PROGRESS --> PASSENGER_ONBOARD
     IN_PROGRESS --> EN_ROUTE
-    EN_ROUTE --> ARRIVED
-    ARRIVED --> COMPLETED
-    COMPLETED --> [*]
-    note right of TRIP_STARTED
-        rank 7 = rank 7, so
-        either direction is legal
+    IN_PROGRESS --> DROP_OFF
+    IN_PROGRESS --> ARRIVED
+
+    %% Note on Cancellation
+    note right of Live
+        Cancellation to CANCELLED 
+        is allowed from ANY 
+        non-terminal state.
     end note
 ```
 
-Equal-or-greater rank means every state can also transition **to itself**, and skipping forward is permitted — `APPROVED` → `DISPATCHED` is legal (rank 2 → 5). That's deliberate: dispatch can assign vehicle and driver in one operation.
+## What the Adjacency Map Buys
 
-## What this does NOT model — CONFIRMED
+| Design choice | Effect |
+|---|---|
+| Explicit `NEXT` map instead of ranks | Strict enforcement of granular steps (`AT_PICKUP`, `PASSENGER_ONBOARD`). Drivers can no longer skip crucial parts of the pickup lifecycle. |
+| Loose Ingest Cluster | Legacy states (`PENDING`, `APPROVED`, etc.) can hop directly to `ASSIGNED` as vehicles and drivers are mapped. |
+| Strict Live Driver Chain | `ASSIGNED` is the only bridge in. A driver must follow the step-by-step physical lifecycle. |
+| `IN_PROGRESS` as an escape hatch | It acts as a fallback or parallel state that can branch back out to most active physical states. |
+| Terminal enforcement | `COMPLETED` and `CANCELLED` are explicitly marked terminal. No transitions out. |
+
+## What this does NOT model
 
 | Missing | Consequence |
 |---|---|
-| Cancellation | No `CANCELLED` in `RANK`. Unlike [[Dispatch State Machine]], which special-cases it. |
-| Anything backwards | A driver who declines after `DRIVER_ACCEPTED` has no modelled path |
-| Terminal enforcement | `COMPLETED: 100` blocks moves *by rank*, but nothing marks it terminal explicitly |
-
-**UNKNOWN:** whether trip cancellation is handled elsewhere or simply not supported. The repository does not currently document why cancellation is absent from this machine. → [[Open Questions]]
-
-## Live data — CONFIRMED
-
-`trips` has **2 rows**. At most 2 of these 13 statuses have ever occurred. The machine is essentially untested by real usage. → [[trips]]
+| Anything backwards | A driver who declines after `DRIVER_ACCEPTED` has no modelled path in this machine. |
 
 ## Where it's used
 
-Called by the trip route handlers before any status write. Pure — no I/O in the file, so it's testable with no setup. → [[Pure Core Imperative Shell]] · [[Testing]]
+Called by the trip route handlers before any status write. Pure — no I/O in the file, so it's testable with no setup. It guarantees the application will never write an illegal trip state to the database, enforcing the same rules as the DB CHECK constraint. → [[Pure Core Imperative Shell]] · [[Testing]]
 
 ## Related
 

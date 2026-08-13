@@ -10,7 +10,7 @@ last_verified: 2026-08-11
 
 # Dispatch State Machine
 
-Rank-based like [[Trip State Machine]], but with an **explicit terminal set** and a special case for cancellation.
+(Historically rank-based like the old [[Trip State Machine]], before that grew into an adjacency map). The dispatch machine uses a rank-based ladder with an **explicit terminal set** and a special case for cancellation.
 
 ## The code — CONFIRMED
 

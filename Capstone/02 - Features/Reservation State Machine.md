@@ -14,7 +14,7 @@ last_verified: 2026-08-11
 
 ## Why an adjacency map here
 
-[[Trip State Machine]] and [[Dispatch State Machine]] use rank monotonicity, which is cheaper. Reservations don't fit that shape: the legal moves aren't a straight line, and some states are reachable from several places and not from others. Ranks encode *ordering*; an adjacency map encodes an arbitrary graph.
+[[Dispatch State Machine]] uses rank monotonicity, which is cheaper. Reservations don't fit that shape: the legal moves aren't a straight line, and some states are reachable from several places and not from others. Ranks encode *ordering*; an adjacency map encodes an arbitrary graph. (Note: [[Trip State Machine]] originally used ranks, but grew complex enough to be rewritten to an adjacency map like this one).
 
 ## `transitionPath` — the distinctive part
 

@@ -29,7 +29,7 @@ The dozen files that carry the system. If you understand these, you understand i
 |---|---|
 | `src/lib/scheduling/reservation-state.js` | 9 states, adjacency map, BFS `transitionPath()` → [[Reservation State Machine]] |
 | `src/lib/scheduling/dispatch-state.js` | 5 states, 3 ranks, monotonic → [[Dispatch State Machine]] |
-| `src/lib/scheduling/trip-state.js` | 13 states, rank map with `COMPLETED: 100` → [[Trip State Machine]] |
+| `src/lib/scheduling/trip-state.js` | 16 states, explicit adjacency map → [[Trip State Machine]] |
 | `src/services/reservation-lifecycle.service.js` | `advanceReservation()` — the single writer → [[ADR-007 Single Writer For Reservation Status]] |
 | `src/lib/scheduling/conflicts.js` | App-level overlap detection (UX half of the guard) |
 

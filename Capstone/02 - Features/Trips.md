@@ -33,29 +33,19 @@ flowchart LR
     C --> N["trigger_notify_trip_completed"]
 ```
 
-## The state machine is rank-based, not adjacency-based — CONFIRMED
+## The state machine is adjacency-based, not rank-based — CONFIRMED
 
 `src/lib/scheduling/trip-state.js`:
 
-```js
-const RANK = {
-  ASSIGNED: 0, PENDING: 1, APPROVED: 2,
-  VEHICLE_ASSIGNED: 3, DRIVER_ASSIGNED: 4, DISPATCHED: 5,
-  DRIVER_ACCEPTED: 6, TRIP_STARTED: 7, IN_PROGRESS: 7,
-  EN_ROUTE: 8, ARRIVED: 9, COMPLETED: 100
-};
-const TERMINAL = { Completed, Cancelled };
-```
-
-`canTransitionTrip` enforces **monotonic non-decreasing rank** — you may skip forward, never go back.
+`canTransitionTrip` enforces an **explicit adjacency graph** (`NEXT` object) — a trip must follow defined single hops and can no longer skip arbitrary states by rank.
 
 Two details worth noting:
 
-1. **`TRIP_STARTED` and `IN_PROGRESS` share rank 7.** They're synonyms; equal rank means either can follow the other. Deliberate.
-2. **`COMPLETED` is 100, not 10.** A deliberate gap so intermediate states can be inserted later without renumbering. Small thing, good instinct.
-3. **`CANCELLED` has no rank.** `isValidTripStatus` accepts it through a separate `||` branch. Same pattern as [[Dispatch State Machine]] — cancellation is orthogonal to progress, so it sits outside the ordering.
+1. **Granular Driver Flow:** The driver chain strictly walks `ASSIGNED` → `DRIVER_ACCEPTED` → `TRIP_STARTED` → `AT_PICKUP` → `PASSENGER_ONBOARD` → `EN_ROUTE` → `DROP_OFF` → `COMPLETED`.
+2. **Terminal States:** `COMPLETED` and `CANCELLED` are explicitly terminal (no transitions out).
+3. **Cancellation is orthogonal.** A driver can cancel from any non-terminal state.
 
-13 status values in `chk_trip_status` (`012_status_constraints.sql:65`).
+16 status values in `chk_trip_status` (`012_status_constraints.sql` and `trip-state.js`).
 
 → [[Trip State Machine]] · [[State Machines]]
 
