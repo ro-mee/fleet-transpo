@@ -13,6 +13,14 @@ export default function MapTab() {
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  // Refs for background GPS sync loop
+  const activeTripRef = React.useRef(null);
+  const lastGpsSync = React.useRef(0);
+
+  useEffect(() => {
+    activeTripRef.current = activeTrip;
+  }, [activeTrip]);
+
   const loadTrip = useCallback(async () => {
     try {
       const data = await api.get("/api/mobile/driver/trips");
@@ -41,6 +49,22 @@ export default function MapTab() {
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
         (newLoc) => {
+          
+          // 1. Backend GPS Tracking Sync (Every 30 seconds if on an active trip)
+          const now = Date.now();
+          if (activeTripRef.current && (now - lastGpsSync.current >= 30000)) {
+            lastGpsSync.current = now;
+            api.post(`/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`, {
+              latitude: newLoc.coords.latitude,
+              longitude: newLoc.coords.longitude,
+              speed: newLoc.coords.speed,
+              heading: newLoc.coords.heading,
+              altitude: newLoc.coords.altitude,
+              accuracy: newLoc.coords.accuracy,
+            }).catch(e => console.warn("Background GPS sync failed:", e));
+          }
+
+          // 2. Map Marker Update
           setDriverLocation(prev => {
             // Prevent map spinning/glitching when stopped: only update heading if driving > 1 m/s
             let updatedHeading = prev?.heading;

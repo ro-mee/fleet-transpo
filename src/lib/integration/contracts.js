@@ -28,7 +28,11 @@ export const TransportationRequestSchema = z.object({
   dropoff_location: z.string().optional().nullable(),
 
   // ISO-8601 datetime with offset, e.g. "2026-08-10T14:30:00+08:00".
-  pickup_datetime: z.string().min(1, "pickup_datetime is required."),
+  pickup_datetime: z.string().min(1, "pickup_datetime is required.").transform(val => {
+    const dt = new Date(val);
+    if (isNaN(dt.getTime())) throw new Error("Invalid pickup_datetime");
+    return dt.toISOString();
+  }),
 
   passenger_count: z.coerce.number().int().min(1).default(1),
   special_requests: z.string().optional().nullable(),
