@@ -1,123 +1,107 @@
-import React from "react";
-import { StyleSheet, View } from "react-native";
-import { WebView } from "react-native-webview";
+import React, { useState, useCallback, useEffect } from "react";
+import { StyleSheet, View, ActivityIndicator, Text } from "react-native";
+import { useFocusEffect } from "expo-router";
+import * as Location from 'expo-location';
+import TomTomMap from "../../../components/TomTomMap";
+import { api } from "../../../lib/api";
+import { useTheme } from "../../../lib/theme-context";
+import { fonts } from "../../../lib/theme";
 
 export default function MapTab() {
-  const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "Eovwxfb6mUlNub48iBOiYpuQBZZWQHne";
+  const { colors } = useTheme();
+  const [activeTrip, setActiveTrip] = useState(null);
+  const [driverLocation, setDriverLocation] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const htmlContent = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>TomTom Map</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0">
-        <link rel="stylesheet" type="text/css" href="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps.css" />
-        <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js"></script>
-        <style>
-            body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; }
-            #map { height: 100vh; width: 100vw; }
-            
-            /* Custom styles matching the screenshot */
-            .tt-popup-content { padding: 12px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: none; }
-            .tt-popup-panel { background: white; }
-            .popup-title { font-family: sans-serif; font-size: 14px; font-weight: bold; color: #0f172a; margin-bottom: 4px; margin-top: 0; }
-            .popup-desc { font-family: sans-serif; font-size: 12px; color: #64748b; margin: 0; }
-            .car-marker { background: white; padding: 2px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.2); width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
-            .car-inner { background: #475569; width: 100%; height: 100%; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
-            
-            .dest-marker { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
-            .dest-dot-outer { width: 20px; height: 20px; border-radius: 10px; background: rgba(14, 165, 233, 0.2); display: flex; align-items: center; justify-content: center; position: absolute; top: -14px; }
-            .dest-dot-inner { width: 8px; height: 8px; border-radius: 4px; background: #0ea5e9; }
-        </style>
-    </head>
-    <body>
-        <div id="map"></div>
-        <script>
-            tt.setProductInfo('fleetops', '1.0');
-            
-            const map = tt.map({
-                key: '${tomtomKey}',
-                container: 'map',
-                center: [103.8791, 1.3253],
-                zoom: 13,
-                dragPan: true,
-                stylesVisibility: {
-                  trafficIncidents: true,
-                  trafficFlow: true
-                }
-            });
+  const loadTrip = useCallback(async () => {
+    try {
+      const data = await api.get("/api/mobile/driver/trips");
+      const active = data.find(t => !["Completed", "Cancelled"].includes(t.trip_status));
+      setActiveTrip(active || null);
+    } catch (e) {
+      console.warn("Could not load trip for map", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-            map.on('load', () => {
-                // Add route polyline
-                const routeCoords = [
-                    [103.8659, 1.3323], // CTE
-                    [103.8690, 1.3284],
-                    [103.8705, 1.3255],
-                    [103.8741, 1.3213], // Kallang
-                    [103.8860, 1.3175], // KPE
-                    [103.8924, 1.3184]  // Paya Lebar
-                ];
-                
-                map.addLayer({
-                    'id': 'route',
-                    'type': 'line',
-                    'source': {
-                        'type': 'geojson',
-                        'data': {
-                            'type': 'Feature',
-                            'properties': {},
-                            'geometry': {
-                                'type': 'LineString',
-                                'coordinates': routeCoords
-                            }
-                        }
-                    },
-                    'layout': {
-                        'line-join': 'round',
-                        'line-cap': 'round'
-                    },
-                    'paint': {
-                        'line-color': '#10b981', /* emerald-500 */
-                        'line-width': 6
-                    }
-                });
+  useFocusEffect(useCallback(() => { loadTrip(); }, [loadTrip]));
 
-                // Car Marker
-                const carEl = document.createElement('div');
-                carEl.className = 'car-marker';
-                carEl.innerHTML = '<div class="car-inner"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11h14v-2a3 3 0 0 0-3-3H8a3 3 0 0 0-3 3v2z"></path><path d="M19 11v6a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-6"></path><circle cx="8" cy="15" r="1.5"></circle><circle cx="16" cy="15" r="1.5"></circle></svg></div>';
-                new tt.Marker({ element: carEl, anchor: 'center' }).setLngLat([103.8690, 1.3284]).addTo(map);
+  useEffect(() => {
+    let subscription = null;
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      
+      // Get initial location
+      let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
 
-                // Destination Marker
-                const destEl = document.createElement('div');
-                destEl.className = 'dest-marker';
-                destEl.innerHTML = '<div class="dest-dot-outer"><div class="dest-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
-                
-                const popup = new tt.Popup({ offset: 35, closeButton: false }).setHTML(
-                    '<h4 class="popup-title">Proceed to Mall pick-up pt</h4>' +
-                    '<p class="popup-desc">Head to Level 1, exit shopping mall, and meet dri...</p>'
-                );
+      // Subscribe to real-time updates (every 5 meters or 3 seconds)
+      subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
+        (newLoc) => {
+          setDriverLocation({ 
+            lat: newLoc.coords.latitude, 
+            lng: newLoc.coords.longitude,
+            heading: newLoc.coords.heading
+          });
+        }
+      );
+    })();
+    return () => {
+      if (subscription) subscription.remove();
+    };
+  }, []);
 
-                new tt.Marker({ element: destEl })
-                    .setLngLat([103.8924, 1.3184])
-                    .setPopup(popup)
-                    .addTo(map);
-                    
-                popup.addTo(map); // Open immediately
-            });
-        </script>
-    </body>
-    </html>
-  `;
+  if (loading || !driverLocation) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ marginTop: 12, color: colors.onSurfaceVariant, fontFamily: fonts.bodyMedium }}>Acquiring GPS Signal...</Text>
+      </View>
+    );
+  }
+
+  // If no active trip, just show driver location
+  if (!activeTrip) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <TomTomMap 
+          origin={driverLocation || { lat: 14.5995, lng: 120.9842 }}
+          destination={driverLocation || { lat: 14.5995, lng: 120.9842 }}
+          scrollEnabled={true}
+        />
+        <View style={[styles.overlay, { backgroundColor: colors.surface }]}>
+          <Text style={[styles.overlayText, { color: colors.onSurface }]}>No active trips assigned today.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Determine if driver is heading to pickup or dropoff
+  const isEnRouteToPickup = ["Assigned", "Driver Accepted", "En Route", "Pending"].includes(activeTrip.trip_status);
+  
+  const destLat = isEnRouteToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude;
+  const destLng = isEnRouteToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude;
+  const destName = isEnRouteToPickup ? activeTrip.origin : activeTrip.destination;
+
+  // Use driver location as start, fallback to trip origin if GPS not ready
+  const startLat = driverLocation?.lat || activeTrip.origin_latitude;
+  const startLng = driverLocation?.lng || activeTrip.origin_longitude;
 
   return (
-    <View style={styles.container}>
-      <WebView
-        originWhitelist={["*"]}
-        source={{ html: htmlContent }}
-        style={styles.map}
-        bounces={false}
-        scrollEnabled={false}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <TomTomMap 
+        origin={{ lat: startLat, lng: startLng }}
+        destination={{ lat: destLat, lng: destLng }}
+        originAddress={isEnRouteToPickup ? "My Location" : activeTrip.origin}
+        destAddress={destName}
+        scrollEnabled={true}
+        pickupLabel="Your Location"
+        dropoffLabel={isEnRouteToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
+        showCarIcon={true}
+        autoSwoop={true}
       />
     </View>
   );
@@ -126,9 +110,27 @@ export default function MapTab() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
   },
-  map: {
+  center: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center"
   },
+  overlay: {
+    position: "absolute",
+    bottom: 32,
+    alignSelf: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  overlayText: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 14,
+  }
 });

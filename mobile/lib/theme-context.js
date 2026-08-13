@@ -1,6 +1,13 @@
-import { createContext, useContext, useMemo, useState } from "react";
-import { useColorScheme } from "react-native";
+import { createContext, useContext, useMemo, useState, useCallback } from "react";
+import { useColorScheme, LayoutAnimation, UIManager, Platform } from "react-native";
 import { palettes, typeFor, statusSurfaces, elevationFor, m3 } from "./theme";
+
+if (
+  Platform.OS === 'android' &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const ThemeContext = createContext(null);
 
@@ -17,21 +24,35 @@ const ThemeContext = createContext(null);
  *   elevation     the active elevation set
  *   m3            the MD3 semantic role map
  */
-export function ThemeProvider({ children, scheme: forced }) {
-  const system = useColorScheme(); // 'light' | 'dark' | null
-  const scheme = forced || system === "dark" ? "dark" : "light";
+export function ThemeProvider({ children, scheme: initialForced }) {
+  const system = useColorScheme();
+  const [forced, setForced] = useState(initialForced);
+
+  const scheme = forced || (system === "dark" ? "dark" : "light");
+
+  const toggleColorScheme = useCallback(() => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setForced((prev) => {
+      if (prev) {
+        return prev === "dark" ? "light" : "dark";
+      }
+      return system === "dark" ? "light" : "dark";
+    });
+  }, [system]);
 
   const value = useMemo(() => {
     const colors = palettes[scheme];
     return {
       scheme,
+      colorScheme: scheme,
+      toggleColorScheme,
       colors,
       type: typeFor(colors),
       statusSurfaces: statusSurfaces(colors),
       elevation: elevationFor(scheme === "dark"),
       m3: m3(colors),
     };
-  }, [scheme]);
+  }, [scheme, toggleColorScheme]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

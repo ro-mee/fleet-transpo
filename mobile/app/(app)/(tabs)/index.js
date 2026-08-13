@@ -176,12 +176,15 @@ export default function Home() {
         ]}
       >
         <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
-        <View
-          style={[styles.avatar, { backgroundColor: colors.secondaryContainer }]}
-        >
-          <Text style={[styles.avatarText, { color: colors.onSecondaryContainer }]}>
-            {(user?.name?.[0] || "D").toUpperCase()}
-          </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(16) }}>
+          <Pressable onPress={() => router.push("/notifications")}>
+            <Ionicons name="notifications-outline" size={24} color={colors.onSurfaceVariant} />
+          </Pressable>
+          <View style={[styles.avatar, { backgroundColor: colors.secondaryContainer }]}>
+            <Text style={[styles.avatarText, { color: colors.onSecondaryContainer }]}>
+              {(user?.name?.[0] || "D").toUpperCase()}
+            </Text>
+          </View>
         </View>
       </View>
 

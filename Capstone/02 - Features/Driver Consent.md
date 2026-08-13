@@ -12,7 +12,12 @@ last_verified: 2026-08-11
 
 ## What it does
 
-Governs what a driver can **see** about themselves and what they can **change**, plus recorded consent (migration `017_driver_consents.sql`).
+Governs what a driver can **see** about themselves and what they can **change**, plus recorded consent (migration `017_driver_consents.sql`). 
+
+The mobile app forces drivers through a **3-screen onboarding flow** before accessing the app:
+1. **Login**: Authentication screen.
+2. **Consent Gate**: Requires acceptance of the Data Privacy Policy.
+3. **Permissions Gate**: Requests Location (GPS tracking for shifts) and Camera (for fuel receipts) access via native OS prompts.
 
 ## The allow-lists — CONFIRMED (`src/lib/consent/driver-visibility.js`)
 

@@ -66,12 +66,12 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="history"
+        name="trips"
         options={{
-          title: "History",
+          title: "Trips",
           tabBarIcon: ({ focused, color }) => (
             <Ionicons
-              name={focused ? "time" : "time-outline"}
+              name={focused ? "list" : "list-outline"}
               size={24}
               color={color}
             />
@@ -79,16 +79,15 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="history"
+        options={{
+          href: null, // Hidden from bottom tabs
+        }}
+      />
+      <Tabs.Screen
         name="notifications"
         options={{
-          title: "Alerts",
-          tabBarIcon: ({ focused, color }) => (
-            <Ionicons
-              name={focused ? "notifications" : "notifications-outline"}
-              size={24}
-              color={color}
-            />
-          ),
+          href: null, // Hidden from bottom tabs, accessed from top header
         }}
       />
       <Tabs.Screen

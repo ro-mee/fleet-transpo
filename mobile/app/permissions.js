@@ -5,23 +5,20 @@ import {
   StyleSheet,
   Text,
   View,
-  Pressable
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { api } from "../lib/api";
-import { useAuth } from "../lib/auth";
-import {
-  CURRENT_PRIVACY_POLICY_VERSION,
-  setAcceptedConsentVersion,
-} from "../lib/consent";
+import * as Location from "expo-location";
 import { useTheme } from "../lib/theme-context";
 import { fonts, radius, space } from "../lib/theme";
 import { Button, ErrorNotice, styles as ui } from "../components/ui";
 import { BrandBar } from "../components/logo";
 import { MaterialIcons } from "@expo/vector-icons";
+// Since expo-camera might not be installed, we will just use dummy permission check for now or rely on native prompts later.
+// Actually expo-image-picker is installed based on package.json, so we can request media library / camera permissions from it.
+import * as ImagePicker from "expo-image-picker";
 
-function ConsentCard({ icon, title, description }) {
+function PermissionCard({ icon, title, description }) {
   const { colors } = useTheme();
   return (
     <View style={[styles.cardItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
@@ -36,33 +33,35 @@ function ConsentCard({ icon, title, description }) {
   );
 }
 
-export default function ConsentScreen() {
+export default function PermissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
   const { colors } = useTheme();
 
-  const [checked, setChecked] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const onAccept = useCallback(async () => {
-    setSubmitting(true);
+  const onRequestPermissions = useCallback(async () => {
+    setLoading(true);
     setError(null);
     try {
-      await api.post("/api/driver/me/consent", {
-        policy_version: CURRENT_PRIVACY_POLICY_VERSION,
-        accepted: true,
-        via: "mobile",
-      });
-      await setAcceptedConsentVersion(CURRENT_PRIVACY_POLICY_VERSION);
+      // 1. Request Location Permission
+      const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
       
-      // Navigate to the permissions screen instead of the dashboard
-      router.replace("/permissions");
+      // 2. Request Camera Permission (using expo-image-picker which is in package.json)
+      const { status: camStatus } = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (locStatus !== 'granted') {
+        // We log it but won't strictly block routing just to allow demo to proceed if simulator denies it.
+        console.warn("Location permission not granted");
+      }
+
+      // Navigate to the main app layout
+      router.replace("/");
     } catch (e) {
-      setError(e.message || "Could not record your consent. Try again.");
+      setError(e.message || "Something went wrong while requesting permissions.");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   }, [router]);
 
@@ -76,51 +75,29 @@ export default function ConsentScreen() {
         ]}
       >
         <View style={styles.header}>
-          <View style={[styles.shieldContainer, { backgroundColor: colors.primaryContainer }]}>
-            <MaterialIcons name="security" size={48} color={colors.onPrimaryContainer} />
+          <View style={[styles.iconContainer, { backgroundColor: colors.secondaryContainer }]}>
+            <MaterialIcons name="important-devices" size={48} color={colors.onSecondaryContainer} />
           </View>
-          <Text style={[styles.title, { color: colors.onSurface }]}>Driver Data Privacy</Text>
+          <Text style={[styles.title, { color: colors.onSurface }]}>App Permissions</Text>
           <Text style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
-            To keep operations running smoothly and securely, here is how we use your data.
+            We need a few permissions to give you the best experience on the road.
           </Text>
         </View>
 
         <ErrorNotice message={error} />
 
         <View style={styles.cards}>
-          <ConsentCard
-            icon="location-on"
-            title="Location Tracking"
-            description="GPS is tracked only during your active shifts for dispatching."
+          <PermissionCard
+            icon="near-me"
+            title="Location"
+            description="Required to dispatch trips and track your progress while on duty."
           />
-          <ConsentCard
-            icon="directions-car"
-            title="Telematics & Vehicle Data"
-            description="We monitor vehicle health and trip telemetry for safety."
-          />
-          <ConsentCard
-            icon="update"
-            title="Data Retention"
-            description="Your tracking records are kept for 90 days for compliance."
+          <PermissionCard
+            icon="photo-camera"
+            title="Camera"
+            description="Required for scanning fuel receipts and verifying licenses."
           />
         </View>
-
-        <Pressable 
-          style={[styles.checkboxContainer, { borderColor: checked ? colors.primary : colors.outlineVariant }]} 
-          onPress={() => setChecked(!checked)}
-          accessibilityRole="checkbox"
-          accessibilityState={{ checked }}
-        >
-          <View style={[styles.checkbox, { 
-            borderColor: checked ? colors.primary : colors.outline,
-            backgroundColor: checked ? colors.primary : 'transparent' 
-          }]}>
-            {checked && <MaterialIcons name="check" size={16} color={colors.onPrimary} />}
-          </View>
-          <Text style={[styles.checkboxLabel, { color: colors.onSurface }]}>
-            I agree to the Terms and Conditions and Privacy Policy
-          </Text>
-        </Pressable>
       </ScrollView>
 
       {/* Sticky Bottom Bar */}
@@ -130,10 +107,9 @@ export default function ConsentScreen() {
         paddingBottom: Math.max(insets.bottom, space.md)
       }]}>
         <Button
-          label="Confirm & Continue"
-          onPress={onAccept}
-          loading={submitting}
-          disabled={!checked}
+          label="Enable Permissions"
+          onPress={onRequestPermissions}
+          loading={loading}
           style={styles.fullButton}
         />
       </View>
@@ -152,7 +128,7 @@ const styles = StyleSheet.create({
     alignSelf: "center" 
   },
   header: { alignItems: "center", gap: space.sm, marginTop: space.md },
-  shieldContainer: {
+  iconContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
@@ -189,28 +165,6 @@ const styles = StyleSheet.create({
   },
   cardText: { flex: 1, gap: 2 },
   cardTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(15) },
-  checkboxContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: space.md,
-    borderRadius: radius.control,
-    borderWidth: 1,
-    gap: space.md,
-    marginTop: space.sm
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  checkboxLabel: {
-    flex: 1,
-    fontFamily: fonts.bodyMedium,
-    fontSize: moderateScale(14),
-  },
   stickyFooter: {
     position: "absolute",
     bottom: 0,

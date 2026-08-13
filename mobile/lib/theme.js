@@ -71,12 +71,12 @@ const light = {
   onErrorContainer: "#93000A",
 
   // Background & Surface
-  background: "#FCF9F8",
-  onBackground: "#1B1C1C",
+  background: "#F5F5F5",
+  onBackground: "#121212",
 
-  surface: "#FCF9F8",
-  onSurface: "#1B1C1C",
-  surfaceBright: "#FCF9F8",
+  surface: "#F5F5F5",
+  onSurface: "#121212",
+  surfaceBright: "#F5F5F5",
   surfaceDim: "#DCD9D9",
 
   surfaceVariant: "#E5E2E1",
@@ -137,12 +137,12 @@ const dark = {
   errorContainer: "#93000A",
   onErrorContainer: "#FFDAD6",
 
-  background: "#141415",
-  onBackground: "#E5E2E1",
+  background: "#121212",
+  onBackground: "#F5F5F5",
 
-  surface: "#1B1C1E",
-  onSurface: "#E5E2E1",
-  surfaceBright: "#393939",
+  surface: "#121212",
+  onSurface: "#F5F5F5",
+  surfaceBright: "#121212",
   surfaceDim: "#141415",
 
   surfaceVariant: "#454652",

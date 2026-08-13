@@ -68,6 +68,7 @@ export default function AppLayout() {
       }}
     >
       <Stack.Screen name="(tabs)" />
+      <Stack.Screen name="trip/[id]" />
       <Stack.Screen name="fuel-report" />
       <Stack.Screen name="incidents" />
       <Stack.Screen name="inspection" />
