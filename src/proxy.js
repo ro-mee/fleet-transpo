@@ -27,10 +27,8 @@ export function proxy(request) {
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
+      "Access-Control-Allow-Origin": "*",
     };
-    if (allowed && origin === allowed) {
-      headers["Access-Control-Allow-Origin"] = allowed;
-    }
     return new NextResponse(null, { status: 204, headers });
   }
 
