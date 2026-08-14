@@ -1,24 +1,77 @@
-import React, { useState, useCallback, useEffect } from "react";
-import { StyleSheet, View, ActivityIndicator, Text } from "react-native";
-import { useFocusEffect } from "expo-router";
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { StyleSheet, View, ActivityIndicator, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, Alert } from "react-native";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import { api } from "../../../lib/api";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { Ionicons } from "@expo/vector-icons";
+
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const BOTTOM_SHEET_MIN_HEIGHT = 220; // Height of the collapsed view
+const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
 
 export default function MapTab() {
+  const router = useRouter();
   const { colors } = useTheme();
   const [activeTrip, setActiveTrip] = useState(null);
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [routeData, setRouteData] = useState(null);
+  const mapRef = useRef(null);
 
   // Refs for background GPS sync loop
-  const activeTripRef = React.useRef(null);
-  const lastGpsSync = React.useRef(0);
+  const activeTripRef = useRef(null);
+  const lastGpsSync = useRef(0);
+
+  // Bottom Sheet Animation State
+  const panY = useRef(new Animated.Value(SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60)).current; // -60 for tab bar approx
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const isExpandedRef = useRef(false);
+
+  const snapTo = useCallback((expanded) => {
+    isExpandedRef.current = expanded;
+    setIsExpanded(expanded);
+    Animated.spring(panY, {
+      toValue: expanded ? SCREEN_HEIGHT - BOTTOM_SHEET_MAX_HEIGHT - 60 : SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60,
+      tension: 50,
+      friction: 8,
+      useNativeDriver: false, // Keep false to match JS-driven PanResponder
+    }).start();
+  }, [panY]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderGrant: () => {
+        panY.extractOffset();
+      },
+      onPanResponderMove: Animated.event([null, { dy: panY }], { useNativeDriver: false }),
+      onPanResponderRelease: (evt, gestureState) => {
+        panY.flattenOffset();
+        if (gestureState.dy < -50 || gestureState.vy < -0.5) {
+          snapTo(true);
+        } else if (gestureState.dy > 50 || gestureState.vy > 0.5) {
+          snapTo(false);
+        } else {
+          snapTo(isExpandedRef.current);
+        }
+      },
+    })
+  ).current;
+
+  const lastTripId = useRef(null);
 
   useEffect(() => {
     activeTripRef.current = activeTrip;
+    // Reset route data only when it's a completely new trip
+    if (activeTrip?.trip_id !== lastTripId.current) {
+      setRouteData(null);
+      lastTripId.current = activeTrip?.trip_id;
+    }
   }, [activeTrip]);
 
   const loadTrip = useCallback(async () => {
@@ -37,6 +90,7 @@ export default function MapTab() {
 
   useEffect(() => {
     let subscription = null;
+    let headingSubscription = null;
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
@@ -83,7 +137,6 @@ export default function MapTab() {
         }
       );
       // 3. Compass/Gyroscope Subscription for when the car is stopped
-      let headingSubscription = null;
       try {
           headingSubscription = await Location.watchHeadingAsync((headingObj) => {
               const compassHeading = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
@@ -118,18 +171,50 @@ export default function MapTab() {
     );
   }
 
-  // If no active trip, just show driver location
+  // If no active trip, just show driver location with Idle Dashboard
   if (!activeTrip) {
     return (
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <TomTomMap 
           origin={{ lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading }}
-          destination={{ lat: driverLocation.lat, lng: driverLocation.lng }}
+          destination={null}
           scrollEnabled={true}
+          showCarIcon={true}
         />
-        <View style={[styles.overlay, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.overlayText, { color: colors.onSurface }]}>No active trips assigned today.</Text>
+        
+        {/* Floating Explore Pill */}
+        <View style={{ position: 'absolute', top: 60, alignSelf: 'center', backgroundColor: 'rgba(30,41,59,0.85)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' }}>
+          <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981' }} />
+          <Text style={{ fontFamily: fonts.labelMd, color: '#f8fafc', fontSize: 13, letterSpacing: 0.5 }}>ONLINE & WAITING</Text>
         </View>
+
+        {/* Idle Dashboard Bottom Sheet */}
+        <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 40, backgroundColor: colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, shadowColor: "#000", shadowOffset: { width: 0, height: -8 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 20 }}>
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 24 }}>
+            <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primaryContainer, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="person" size={24} color={colors.onPrimaryContainer} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontFamily: fonts.bodyLg, fontSize: 18, color: colors.onSurface, fontWeight: 'bold', marginBottom: 4 }}>Good day, Driver</Text>
+              <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.outline }}>You have no assigned trips yet.</Text>
+            </View>
+          </View>
+          
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1, backgroundColor: colors.surfaceContainer, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.outlineVariant + '40' }}>
+              <Ionicons name="checkmark-done-circle" size={20} color={colors.primary} style={{ marginBottom: 8 }} />
+              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>0</Text>
+              <Text style={{ fontFamily: fonts.labelSm, fontSize: 11, color: colors.outline, textTransform: 'uppercase' }}>Trips Today</Text>
+            </View>
+            <View style={{ flex: 1, backgroundColor: colors.surfaceContainer, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.outlineVariant + '40' }}>
+              <Ionicons name="speedometer" size={20} color={colors.primary} style={{ marginBottom: 8 }} />
+              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>0 km</Text>
+              <Text style={{ fontFamily: fonts.labelSm, fontSize: 11, color: colors.outline, textTransform: 'uppercase' }}>Distance</Text>
+            </View>
+          </View>
+        </View>
+
       </View>
     );
   }
@@ -148,6 +233,7 @@ export default function MapTab() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TomTomMap 
+        ref={mapRef}
         origin={{ lat: startLat, lng: startLng, heading: driverLocation?.heading }}
         destination={{ lat: destLat, lng: destLng }}
         originAddress={isEnRouteToPickup ? "My Location" : activeTrip.origin}
@@ -157,7 +243,179 @@ export default function MapTab() {
         dropoffLabel={isEnRouteToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
         showCarIcon={true}
         autoSwoop={true}
+        onRouteData={setRouteData}
       />
+      
+      {activeTrip && (
+        <Animated.View 
+          style={[styles.bottomSheet, { transform: [{ translateY: panY }], backgroundColor: colors.surface }]}
+        >
+          {/* Floating Map Controls (Sticks to top of sheet) */}
+          <View style={styles.floatingControlsContainer}>
+            <Pressable 
+              style={[styles.mapControlBtn, { backgroundColor: colors.surface }]}
+              onPress={() => mapRef.current?.recenter()}
+            >
+              <Ionicons name="navigate" size={20} color={colors.primary} />
+            </Pressable>
+            <Pressable 
+              style={[styles.mapControlBtn, { backgroundColor: colors.surface }]}
+              onPress={() => mapRef.current?.overview()}
+            >
+              <Ionicons name="map-outline" size={20} color={colors.onSurfaceVariant} />
+            </Pressable>
+          </View>
+
+          <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
+            <Pressable onPress={() => snapTo(!isExpandedRef.current)}>
+              {/* Drag Handle */}
+              <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
+
+              {/* Location Header */}
+              <View style={styles.sheetHeader}>
+                <View style={[styles.locationIconWrapper, { backgroundColor: colors.primary }]}>
+                  <Ionicons name="location-sharp" size={24} color={colors.onPrimary} />
+                </View>
+                <View style={styles.locationTextWrapper}>
+                  <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
+                    {isEnRouteToPickup ? "Pick up destination" : "Drop-off destination"}
+                  </Text>
+                  <Text style={[styles.locationName, { color: colors.onSurface }]} numberOfLines={1}>
+                    {destName}
+                  </Text>
+                </View>
+                
+                {/* ETA & Distance */}
+                <View style={styles.headerStatsRight}>
+                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                    <Text style={[styles.headerEtaValue, { color: '#93c5fd' }]}>
+                      {routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) : "--"}
+                    </Text>
+                    <Text style={{ fontFamily: fonts.bodyBold, fontSize: 14, color: '#93c5fd', marginBottom: 2 }}> min</Text>
+                  </View>
+                  
+                  {routeData?.trafficDelayInSeconds > 0 && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: 'rgba(248,113,113,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                      <Ionicons name="warning" size={10} color="#fca5a5" />
+                      <Text style={{ fontFamily: fonts.labelMd, fontSize: 10, color: '#fca5a5', fontWeight: 'bold' }}>
+                        +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
+                      </Text>
+                    </View>
+                  )}
+
+                  <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
+                    {routeData ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" : "-- km"}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
+            </Pressable>
+
+          {/* Action Button */}
+          <Pressable 
+            style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+            onPress={async () => {
+              if (isEnRouteToPickup) {
+                try {
+                  await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`);
+                  loadTrip();
+                } catch(e) { Alert.alert("Error", "Could not update trip"); }
+              } else {
+                try {
+                  const distKm = routeData ? (routeData.lengthInMeters / 1000) : 0;
+                  const startOdo = Number(activeTrip.start_odometer) || Number(activeTrip.current_mileage) || 0;
+                  const endOdo = startOdo + distKm;
+                  
+                  await api.put(`/api/trips/${activeTrip.trip_id}/complete`, { 
+                    distance: distKm,
+                    start_odometer: startOdo,
+                    end_odometer: endOdo 
+                  });
+                  
+                  const durStr = routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min";
+                  const distStr = routeData ? distKm.toFixed(1) + " km" : "-- km";
+                  
+                  setActiveTrip(null);
+                  
+                  router.push({
+                    pathname: '/(app)/trip/complete',
+                    params: {
+                      pickup: activeTrip.origin,
+                      destination: activeTrip.destination,
+                      duration: durStr,
+                      distance: distStr,
+                      startOdo: Math.round(startOdo).toLocaleString(),
+                      endOdo: Math.round(endOdo).toLocaleString()
+                    }
+                  });
+                } catch(e) {
+                  Alert.alert("Error", e.message || "Could not complete trip");
+                }
+              }
+            }}
+          >
+            <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>
+              {isEnRouteToPickup ? "ARRIVED AT PICKUP" : "COMPLETE TRIP"}
+            </Text>
+            <Ionicons name="checkmark-circle-outline" size={22} color={colors.onPrimary} />
+          </Pressable>
+          </View>
+
+          {/* Expanded Content */}
+          <ScrollView 
+            style={{ flex: 1, marginTop: 24 }}
+            showsVerticalScrollIndicator={false}
+            pointerEvents={isExpanded ? 'auto' : 'none'}
+            contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
+          >
+            {/* Passenger Card */}
+            <View style={[styles.detailCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
+              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '40' }]}>
+                <Ionicons name="person" size={16} color={colors.onSurfaceVariant} />
+                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>Passenger Info</Text>
+              </View>
+              <View style={styles.cardBody}>
+                <View style={[styles.avatar, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Text style={[styles.avatarText, { color: colors.onSurface }]}>
+                    {(activeTrip.passenger_name || 'G')[0].toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.detailTitle, { color: colors.onSurface }]}>{activeTrip.passenger_name || 'Guest'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Ionicons name="people" size={14} color={colors.outline} />
+                    <Text style={[styles.detailSub, { color: colors.outline }]}>{activeTrip.passenger_count || 1} Pax</Text>
+                  </View>
+                </View>
+                <Pressable style={[styles.iconButton, { backgroundColor: colors.primaryContainer }]}>
+                  <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Trip Details Card */}
+            <View style={[styles.detailCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
+              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '40' }]}>
+                <Ionicons name="document-text" size={16} color={colors.onSurfaceVariant} />
+                <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>Trip Details</Text>
+              </View>
+              <View style={[styles.cardBody, { flexDirection: 'column', gap: 12, alignItems: 'stretch' }]}>
+                <View style={styles.detailRow}>
+                  <Text style={[styles.detailLabel, { color: colors.outline }]}>TRIP ID</Text>
+                  <Text style={[styles.detailValue, { color: colors.onSurface }]}>TRP-{activeTrip.trip_id}</Text>
+                </View>
+                <View style={[styles.detailRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant + '20', paddingTop: 12 }]}>
+                  <Text style={[styles.detailLabel, { color: colors.outline }]}>STATUS</Text>
+                  <View style={[styles.statusBadge, { backgroundColor: colors.secondaryContainer }]}>
+                    <Text style={[styles.statusBadgeText, { color: colors.onSecondaryContainer }]}>{activeTrip.trip_status}</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </ScrollView>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -171,21 +429,197 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center"
   },
-  overlay: {
+  bottomSheet: {
     position: "absolute",
-    bottom: 32,
-    alignSelf: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
+    left: 0,
+    right: 0,
+    top: 0,
+    height: SCREEN_HEIGHT,
+    paddingHorizontal: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 8,
+    shadowOffset: { width: 0, height: -8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 24,
+    elevation: 20,
   },
-  overlayText: {
+  floatingControlsContainer: {
+    position: 'absolute',
+    top: -64,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    pointerEvents: 'box-none',
+  },
+  mapControlBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginTop: 14,
+    marginBottom: 20,
+    opacity: 0.3,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    marginBottom: 20,
+  },
+  locationIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationTextWrapper: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  locationIndicator: {
+    fontFamily: fonts.bodyMedium,
+    fontSize: 12,
+    marginBottom: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  locationName: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 18,
+  },
+  divider: {
+    height: 1,
+    width: '100%',
+    opacity: 0.5,
+    marginBottom: 20,
+  },
+  headerStatsRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    flexShrink: 0,
+    minWidth: 70,
+  },
+  headerEtaValue: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 22,
+    marginBottom: 2,
+  },
+  headerDistValue: {
     fontFamily: fonts.bodyMedium,
     fontSize: 14,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 18,
+    borderRadius: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  actionBtnText: {
+    fontFamily: fonts.bodyBold,
+    fontSize: 15,
+    letterSpacing: 0.5,
+  },
+  detailCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  cardHeaderTitle: {
+    fontFamily: fonts.labelMd,
+    fontSize: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  cardBody: {
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontFamily: fonts.titleLg,
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  detailTitle: {
+    fontFamily: fonts.bodyLg,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  detailSub: {
+    fontFamily: fonts.labelMd,
+    fontSize: 13,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  detailLabel: {
+    fontFamily: fonts.labelSm,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  detailValue: {
+    fontFamily: fonts.labelMd,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusBadgeText: {
+    fontFamily: fonts.labelMd,
+    fontSize: 12,
+    fontWeight: '600',
   }
 });
