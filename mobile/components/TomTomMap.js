@@ -1,8 +1,8 @@
-import React, { useRef, useEffect, useMemo } from 'react';
+import React, { useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-export default function TomTomMap({ 
+const TomTomMap = forwardRef(({ 
   origin, 
   destination,
   originAddress,
@@ -12,9 +12,15 @@ export default function TomTomMap({
   pickupLabel = "Pickup",
   dropoffLabel = "Destination",
   showCarIcon = false,
-  autoSwoop = false
-}) {
+  autoSwoop = false,
+  onRouteData
+}, ref) => {
   const webViewRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterMap) window.recenterMap(); true;`),
+    overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`)
+  }));
   const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "Eovwxfb6mUlNub48iBOiYpuQBZZWQHne";
 
   const safeOriginAddr = (originAddress || "").replace(/'/g, "\\'");
@@ -132,12 +138,9 @@ export default function TomTomMap({
               }
               .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: #e2e8f0; }
 
-              /* Map Controls */
-              .overview-btn { position: absolute; right: 16px; bottom: 32px; width: 48px; height: 48px; background: white; border-radius: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: flex; align-items: center; justify-content: center; z-index: 1000; cursor: pointer; border: 1px solid #e2e8f0; }
-              .overview-btn:active { background: #f1f5f9; }
-              
-              .recenter-btn { position: absolute; left: 16px; bottom: 32px; background: white; width: 48px; height: 48px; border-radius: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; align-items: center; justify-content: center; z-index: 1000; color: #0ea5e9; cursor: pointer; border: 1px solid #e2e8f0; }
-              .recenter-btn:active { background: #f1f5f9; }
+              /* Map Controls (Hidden in favor of Native controls) */
+              .overview-btn { display: none !important; }
+              .recenter-btn { display: none !important; }
               
               /* Car Customizer Modal */
               .car-customizer-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
@@ -182,7 +185,7 @@ export default function TomTomMap({
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"></polygon></svg>
           </div>
 
-          <div id="etaBox" class="eta-box">
+          <div id="etaBox" class="eta-box" style="display: none !important;">
               <div id="etaTime" class="eta-time">ETA: -- min</div>
               <div id="etaDelay" class="eta-delay">⚠️ +-- min traffic</div>
           </div>
@@ -631,11 +634,15 @@ export default function TomTomMap({
                   });
 
                   if (${showCarIcon}) {
-                      document.getElementById('navHeader').style.display = 'flex';
+                      if (${destination ? 'true' : 'false'}) {
+                          document.getElementById('navHeader').style.display = 'flex';
+                          document.getElementById('navDistVal').innerText = "---";
+                          document.getElementById('navDistUnit').innerText = "";
+                          document.getElementById('navStreet').innerText = "Calculating route...";
+                      } else {
+                          document.getElementById('navHeader').style.display = 'none';
+                      }
                       document.getElementById('overviewBtn').style.display = 'flex';
-                      document.getElementById('navDistVal').innerText = "---";
-                      document.getElementById('navDistUnit').innerText = "";
-                      document.getElementById('navStreet').innerText = "Calculating route...";
                   }
 
                   map.on('load', () => {
@@ -670,6 +677,9 @@ export default function TomTomMap({
                           
                       ${!showCarIcon ? 'originPopup.addTo(map);' : ''}
 
+                      // If no destination is provided, just stop here (Idle mode)
+                      if (!${destination ? 'true' : 'false'} || (originLat === destLat && originLng === destLng)) return;
+
                       // Destination Marker
                       const destEl = document.createElement('div');
                       destEl.className = 'dest-marker';
@@ -681,8 +691,6 @@ export default function TomTomMap({
                           .setPopup(destPopup)
                           .addTo(map);
                       destPopup.addTo(map);
-
-                      if (originLat === destLat && originLng === destLng) return;
 
                       // Request traffic-sectioned routing
                       tt.services.calculateRoute({
@@ -709,26 +717,16 @@ export default function TomTomMap({
                               window.updateNavigationBanner(originLng, originLat);
                           }
                           
-                          // Display Total ETA Badge
-                          if (${autoSwoop} && mainProps.summary) {
-                              const travelTimeMin = Math.ceil((mainProps.summary.travelTimeInSeconds || 0) / 60);
-                              const delayMin = Math.ceil((mainProps.summary.trafficDelayInSeconds || 0) / 60);
-                              
-                              const etaBox = document.getElementById('etaBox');
-                              const etaTime = document.getElementById('etaTime');
-                              const etaDelay = document.getElementById('etaDelay');
-                              
-                              etaBox.style.display = 'flex';
-                              etaTime.innerText = travelTimeMin + " min";
-                              
-                              if (delayMin > 0) {
-                                  etaDelay.style.display = 'block';
-                                  etaDelay.innerText = '⚠️ +' + delayMin + ' min traffic';
-                              } else {
-                                  etaDelay.style.display = 'none';
-                              }
+                          if (window.ReactNativeWebView && mainProps.summary) {
+                              window.ReactNativeWebView.postMessage(JSON.stringify({
+                                  type: 'ROUTE_CALCULATED',
+                                  travelTimeInSeconds: mainProps.summary.travelTimeInSeconds,
+                                  lengthInMeters: mainProps.summary.lengthInMeters,
+                                  trafficDelayInSeconds: mainProps.summary.trafficDelayInSeconds
+                              }));
                           }
-
+                          
+                          // ETA Box logic removed as it's displayed natively
                           // Helper function to dynamically slice a route into colored traffic segments
                           window.buildTrafficSegments = (feature, isAltRoute) => {
                               const coords = feature.geometry.coordinates;
@@ -924,10 +922,22 @@ export default function TomTomMap({
         scrollEnabled={false}
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
+        onMessage={(event) => {
+          if (onRouteData) {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.type === 'ROUTE_CALCULATED') {
+                onRouteData(data);
+              }
+            } catch(e){}
+          }
+        }}
       />
     </View>
   );
-}
+});
+
+export default TomTomMap;
 
 const styles = StyleSheet.create({
   container: {
