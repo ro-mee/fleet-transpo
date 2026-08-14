@@ -23,7 +23,6 @@ export default function SettingsScreen() {
   const [highContrast, setHighContrast] = useState(false);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [locationTracking, setLocationTracking] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(false);
 
   useEffect(() => {
     // Load persisted settings
@@ -32,12 +31,10 @@ export default function SettingsScreen() {
         const hc = await AsyncStorage.getItem('@settings_highContrast');
         const pn = await AsyncStorage.getItem('@settings_pushNotifications');
         const lt = await AsyncStorage.getItem('@settings_locationTracking');
-        const om = await AsyncStorage.getItem('@settings_offlineMode');
         
         if (hc !== null) setHighContrast(hc === 'true');
         if (pn !== null) setPushNotifications(pn === 'true');
         if (lt !== null) setLocationTracking(lt === 'true');
-        if (om !== null) setOfflineMode(om === 'true');
       } catch (e) {
         console.warn("Failed to load settings", e);
       }
@@ -163,21 +160,6 @@ export default function SettingsScreen() {
             <Switch
               value={locationTracking}
               onValueChange={(val) => handleToggle('locationTracking', val, setLocationTracking)}
-              trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
-              thumbColor={"white"}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="cloud-offline" size={18} color={colors.onSurfaceVariant} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Offline Mode</Text>
-            </View>
-            <Switch
-              value={offlineMode}
-              onValueChange={(val) => handleToggle('offlineMode', val, setOfflineMode)}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
               thumbColor={"white"}
             />

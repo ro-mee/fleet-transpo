@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
+import { AppState } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -13,6 +14,7 @@ import {
 import { AuthProvider } from "../lib/auth";
 import { ErrorBoundary } from "../components/error-boundary";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
+import { syncQueue } from "../lib/sync";
 
 // Keep the native splash up while fonts load so the app never flashes in a
 // fallback typeface. Hidden in the effect below once fonts are ready.
@@ -55,6 +57,25 @@ export default function RootLayout() {
       SplashScreen.hideAsync().catch(() => {});
     }
   }, [ready]);
+
+  const appState = useRef(AppState.currentState);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextAppState) => {
+      if (
+        appState.current.match(/inactive|background/) &&
+        nextAppState === "active"
+      ) {
+        // App has come to the foreground, trigger sync
+        syncQueue().catch(() => {});
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
   if (!ready) {
     return null;

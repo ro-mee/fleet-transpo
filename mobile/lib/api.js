@@ -4,6 +4,7 @@ import {
   saveTokens,
   clearAll,
 } from "./storage";
+import { enqueueRequest, syncQueue } from "./sync";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -122,12 +123,29 @@ export async function apiFetch(path, options = {}) {
   } catch (e) {
     // Network / timeout failure. Retry once — a transient Wi-Fi blip or a
     // slow cold start should not fail the whole request immediately.
-    if (!skipAuth && MAX_RETRIES > 0) {
-      res = await send(token).catch((retryErr) => {
-        throw new ApiError("Network request failed. Check your connection.", 0);
-      });
-    } else {
+    const handleNetworkFailure = async () => {
+      const method = init.method || 'GET';
+      if (['POST', 'PUT', 'DELETE'].includes(method.toUpperCase())) {
+        let parsedBody = undefined;
+        try {
+          if (typeof init.body === 'string') parsedBody = JSON.parse(init.body);
+          else parsedBody = init.body;
+        } catch(err) {}
+        
+        await enqueueRequest(method, path, parsedBody);
+        return { queued: true }; // Dummy successful response for offline actions
+      }
       throw new ApiError("Network request failed. Check your connection.", 0);
+    };
+
+    if (!skipAuth && MAX_RETRIES > 0) {
+      try {
+        res = await send(token);
+      } catch (retryErr) {
+        return await handleNetworkFailure();
+      }
+    } else {
+      return await handleNetworkFailure();
     }
   }
 
@@ -148,6 +166,14 @@ export async function apiFetch(path, options = {}) {
 
   if (!res.ok) {
     throw new ApiError(body?.error || `Request failed (${res.status})`, res.status);
+  }
+
+  // If we get here, the request was successful, so we can try to drain the queue in the background
+  if (init.method && ['POST', 'PUT', 'DELETE'].includes(init.method.toUpperCase())) {
+    syncQueue().catch(() => {});
+  } else {
+    // For GETs, also trigger a sync to ensure everything is caught up if the network is back
+    syncQueue().catch(() => {});
   }
 
   return body;
