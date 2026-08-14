@@ -108,6 +108,9 @@ export async function apiFetch(path, options = {}) {
 
   const send = async (t) => {
     const headers = {
+      "Cache-Control": "no-cache, no-store, must-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0",
       ...(init.headers || {}),
     };
     if (!(init.body instanceof FormData) && !headers["Content-Type"]) {

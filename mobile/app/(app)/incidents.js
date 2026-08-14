@@ -12,6 +12,7 @@ import {
   Platform,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
+import * as Location from 'expo-location';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
@@ -35,9 +36,9 @@ export default function IncidentsScreen() {
 
   const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
-  const [location, setLocation] = useState("");
   const [severity, setSeverity] = useState("medium");
   const [submitting, setSubmitting] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   const handleSubmit = async () => {
     if (!type) {
@@ -50,19 +51,47 @@ export default function IncidentsScreen() {
     }
     try {
       setSubmitting(true);
+      
+      let gpsLocation = "GPS Location unavailable";
+      let lat = null;
+      let lng = null;
+      
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          lat = loc.coords.latitude;
+          lng = loc.coords.longitude;
+          
+          try {
+            const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+            if (geocode && geocode.length > 0) {
+              const place = geocode[0];
+              const parts = [place.street, place.city || place.subregion, place.region].filter(Boolean);
+              gpsLocation = parts.length > 0 ? parts.join(', ') : `${lat}, ${lng}`;
+            } else {
+              gpsLocation = `${lat}, ${lng}`;
+            }
+          } catch (geoErr) {
+            console.warn("Reverse geocode failed", geoErr);
+            gpsLocation = `${lat}, ${lng}`;
+          }
+        }
+      } catch (locErr) {
+        console.warn("Failed to get location for incident report", locErr);
+      }
+
       await api.post("/api/driver/incidents", {
         trip_id: tripId ? parseInt(tripId, 10) : null,
         incident_type: type,
         description,
-        location: location || "Current location",
+        location: gpsLocation,
+        latitude: lat,
+        longitude: lng,
         severity,
         incident_date: new Date().toISOString(),
       });
-      Alert.alert(
-        "Incident Reported",
-        "Dispatch has been notified. Stay safe.",
-        [{ text: "OK", onPress: () => router.back() }]
-      );
+      setShowSuccess(true);
     } catch (e) {
       Alert.alert("Error", e.message || "Could not submit report.");
     } finally {
@@ -190,21 +219,17 @@ export default function IncidentsScreen() {
           </View>
         </View>
 
-        {/* Location */}
+        {/* Location (Auto) */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
             Current Location
           </Text>
-          <TextInput
-            style={[
-              styles.input,
-              { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
-            ]}
-            placeholder="e.g. KM 42 NLEX, near Petron station"
-            placeholderTextColor={colors.outline}
-            value={location}
-            onChangeText={setLocation}
-          />
+          <View style={[styles.input, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLow, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }]}>
+            <Ionicons name="location" size={20} color={colors.primary} />
+            <Text style={{ flex: 1, color: colors.onSurfaceVariant, fontSize: 14, fontFamily: fonts.bodyMedium }}>
+              Your live GPS coordinates will be automatically attached to this report for immediate dispatch tracking.
+            </Text>
+          </View>
         </View>
 
         {/* Description */}
@@ -256,6 +281,27 @@ export default function IncidentsScreen() {
           </Text>
         </Pressable>
       </View>
+
+      {/* Premium Success Overlay */}
+      {showSuccess && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 32 }]}>
+          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 32 }}>
+            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="shield-checkmark" size={36} color={colors.onErrorContainer} />
+            </View>
+          </View>
+          <Text style={{ fontFamily: fonts.titleLg, fontSize: 26, color: colors.onSurface, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>Help is on the way.</Text>
+          <Text style={{ fontFamily: fonts.bodyLg, fontSize: 16, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 40, lineHeight: 26 }}>
+            Dispatch has received your exact coordinates and incident details. {"\n\n"}Please prioritize your safety and await further instructions.
+          </Text>
+          <Pressable
+            onPress={() => router.back()}
+            style={({pressed}) => [{ backgroundColor: colors.primary, paddingHorizontal: 32, paddingVertical: 18, borderRadius: 100, width: '100%', alignItems: 'center', opacity: pressed ? 0.8 : 1 }]}
+          >
+            <Text style={{ fontFamily: fonts.bodyBold, fontSize: 16, color: colors.onPrimary }}>Return to Dashboard</Text>
+          </Pressable>
+        </View>
+      )}
     </KeyboardAvoidingView>
   );
 }

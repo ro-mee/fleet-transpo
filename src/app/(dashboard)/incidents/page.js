@@ -100,7 +100,28 @@ export default function IncidentsPage() {
     }
   });
 
-  const incidents = useMemo(() => [...(data || [])], [data]);
+  const incidents = useMemo(() => {
+    return (data || []).map(inc => {
+      let lat = inc.latitude;
+      let lng = inc.longitude;
+      
+      // Attempt to parse coordinates if they were saved in the generic 'location' text field
+      if (lat == null && lng == null && inc.location) {
+        const parts = inc.location.split(',');
+        if (parts.length === 2) {
+          const pLat = parseFloat(parts[0].trim());
+          const pLng = parseFloat(parts[1].trim());
+          // Basic bounds check to ensure it's a valid coordinate pair
+          if (!isNaN(pLat) && !isNaN(pLng) && pLat >= -90 && pLat <= 90 && pLng >= -180 && pLng <= 180) {
+            lat = pLat;
+            lng = pLng;
+          }
+        }
+      }
+      
+      return { ...inc, latitude: lat, longitude: lng };
+    });
+  }, [data]);
 
   const activeIncidents = useMemo(() => {
     return incidents.filter((i) => (i.status || "").toLowerCase() !== "resolved");

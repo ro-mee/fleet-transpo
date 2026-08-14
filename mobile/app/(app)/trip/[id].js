@@ -43,13 +43,17 @@ export default function TripDetailsScreen() {
     load();
   }, [load]);
 
-  const handleAccept = async () => {
+  const handleAction = async () => {
     setAccepting(true);
     try {
-      await api.put(`/api/trips/${id}/accept`, { accept: true }).catch(() => {});
+      if (trip?.trip_status === "Driver Accepted") {
+        await api.put(`/api/trips/${id}/start`, {}).catch(() => {});
+      } else {
+        await api.put(`/api/trips/${id}/accept`, { accept: true }).catch(() => {});
+      }
       router.replace("/map");
     } catch (e) {
-      Alert.alert("Error", "Could not accept trip.");
+      Alert.alert("Error", "Could not update trip.");
       setAccepting(false);
     }
   };
@@ -168,22 +172,35 @@ export default function TripDetailsScreen() {
       </ScrollView>
 
       <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant, paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <View style={styles.actionRow}>
-          <Pressable style={[styles.declineBtn, { borderColor: colors.outline }]} onPress={() => router.back()}>
-            <Ionicons name="close" size={20} color={colors.onSurface} />
-            <Text style={[styles.declineText, { color: colors.onSurface }]}>DECLINE</Text>
-          </Pressable>
-          <Pressable style={[styles.acceptBtn, { backgroundColor: colors.primary }]} onPress={handleAccept} disabled={accepting}>
+        {trip?.trip_status === "Driver Accepted" ? (
+          <Pressable style={[styles.acceptBtn, { backgroundColor: colors.primary, width: '100%' }]} onPress={handleAction} disabled={accepting}>
             {accepting ? (
               <ActivityIndicator color={colors.onPrimary} />
             ) : (
               <React.Fragment>
-                <Ionicons name="checkmark" size={20} color={colors.onPrimary} />
-                <Text style={[styles.acceptText, { color: colors.onPrimary }]}>ACCEPT</Text>
+                <Ionicons name="play" size={20} color={colors.onPrimary} />
+                <Text style={[styles.acceptText, { color: colors.onPrimary }]}>START ROUTE</Text>
               </React.Fragment>
             )}
           </Pressable>
-        </View>
+        ) : (
+          <View style={styles.actionRow}>
+            <Pressable style={[styles.declineBtn, { borderColor: colors.outline }]} onPress={() => router.back()}>
+              <Ionicons name="close" size={20} color={colors.onSurface} />
+              <Text style={[styles.declineText, { color: colors.onSurface }]}>DECLINE</Text>
+            </Pressable>
+            <Pressable style={[styles.acceptBtn, { backgroundColor: colors.primary }]} onPress={handleAction} disabled={accepting}>
+              {accepting ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <React.Fragment>
+                  <Ionicons name="checkmark" size={20} color={colors.onPrimary} />
+                  <Text style={[styles.acceptText, { color: colors.onPrimary }]}>ACCEPT</Text>
+                </React.Fragment>
+              )}
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );

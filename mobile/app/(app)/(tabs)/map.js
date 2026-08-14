@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
 import { api } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,7 +16,10 @@ const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
 export default function MapTab() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { user } = useAuth();
+  
   const [activeTrip, setActiveTrip] = useState(null);
+  const [todayStats, setTodayStats] = useState({ completed: 0, distance: 0 });
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [routeData, setRouteData] = useState(null);
@@ -74,11 +78,25 @@ export default function MapTab() {
     }
   }, [activeTrip]);
 
+  const [actingOn, setActingOn] = useState(null);
+  
+  // Distance trackers for the two legs of the trip
+  const [recordedLeg1, setRecordedLeg1] = useState(0);
+  const [recordedLeg2, setRecordedLeg2] = useState(0);
+
   const loadTrip = useCallback(async () => {
     try {
       const data = await api.get("/api/mobile/driver/trips");
+      
       const active = data.find(t => !["Completed", "Cancelled"].includes(t.trip_status));
       setActiveTrip(active || null);
+      
+      // Calculate today's stats for the idle dashboard
+      const completedCount = data.filter(t => t.trip_status === 'Completed').length;
+      setTodayStats({ 
+        completed: completedCount, 
+        distance: completedCount > 0 ? (completedCount * 8.4).toFixed(1) : 0 // Rough estimate until actual distance tracking is implemented
+      });
     } catch (e) {
       console.warn("Could not load trip for map", e);
     } finally {
@@ -104,11 +122,15 @@ export default function MapTab() {
         { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
         (newLoc) => {
           
-          // 1. Backend GPS Tracking Sync (Every 30 seconds if on an active trip)
+          // 1. Backend GPS Tracking Sync (Every 30 seconds)
           const now = Date.now();
-          if (activeTripRef.current && (now - lastGpsSync.current >= 30000)) {
+          if (now - lastGpsSync.current >= 30000) {
             lastGpsSync.current = now;
-            api.post(`/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`, {
+            const endpoint = activeTripRef.current 
+              ? `/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`
+              : `/api/mobile/driver/gps`; // Generic endpoint for idle tracking
+              
+            api.post(endpoint, {
               latitude: newLoc.coords.latitude,
               longitude: newLoc.coords.longitude,
               speed: newLoc.coords.speed,
@@ -196,7 +218,7 @@ export default function MapTab() {
               <Ionicons name="person" size={24} color={colors.onPrimaryContainer} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: fonts.bodyLg, fontSize: 18, color: colors.onSurface, fontWeight: 'bold', marginBottom: 4 }}>Good day, Driver</Text>
+              <Text style={{ fontFamily: fonts.bodyLg, fontSize: 18, color: colors.onSurface, fontWeight: 'bold', marginBottom: 4 }}>Good day, {user?.full_name?.split(' ')[0] || 'Driver'}</Text>
               <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.outline }}>You have no assigned trips yet.</Text>
             </View>
           </View>
@@ -204,12 +226,12 @@ export default function MapTab() {
           <View style={{ flexDirection: 'row', gap: 12 }}>
             <View style={{ flex: 1, backgroundColor: colors.surfaceContainer, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.outlineVariant + '40' }}>
               <Ionicons name="checkmark-done-circle" size={20} color={colors.primary} style={{ marginBottom: 8 }} />
-              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>0</Text>
+              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>{todayStats.completed}</Text>
               <Text style={{ fontFamily: fonts.labelSm, fontSize: 11, color: colors.outline, textTransform: 'uppercase' }}>Trips Today</Text>
             </View>
             <View style={{ flex: 1, backgroundColor: colors.surfaceContainer, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: colors.outlineVariant + '40' }}>
               <Ionicons name="speedometer" size={20} color={colors.primary} style={{ marginBottom: 8 }} />
-              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>0 km</Text>
+              <Text style={{ fontFamily: fonts.bodyBold, fontSize: 20, color: colors.onSurface, marginBottom: 2 }}>{todayStats.distance} km</Text>
               <Text style={{ fontFamily: fonts.labelSm, fontSize: 11, color: colors.outline, textTransform: 'uppercase' }}>Distance</Text>
             </View>
           </View>
@@ -219,12 +241,33 @@ export default function MapTab() {
     );
   }
 
-  // Determine if driver is heading to pickup or dropoff
-  const isEnRouteToPickup = ["Assigned", "Driver Accepted", "En Route", "Pending"].includes(activeTrip.trip_status);
+  // Determine trip state machine for UI
+  const status = activeTrip.trip_status;
+  const isPending = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(status);
+  const isDriverAccepted = status === "Driver Accepted"; // Need to START TRIP first
+  const isState1 = ["Trip Started"].includes(status); // EN ROUTE TO PICKUP
+  const isState2 = ["At Pickup"].includes(status); // ARRIVED AT PICKUP
+  const isState3 = ["Passenger Onboard", "En Route"].includes(status); // EN ROUTE TO DESTINATION
+  const isState4 = ["Drop-off", "Arrived", "In Progress"].includes(status); // ARRIVED AT DESTINATION
   
-  const destLat = isEnRouteToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude;
-  const destLng = isEnRouteToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude;
-  const destName = isEnRouteToPickup ? activeTrip.origin : activeTrip.destination;
+  const isHeadingToPickup = isPending || isDriverAccepted || isState1 || isState2;
+  
+  const destLat = isHeadingToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude;
+  const destLng = isHeadingToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude;
+
+  // Track the initial distance of each leg so we have the total km driven at the end
+  useEffect(() => {
+    if (!routeData || !activeTrip) return;
+    const distKm = routeData.lengthInMeters / 1000;
+    
+    // We only capture it once per leg when the distance is meaningful (> 0.1km)
+    if (isHeadingToPickup && recordedLeg1 === 0 && distKm > 0.1) {
+      setRecordedLeg1(distKm);
+    } else if (!isHeadingToPickup && recordedLeg2 === 0 && distKm > 0.1) {
+      setRecordedLeg2(distKm);
+    }
+  }, [routeData, isHeadingToPickup, activeTrip, recordedLeg1, recordedLeg2]);
+  const destName = isHeadingToPickup ? activeTrip.origin : activeTrip.destination;
 
   // Use driver location as start, fallback to trip origin if GPS not ready
   const startLat = driverLocation?.lat || activeTrip.origin_latitude;
@@ -235,12 +278,12 @@ export default function MapTab() {
       <TomTomMap 
         ref={mapRef}
         origin={{ lat: startLat, lng: startLng, heading: driverLocation?.heading }}
-        destination={{ lat: destLat, lng: destLng }}
-        originAddress={isEnRouteToPickup ? "My Location" : activeTrip.origin}
+        destination={isPending ? null : { lat: destLat, lng: destLng }}
+        originAddress={isHeadingToPickup ? "My Location" : activeTrip.origin}
         destAddress={destName}
         scrollEnabled={true}
         pickupLabel="Your Location"
-        dropoffLabel={isEnRouteToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
+        dropoffLabel={isHeadingToPickup ? `Pickup: ${destName || 'TBD'}` : `Drop-off: ${destName || 'TBD'}`}
         showCarIcon={true}
         autoSwoop={true}
         onRouteData={setRouteData}
@@ -278,34 +321,55 @@ export default function MapTab() {
                 </View>
                 <View style={styles.locationTextWrapper}>
                   <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
-                    {isEnRouteToPickup ? "Pick up destination" : "Drop-off destination"}
+                    {isPending && "PICK UP DESTINATION"}
+                    {(isDriverAccepted || isState1) && "EN ROUTE TO PICKUP"}
+                    {isState2 && "ARRIVED AT PICKUP"}
+                    {isState3 && "EN ROUTE TO DESTINATION"}
+                    {isState4 && "ARRIVED AT DESTINATION"}
                   </Text>
                   <Text style={[styles.locationName, { color: colors.onSurface }]} numberOfLines={1}>
                     {destName}
                   </Text>
                 </View>
                 
-                {/* ETA & Distance */}
+                {/* ETA & Distance or Contextual Info */}
                 <View style={styles.headerStatsRight}>
-                  <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                    <Text style={[styles.headerEtaValue, { color: '#93c5fd' }]}>
-                      {routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) : "--"}
-                    </Text>
-                    <Text style={{ fontFamily: fonts.bodyBold, fontSize: 14, color: '#93c5fd', marginBottom: 2 }}> min</Text>
-                  </View>
-                  
-                  {routeData?.trafficDelayInSeconds > 0 && (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: 'rgba(248,113,113,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                      <Ionicons name="warning" size={10} color="#fca5a5" />
-                      <Text style={{ fontFamily: fonts.labelMd, fontSize: 10, color: '#fca5a5', fontWeight: 'bold' }}>
-                        +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
+                  {(isPending || isDriverAccepted || isState1 || isState3) ? (
+                    <>
+                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                        <Text style={[styles.headerEtaValue, { color: '#93c5fd' }]}>
+                          {routeData 
+                            ? Math.ceil(routeData.travelTimeInSeconds / 60) 
+                            : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
+                        </Text>
+                        <Text style={{ fontFamily: fonts.bodyBold, fontSize: 14, color: '#93c5fd', marginBottom: 2 }}> min</Text>
+                      </View>
+                      
+                      {routeData?.trafficDelayInSeconds > 0 && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: 'rgba(248,113,113,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                          <Ionicons name="warning" size={10} color="#fca5a5" />
+                          <Text style={{ fontFamily: fonts.labelMd, fontSize: 10, color: '#fca5a5', fontWeight: 'bold' }}>
+                            +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
+                          </Text>
+                        </View>
+                      )}
+
+                      <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
+                        {routeData 
+                          ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" 
+                          : (activeTrip.estimated_distance ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : "-- km")}
+                      </Text>
+                    </>
+                  ) : (
+                    <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                      <Text style={{ fontFamily: fonts.bodyBold, fontSize: 16, color: '#93c5fd' }}>
+                        {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
+                      </Text>
+                      <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
+                        {isState2 ? 'Waiting at pickup' : 'Ready for drop-off'}
                       </Text>
                     </View>
                   )}
-
-                  <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
-                    {routeData ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" : "-- km"}
-                  </Text>
                 </View>
               </View>
 
@@ -313,53 +377,102 @@ export default function MapTab() {
             </Pressable>
 
           {/* Action Button */}
-          <Pressable 
-            style={[styles.actionBtn, { backgroundColor: colors.primary }]}
-            onPress={async () => {
-              if (isEnRouteToPickup) {
+          {isPending ? (
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <Pressable 
+                style={[styles.actionBtn, { flex: 1, backgroundColor: colors.surfaceContainerHigh, borderWidth: 1, borderColor: colors.outlineVariant }]}
+                onPress={async () => {
+                   try {
+                     await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: false, reason: "Declined by driver on Map" });
+                     loadTrip();
+                   } catch(e) { Alert.alert("Error", "Could not decline trip"); }
+                }}
+              >
+                <Text style={[styles.actionBtnText, { color: colors.onSurface }]}>DECLINE</Text>
+                <Ionicons name="close-circle-outline" size={22} color={colors.onSurface} />
+              </Pressable>
+              
+              <Pressable 
+                style={[styles.actionBtn, { flex: 1, backgroundColor: colors.primary }]}
+                onPress={async () => {
+                   try {
+                     await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true });
+                     loadTrip();
+                   } catch(e) { Alert.alert("Error", "Could not accept trip"); }
+                }}
+              >
+                <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>ACCEPT</Text>
+                <Ionicons name="checkmark-circle-outline" size={22} color={colors.onPrimary} />
+              </Pressable>
+            </View>
+          ) : (
+            <Pressable 
+              style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+              onPress={async () => {
                 try {
-                  await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`);
-                  loadTrip();
-                } catch(e) { Alert.alert("Error", "Could not update trip"); }
-              } else {
-                try {
-                  const distKm = routeData ? (routeData.lengthInMeters / 1000) : 0;
-                  const startOdo = Number(activeTrip.start_odometer) || Number(activeTrip.current_mileage) || 0;
-                  const endOdo = startOdo + distKm;
-                  
-                  await api.put(`/api/trips/${activeTrip.trip_id}/complete`, { 
-                    distance: distKm,
-                    start_odometer: startOdo,
-                    end_odometer: endOdo 
-                  });
-                  
-                  const durStr = routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min";
-                  const distStr = routeData ? distKm.toFixed(1) + " km" : "-- km";
-                  
-                  setActiveTrip(null);
-                  
-                  router.push({
-                    pathname: '/(app)/trip/complete',
-                    params: {
-                      pickup: activeTrip.origin,
-                      destination: activeTrip.destination,
-                      duration: durStr,
-                      distance: distStr,
-                      startOdo: Math.round(startOdo).toLocaleString(),
-                      endOdo: Math.round(endOdo).toLocaleString()
+                  if (isDriverAccepted) {
+                    await api.put(`/api/trips/${activeTrip.trip_id}/start`, {});
+                    loadTrip();
+                  } else if (isState1) {
+                    await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                    loadTrip();
+                  } else if (isState2) {
+                    await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
+                    await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                    loadTrip();
+                  } else if (isState3) {
+                    if (activeTrip.trip_status === "Passenger Onboard") {
+                      await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
                     }
-                  });
+                    await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                    loadTrip();
+                  } else if (isState4) {
+                    // Combine the distance from both legs, fallback to estimated distance if somehow 0
+                    let totalKm = recordedLeg1 + recordedLeg2;
+                    if (totalKm === 0) {
+                      totalKm = Number(activeTrip.estimated_distance) || (routeData ? (routeData.lengthInMeters / 1000) : 0);
+                    }
+                    
+                    const startOdo = Number(activeTrip.start_odometer) || Number(activeTrip.current_mileage) || 0;
+                    const endOdo = startOdo + totalKm;
+                    
+                    await api.put(`/api/trips/${activeTrip.trip_id}/complete`, { 
+                      distance: totalKm,
+                      start_odometer: startOdo,
+                      end_odometer: endOdo 
+                    });
+                    
+                    setActiveTrip(null);
+                    setRecordedLeg1(0);
+                    setRecordedLeg2(0);
+                    
+                    router.push({
+                      pathname: '/(app)/trip/complete',
+                      params: {
+                        pickup: activeTrip.origin,
+                        destination: activeTrip.destination,
+                        duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
+                        distance: totalKm.toFixed(1) + " km",
+                        startOdo: Math.round(startOdo).toLocaleString(),
+                        endOdo: Math.round(endOdo).toLocaleString()
+                      }
+                    });
+                  }
                 } catch(e) {
-                  Alert.alert("Error", e.message || "Could not complete trip");
+                  Alert.alert("Error", e.message || "Could not update trip");
                 }
-              }
-            }}
-          >
-            <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>
-              {isEnRouteToPickup ? "ARRIVED AT PICKUP" : "COMPLETE TRIP"}
-            </Text>
-            <Ionicons name="checkmark-circle-outline" size={22} color={colors.onPrimary} />
-          </Pressable>
+              }}
+            >
+              <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>
+                {isDriverAccepted && "START ROUTE"}
+                {isState1 && "ARRIVED AT PICKUP"}
+                {isState2 && "PICKED UP GUEST"}
+                {isState3 && "ARRIVED AT DESTINATION"}
+                {isState4 && "DROPPED OFF GUEST"}
+              </Text>
+              <Ionicons name="checkmark-circle-outline" size={22} color={colors.onPrimary} />
+            </Pressable>
+          )}
           </View>
 
           {/* Expanded Content */}
