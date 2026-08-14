@@ -34,7 +34,7 @@ export default function TripMap({
   onNavigate,
   showControls = true,
 }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const key = process.env.EXPO_PUBLIC_TOMTOM_API_KEY;
 
   const originValid = origin && Number.isFinite(Number(origin.latitude)) && Number.isFinite(Number(origin.longitude));
@@ -174,7 +174,7 @@ export default function TripMap({
           <View style={styles.topPillWrap} pointerEvents="none">
             <View style={styles.topPill}>
               <View style={styles.pulseDot} />
-              <Text style={styles.topPillText} numberOfLines={1}>
+              <Text style={[type.label, styles.topPillText]} numberOfLines={1}>
                 {liveValid ? "GPS Live Tracking Active" : "Route Navigation"}
               </Text>
             </View>
@@ -187,24 +187,24 @@ export default function TripMap({
               onPress={() => zoomStep(1)}
               hitSlop={6}
             >
-              <Text style={styles.controlText}>+</Text>
+              <Text style={[type.titleLg, styles.controlText]}>+</Text>
             </Pressable>
             <View style={styles.zoomBadge}>
-              <Text style={styles.zoomBadgeText}>{zoom}</Text>
+              <Text style={[type.caption, styles.zoomBadgeText]}>{zoom}</Text>
             </View>
             <Pressable
               style={({ pressed }) => [styles.controlBtn, pressed && styles.controlBtnPressed]}
               onPress={() => zoomStep(-1)}
               hitSlop={6}
             >
-              <Text style={styles.controlText}>−</Text>
+              <Text style={[type.titleLg, styles.controlText]}>−</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.controlBtn, pressed && styles.controlBtnPressed]}
               onPress={handleRecenter}
               hitSlop={6}
             >
-              <Text style={styles.controlText}>◎</Text>
+              <Text style={[type.titleLg, styles.controlText]}>◎</Text>
             </Pressable>
           </View>
 
@@ -216,7 +216,7 @@ export default function TripMap({
                 onPress={() => panBy(panStep(), 0)}
                 hitSlop={4}
               >
-                <Text style={styles.panText}>▲</Text>
+                <Text style={[type.labelLg, styles.panText]}>▲</Text>
               </Pressable>
             </View>
             <View style={styles.panRow}>
@@ -225,7 +225,7 @@ export default function TripMap({
                 onPress={() => panBy(0, -panStep())}
                 hitSlop={4}
               >
-                <Text style={styles.panText}>◀</Text>
+                <Text style={[type.labelLg, styles.panText]}>◀</Text>
               </Pressable>
               <View style={styles.panCenter} />
               <Pressable
@@ -233,7 +233,7 @@ export default function TripMap({
                 onPress={() => panBy(0, panStep())}
                 hitSlop={4}
               >
-                <Text style={styles.panText}>▶</Text>
+                <Text style={[type.labelLg, styles.panText]}>▶</Text>
               </Pressable>
             </View>
             <View style={styles.panRow}>
@@ -242,7 +242,7 @@ export default function TripMap({
                 onPress={() => panBy(-panStep(), 0)}
                 hitSlop={4}
               >
-                <Text style={styles.panText}>▼</Text>
+                <Text style={[type.labelLg, styles.panText]}>▼</Text>
               </Pressable>
             </View>
           </View>
@@ -253,8 +253,8 @@ export default function TripMap({
               style={({ pressed }) => [styles.navButton, pressed && styles.navButtonPressed]}
               onPress={handleOpenGoogleMaps}
             >
-              <Text style={styles.navButtonIcon}>🧭</Text>
-              <Text style={styles.navButtonText}>Open Navigation</Text>
+              <Text style={[type.label, styles.navButtonIcon]}>🧭</Text>
+              <Text style={[type.label, styles.navButtonText]}>Open Navigation</Text>
             </Pressable>
           </View>
         </>
@@ -330,9 +330,6 @@ const styles = StyleSheet.create({
   },
   topPillText: {
     color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.2,
   },
   liveMarker: {
     position: "absolute",
@@ -383,7 +380,7 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   controlBtnPressed: { opacity: 0.75, transform: [{ scale: 0.94 }] },
-  controlText: { color: "#FFFFFF", fontSize: 17, fontWeight: "700", lineHeight: 20 },
+  controlText: { color: "#FFFFFF" },
   zoomBadge: {
     minWidth: 26,
     height: 20,
@@ -392,7 +389,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  zoomBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "700" },
+  zoomBadgeText: { color: "#FFFFFF" },
   panPad: {
     position: "absolute",
     left: 10,
@@ -417,7 +414,7 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.15)",
   },
   panCenter: { width: 34, height: 34 },
-  panText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  panText: { color: "#FFFFFF" },
   bottomBar: {
     position: "absolute",
     bottom: 10,
@@ -443,11 +440,8 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   navButtonIcon: {
-    fontSize: 12,
   },
   navButtonText: {
     color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "700",
   },
 });

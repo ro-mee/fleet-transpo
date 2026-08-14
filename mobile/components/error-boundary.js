@@ -9,10 +9,10 @@ function ErrorScreen({ error, onRetry }) {
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={[type.pageTitle, { color: colors.onSurface }]}>Something went wrong</Text>
-        <Text style={[styles.message, { color: colors.error }]}>
+        <Text style={[type.bodyMd, styles.message, { color: colors.error }]}>
           {error?.message || "An unexpected error occurred"}
         </Text>
-        <Text style={[styles.stack, { color: colors.onSurfaceVariant }]}>
+        <Text style={[type.caption, styles.stack, { color: colors.onSurfaceVariant }]}>
           {error?.stack || ""}
         </Text>
         <Pressable
@@ -20,7 +20,7 @@ function ErrorScreen({ error, onRetry }) {
           style={[styles.button, { backgroundColor: colors.primary }]}
           accessibilityRole="button"
         >
-          <Text style={[styles.buttonText, { color: colors.onPrimary }]}>Try again</Text>
+          <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try again</Text>
         </Pressable>
       </ScrollView>
     </View>
@@ -58,13 +58,12 @@ export class ErrorBoundary extends Component {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   content: { padding: space.xl, gap: space.md },
-  message: { fontSize: 15, lineHeight: 21, fontFamily: fonts.bodySemiBold },
-  stack: { fontSize: 12, lineHeight: 18, fontFamily: fonts.data },
+  message: { fontFamily: fonts.bodySemiBold },
+  stack: { fontFamily: fonts.data },
   button: {
     alignSelf: "flex-start",
     paddingHorizontal: space.base,
     paddingVertical: space.md,
     borderRadius: 8,
   },
-  buttonText: { fontFamily: fonts.bodySemiBold, fontSize: 15 },
 });

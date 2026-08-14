@@ -12,7 +12,7 @@ import { fonts, space } from "../lib/theme";
  * in high-value spots: the active trip and pending assignment cards.
  */
 export function Plate({ plate, size = "md" }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   if (!plate) return null;
   const large = size === "lg";
 
@@ -28,7 +28,7 @@ export function Plate({ plate, size = "md" }) {
       <View style={[styles.screw, { backgroundColor: colors.outline }, styles.screwLeft, large && styles.screwLg]} />
       <View style={[styles.screw, { backgroundColor: colors.outline }, styles.screwRight, large && styles.screwLg]} />
       <Text
-        style={[styles.text, { color: colors.onSurface }, large && styles.textLg]}
+        style={[type.labelLg, styles.text, { color: colors.onSurface }, large && [type.titleLg, styles.textLg]]}
         numberOfLines={1}
         adjustsFontSizeToFit
       >
@@ -57,15 +57,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   text: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 15,
-    lineHeight: 20,
     letterSpacing: 2,
     fontVariant: ["tabular-nums"],
   },
   textLg: {
-    fontSize: 21,
-    lineHeight: 26,
     letterSpacing: 3,
   },
   screw: {

@@ -49,7 +49,7 @@ export function Card({ children, style, tone, elevated }) {
 
 /** MD3 filled button (primary action). */
 export function FilledButton({ label, onPress, loading, disabled, style, size = "lg" }) {
-  const { colors, elevation } = useTheme();
+  const { colors, elevation, type } = useTheme();
   const isDisabled = disabled || loading;
   const isSmall = size === "sm";
   return (
@@ -69,14 +69,14 @@ export function FilledButton({ label, onPress, loading, disabled, style, size = 
       ]}
     >
       {loading && <ActivityIndicator size="small" color={colors.onPrimary} />}
-      <Text style={[styles.buttonText, { color: colors.onPrimary }]}>{label}</Text>
+      <Text style={[type.labelLg, { color: colors.onPrimary }]}>{label}</Text>
     </Pressable>
   );
 }
 
 /** MD3 tonal button (secondary). */
 export function TonalButton({ label, onPress, loading, disabled, style, size = "lg" }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const isDisabled = disabled || loading;
   const isSmall = size === "sm";
   return (
@@ -99,7 +99,7 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
       ]}
     >
       {loading && <ActivityIndicator size="small" color={colors.onSecondaryContainer} />}
-      <Text style={[styles.buttonText, { color: colors.onSecondaryContainer }]}>
+      <Text style={[type.labelLg, { color: colors.onSecondaryContainer }]}>
         {label}
       </Text>
     </Pressable>
@@ -108,7 +108,7 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
 
 /** MD3 outlined button. */
 export function OutlinedButton({ label, onPress, loading, disabled, style, size = "lg" }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const isDisabled = disabled || loading;
   const isSmall = size === "sm";
   return (
@@ -127,14 +127,14 @@ export function OutlinedButton({ label, onPress, loading, disabled, style, size 
       ]}
     >
       {loading && <ActivityIndicator size="small" color={colors.primary} />}
-      <Text style={[styles.buttonText, { color: colors.primary }]}>{label}</Text>
+      <Text style={[type.labelLg, { color: colors.primary }]}>{label}</Text>
     </Pressable>
   );
 }
 
 /** MD3 text button. */
 export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const isDisabled = disabled;
   const isSmall = size === "sm";
   return (
@@ -152,7 +152,7 @@ export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
         style,
       ]}
     >
-      <Text style={[styles.buttonText, { color: isDisabled ? colors.outline : colors.primary }]}>
+      <Text style={[type.labelLg, { color: isDisabled ? colors.outline : colors.primary }]}>
         {label}
       </Text>
     </Pressable>
@@ -161,7 +161,7 @@ export function TextButton({ label, onPress, disabled, style, size = "lg" }) {
 
 /** Backward-compatible Button (maps to MD3 variants). */
 export function CriticalButton({ label, onPress, loading, disabled, style, size = "lg" }) {
-  const { colors, elevation } = useTheme();
+  const { colors, elevation, type } = useTheme();
   const isDisabled = disabled || loading;
   const isSmall = size === "sm";
   return (
@@ -181,13 +181,13 @@ export function CriticalButton({ label, onPress, loading, disabled, style, size 
       ]}
     >
       {loading && <ActivityIndicator size="small" color={colors.onError} />}
-      <Text style={[styles.buttonText, { color: colors.onError }]}>{label}</Text>
+      <Text style={[type.labelLg, { color: colors.onError }]}>{label}</Text>
     </Pressable>
   );
 }
 
 export function CriticalTonalButton({ label, icon, onPress, loading, disabled, style, size = "md" }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const isDisabled = disabled || loading;
   const isSmall = size === "sm";
 
@@ -212,8 +212,8 @@ export function CriticalTonalButton({ label, icon, onPress, loading, disabled, s
         {icon && <View style={[styles.icon, isSmall && styles.iconSmall]}>{icon}</View>}
         <Text
           style={[
-            styles.buttonText,
-            isSmall && styles.buttonTextSmall,
+            type.labelLg,
+            isSmall && { fontSize: 13 },
             { color: isDisabled ? colors.onSurfaceVariant : colors.error, opacity: loading ? 0 : 1 },
           ]}
         >
@@ -255,7 +255,7 @@ export function Button({ label, onPress, variant = "primary", loading, disabled,
 
 /** MD3 assist chip (selectable). */
 export function Chip({ label, selected, onPress, disabled, style }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
     <Pressable
       onPress={onPress}
@@ -273,7 +273,7 @@ export function Chip({ label, selected, onPress, disabled, style }) {
       ]}
     >
       {selected ? <View style={[styles.chipDot, { backgroundColor: colors.onSecondaryContainer }]} /> : null}
-      <Text style={[styles.chipText, { color: selected ? colors.onSecondaryContainer : colors.onSurfaceVariant }]}>
+      <Text style={[type.labelLg, { color: selected ? colors.onSecondaryContainer : colors.onSurfaceVariant }]}>
         {label}
       </Text>
     </Pressable>
@@ -282,14 +282,14 @@ export function Chip({ label, selected, onPress, disabled, style }) {
 
 /** Status expressed as text + colour + shape, never colour alone. */
 export function StatusPill({ label, status, tone = "neutral" }) {
-  const { colors, statusSurfaces } = useTheme();
+  const { colors, statusSurfaces, type } = useTheme();
   const text = label || status || "Unknown";
   const bg = statusSurfaces[tone] || statusSurfaces.neutral;
   const fg = tone === "neutral" ? colors.onSurfaceVariant : colors[tone] || colors.onSurfaceVariant;
   return (
     <View style={[styles.pill, { backgroundColor: bg }]}>
       <View style={[styles.dot, { backgroundColor: fg }]} />
-      <Text style={[styles.pillText, { color: fg }]}>{text}</Text>
+      <Text style={[type.caption, { color: fg }]}>{text}</Text>
     </View>
   );
 }
@@ -300,11 +300,11 @@ export function StatusPill({ label, status, tone = "neutral" }) {
  * toggle), so it always sits within the field at any width.
  */
 export function Field({ label, error, required = false, right, ...inputProps }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const [focused, setFocused] = useState(false);
   return (
     <View style={styles.field}>
-      <Text style={[styles.label, { color: focused ? colors.primary : colors.onSurfaceVariant }]}>
+      <Text style={[type.label, { color: focused ? colors.primary : colors.onSurfaceVariant }]}>
         {label}
         {required ? " *" : ""}
       </Text>
@@ -319,7 +319,7 @@ export function Field({ label, error, required = false, right, ...inputProps }) 
         ]}
       >
         <TextInput
-          style={[styles.input, { color: colors.onSurface }]}
+          style={[styles.input, type.bodyMd, { color: colors.onSurface }]}
           placeholderTextColor={colors.onSurfaceVariant}
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
@@ -328,18 +328,18 @@ export function Field({ label, error, required = false, right, ...inputProps }) 
         />
         {right ? <View style={styles.inputAdornment}>{right}</View> : null}
       </View>
-      {error ? <Text style={[styles.fieldError, { color: colors.error }]}>{error}</Text> : null}
+      {error ? <Text style={[type.caption, { color: colors.error }]}>{error}</Text> : null}
     </View>
   );
 }
 
 /** Label + value pair for read-only record detail. Data values use mono. */
 export function Detail({ label, value, mono = false }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
     <View style={styles.detail}>
-      <Text style={[styles.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
-      <Text style={[styles.detailValue, { color: colors.onSurface }, mono && styles.monoValue]}>
+      <Text style={[type.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[type.bodyMd, { color: colors.onSurface }, mono && { fontFamily: fonts.data, fontVariant: ["tabular-nums"] }]}>
         {value ?? "—"}
       </Text>
     </View>
@@ -348,15 +348,15 @@ export function Detail({ label, value, mono = false }) {
 
 /** Empty states say what happened and what to do next. */
 export function EmptyState({ title, message, action }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
     <Card style={styles.empty}>
       <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainer }]}>
         <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 28 }]} />
         <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 18 }]} />
       </View>
-      <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>{title}</Text>
-      <Text style={[styles.bodyText, { color: colors.onSurfaceVariant }]}>{message}</Text>
+      <Text style={[type.cardTitle, { color: colors.onSurface, textAlign: "center" }]}>{title}</Text>
+      <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, textAlign: "center" }]}>{message}</Text>
       {action}
     </Card>
   );
@@ -364,14 +364,14 @@ export function EmptyState({ title, message, action }) {
 
 /** An error that needs action stays visible near the work, not in a toast. */
 export function ErrorNotice({ message, onRetry }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   if (!message) return null;
   return (
     <View
       style={[styles.errorNotice, { borderColor: colors.error, backgroundColor: colors.errorContainer }]}
       accessibilityLiveRegion="polite"
     >
-      <Text style={[styles.errorNoticeText, { color: colors.onErrorContainer }]}>{message}</Text>
+      <Text style={[type.bodyMd, { color: colors.onErrorContainer }]}>{message}</Text>
       {onRetry ? <TextButton label="Try again" onPress={onRetry} /> : null}
     </View>
   );
@@ -382,7 +382,7 @@ export function ScreenTitle({ eyebrow, title }) {
   const { colors, type } = useTheme();
   return (
     <View style={styles.titleBlock}>
-      {eyebrow ? <Text style={[styles.eyebrow, { color: colors.onSurfaceVariant }]}>{eyebrow}</Text> : null}
+      {eyebrow ? <Text style={[type.label, { color: colors.onSurfaceVariant }]}>{eyebrow}</Text> : null}
       <Text style={[type.pageTitle]} accessibilityRole="header">
         {title}
       </Text>
@@ -405,11 +405,11 @@ export function Avatar({ initials, size = 40 }) {
 
 /** A single key figure, value in mono over a small uppercase label. */
 export function Metric({ value, label }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
     <View style={styles.metric}>
-      <Text style={[styles.metricValue, { color: colors.onSurface }]}>{value ?? "—"}</Text>
-      <Text style={[styles.metricLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
+      <Text style={[type.titleLg, { fontFamily: fonts.dataSemiBold, fontVariant: ["tabular-nums"], color: colors.onSurface }]}>{value ?? "—"}</Text>
+      <Text style={[type.label, { color: colors.onSurfaceVariant }]}>{label}</Text>
     </View>
   );
 }
@@ -421,8 +421,8 @@ export function MetricRow({ children, style }) {
 
 /** Small section label above a group of cards. */
 export function SectionHeading({ children, style }) {
-  const { colors } = useTheme();
-  return <Text style={[styles.sectionHeading, { color: colors.onSurfaceVariant }, style]}>{children}</Text>;
+  const { colors, type } = useTheme();
+  return <Text style={[type.label, { color: colors.onSurfaceVariant }, style]}>{children}</Text>;
 }
 
 /** MD3 loading skeleton (shimmering block). */
@@ -472,14 +472,14 @@ export function SkeletonCard({ lines = 3, style }) {
 
 /** MD3 snackbar for transient feedback. */
 export function Snackbar({ visible, message, onDismiss, actionLabel, onAction }) {
-  const { colors, elevation } = useTheme();
+  const { colors, elevation, type } = useTheme();
   if (!visible) return null;
   return (
     <View style={[styles.snackbar, { backgroundColor: colors.inverseSurface }, elevation.level3]}>
-      <Text style={[styles.snackbarText, { color: colors.inverseOnSurface }]}>{message}</Text>
+      <Text style={[type.bodyMd, { color: colors.inverseOnSurface, flex: 1 }]}>{message}</Text>
       {actionLabel && onAction ? (
         <Pressable onPress={onAction} accessibilityRole="button">
-          <Text style={[styles.snackbarAction, { color: colors.inversePrimary }]}>{actionLabel}</Text>
+          <Text style={[type.labelLg, { color: colors.inversePrimary }]}>{actionLabel}</Text>
         </Pressable>
       ) : null}
     </View>

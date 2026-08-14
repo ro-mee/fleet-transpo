@@ -30,7 +30,7 @@ export default function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [statuses, setStatuses] = useState(
     CHECKLIST.reduce((acc, item) => ({ ...acc, [item.id]: null }), {})
@@ -84,7 +84,7 @@ export default function PreShiftInspection() {
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
           <Ionicons name="menu" size={24} color={colors.onSurfaceVariant} />
         </Pressable>
-        <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+        <Text style={[type.headlineMd, styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
         <View style={[styles.topAvatar, { backgroundColor: colors.surfaceVariant }]}>
           <Ionicons name="person" size={20} color={colors.onSurfaceVariant} />
         </View>
@@ -96,10 +96,10 @@ export default function PreShiftInspection() {
       >
         {/* Heading */}
         <View style={styles.heading}>
-          <Text style={[styles.headingTitle, { color: colors.onSurface }]}>
+          <Text style={[type.headlineLg, styles.headingTitle, { color: colors.onSurface }]}>
             Start Your Shift
           </Text>
-          <Text style={[styles.headingSub, { color: colors.onSurfaceVariant }]}>
+          <Text style={[type.bodyLg, styles.headingSub, { color: colors.onSurfaceVariant }]}>
             1-Minute Pre-Shift Check
           </Text>
         </View>
@@ -115,13 +115,13 @@ export default function PreShiftInspection() {
             <Ionicons name="car" size={36} color={colors.onSurfaceVariant} />
           </View>
           <View>
-            <Text style={[styles.vehicleCardLabel, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.labelLg, styles.vehicleCardLabel, { color: colors.onSurfaceVariant }]}>
               Vehicle & Driver
             </Text>
-            <Text style={[styles.vehicleCardName, { color: colors.onSurface }]}>
+            <Text style={[type.titleLg, styles.vehicleCardName, { color: colors.onSurface }]}>
               Assigned Vehicle
             </Text>
-            <Text style={[styles.vehicleCardDriver, { color: colors.onSurface }]}>
+            <Text style={[type.bodyLg, styles.vehicleCardDriver, { color: colors.onSurface }]}>
               Current Driver
             </Text>
           </View>
@@ -142,7 +142,7 @@ export default function PreShiftInspection() {
                   { backgroundColor: colors.surfaceContainer },
                 ]}
               >
-                <Text style={[styles.checkItemLabel, { color: colors.onSurface }]}>
+                <Text style={[type.labelLg, styles.checkItemLabel, { color: colors.onSurface }]}>
                   {idx + 1}. {item.label}
                 </Text>
                 <View style={styles.checkBtnRow}>
@@ -166,6 +166,7 @@ export default function PreShiftInspection() {
                     />
                     <Text
                       style={[
+                        type.labelLg,
                         styles.checkBtnText,
                         { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
                       ]}
@@ -194,6 +195,7 @@ export default function PreShiftInspection() {
                     />
                     <Text
                       style={[
+                        type.labelLg,
                         styles.checkBtnText,
                         { color: isFail ? colors.onErrorContainer : colors.onSurface },
                       ]}
@@ -213,6 +215,7 @@ export default function PreShiftInspection() {
                       setRemarks((prev) => ({ ...prev, [item.id]: text }))
                     }
                     style={[
+                      type.bodyMd,
                       styles.remarkInput,
                       {
                         borderColor: colors.outlineVariant,
@@ -261,6 +264,7 @@ export default function PreShiftInspection() {
           />
           <Text
             style={[
+              type.labelLg,
               styles.startBtnText,
               { color: allAnswered ? colors.onPrimary : colors.onSurfaceVariant },
             ]}
@@ -291,9 +295,6 @@ const styles = StyleSheet.create({
     borderRadius: TOUCH_TARGET / 2,
   },
   topBarTitle: {
-    fontSize: moderateScale(24),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(32),
   },
   topAvatar: {
     width: moderateScale(40),
@@ -309,8 +310,8 @@ const styles = StyleSheet.create({
     gap: moderateScale(16),
   },
   heading: { alignItems: "center", gap: moderateScale(4), width: "100%" },
-  headingTitle: { fontSize: moderateScale(28), fontFamily: fonts.displayBold, lineHeight: moderateScale(36), textAlign: "center" },
-  headingSub: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24), textAlign: "center" },
+  headingTitle: { textAlign: "center" },
+  headingSub: { textAlign: "center" },
   vehicleCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -331,9 +332,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  vehicleCardLabel: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
-  vehicleCardName: { fontSize: moderateScale(20), fontFamily: fonts.displayBold, lineHeight: moderateScale(28) },
-  vehicleCardDriver: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24) },
+  vehicleCardLabel: { },
+  vehicleCardName: { },
+  vehicleCardDriver: { },
   checklist: { gap: moderateScale(12), width: "100%" },
   checkItem: {
     borderRadius: moderateScale(12),
@@ -346,9 +347,6 @@ const styles = StyleSheet.create({
     minHeight: moderateScale(72),
   },
   checkItemLabel: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
   },
   checkBtnRow: { flexDirection: "row", gap: moderateScale(8) },
   checkBtn: {
@@ -361,14 +359,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: moderateScale(6),
   },
-  checkBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  checkBtnText: { },
   remarkInput: {
     borderWidth: 1,
     borderRadius: moderateScale(8),
     padding: moderateScale(10),
-    fontSize: moderateScale(14),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(20),
     minHeight: moderateScale(60),
     textAlignVertical: "top",
   },
@@ -386,9 +381,6 @@ const styles = StyleSheet.create({
     gap: moderateScale(8),
   },
   startBtnText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(20),
     letterSpacing: 0.5,
   },
 });

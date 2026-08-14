@@ -17,6 +17,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 
 function MenuRow({ title, isNew = false, onPress, colors }) {
+  const { type } = useTheme();
   return (
     <Pressable
       style={({ pressed }) => [
@@ -29,12 +30,12 @@ function MenuRow({ title, isNew = false, onPress, colors }) {
       onPress={onPress}
     >
       <View style={styles.menuRowLeft}>
-        <Text style={[styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>
+        <Text style={[type.bodyLg, styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>
       </View>
       <View style={styles.menuRowRight}>
         {isNew && (
           <View style={styles.newBadge}>
-            <Text style={styles.newBadgeText}>New</Text>
+            <Text style={[type.caption, styles.newBadgeText]}>New</Text>
           </View>
         )}
         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
@@ -46,7 +47,7 @@ function MenuRow({ title, isNew = false, onPress, colors }) {
 export default function Profile() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   const router = useRouter();
 
   const [profile, setProfile] = useState(null);
@@ -85,18 +86,18 @@ export default function Profile() {
         <View style={styles.headerProfile}>
           <View style={styles.avatarContainer}>
             <View style={[styles.avatarCircle, { backgroundColor: "#fee2e2" }]}>
-              <Text style={[styles.avatarInitials, { color: "#ef4444" }]}>{initials}</Text>
+              <Text style={[type.headlineMd, styles.avatarInitials, { color: "#ef4444" }]}>{initials}</Text>
             </View>
             <View style={styles.editBadge}>
               <Ionicons name="pencil" size={12} color="black" />
             </View>
           </View>
-          <Text style={[styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
+          <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
         </View>
 
         {/* My Account Section */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>My Account</Text>
+          <Text style={[type.titleMd, styles.sectionTitle, { color: colors.onSurface }]}>My Account</Text>
           <MenuRow title="Personal Information" colors={colors} onPress={() => router.push('/profile/personal')} />
           <MenuRow title="My License & Compliance" colors={colors} onPress={() => router.push('/profile/license')} />
           <MenuRow title="My Vehicle Documents" colors={colors} onPress={() => router.push('/profile/vehicle')} />
@@ -105,7 +106,7 @@ export default function Profile() {
 
         {/* General Section */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>General</Text>
+          <Text style={[type.titleMd, styles.sectionTitle, { color: colors.onSurface }]}>General</Text>
           <MenuRow title="Help Center" colors={colors} onPress={() => router.push('/profile/help')} />
           <MenuRow title="Settings" colors={colors} onPress={() => router.push('/settings')} />
         </View>
@@ -119,7 +120,7 @@ export default function Profile() {
           ]}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={[styles.logoutText, { color: colors.error }]}>Sign Out</Text>
+          <Text style={[type.labelLg, styles.logoutText, { color: colors.error }]}>Sign Out</Text>
         </Pressable>
       </ScrollView>
 
@@ -127,16 +128,16 @@ export default function Profile() {
       <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant }]}>
-            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
-            <Text style={[styles.modalBody, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
+            <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
               You will be returned to the login screen.
             </Text>
             <View style={styles.modalActions}>
               <Pressable onPress={() => setLogoutModal(false)} style={[styles.modalCancelBtn, { borderColor: colors.outline }]}>
-                <Text style={[styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
+                <Text style={[type.labelLg, styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
               <Pressable onPress={signOut} style={[styles.modalConfirmBtn, { backgroundColor: colors.error }]}>
-                <Text style={[styles.modalConfirmText, { color: colors.onError }]}>Sign Out</Text>
+                <Text style={[type.labelLg, styles.modalConfirmText, { color: colors.onError }]}>Sign Out</Text>
               </Pressable>
             </View>
           </View>
@@ -166,8 +167,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarInitials: {
-    fontSize: moderateScale(24),
-    fontFamily: fonts.displayBold,
   },
   editBadge: {
     position: "absolute",
@@ -185,16 +184,12 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   profileName: {
-    fontSize: moderateScale(20),
-    fontFamily: fonts.bodyMedium,
   },
 
   section: {
     gap: moderateScale(8),
   },
   sectionTitle: {
-    fontSize: moderateScale(16),
-    fontFamily: fonts.bodySemiBold,
     marginBottom: moderateScale(8),
   },
   
@@ -210,8 +205,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   menuTitle: {
-    fontSize: moderateScale(15),
-    fontFamily: fonts.body,
   },
   menuRowRight: {
     flexDirection: "row",
@@ -226,8 +219,6 @@ const styles = StyleSheet.create({
   },
   newBadgeText: {
     color: "white",
-    fontSize: moderateScale(10),
-    fontFamily: fonts.bodySemiBold,
   },
 
   logoutBtn: {
@@ -241,8 +232,6 @@ const styles = StyleSheet.create({
     marginTop: moderateScale(16),
   },
   logoutText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
   },
   
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: moderateScale(24) },
@@ -257,11 +246,11 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  modalTitle: { fontSize: moderateScale(20), fontFamily: fonts.displayBold },
-  modalBody: { fontSize: moderateScale(14), fontFamily: fonts.body },
+  modalTitle: { },
+  modalBody: { },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
   modalCancelBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  modalCancelText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },
+  modalCancelText: { },
   modalConfirmBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), alignItems: "center", justifyContent: "center" },
-  modalConfirmText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },
+  modalConfirmText: { },
 });

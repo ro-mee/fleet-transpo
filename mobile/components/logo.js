@@ -9,7 +9,7 @@ import { fonts } from "../lib/theme";
  * Deep Indigo badge with truck icon, "FleetOps" in Inter Bold
  */
 export function Logo({ size = 48, showText = true, style }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   return (
     <View style={[styles.container, style]}>
@@ -29,10 +29,10 @@ export function Logo({ size = 48, showText = true, style }) {
 
       {showText && (
         <View style={styles.textGroup}>
-          <Text style={[styles.brandText, { color: colors.primary }]}>
+          <Text style={[type.titleLg, styles.brandText, { color: colors.primary }]}>
             FleetOps
           </Text>
-          <Text style={[styles.subText, { color: colors.onSurfaceVariant }]}>
+          <Text style={[type.caption, styles.subText, { color: colors.onSurfaceVariant }]}>
             DRIVER COMPANION
           </Text>
         </View>
@@ -71,14 +71,9 @@ const styles = StyleSheet.create({
   },
   textGroup: { justifyContent: "center" },
   brandText: {
-    fontSize: 20,
-    fontFamily: fonts.displayBold,
-    lineHeight: 28,
     letterSpacing: -0.5,
   },
   subText: {
-    fontSize: 10,
-    fontFamily: fonts.bodySemiBold,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },

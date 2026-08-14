@@ -25,6 +25,7 @@ const NOTIF_TYPE_ICONS = {
 };
 
 function NotifCard({ notif, colors, onPress }) {
+  const { type } = useTheme();
   const typeInfo = NOTIF_TYPE_ICONS[notif.type] || { icon: "notifications", color: "primary" };
   const iconColor =
     typeInfo.color === "error"
@@ -67,12 +68,12 @@ function NotifCard({ notif, colors, onPress }) {
       </View>
       <View style={styles.notifContent}>
         <View style={styles.notifRow}>
-          <Text style={[styles.notifTitle, { color: colors.onSurface }]} numberOfLines={1}>
+          <Text style={[type.labelLg, styles.notifTitle, { color: colors.onSurface }]} numberOfLines={1}>
             {notif.title || "Notification"}
           </Text>
-          <Text style={[styles.notifTime, { color: colors.onSurfaceVariant }]}>{timeStr}</Text>
+          <Text style={[type.caption, styles.notifTime, { color: colors.onSurfaceVariant }]}>{timeStr}</Text>
         </View>
-        <Text style={[styles.notifBody, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
+        <Text style={[type.bodyMd, styles.notifBody, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
           {notif.message || notif.body}
         </Text>
       </View>
@@ -82,7 +83,7 @@ function NotifCard({ notif, colors, onPress }) {
 
 export default function NotificationsTab() {
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -142,19 +143,19 @@ export default function NotificationsTab() {
         ]}
       >
         <View style={styles.topBarLeft}>
-          <Text style={[styles.topBarBrand, { color: colors.primary }]}>FleetOps</Text>
+          <Text style={[type.headlineMd, styles.topBarBrand, { color: colors.primary }]}>FleetOps</Text>
           <View style={styles.titleBlock}>
-            <Text style={[styles.pageTitle, { color: colors.onSurface }]}>Alerts</Text>
+            <Text style={[type.titleLg, styles.pageTitle, { color: colors.onSurface }]}>Alerts</Text>
             {unreadCount > 0 && (
               <View style={[styles.badge, { backgroundColor: colors.error }]}>
-                <Text style={[styles.badgeText, { color: colors.onError }]}>{unreadCount}</Text>
+                <Text style={[type.labelMd, styles.badgeText, { color: colors.onError }]}>{unreadCount}</Text>
               </View>
             )}
           </View>
         </View>
         {unreadCount > 0 && (
           <Pressable onPress={markAllRead} hitSlop={8}>
-            <Text style={[styles.markRead, { color: colors.primary }]}>Mark all read</Text>
+            <Text style={[type.labelLg, styles.markRead, { color: colors.primary }]}>Mark all read</Text>
           </Pressable>
         )}
       </View>
@@ -172,13 +173,13 @@ export default function NotificationsTab() {
       >
         {loading ? (
           <View style={styles.emptyBox}>
-            <Text style={[styles.emptyText, { color: colors.onSurfaceVariant }]}>Loading...</Text>
+            <Text style={[type.bodyMd, styles.emptyText, { color: colors.onSurfaceVariant }]}>Loading...</Text>
           </View>
         ) : notifications.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="notifications-off-outline" size={48} color={colors.outline} />
-            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>All Caught Up</Text>
-            <Text style={[styles.emptyText, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All Caught Up</Text>
+            <Text style={[type.bodyMd, styles.emptyText, { color: colors.onSurfaceVariant }]}>
               No notifications at this time.
             </Text>
           </View>
@@ -186,7 +187,7 @@ export default function NotificationsTab() {
           <>
             {todayNotifs.length > 0 && (
               <>
-                <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
+                <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
                 {todayNotifs.map((n) => (
                   <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
                 ))}
@@ -194,7 +195,7 @@ export default function NotificationsTab() {
             )}
             {earlierNotifs.length > 0 && (
               <>
-                <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
+                <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
                 {earlierNotifs.map((n) => (
                   <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
                 ))}
@@ -222,9 +223,9 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   topBarLeft: { gap: moderateScale(2) },
-  topBarBrand: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
+  topBarBrand: { },
   titleBlock: { flexDirection: "row", alignItems: "center", gap: moderateScale(8) },
-  pageTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  pageTitle: { },
   badge: {
     paddingHorizontal: moderateScale(8),
     paddingVertical: moderateScale(2),
@@ -233,21 +234,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  badgeText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
-  markRead: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  badgeText: { },
+  markRead: { },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(8) },
   groupLabel: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(16),
     letterSpacing: 1,
     textTransform: "uppercase",
     marginTop: moderateScale(8),
     marginBottom: moderateScale(4),
   },
   emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(8) },
-  emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  emptyText: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
+  emptyTitle: { },
+  emptyText: { textAlign: "center" },
   notifCard: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -279,7 +277,7 @@ const styles = StyleSheet.create({
   },
   notifContent: { flex: 1, gap: moderateScale(4) },
   notifRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  notifTitle: { flex: 1, fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
-  notifTime: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16), marginLeft: moderateScale(8) },
-  notifBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
+  notifTitle: { flex: 1 },
+  notifTime: { marginLeft: moderateScale(8) },
+  notifBody: { },
 });

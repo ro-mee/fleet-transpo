@@ -19,15 +19,15 @@ import { MaterialIcons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 
 function PermissionCard({ icon, title, description }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
     <View style={[styles.cardItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
       <View style={[styles.iconBox, { backgroundColor: colors.primaryContainer }]}>
         <MaterialIcons name={icon} size={24} color={colors.onPrimaryContainer} />
       </View>
       <View style={styles.cardText}>
-        <Text style={[styles.cardTitle, { color: colors.onSurface }]}>{title}</Text>
-        <Text style={[ui.bodyText, { color: colors.onSurfaceVariant, fontSize: 13 }]}>{description}</Text>
+        <Text style={[type.titleMd, styles.cardTitle, { color: colors.onSurface }]}>{title}</Text>
+        <Text style={[type.bodyMd, ui.bodyText, { color: colors.onSurfaceVariant }]}>{description}</Text>
       </View>
     </View>
   );
@@ -36,7 +36,7 @@ function PermissionCard({ icon, title, description }) {
 export default function PermissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -78,8 +78,8 @@ export default function PermissionsScreen() {
           <View style={[styles.iconContainer, { backgroundColor: colors.secondaryContainer }]}>
             <MaterialIcons name="important-devices" size={48} color={colors.onSecondaryContainer} />
           </View>
-          <Text style={[styles.title, { color: colors.onSurface }]}>App Permissions</Text>
-          <Text style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
+          <Text style={[type.headlineMd, styles.title, { color: colors.onSurface }]}>App Permissions</Text>
+          <Text style={[type.bodyMd, styles.subtitle, { color: colors.onSurfaceVariant }]}>
             We need a few permissions to give you the best experience on the road.
           </Text>
         </View>
@@ -138,12 +138,9 @@ const styles = StyleSheet.create({
   },
   title: {
     fontFamily: fonts.displaySemiBold,
-    fontSize: moderateScale(24),
     textAlign: "center",
   },
   subtitle: {
-    fontFamily: fonts.body,
-    fontSize: moderateScale(14),
     textAlign: "center",
     paddingHorizontal: space.md,
   },
@@ -164,7 +161,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardText: { flex: 1, gap: 2 },
-  cardTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(15) },
+  cardTitle: { },
   stickyFooter: {
     position: "absolute",
     bottom: 0,
