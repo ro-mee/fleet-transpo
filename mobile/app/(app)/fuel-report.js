@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, radius, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
+import * as ImagePicker from "expo-image-picker";
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
@@ -30,7 +31,80 @@ export default function FuelReport() {
   const [cost, setCost] = useState(pCost || "");
   const [station, setStation] = useState(pStation || "");
   const [submitting, setSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
+
+  const handleScan = async (useCamera = true) => {
+    try {
+      let result;
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert("Permission Required", "Camera permission is required to scan receipts.");
+          return;
+        }
+        result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ["images"],
+          quality: 0.5,
+        });
+      } else {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          Alert.alert("Permission Required", "Photo library permission is required to upload receipts.");
+          return;
+        }
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ["images"],
+          quality: 0.5,
+        });
+      }
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        await processReceipt(asset);
+      }
+    } catch (e) {
+      Alert.alert("Error", "Could not capture receipt image.");
+    }
+  };
+
+  const processReceipt = async (asset) => {
+    try {
+      setScanning(true);
+      
+      const formData = new FormData();
+      formData.append('receipt', {
+        uri: asset.uri,
+        name: asset.fileName || 'receipt.jpg',
+        type: asset.mimeType || 'image/jpeg',
+      });
+
+      const res = await api.post("/api/mobile/fuel/scan", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+
+      if (res.receipt_url) {
+        setReceiptUrl(res.receipt_url);
+      }
+
+      if (res.extracted_data) {
+        const d = res.extracted_data;
+        if (d.liters) setLiters(String(d.liters));
+        if (d.amount) setCost(String(d.amount));
+        if (d.station_name) setStation(d.station_name);
+        setMode("manual"); // Open the form so they can verify the extracted data
+        Alert.alert("Receipt Scanned", "Please verify the extracted details.");
+      } else {
+         Alert.alert("Scan Complete", "Could not automatically read details. Please enter them manually.");
+         setMode("manual");
+      }
+    } catch (e) {
+      Alert.alert("Scan Error", e.message || "Failed to process receipt.");
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!odometer || !liters || !cost) {
@@ -46,6 +120,7 @@ export default function FuelReport() {
         station_name: station || "Unspecified",
         fuel_date: new Date().toISOString(),
         fuel_type: "Diesel",
+        receipt_url: receiptUrl,
       };
 
       let res;
@@ -284,26 +359,30 @@ export default function FuelReport() {
 
           <View style={styles.receiptButtons}>
             <Pressable
+              onPress={() => handleScan(true)}
+              disabled={scanning}
               style={({ pressed }) => [
                 styles.receiptBtn,
                 styles.receiptBtnPrimary,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.9 : 1 },
               ]}
             >
               <Ionicons name="scan" size={20} color={colors.onPrimary} />
               <Text style={[styles.receiptBtnText, { color: colors.onPrimary }]}>
-                Scan Receipt
+                {scanning ? "Processing..." : "Scan Receipt"}
               </Text>
             </Pressable>
 
             <Pressable
+              onPress={() => handleScan(false)}
+              disabled={scanning}
               style={({ pressed }) => [
                 styles.receiptBtn,
                 {
                   backgroundColor: colors.surfaceContainerHigh,
                   borderColor: colors.outlineVariant,
                   borderWidth: 1,
-                  opacity: pressed ? 0.7 : 1,
+                  opacity: pressed || scanning ? 0.7 : 1,
                 },
               ]}
             >

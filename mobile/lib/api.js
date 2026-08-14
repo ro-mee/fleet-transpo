@@ -182,7 +182,7 @@ export async function apiFetch(path, options = {}) {
 export const api = {
   get: (path) => apiFetch(path),
   post: (path, body, opts) =>
-    apiFetch(path, { method: "POST", body: JSON.stringify(body), ...opts }),
-  put: (path, body) =>
-    apiFetch(path, { method: "PUT", body: JSON.stringify(body) }),
+    apiFetch(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
+  put: (path, body, opts) =>
+    apiFetch(path, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
 };
