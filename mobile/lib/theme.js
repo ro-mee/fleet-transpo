@@ -178,7 +178,40 @@ const dark = {
   edge: "#BDC2FF",
 };
 
-export const palettes = { light, dark };
+const highContrastLight = {
+  ...light,
+  onSurface: "#000000",
+  onBackground: "#000000",
+  surface: "#FFFFFF",
+  background: "#FFFFFF",
+  primary: "#000444",
+  outline: "#000000",
+  outlineVariant: "#000000",
+  border: "#000000",
+  borderStrong: "#000000",
+  foreground: "#000000",
+  foregroundSecondary: "#000000",
+  foregroundMuted: "#000000",
+};
+
+const highContrastDark = {
+  ...dark,
+  onSurface: "#FFFFFF",
+  onBackground: "#FFFFFF",
+  surface: "#000000",
+  background: "#000000",
+  primary: "#FFFFFF",
+  onPrimary: "#000000",
+  outline: "#FFFFFF",
+  outlineVariant: "#FFFFFF",
+  border: "#FFFFFF",
+  borderStrong: "#FFFFFF",
+  foreground: "#FFFFFF",
+  foregroundSecondary: "#FFFFFF",
+  foregroundMuted: "#FFFFFF",
+};
+
+export const palettes = { light, dark, highContrastLight, highContrastDark };
 
 // Backward-compatible default export
 export const colors = light;
@@ -226,114 +259,115 @@ export function statusSurfaces(c = colors) {
 
 export const statusSurfacesLight = statusSurfaces(light);
 
-export function typeFor(c = colors) {
+export function typeFor(c = colors, scale = 1) {
+  const sc = (size) => moderateScale(size) * scale;
   return {
     display: {
       fontFamily: fonts.displayBold,
-      fontSize: moderateScale(44),
-      lineHeight: moderateScale(52),
+      fontSize: sc(44),
+      lineHeight: sc(52),
       letterSpacing: -1,
       color: c.onBackground,
     },
     headlineLg: {
       fontFamily: fonts.displayBold,
-      fontSize: moderateScale(32),
-      lineHeight: moderateScale(40),
+      fontSize: sc(32),
+      lineHeight: sc(40),
       color: c.onBackground,
     },
     headlineLgMobile: {
       fontFamily: fonts.displayBold,
-      fontSize: moderateScale(28),
-      lineHeight: moderateScale(36),
+      fontSize: sc(28),
+      lineHeight: sc(36),
       color: c.onBackground,
     },
     headlineMd: {
       fontFamily: fonts.bodySemiBold,
-      fontSize: moderateScale(24),
-      lineHeight: moderateScale(32),
+      fontSize: sc(24),
+      lineHeight: sc(32),
       color: c.onBackground,
     },
     titleLg: {
       fontFamily: fonts.bodySemiBold,
-      fontSize: moderateScale(20),
-      lineHeight: moderateScale(28),
+      fontSize: sc(20),
+      lineHeight: sc(28),
       color: c.onBackground,
     },
     bodyLg: {
       fontFamily: fonts.body,
-      fontSize: moderateScale(18),
-      lineHeight: moderateScale(28),
+      fontSize: sc(18),
+      lineHeight: sc(28),
       color: c.onSurface,
     },
     bodyMd: {
       fontFamily: fonts.body,
-      fontSize: moderateScale(16),
-      lineHeight: moderateScale(24),
+      fontSize: sc(16),
+      lineHeight: sc(24),
       color: c.onSurface,
     },
     labelLg: {
       fontFamily: fonts.bodySemiBold,
-      fontSize: moderateScale(14),
-      lineHeight: moderateScale(20),
+      fontSize: sc(14),
+      lineHeight: sc(20),
       letterSpacing: 0.1,
       color: c.onSurface,
     },
     labelMd: {
       fontFamily: fonts.bodyMedium,
-      fontSize: moderateScale(12),
-      lineHeight: moderateScale(16),
+      fontSize: sc(12),
+      lineHeight: sc(16),
       color: c.onSurfaceVariant,
     },
     // Legacy aliases
     body: {
       fontFamily: fonts.body,
-      fontSize: moderateScale(16),
-      lineHeight: moderateScale(24),
+      fontSize: sc(16),
+      lineHeight: sc(24),
       color: c.onSurfaceVariant,
     },
     supporting: {
       fontFamily: fonts.body,
-      fontSize: moderateScale(14),
-      lineHeight: moderateScale(20),
+      fontSize: sc(14),
+      lineHeight: sc(20),
       color: c.onSurfaceVariant,
     },
     data: {
       fontFamily: fonts.data,
-      fontSize: moderateScale(14),
-      lineHeight: moderateScale(20),
+      fontSize: sc(14),
+      lineHeight: sc(20),
       color: c.onSurface,
       fontVariant: ["tabular-nums"],
     },
     label: {
       fontFamily: fonts.dataSemiBold,
-      fontSize: moderateScale(12),
-      lineHeight: moderateScale(16),
+      fontSize: sc(12),
+      lineHeight: sc(16),
       letterSpacing: 0.5,
       textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
     caption: {
       fontFamily: fonts.bodyMedium,
-      fontSize: moderateScale(12),
-      lineHeight: moderateScale(16),
+      fontSize: sc(12),
+      lineHeight: sc(16),
       color: c.onSurfaceVariant,
     },
     pageTitle: {
       fontFamily: fonts.displayBold,
-      fontSize: moderateScale(24),
-      lineHeight: moderateScale(32),
+      fontSize: sc(24),
+      lineHeight: sc(32),
       color: c.onBackground,
     },
     cardTitle: {
       fontFamily: fonts.bodySemiBold,
-      fontSize: moderateScale(16),
-      lineHeight: moderateScale(22),
+      fontSize: sc(16),
+      lineHeight: sc(22),
       color: c.onSurface,
     },
     sectionTitle: {
       fontFamily: fonts.dataSemiBold,
-      fontSize: moderateScale(12),
-      lineHeight: moderateScale(16),
+      fontSize: sc(12),
+      lineHeight: sc(16),
       letterSpacing: 1,
       textTransform: "uppercase",
       color: c.onSurfaceVariant,

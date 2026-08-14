@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo, useState, useCallback } from "react";
 import { useColorScheme, LayoutAnimation, UIManager, Platform } from "react-native";
 import { palettes, typeFor, statusSurfaces, elevationFor, m3 } from "./theme";
+import { useSettings } from "./settings-context";
 
 if (
   Platform.OS === 'android' &&
@@ -25,6 +26,7 @@ const ThemeContext = createContext(null);
  *   m3            the MD3 semantic role map
  */
 export function ThemeProvider({ children, scheme: initialForced }) {
+  const { settings } = useSettings();
   const system = useColorScheme();
   const [forced, setForced] = useState(initialForced);
 
@@ -41,18 +43,27 @@ export function ThemeProvider({ children, scheme: initialForced }) {
   }, [system]);
 
   const value = useMemo(() => {
-    const colors = palettes[scheme];
+    let paletteKey = scheme;
+    if (settings.highContrast) {
+      paletteKey = scheme === 'dark' ? 'highContrastDark' : 'highContrastLight';
+    }
+    const colors = palettes[paletteKey];
+
+    let textScale = 1;
+    if (settings.textSize === 'small') textScale = 0.85;
+    else if (settings.textSize === 'large') textScale = 1.15;
+
     return {
       scheme,
       colorScheme: scheme,
       toggleColorScheme,
       colors,
-      type: typeFor(colors),
+      type: typeFor(colors, textScale),
       statusSurfaces: statusSurfaces(colors),
       elevation: elevationFor(scheme === "dark"),
       m3: m3(colors),
     };
-  }, [scheme, toggleColorScheme]);
+  }, [scheme, toggleColorScheme, settings.highContrast, settings.textSize]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }

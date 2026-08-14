@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 import { api } from "./api";
+import { useSettings } from "./settings-context";
 
 const POST_INTERVAL_MS = 30 * 1000;
 
@@ -15,6 +16,7 @@ const POST_INTERVAL_MS = 30 * 1000;
  * @param {number | null} tripId  active trip, or null to stop tracking
  */
 export function useTripTracking(tripId) {
+  const { settings } = useSettings();
   const [posting, setPosting] = useState(false);
   const [lastSentAt, setLastSentAt] = useState(null);
   const [error, setError] = useState(null);
@@ -25,9 +27,12 @@ export function useTripTracking(tripId) {
   const latest = useRef(null);
 
   useEffect(() => {
-    if (!tripId) {
+    if (!tripId || !settings.locationTracking) {
       setPosting(false);
       setLatestFix(null);
+      if (!settings.locationTracking && tripId) {
+        setError("Location tracking disabled in Settings.");
+      }
       return;
     }
 
@@ -97,7 +102,7 @@ export function useTripTracking(tripId) {
       setPosting(false);
       setLatestFix(null);
     };
-  }, [tripId]);
+  }, [tripId, settings.locationTracking]);
 
   return { posting, lastSentAt, error, latestFix };
 }

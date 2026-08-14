@@ -38,7 +38,7 @@ export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [trips, setTrips] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
@@ -175,13 +175,13 @@ export default function Home() {
           },
         ]}
       >
-        <Text style={[styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
+        <Text style={[type.headlineMd, styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
         <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(16) }}>
           <Pressable onPress={() => router.push("/notifications")}>
             <Ionicons name="notifications-outline" size={24} color={colors.onSurfaceVariant} />
           </Pressable>
           <View style={[styles.avatar, { backgroundColor: colors.secondaryContainer }]}>
-            <Text style={[styles.avatarText, { color: colors.onSecondaryContainer }]}>
+            <Text style={[type.titleMd, styles.avatarText, { color: colors.onSecondaryContainer }]}>
               {(user?.name?.[0] || "D").toUpperCase()}
             </Text>
           </View>
@@ -205,11 +205,11 @@ export default function Home() {
       >
         {/* ─── Greeting ─── */}
         <View style={styles.greeting}>
-          <Text style={[styles.greetingTitle, { color: colors.onSurface }]}>
+          <Text style={[type.headlineLg, styles.greetingTitle, { color: colors.onSurface }]}>
             {greeting}, {driverName}
           </Text>
           <View style={styles.statusRow}>
-            <Text style={[styles.statusLabel, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.bodyMd, styles.statusLabel, { color: colors.onSurfaceVariant }]}>
               Current Status:
             </Text>
             <View
@@ -219,7 +219,7 @@ export default function Home() {
               ]}
             >
               <View style={[styles.statusDot, { backgroundColor: activeTrip ? colors.onSecondary : colors.onSecondaryContainer }]} />
-              <Text style={[styles.statusChipText, { color: activeTrip ? colors.onSecondary : colors.onSecondaryContainer }]}>
+              <Text style={[type.labelLg, styles.statusChipText, { color: activeTrip ? colors.onSecondary : colors.onSecondaryContainer }]}>
                 {activeTrip ? "ON TRIP" : "READY"}
               </Text>
             </View>
@@ -241,14 +241,14 @@ export default function Home() {
               <Ionicons name="car-outline" size={24} color={colors.onSecondaryContainer} />
             </View>
             <View style={styles.vehicleInfo}>
-              <Text style={[styles.vehicleLabel, { color: colors.onSurfaceVariant }]}>
+              <Text style={[type.labelMd, styles.vehicleLabel, { color: colors.onSurfaceVariant }]}>
                 Assigned Vehicle
               </Text>
               <View style={styles.vehicleNameRow}>
-                <Text style={[styles.vehicleName, { color: colors.onSurface }]}>
+                <Text style={[type.titleLg, styles.vehicleName, { color: colors.onSurface }]}>
                   {(activeTrip || pendingTrips[0])?.vehicle_model || "Vehicle"}
                 </Text>
-                <Text style={[styles.vehiclePlate, { color: colors.outline }]}>
+                <Text style={[type.bodyMd, styles.vehiclePlate, { color: colors.outline }]}>
                   {(activeTrip || pendingTrips[0])?.vehicle_plate}
                 </Text>
               </View>
@@ -273,11 +273,11 @@ export default function Home() {
           >
             {/* Trip Header */}
             <View style={[styles.tripHeader, { backgroundColor: colors.primary }]}>
-              <Text style={[styles.tripHeaderLabel, { color: colors.onPrimary }]}>
+              <Text style={[type.labelLg, styles.tripHeaderLabel, { color: colors.onPrimary }]}>
                 {activeTrip ? "Active Trip" : "Next Trip"}
               </Text>
               {nextTrip.departure_time ? (
-                <Text style={[styles.tripHeaderTime, { color: colors.onPrimary }]}>
+                <Text style={[type.titleLg, styles.tripHeaderTime, { color: colors.onPrimary }]}>
                   {new Date(nextTrip.departure_time).toLocaleTimeString([], {
                     hour: "2-digit",
                     minute: "2-digit",
@@ -297,8 +297,8 @@ export default function Home() {
                     <View style={[styles.routeDotInner, { backgroundColor: colors.outline }]} />
                   </View>
                   <View style={styles.routeStopInfo}>
-                    <Text style={[styles.stopType, { color: colors.onSurfaceVariant }]}>PICKUP</Text>
-                    <Text style={[styles.stopName, { color: colors.onSurface }]}>
+                    <Text style={[type.labelMd, styles.stopType, { color: colors.onSurfaceVariant }]}>PICKUP</Text>
+                    <Text style={[type.titleMd, styles.stopName, { color: colors.onSurface }]}>
                       {nextTrip.origin || "Origin"}
                     </Text>
                   </View>
@@ -310,8 +310,8 @@ export default function Home() {
                     <Ionicons name="location" size={10} color={colors.primary} />
                   </View>
                   <View style={styles.routeStopInfo}>
-                    <Text style={[styles.stopType, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
-                    <Text style={[styles.stopName, { color: colors.onSurface }]}>
+                    <Text style={[type.labelMd, styles.stopType, { color: colors.onSurfaceVariant }]}>DROP-OFF</Text>
+                    <Text style={[type.titleMd, styles.stopName, { color: colors.onSurface }]}>
                       {nextTrip.destination || "Destination"}
                     </Text>
                   </View>
@@ -328,8 +328,8 @@ export default function Home() {
                     <Ionicons name="person" size={20} color={colors.onSurfaceVariant} />
                   </View>
                   <View>
-                    <Text style={[styles.guestLabel, { color: colors.onSurfaceVariant }]}>Guest</Text>
-                    <Text style={[styles.guestName, { color: colors.onSurface }]}>
+                    <Text style={[type.labelMd, styles.guestLabel, { color: colors.onSurfaceVariant }]}>Guest</Text>
+                    <Text style={[type.bodyMd, styles.guestName, { color: colors.onSurface }]}>
                       {nextTrip.passenger_name}
                     </Text>
                   </View>
@@ -355,7 +355,7 @@ export default function Home() {
                         size={20}
                         color={colors.onPrimary}
                       />
-                      <Text style={[styles.tripCtaText, { color: colors.onPrimary }]}>
+                      <Text style={[type.labelLg, styles.tripCtaText, { color: colors.onPrimary }]}>
                         {activeTrip ? "Continue Trip" : "Start Trip"}
                       </Text>
                     </>
@@ -371,8 +371,8 @@ export default function Home() {
           /* ─── Empty State ─── */
           <View style={[styles.emptyCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]}>
             <Ionicons name="checkmark-circle-outline" size={48} color={colors.outline} />
-            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>All Clear</Text>
-            <Text style={[styles.emptyBody, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All Clear</Text>
+            <Text style={[type.bodyMd, styles.emptyBody, { color: colors.onSurfaceVariant }]}>
               No trips assigned. Check back soon or pull to refresh.
             </Text>
           </View>
@@ -386,8 +386,8 @@ export default function Home() {
               { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainer },
             ]}
           >
-            <Text style={[styles.statNumber, { color: colors.primary }]}>{trips.length}</Text>
-            <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.displayLg, styles.statNumber, { color: colors.primary }]}>{trips.length}</Text>
+            <Text style={[type.labelMd, styles.statLabel, { color: colors.onSurfaceVariant }]}>
               Total Trips Today
             </Text>
           </View>
@@ -397,16 +397,16 @@ export default function Home() {
               { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainer },
             ]}
           >
-            <Text style={[styles.statNumber, { color: colors.secondary }]}>
+            <Text style={[type.displayLg, styles.statNumber, { color: colors.secondary }]}>
               {completedTrips.length}
             </Text>
-            <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>Completed</Text>
+            <Text style={[type.labelMd, styles.statLabel, { color: colors.onSurfaceVariant }]}>Completed</Text>
           </View>
         </View>
 
         {/* ─── Quick Actions ─── */}
         <View style={styles.quickActions}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>
+          <Text style={[type.labelMd, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>
             Quick Actions
           </Text>
           <View style={styles.quickGrid}>
@@ -422,7 +422,7 @@ export default function Home() {
               ]}
             >
               <Ionicons name="clipboard-outline" size={24} color={colors.primary} />
-              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+              <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
                 Pre-Shift Check
               </Text>
             </Pressable>
@@ -440,7 +440,7 @@ export default function Home() {
                 ]}
               >
                 <Ionicons name="water-outline" size={24} color={colors.secondary} />
-                <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
                   Log Fuel
                 </Text>
               </Pressable>
@@ -458,7 +458,7 @@ export default function Home() {
               ]}
             >
               <Ionicons name="warning-outline" size={24} color={colors.error} />
-              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+              <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
                 Report Issue
               </Text>
             </Pressable>
@@ -475,7 +475,7 @@ export default function Home() {
               ]}
             >
               <Ionicons name="document-text-outline" size={24} color={colors.onSurfaceVariant} />
-              <Text style={[styles.quickBtnText, { color: colors.onSurface }]}>
+              <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
                 My Logs
               </Text>
             </Pressable>
@@ -492,7 +492,7 @@ export default function Home() {
         ]}
       >
         <Ionicons name="warning" size={24} color={colors.onError} />
-        <Text style={[styles.sosText, { color: colors.onError }]}>SOS</Text>
+        <Text style={[type.labelLg, styles.sosText, { color: colors.onError }]}>SOS</Text>
       </Pressable>
 
       {/* ─── Odometer Modal ─── */}
@@ -509,14 +509,15 @@ export default function Home() {
               { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant },
             ]}
           >
-            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
+            <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>
               Complete Trip
             </Text>
-            <Text style={[styles.modalBody, { color: colors.onSurfaceVariant }]}>
+            <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
               Enter the ending odometer reading to finalize this trip.
             </Text>
             <TextInput
               style={[
+                type.bodyMd,
                 styles.modalInput,
                 {
                   borderColor: odometerError ? colors.error : colors.outline,
@@ -531,7 +532,7 @@ export default function Home() {
               onChangeText={setOdometerInput}
             />
             {odometerError ? (
-              <Text style={[styles.modalError, { color: colors.error }]}>
+              <Text style={[type.caption, styles.modalError, { color: colors.error }]}>
                 {odometerError}
               </Text>
             ) : null}
@@ -540,13 +541,13 @@ export default function Home() {
                 onPress={() => { setCompletingTrip(null); setOdometerInput(""); }}
                 style={[styles.modalCancelBtn, { borderColor: colors.outline }]}
               >
-                <Text style={[styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
+                <Text style={[type.labelLg, styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={submitOdometer}
                 style={[styles.modalConfirmBtn, { backgroundColor: colors.primary }]}
               >
-                <Text style={[styles.modalConfirmText, { color: colors.onPrimary }]}>Complete</Text>
+                <Text style={[type.labelLg, styles.modalConfirmText, { color: colors.onPrimary }]}>Complete</Text>
               </Pressable>
             </View>
           </View>
@@ -573,9 +574,6 @@ const styles = StyleSheet.create({
     height: moderateScale(64) + 0, // will be expanded by paddingTop
   },
   topBarTitle: {
-    fontSize: moderateScale(24),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(32),
   },
   avatar: {
     width: moderateScale(40),
@@ -585,8 +583,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   avatarText: {
-    fontSize: moderateScale(16),
-    fontFamily: fonts.bodySemiBold,
   },
   scroll: {
     paddingHorizontal: moderateScale(16),
@@ -595,12 +591,9 @@ const styles = StyleSheet.create({
   },
   greeting: { gap: moderateScale(4) },
   greetingTitle: {
-    fontSize: moderateScale(28),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(36),
   },
   statusRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), marginTop: moderateScale(2) },
-  statusLabel: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24) },
+  statusLabel: { },
   statusChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -619,9 +612,6 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(4),
   },
   statusChipText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    letterSpacing: 0.5,
   },
   vehicleCard: {
     flexDirection: "row",
@@ -644,10 +634,10 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   vehicleInfo: { flex: 1 },
-  vehicleLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: moderateScale(2) },
+  vehicleLabel: { letterSpacing: 0.5, textTransform: "uppercase", marginBottom: moderateScale(2) },
   vehicleNameRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(8), flexWrap: "wrap" },
-  vehicleName: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  vehiclePlate: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
+  vehicleName: { },
+  vehiclePlate: { },
   tripCard: {
     borderRadius: moderateScale(12),
     borderWidth: 1,
@@ -666,16 +656,10 @@ const styles = StyleSheet.create({
     paddingVertical: moderateScale(12),
   },
   tripHeaderLabel: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
   tripHeaderTime: {
-    fontSize: moderateScale(20),
-    fontFamily: fonts.displayBold,
-    lineHeight: moderateScale(28),
   },
   tripBody: {
     padding: moderateScale(16),
@@ -716,8 +700,8 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(4),
   },
   routeStopInfo: { flex: 1 },
-  stopType: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
-  stopName: { fontSize: moderateScale(18), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(28), marginTop: 1 },
+  stopType: { letterSpacing: 0.5, textTransform: "uppercase" },
+  stopName: { marginTop: 1 },
   divider: { height: 1, marginVertical: moderateScale(2) },
   guestRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(12) },
   guestAvatar: {
@@ -728,8 +712,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  guestLabel: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
-  guestName: { fontSize: moderateScale(16), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(24) },
+  guestLabel: { },
+  guestName: { },
   tripCta: {
     height: moderateScale(56),
     borderRadius: moderateScale(12),
@@ -743,7 +727,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-  tripCtaText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20), letterSpacing: 0.1 },
+  tripCtaText: { letterSpacing: 0.1 },
   emptyCard: {
     borderRadius: moderateScale(12),
     borderWidth: 1,
@@ -751,8 +735,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: moderateScale(8),
   },
-  emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  emptyBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
+  emptyTitle: { },
+  emptyBody: { textAlign: "center" },
   statsGrid: { flexDirection: "row", gap: moderateScale(16) },
   statCard: {
     flex: 1,
@@ -767,13 +751,10 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  statNumber: { fontSize: moderateScale(44), fontFamily: fonts.displayBold, lineHeight: moderateScale(52), letterSpacing: -1 },
-  statLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), textAlign: "center", marginTop: moderateScale(2) },
+  statNumber: { letterSpacing: -1 },
+  statLabel: { textAlign: "center", marginTop: moderateScale(2) },
   quickActions: { gap: moderateScale(12) },
   sectionTitle: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(16),
     letterSpacing: 0.5,
     textTransform: "uppercase",
   },
@@ -787,7 +768,7 @@ const styles = StyleSheet.create({
     gap: moderateScale(8),
     minHeight: TOUCH_TARGET,
   },
-  quickBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(20), textAlign: "center" },
+  quickBtnText: { textAlign: "center" },
   sosFab: {
     position: "absolute",
     right: moderateScale(16),
@@ -799,42 +780,40 @@ const styles = StyleSheet.create({
     flexDirection: "column",
     shadowColor: "#000",
     shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: moderateScale(4) },
-    elevation: 8,
-    gap: moderateScale(2),
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
-  sosText: { fontSize: moderateScale(10), fontFamily: fonts.displayBold, lineHeight: moderateScale(12), letterSpacing: 0.5 },
+  sosText: {
+    marginTop: -2,
+  },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "center",
+    alignItems: "center",
     padding: moderateScale(24),
   },
   modalCard: {
     width: "100%",
     borderRadius: moderateScale(16),
-    borderWidth: 1,
     padding: moderateScale(24),
+    borderWidth: 1,
     gap: moderateScale(12),
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
   },
-  modalTitle: { fontSize: moderateScale(20), fontFamily: fonts.displayBold, lineHeight: moderateScale(28) },
-  modalBody: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20) },
+  modalTitle: {
+  },
+  modalBody: {
+  },
   modalInput: {
     borderWidth: 1,
     borderRadius: moderateScale(8),
-    paddingHorizontal: moderateScale(12),
-    paddingVertical: moderateScale(12),
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    minHeight: TOUCH_TARGET,
+    padding: moderateScale(12),
+    marginTop: moderateScale(8),
   },
-  modalError: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  modalError: {
+    marginTop: -4,
+  },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
   modalCancelBtn: {
     flex: 1,
@@ -844,7 +823,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modalCancelText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  modalCancelText: { },
   modalConfirmBtn: {
     flex: 1,
     height: moderateScale(48),
@@ -852,5 +831,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modalConfirmText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  modalConfirmText: { },
 });

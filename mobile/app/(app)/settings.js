@@ -6,73 +6,61 @@ import {
   Switch,
   ScrollView,
   Pressable,
+  Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from "../../lib/theme-context";
+import { useSettings } from "../../lib/settings-context";
 import { fonts } from "../../lib/theme";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, colorScheme, toggleColorScheme } = useTheme();
+  const { colors, colorScheme, toggleColorScheme, type } = useTheme();
 
   const [isLightMode, setIsLightMode] = useState(colorScheme === "light");
-  const [highContrast, setHighContrast] = useState(false);
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [locationTracking, setLocationTracking] = useState(true);
-  const [offlineMode, setOfflineMode] = useState(false);
+  const { settings, updateSetting } = useSettings();
 
-  useEffect(() => {
-    // Load persisted settings
-    const loadSettings = async () => {
-      try {
-        const hc = await AsyncStorage.getItem('@settings_highContrast');
-        const pn = await AsyncStorage.getItem('@settings_pushNotifications');
-        const lt = await AsyncStorage.getItem('@settings_locationTracking');
-        const om = await AsyncStorage.getItem('@settings_offlineMode');
-        
-        if (hc !== null) setHighContrast(hc === 'true');
-        if (pn !== null) setPushNotifications(pn === 'true');
-        if (lt !== null) setLocationTracking(lt === 'true');
-        if (om !== null) setOfflineMode(om === 'true');
-      } catch (e) {
-        console.warn("Failed to load settings", e);
-      }
-    };
-    loadSettings();
-  }, []);
+  const [textSizeModalVisible, setTextSizeModalVisible] = useState(false);
+  const [tempTextSize, setTempTextSize] = useState(settings.textSize || 'medium');
 
   const handleToggleTheme = () => {
     setIsLightMode(!isLightMode);
     toggleColorScheme();
   };
 
-  const handleToggle = async (key, value, setter) => {
-    setter(value);
-    try {
-      await AsyncStorage.setItem(`@settings_${key}`, String(value));
-    } catch (e) {
-      console.warn("Failed to save setting", key, e);
-    }
+  const openTextSizeModal = () => {
+    setTempTextSize(settings.textSize || 'medium');
+    setTextSizeModalVisible(true);
+  };
+
+  const confirmTextSize = () => {
+    updateSetting('textSize', tempTextSize);
+    setTextSizeModalVisible(false);
   };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+        <Pressable onPress={() => {
+          if (router.canGoBack()) {
+            router.back();
+          } else {
+            router.replace('/(app)/(tabs)');
+          }
+        }} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Settings</Text>
+        <Text style={[type.titleLg, { color: colors.onSurface }]}>Settings</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         
         {/* DISPLAY SECTION */}
-        <Text style={[styles.sectionTitle, { color: colors.primary }]}>DISPLAY</Text>
+        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>DISPLAY</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
           
           <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
@@ -80,7 +68,7 @@ export default function SettingsScreen() {
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="moon" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>
                 {isLightMode ? "Light Mode" : "Dark Mode"}
               </Text>
             </View>
@@ -92,15 +80,17 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <Pressable style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="text" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Text Size</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>Text Size</Text>
             </View>
             <View style={styles.rowRight}>
-              <Text style={[styles.rowValue, { color: colors.onSurfaceVariant }]}>Medium</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurfaceVariant }]}>
+                {(settings.textSize || 'medium').charAt(0).toUpperCase() + (settings.textSize || 'medium').slice(1)}
+              </Text>
               <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
             </View>
           </Pressable>
@@ -110,11 +100,11 @@ export default function SettingsScreen() {
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="contrast" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>High Contrast Mode</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>High Contrast Mode</Text>
             </View>
             <Switch
-              value={highContrast}
-              onValueChange={(val) => handleToggle('highContrast', val, setHighContrast)}
+              value={settings.highContrast}
+              onValueChange={(val) => updateSetting('highContrast', val)}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
               thumbColor={"white"}
             />
@@ -122,32 +112,19 @@ export default function SettingsScreen() {
         </View>
 
         {/* PREFERENCES SECTION */}
-        <Text style={[styles.sectionTitle, { color: colors.primary }]}>PREFERENCES</Text>
+        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>PREFERENCES</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-          
-          <Pressable style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
-            <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="globe" size={18} color={colors.onSurfaceVariant} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Language</Text>
-            </View>
-            <View style={styles.rowRight}>
-              <Text style={[styles.rowValue, { color: colors.onSurfaceVariant }]}>English (US)</Text>
-              <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-            </View>
-          </Pressable>
 
           <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="notifications" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Push Notifications</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>Push Notifications</Text>
             </View>
             <Switch
-              value={pushNotifications}
-              onValueChange={(val) => handleToggle('pushNotifications', val, setPushNotifications)}
+              value={settings.pushNotifications}
+              onValueChange={(val) => updateSetting('pushNotifications', val)}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
               thumbColor={"white"}
             />
@@ -158,26 +135,11 @@ export default function SettingsScreen() {
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="location" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Location Tracking</Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>Location Tracking</Text>
             </View>
             <Switch
-              value={locationTracking}
-              onValueChange={(val) => handleToggle('locationTracking', val, setLocationTracking)}
-              trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
-              thumbColor={"white"}
-            />
-          </View>
-
-          <View style={styles.row}>
-            <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="cloud-offline" size={18} color={colors.onSurfaceVariant} />
-              </View>
-              <Text style={[styles.rowLabel, { color: colors.onSurface }]}>Offline Mode</Text>
-            </View>
-            <Switch
-              value={offlineMode}
-              onValueChange={(val) => handleToggle('offlineMode', val, setOfflineMode)}
+              value={settings.locationTracking}
+              onValueChange={(val) => updateSetting('locationTracking', val)}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
               thumbColor={"white"}
             />
@@ -186,6 +148,44 @@ export default function SettingsScreen() {
         </View>
 
       </ScrollView>
+
+      <Modal
+        visible={textSizeModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setTextSizeModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[type.titleLg, { color: colors.onSurface, marginBottom: 16 }]}>Select Text Size</Text>
+            {['small', 'medium', 'large'].map((size) => (
+              <Pressable
+                key={size}
+                style={[
+                  styles.modalOption,
+                  tempTextSize === size && { backgroundColor: colors.surfaceContainerHigh }
+                ]}
+                onPress={() => setTempTextSize(size)}
+              >
+                <Text style={[type.bodyMd, { color: colors.onSurface }]}>
+                  {size.charAt(0).toUpperCase() + size.slice(1)}
+                </Text>
+                {tempTextSize === size && (
+                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                )}
+              </Pressable>
+            ))}
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setTextSizeModalVisible(false)} style={styles.modalBtn}>
+                <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>Cancel</Text>
+              </Pressable>
+              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Confirm</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -202,16 +202,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#e2e8f0",
   },
   backBtn: { padding: 4 },
-  headerTitle: { fontSize: 18, fontFamily: fonts.displayBold },
   scroll: { padding: 16, paddingTop: 24, gap: 24 },
-  
-  sectionTitle: {
-    fontSize: 12,
-    fontFamily: fonts.displayBold,
-    letterSpacing: 1,
-    marginBottom: -16,
-    marginLeft: 8,
-  },
   sectionCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -235,17 +226,40 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  rowLabel: {
-    fontSize: 16,
-    fontFamily: fonts.bodyMedium,
-  },
   rowRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  rowValue: {
-    fontSize: 14,
-    fontFamily: fonts.body,
-  }
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 24,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 24,
+    gap: 12,
+  },
+  modalBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
 });
