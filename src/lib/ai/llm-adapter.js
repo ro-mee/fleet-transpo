@@ -40,7 +40,7 @@ export async function getActiveAiProvider() {
     return {
       provider_name: "Gemini",
       display_name: "Google Gemini",
-      base_url: "https://generativelanguage.googleapis.com/v1beta",
+      base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
       api_key: process.env.GEMINI_API_KEY,
       model_name: "gemini-1.5-flash",
       temperature: 0.7,
