@@ -34,12 +34,17 @@ export async function POST(req) {
       [latitude, longitude, session.user.driverId]
     );
 
-    // If driver is assigned to a vehicle (even if no active trip), update GPS tracking
-    const { rows: driverRows } = await query(
-      `SELECT assigned_vehicle_id FROM drivers WHERE driver_id = $1 LIMIT 1`,
+    // If driver has an active trip, look up its vehicle for GPS tracking
+    const { rows: tripRows } = await query(
+      `SELECT vehicle_id FROM trips
+        WHERE driver_id = $1
+          AND deleted_at IS NULL
+          AND trip_status NOT IN ('Completed', 'Cancelled')
+        ORDER BY start_time DESC NULLS LAST
+        LIMIT 1`,
       [session.user.driverId]
     );
-    const vehicleId = driverRows[0]?.assigned_vehicle_id;
+    const vehicleId = tripRows[0]?.vehicle_id;
 
     if (vehicleId) {
       await query(
