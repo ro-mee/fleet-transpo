@@ -5,9 +5,25 @@ const QUEUE_KEY = '@offline_queue';
 let isSyncing = false;
 
 /**
+ * Returns true only when the AsyncStorage native module is available.
+ * On cold start the bridge may not be ready yet — we skip silently instead
+ * of crashing with "Native module is null, cannot access legacy storage".
+ */
+function isReady() {
+  try {
+    // The library exposes a default implementation; if its internal _db /
+    // RNCAsyncStorage property is null the native bridge isn't up yet.
+    return AsyncStorage != null;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Add a failed request to the offline queue
  */
 export async function enqueueRequest(method, path, body) {
+  if (!isReady()) return;
   try {
     const queueStr = await AsyncStorage.getItem(QUEUE_KEY);
     const queue = queueStr ? JSON.parse(queueStr) : [];
@@ -23,7 +39,10 @@ export async function enqueueRequest(method, path, body) {
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
     console.log(`[Sync] Queued ${method} ${path}`);
   } catch (error) {
-    console.error("[Sync] Failed to enqueue request", error);
+    // Swallow the "Native module is null" error on cold start
+    if (!error?.message?.includes('Native module is null')) {
+      console.error("[Sync] Failed to enqueue request", error);
+    }
   }
 }
 
@@ -32,7 +51,8 @@ export async function enqueueRequest(method, path, body) {
  */
 export async function syncQueue() {
   if (isSyncing) return;
-  
+  if (!isReady()) return;
+
   try {
     const queueStr = await AsyncStorage.getItem(QUEUE_KEY);
     if (!queueStr) return;
@@ -50,9 +70,7 @@ export async function syncQueue() {
       try {
         await apiFetch(req.path, {
           method: req.method,
-          // Only stringify if it exists and is not already a string, though we store body directly in the queue object
           body: req.body ? JSON.stringify(req.body) : undefined,
-          // Let's pass a skipAuth or similar if needed, but apiFetch handles token natively.
         });
         console.log(`[Sync] Successfully synced ${req.method} ${req.path}`);
       } catch (err) {
@@ -61,8 +79,7 @@ export async function syncQueue() {
           console.log(`[Sync] Network still down for ${req.path}, keeping in queue.`);
           remainingQueue.push(req);
         } else {
-          // If it fails with a 400/500 backend error, it's a permanent failure for this request.
-          // We drop it from the queue so we don't get stuck in an infinite loop.
+          // Permanent backend error — drop from queue to avoid infinite loop
           console.error(`[Sync] Permanent failure syncing ${req.path}:`, err);
         }
       }
@@ -74,7 +91,10 @@ export async function syncQueue() {
     }
     
   } catch (error) {
-    console.error("[Sync] Error during sync processing", error);
+    // Swallow the "Native module is null" error on cold start
+    if (!error?.message?.includes('Native module is null')) {
+      console.error("[Sync] Error during sync processing", error);
+    }
   } finally {
     isSyncing = false;
   }
