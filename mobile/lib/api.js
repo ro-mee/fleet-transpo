@@ -4,7 +4,7 @@ import {
   saveTokens,
   clearAll,
 } from "./storage";
-import { enqueueRequest, syncQueue } from "./sync";
+import { enqueueRequest, syncQueue, setApiFetch } from "./sync";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -181,6 +181,11 @@ export async function apiFetch(path, options = {}) {
 
   return body;
 }
+
+// Break the circular dependency: inject apiFetch into sync.js now that it is
+// fully defined. sync.js must NOT import api.js directly.
+setApiFetch(apiFetch);
+
 
 export const api = {
   get: (path) => apiFetch(path),

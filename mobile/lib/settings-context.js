@@ -1,56 +1,76 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from "react-native";
+import * as SecureStore from "expo-secure-store";
+
+// SecureStore has no web implementation — fall back to localStorage on web.
+const store = {
+  async get(key) {
+    if (Platform.OS === "web") return localStorage.getItem(key);
+    return await SecureStore.getItemAsync(key);
+  },
+  async set(key, value) {
+    if (Platform.OS === "web") {
+      localStorage.setItem(key, value);
+    } else {
+      await SecureStore.setItemAsync(key, value);
+    }
+  },
+};
+
+const DEFAULTS = {
+  highContrast: false,
+  pushNotifications: true,
+  locationTracking: true,
+  language: "en",
+  textSize: "medium",
+  colorScheme: "system",
+};
 
 const SettingsContext = createContext(null);
 
 export function SettingsProvider({ children }) {
-  const [settings, setSettings] = useState({
-    highContrast: false,
-    pushNotifications: true,
-    locationTracking: true,
-    language: 'en',
-    textSize: 'medium',
-    colorScheme: 'system'
-  });
+  const [settings, setSettings] = useState(DEFAULTS);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const loadSettings = async () => {
+    (async () => {
       try {
-        const hc = await AsyncStorage.getItem('@settings_highContrast');
-        const pn = await AsyncStorage.getItem('@settings_pushNotifications');
-        const lt = await AsyncStorage.getItem('@settings_locationTracking');
-        const lang = await AsyncStorage.getItem('@settings_language');
-        const ts = await AsyncStorage.getItem('@settings_textSize');
-        const cs = await AsyncStorage.getItem('@settings_colorScheme');
-
-        setSettings({
-          highContrast: hc !== null ? hc === 'true' : false,
-          pushNotifications: pn !== null ? pn === 'true' : true,
-          locationTracking: lt !== null ? lt === 'true' : true,
-          language: lang || 'en',
-          textSize: ts || 'medium',
-          colorScheme: cs || 'system'
+        const keys = Object.keys(DEFAULTS);
+        const values = await Promise.all(
+          keys.map((k) => store.get(`settings_${k}`))
+        );
+        const loaded = {};
+        keys.forEach((k, i) => {
+          if (values[i] !== null && values[i] !== undefined) {
+            // Booleans are stored as strings
+            if (typeof DEFAULTS[k] === "boolean") {
+              loaded[k] = values[i] === "true";
+            } else {
+              loaded[k] = values[i];
+            }
+          } else {
+            loaded[k] = DEFAULTS[k];
+          }
         });
+        setSettings(loaded);
       } catch (e) {
-        console.warn("Failed to load settings", e);
+        console.warn("[Settings] Failed to load settings", e);
       } finally {
         setLoaded(true);
       }
-    };
-    loadSettings();
+    })();
   }, []);
 
   const updateSetting = async (key, value) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
+    setSettings((prev) => ({ ...prev, [key]: value }));
     try {
-      await AsyncStorage.setItem(`@settings_${key}`, String(value));
+      await store.set(`settings_${key}`, String(value));
     } catch (e) {
-      console.warn("Failed to save setting", key, e);
+      console.warn("[Settings] Failed to save setting", key, e);
     }
   };
 
-  if (!loaded) return null; // Or a loading spinner if preferred
+  if (!loaded) return null;
 
   return (
     <SettingsContext.Provider value={{ settings, updateSetting }}>

@@ -1,5 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { apiFetch } from './api';
+
+// api.js injects itself here after it initialises to break the circular
+// dependency (api → sync → api). Never import api.js directly from this file.
+let _apiFetch = null;
+export function setApiFetch(fn) { _apiFetch = fn; }
 
 const QUEUE_KEY = '@offline_queue';
 let isSyncing = false;
@@ -68,7 +72,8 @@ export async function syncQueue() {
     // Process sequentially to maintain order
     for (const req of queue) {
       try {
-        await apiFetch(req.path, {
+        if (!_apiFetch) throw new Error('apiFetch not injected');
+        await _apiFetch(req.path, {
           method: req.method,
           body: req.body ? JSON.stringify(req.body) : undefined,
         });
