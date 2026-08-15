@@ -18,18 +18,12 @@ import { fonts } from "../../lib/theme";
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, colorScheme, toggleColorScheme, type } = useTheme();
+  const { colors, preference, setColorScheme, type } = useTheme();
 
-  const [isLightMode, setIsLightMode] = useState(colorScheme === "light");
   const { settings, updateSetting } = useSettings();
 
   const [textSizeModalVisible, setTextSizeModalVisible] = useState(false);
   const [tempTextSize, setTempTextSize] = useState(settings.textSize || 'medium');
-
-  const handleToggleTheme = () => {
-    setIsLightMode(!isLightMode);
-    toggleColorScheme();
-  };
 
   const openTextSizeModal = () => {
     setTempTextSize(settings.textSize || 'medium');
@@ -63,21 +57,33 @@ export default function SettingsScreen() {
         <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>DISPLAY</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
           
-          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
                 <Ionicons name="moon" size={18} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[type.bodyMd, { color: colors.onSurface }]}>
-                {isLightMode ? "Light Mode" : "Dark Mode"}
-              </Text>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>Theme</Text>
             </View>
-            <Switch
-              value={isLightMode}
-              onValueChange={handleToggleTheme}
-              trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
-              thumbColor={"white"}
-            />
+            <View style={styles.segment}>
+              {[
+                { key: 'system', label: 'System' },
+                { key: 'light', label: 'Light' },
+                { key: 'dark', label: 'Dark' },
+              ].map((opt) => {
+                const active = preference === opt.key;
+                return (
+                  <Pressable
+                    key={opt.key}
+                    onPress={() => setColorScheme(opt.key)}
+                    style={[styles.segmentOption, active && { backgroundColor: colors.primary }]}
+                  >
+                    <Text style={[type.labelLg, { color: active ? colors.onPrimary : colors.onSurfaceVariant }]}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
 
           <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
@@ -214,6 +220,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: 16,
   },
+  themeBlock: {
+    padding: 16,
+  },
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
@@ -230,6 +239,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
+  },
+  segment: {
+    flexDirection: "row",
+    marginTop: 12,
+    borderRadius: 10,
+    padding: 3,
+  },
+  segmentOption: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   modalOverlay: {
     flex: 1,

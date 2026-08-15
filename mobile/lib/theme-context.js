@@ -25,22 +25,30 @@ const ThemeContext = createContext(null);
  *   elevation     the active elevation set
  *   m3            the MD3 semantic role map
  */
-export function ThemeProvider({ children, scheme: initialForced }) {
-  const { settings } = useSettings();
+export function ThemeProvider({ children }) {
+  const { settings, updateSetting } = useSettings();
   const system = useColorScheme();
-  const [forced, setForced] = useState(initialForced);
+  const [forced, setForced] = useState(null);
 
-  const scheme = forced || (system === "dark" ? "dark" : "light");
+  const preference = forced || settings.colorScheme || "system";
+  const scheme = preference === "system"
+    ? (system === "dark" ? "dark" : "light")
+    : preference;
 
   const toggleColorScheme = useCallback(() => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setForced((prev) => {
-      if (prev) {
-        return prev === "dark" ? "light" : "dark";
-      }
-      return system === "dark" ? "light" : "dark";
+      const next = prev === "dark" ? "light" : "dark";
+      updateSetting("colorScheme", next);
+      return next;
     });
-  }, [system]);
+  }, [updateSetting]);
+
+  const setColorScheme = useCallback((next) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setForced(next);
+    updateSetting("colorScheme", next);
+  }, [updateSetting]);
 
   const value = useMemo(() => {
     let paletteKey = scheme;
@@ -56,14 +64,16 @@ export function ThemeProvider({ children, scheme: initialForced }) {
     return {
       scheme,
       colorScheme: scheme,
+      preference,
       toggleColorScheme,
+      setColorScheme,
       colors,
       type: typeFor(colors, textScale),
       statusSurfaces: statusSurfaces(colors),
       elevation: elevationFor(scheme === "dark"),
       m3: m3(colors),
     };
-  }, [scheme, toggleColorScheme, settings.highContrast, settings.textSize]);
+  }, [scheme, preference, toggleColorScheme, setColorScheme, settings.highContrast, settings.textSize]);
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
