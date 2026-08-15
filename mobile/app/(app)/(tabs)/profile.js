@@ -68,7 +68,13 @@ export default function Profile() {
   useEffect(() => { load(); }, [load]);
 
   const currentUser = profile || user;
-  const driverName = currentUser?.name || currentUser?.full_name || "Driver";
+  const driverName =
+    currentUser?.firstName && currentUser?.lastName
+      ? `${currentUser.firstName} ${currentUser.lastName}`
+      : currentUser?.firstName ||
+        currentUser?.name ||
+        currentUser?.full_name ||
+        "Driver";
   const initials = driverName
     .split(" ")
     .map((w) => w[0])

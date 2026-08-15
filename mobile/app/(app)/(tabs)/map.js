@@ -219,7 +219,7 @@ export default function MapTab() {
               <Ionicons name="person" size={24} color={colors.onPrimaryContainer} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontFamily: fonts.bodyLg, fontSize: 18, color: colors.onSurface, fontWeight: 'bold', marginBottom: 4 }}>Good day, {user?.full_name?.split(' ')[0] || 'Driver'}</Text>
+              <Text style={{ fontFamily: fonts.bodyLg, fontSize: 18, color: colors.onSurface, fontWeight: 'bold', marginBottom: 4 }}>Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Driver'}</Text>
               <Text style={{ fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.outline }}>You have no assigned trips yet.</Text>
             </View>
           </View>

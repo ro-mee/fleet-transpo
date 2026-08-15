@@ -155,7 +155,7 @@ export default function Home() {
     }
   };
 
-  const driverName = user?.name?.split(" ")?.[0] || "Driver";
+  const driverName = user?.firstName || user?.name?.split(" ")?.[0] || "Driver";
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -182,7 +182,7 @@ export default function Home() {
           </Pressable>
           <View style={[styles.avatar, { backgroundColor: colors.secondaryContainer }]}>
             <Text style={[type.titleMd, styles.avatarText, { color: colors.onSecondaryContainer }]}>
-              {(user?.name?.[0] || "D").toUpperCase()}
+              {(user?.firstName?.[0] || user?.name?.[0] || "D").toUpperCase()}
             </Text>
           </View>
         </View>
