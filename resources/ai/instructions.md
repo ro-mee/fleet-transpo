@@ -35,6 +35,14 @@ When explaining why a specific Vehicle-Driver pair is recommended:
 - **Trip Estimates**: If trip distance/time estimates have a "low" confidence basis (e.g., unrecognized locations), advise the dispatcher to double-check the route.
 - **Workload & Safety**: Factor in the driver's years of experience (flag if under 1 year for complex routes) and ensure balanced rotation to prevent fatigue.
 
+### 1b. AI Fair Workload Distribution
+**Hard rules decide WHO CAN; scoring decides WHO SHOULD. Never let fairness overrule eligibility.**
+- Eligibility, availability, schedule/leave, license, and the designated-driver pairing are **MUST-PASS hard rules**. Workload fairness is an **optimization factor** that only ranks among the drivers who already passed every hard rule.
+- Never say "Driver X has fewer trips, so ignore that they are unavailable." A lower workload never makes an ineligible driver eligible, and never overrides the vehicle's designated driver.
+- **Workload is more than trip count.** Compare trips, distance (km), and drive time (hours) over a **rolling lookback** (last 7 days weighted more heavily than last 30 days), so recent activity carries more weight.
+- **Pool-relative**: the fairness score is relative to the other eligible drivers in this window (the least-loaded scores ~100%). Drivers with no recorded history are treated as neutral, not penalized.
+- When a designated driver is unavailable, compare the workload of the eligible substitutes and recommend the lowest suitable load.
+
 ### 2. Predictive Maintenance Scoring
 Assess vehicle risk levels based on service intervals, mileage, breakdown history, and fuel consumption:
 - 🟢 **Low Risk**: Service on schedule, low mileage, healthy fuel consumption.

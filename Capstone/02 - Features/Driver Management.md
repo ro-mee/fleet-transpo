@@ -7,7 +7,10 @@ source:
   - src/lib/consent/driver-visibility.js
   - src/app/api/driver
   - supabase/migrations/024_driverincidents.sql
-last_verified: 2026-08-11
+  - supabase/migrations/049_driver_work_schedule_and_leave.sql
+  - src/lib/scheduling/driver-schedule.js
+  - src/services/driver-schedule.service.js
+last_verified: 2026-08-15
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -64,9 +67,56 @@ A migration removed a table that live code still used, and nothing caught it. �
 
 `drivers` (23) · [[employees]] (47) · [[driver_vehicle_assignments]] · `driverincidents` · `driver_documents` · `driver_consents` · `driverattendance` **0 rows** · `driver_stats` (view) · [[mobile_refresh_tokens]] (57)
 
+## Weekly work schedules & leave — CONFIRMED 2026-08-15
+
+Migration `049_driver_work_schedule_and_leave.sql` adds `driver_work_schedules`
+(one row per driver per `day_of_week`, `shift_start`/`shift_end`/`break_start`/
+`break_end` TIME, `is_rest_day`, unique `(driver_id, day_of_week)`) and
+`driver_leave_requests` (`start_date`/`end_date`/`leave_type`/`reason`/`status`
+Pending|Approved|Declined, reviewed_by/notes/at).
+
+Rules:
+
+- **Fleet manager owns the schedule.** Only `system_admin`/`fleet_manager` write
+  (`PUT /api/driver-work-schedules`); admin observes. Write policies in 049 are
+  `system_admin` + `fleet_manager` only — matching the directive that admin is
+  never the schedule writer. → [[Why RLS Is Not A Boundary]]
+- **Fail-closed availability.** A driver with no schedule row is **not assignable**
+  ("No work schedule"). Fail-open only when a caller never loaded schedule context
+  (`driverBlockReason` returns null on `!ctx?.schedules`); fail-closed whenever
+  context was loaded and the map is empty. Pure core: `scheduleBlockReason`
+  (`src/lib/scheduling/driver-schedule.js`). → [[Fail Closed By Default]]
+- **Blocking rule order**: approved leave covers the date → block; no row for that
+  `day_of_week` → block; rest day → block; window not fully inside shift
+  (`!(pickup >= shift_start && returnAt <= shift_end)`) → block; half-open break
+  overlap (`break_start < returnAt && break_end > pickup`) → block.
+- **Leave lifecycle**: driver files via `POST /api/driver/leave` (self, Pending);
+  fleet manager approves/declines via `PATCH /api/driver-leave-requests/[id]`
+  (409 if an overlapping request is already Approved). Driver withdraws Pending
+  via `DELETE /api/driver/leave`. Only **Approved** leave blocks assignment.
+- **Server TZ is Asia/Manila.** `localDayOfWeek`/`localTimeOfDay` use Date local
+  getters, consistent with the `toCalendarDay` convention.
+- Backfilled **49 rows** (drivers 1, 2, 19, 20, 21, 22, 26 × 7 days, 06:00–22:00,
+  break 12:00–13:00, no rest days) so live enforcement could be verified without
+  inventing a rest-day policy.
+
+Enforcement surfaces: `GET /api/drivers` (windowed), `GET /api/vehicles/available`
+(windowed, effective driver from `ctx.pairings`), `pair-scoring.js`
+(`isDriverUnavailableFor` + `resolveVehiclePairing` + `buildFleetPairRecommendations`),
+`recommendation.service.js` `validatePairAvailability`, `dispatch-advisor.js`,
+the transport-request recommendation route, `conflicts.js` (DRIVER_UNAVAILABLE),
+`trips/[id]/start` gate, and the dispatch calendar probe.
+
+UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
+fleet_manager), `/drivers/leave` review board (fleet_manager approves),
+`/driver/schedule` self-service (view schedule, file/withdraw leave).
+
 ## Open questions
 
 - `driverattendance` has 0 rows but is a `DRIVER_VISIBLE_SECTIONS` entry — is attendance actually implemented? **TODO:** check for a writer.
+- The old "Standard Morning Shift" card was replaced by the real schedule; the
+  static 06:00–02:00 assumption is gone. Backfilled hours are a neutral default,
+  **not** a policy — the fleet manager should set real shifts via the editor.
 
 ## Related
 

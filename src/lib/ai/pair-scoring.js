@@ -1,6 +1,14 @@
 import { DRIVER_STATUS, VEHICLE_STATUS } from "@/lib/constants";
-import { estimateEfficiency, scoreProximity, scheduleGapGain, maintenanceRiskGain } from "@/lib/ai/rule-engine";
+import {
+  estimateEfficiency,
+  scoreProximity,
+  scheduleGapGain,
+  maintenanceRiskGain,
+  workloadIndex,
+  scoreWorkloadBalance,
+} from "@/lib/ai/rule-engine";
 import { RISK } from "@/lib/ai/predictive-maintenance";
+import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 
 /**
  * Fleet-Pair Recommendation Engine — scores vehicle+driver as ONE unit.
@@ -35,6 +43,12 @@ const UNAVAILABLE_STATUSES = new Set([
 ]);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+// AI Fair Workload Distribution weight: how many points (0..100) a lighter
+// workload is worth when ranking eligible pairs. MEDIUM-HIGH — it breaks ties
+// and pulls toward the least-loaded driver, but it is never a hard rule and
+// never overrides the designated-driver match (+45) or a big ETA gap.
+const FAIRNESS_WEIGHT = 15;
 
 /** Whole days from `now` to an ISO/date string; null when absent or unparseable. */
 function daysUntil(value, now = new Date()) {
@@ -111,11 +125,18 @@ export function hasSubstituteForDate(vehicleId, date, substitutes) {
  * legitimate. "Provably" is the key word: absence of data must not fabricate an
  * excuse, so every check here requires an explicit blocking signal.
  *
+ * `window` (optional) carries the pickup window + schedule/leave context loaded
+ * by the caller (migration 049). When present, the driver's standing work
+ * schedule and approved leave are consulted: approved leave covering the pickup
+ * date, no schedule on file (fail-closed), a rest day, or an out-of-shift /
+ * break-overlapping window all count as provably unavailable.
+ *
  * @param {object} driver candidate driver row (with _schedule_load if computed)
  * @param {Date} [now]
+ * @param {object} [window] { pickup, returnAt, scheduleContext }
  * @returns {{ unavailable: boolean, reason: string|null }}
  */
-export function isDriverUnavailableFor(driver, now = new Date()) {
+export function isDriverUnavailableFor(driver, now = new Date(), window) {
   const status = driver?.driver_status;
   if (UNAVAILABLE_STATUSES.has(status)) {
     return { unavailable: true, reason: `Driver is ${status}.` };
@@ -135,6 +156,18 @@ export function isDriverUnavailableFor(driver, now = new Date()) {
       unavailable: true,
       reason: `Driver already has ${load} dispatch(es) in this window.`,
     };
+  }
+
+  if (window?.pickup && driver?.driver_id != null) {
+    const block = driverBlockReason({
+      driverId: driver.driver_id,
+      pickup: window.pickup,
+      returnAt: window.returnAt,
+      ctx: window.scheduleContext,
+    });
+    if (block?.blocked) {
+      return { unavailable: true, reason: block.reason };
+    }
   }
 
   return { unavailable: false, reason: null };
@@ -209,11 +242,14 @@ export function resolveVehiclePairing({
   activeSubstitutes = [],
   driverById = new Map(),
   now = new Date(),
+  returnAt,
+  scheduleContext,
 }) {
   const designated = resolveDesignatedDriver(vehicleId, activePairs, driverById);
+  const window = { pickup: pickupDate, returnAt, scheduleContext };
 
   if (designated) {
-    const unavail = isDriverUnavailableFor(designated, now);
+    const unavail = isDriverUnavailableFor(designated, now, window);
     if (!unavail.unavailable) {
       // Rule 1: the intact pairing is the only offer. No substitute is
       // considered while the custodian can drive, and no unrelated driver is
@@ -247,7 +283,7 @@ export function resolveVehiclePairing({
 
     // Rule 7: being the booked substitute is not enough — they are validated
     // for this dispatch exactly as the custodian was.
-    const subUnavail = isDriverUnavailableFor(substitute, now);
+    const subUnavail = isDriverUnavailableFor(substitute, now, window);
     if (subUnavail.unavailable) {
       return {
         ok: false,
@@ -292,7 +328,7 @@ export function resolveVehiclePairing({
     };
   }
 
-  const subUnavail = isDriverUnavailableFor(substitute, now);
+  const subUnavail = isDriverUnavailableFor(substitute, now, window);
   if (subUnavail.unavailable) {
     return {
       ok: false,
@@ -426,10 +462,13 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
     ? Math.max(1, Math.round((Number(driver._pickup_distance_km) / 25) * 60))
     : null;
 
-  const final = Math.min(100, Math.max(0, Math.round(score)));
+  // No upper clamp here: the score must keep headroom so the fairness term
+  // (added by buildFleetPairRecommendations once the pool is known) can actually
+  // reorder near-saturated pairs. The caller clamps to 0..100 at the end.
+  const final = Math.max(0, Math.round(score));
   return {
     score: final,
-    confidence: final / 100,
+    confidence: Math.min(1, final / 100),
     reasons,
     is_designated: isDesignated,
     reason_type: isDesignated ? REASON_TYPE.DESIGNATED : REASON_TYPE.REPLACEMENT,
@@ -437,6 +476,81 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
     estimated_pickup_minutes: estimatedPickupMinutes,
     distance_km: driver?._pickup_distance_km != null ? Number(driver._pickup_distance_km) : null,
   };
+}
+
+/** Extract a driver's rolling-workload signals (AI Fair Workload Distribution). */
+function driverWorkload(driver) {
+  if (!driver) return null;
+  const w = {
+    trips_7d: Number(driver._workload_trips_7d),
+    trips_30d: Number(driver._workload_trips_30d),
+    km_7d: Number(driver._workload_km_7d),
+    km_30d: Number(driver._workload_km_30d),
+    hours_7d: Number(driver._workload_hours_7d),
+    hours_30d: Number(driver._workload_hours_30d),
+  };
+  // No recorded history anywhere → the pair carries no workload signal.
+  if (
+    !(w.trips_7d > 0) && !(w.trips_30d > 0) &&
+    !(w.km_7d > 0) && !(w.km_30d > 0) &&
+    !(w.hours_7d > 0) && !(w.hours_30d > 0)
+  ) {
+    return null;
+  }
+  return w;
+}
+
+/**
+ * AI Fair Workload Distribution — rank eligible pairs by pool-relative workload.
+ *
+ * This runs AFTER every pair has been scored and judged eligible (hard rules
+ * already decided WHO CAN). Among those valid pairs it adds up to FAIRNESS_WEIGHT
+ * points to the least-loaded driver and attaches a fairness score + the workload
+ * detail for the panel. The final score is clamped to 0..100 here, once fairness
+ * is in, so near-saturated pairs can still be reordered by load.
+ *
+ * When no candidate has any workload history, nothing is added and no fairness
+ * is reported — absent data never invents a ranking.
+ */
+function applyWorkloadFairness(pairs) {
+  const workloads = pairs.map((p) => driverWorkload(p.driver));
+  const indices = workloads.map((w) => (w ? workloadIndex(w) : 0));
+  const poolMax = Math.max(...indices, 0);
+
+  if (!(poolMax > 0)) {
+    for (const p of pairs) {
+      p.workload = null;
+      p.fairness_score = null;
+    }
+    return;
+  }
+
+  for (let i = 0; i < pairs.length; i++) {
+    const w = workloads[i];
+    if (!w) {
+      pairs[i].workload = null;
+      pairs[i].fairness_score = null;
+      pairs[i].is_lightest = false;
+      continue;
+    }
+    const fairness = scoreWorkloadBalance(indices[i], poolMax);
+    pairs[i].workload = w;
+    pairs[i].fairness_score = Math.round(fairness * 100);
+    pairs[i].is_lightest = false;
+    const total = Math.min(100, Math.max(0, Math.round(pairs[i].score + fairness * FAIRNESS_WEIGHT)));
+    pairs[i].score = total;
+    pairs[i].confidence = total / 100;
+  }
+
+  // The least-loaded eligible driver is the one with the highest pool-relative
+  // fairness (not necessarily 100 — that is only true when their index is 0).
+  let lightestScore = -1;
+  for (const p of pairs) {
+    if (p.fairness_score != null && p.fairness_score > lightestScore) lightestScore = p.fairness_score;
+  }
+  for (const p of pairs) {
+    if (p.fairness_score != null && p.fairness_score === lightestScore) p.is_lightest = true;
+  }
 }
 
 /**
@@ -467,6 +581,8 @@ export function buildFleetPairRecommendations({
   activeSubstitutes = [],
   trip,
   now = new Date(),
+  returnAt,
+  scheduleContext,
 }) {
   const passengers = Number(request?.passenger_count) || 1;
   const pickupDate = request?.pickup_datetime || now;
@@ -512,6 +628,8 @@ export function buildFleetPairRecommendations({
       activeSubstitutes,
       driverById,
       now,
+      returnAt,
+      scheduleContext,
     });
     if (!pairing.ok) {
       skipped.push({
@@ -545,6 +663,8 @@ export function buildFleetPairRecommendations({
     });
   }
 
+  pairs.sort((a, b) => b.score - a.score);
+  applyWorkloadFairness(pairs);
   pairs.sort((a, b) => b.score - a.score);
   const recommended = pairs[0] ?? null;
   const alternate = pairs[1] ?? null;
@@ -618,6 +738,25 @@ export function buildChecklist(pair, isTopRanked) {
 
   // Fleet score — top ranked.
   if (isTopRanked) items.push({ text: `Highest fleet score (${pair?.score ?? "?"}/100)`, pass: true });
+
+  // AI Fair Workload Distribution — only reported when the pool actually has
+  // workload history. The least-loaded eligible driver gets the headline claim.
+  if (pair?.workload) {
+    const t7 = Number(pair.workload.trips_7d) || 0;
+    const t30 = Number(pair.workload.trips_30d) || 0;
+    const km7 = Number(pair.workload.km_7d) || 0;
+    const km30 = Number(pair.workload.km_30d) || 0;
+    const trips = t7 > 0 ? t7 : t30;
+    const km = km7 > 0 ? km7 : km30;
+    const period = t7 > 0 ? "this week" : "this month";
+    const lightest = pair.is_lightest;
+    items.push({
+      text: lightest
+        ? `Lowest workload among eligible drivers (${trips} trip${trips === 1 ? "" : "s"}${km ? `, ${Math.round(km)} km` : ""} ${period})`
+        : `${trips} trip${trips === 1 ? "" : "s"}${km ? `, ${Math.round(km)} km` : ""} in ${period}`,
+      pass: true,
+    });
+  }
 
   return items;
 }

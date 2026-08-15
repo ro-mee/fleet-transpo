@@ -77,6 +77,7 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
+          { href: "/drivers/leave", label: "Driver Leave Requests", icon: CalendarCheck },
           { href: "/drivers/performance", label: "Driver Performance & Feedback", icon: Gauge },
           { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
         ],
@@ -150,6 +151,7 @@ export const WORKS = {
           { href: "/drivers/availability", label: "Driver Availability Board", icon: LayoutGrid },
           { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
           { href: "/drivers", label: "Driver Management", icon: Users },
+          { href: "/drivers/leave", label: "Driver Leave Requests", icon: CalendarCheck },
         ],
       },
       {

@@ -26,6 +26,7 @@ import {
   TriangleAlert,
   UserCheck,
   X,
+  Scale as ScaleIcon,
 } from "lucide-react";
 
 // Phase 14 — the AI advisor's proposal for one request.
@@ -84,6 +85,25 @@ function AvailabilityChip({ availability }) {
     >
       {availability.free ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
       {availability.label}
+    </span>
+  );
+}
+
+/** AI Fair Workload Distribution chip — pool-relative fairness score. */
+function FairWorkloadChip({ fairnessScore }) {
+  if (fairnessScore == null) return null;
+  const high = fairnessScore >= 85;
+  const mid = fairnessScore >= 60;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
+        high ? "bg-success/10 text-success" : mid ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"
+      )}
+      title="Workload fairness vs the other eligible drivers in this window"
+    >
+      <ScaleIcon className="w-3 h-3" aria-hidden="true" />
+      Fairness {fairnessScore}%
     </span>
   );
 }
@@ -173,6 +193,20 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
       ].filter(Boolean)
     : [];
 
+  // Rolling workload detail (AI Fair Workload Distribution) — only when history exists.
+  const workload = chosen?.workload;
+  const workloadMeta = workload
+    ? (() => {
+        const t7 = Number(workload.trips_7d) || 0;
+        const t30 = Number(workload.trips_30d) || 0;
+        const km7 = Number(workload.km_7d) || 0;
+        const km30 = Number(workload.km_30d) || 0;
+        const trips = t7 > 0 ? t7 : t30;
+        const km = km7 > 0 ? km7 : km30;
+        return [`${trips} trip${trips === 1 ? "" : "s"}${km ? ` · ${Math.round(km)} km` : ""} ${t7 > 0 ? "this week" : "this month"}`];
+      })()
+    : [];
+
   return (
     <div className="rounded-xl border border-border bg-surface p-4 space-y-3.5 shadow-xs">
       <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2.5">
@@ -230,10 +264,11 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
             {chosen?.is_designated === false && (
               <Badge variant="secondary" className="text-[11px] py-0 px-1">Substitute</Badge>
             )}
+            <FairWorkloadChip fairnessScore={chosen?.fairness_score} />
           </span>
           <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
-          {driverMeta.length > 0 && (
-            <p className="text-foreground-muted text-[11px]">{driverMeta.join(" · ")}</p>
+          {[...driverMeta, ...workloadMeta].length > 0 && (
+            <p className="text-foreground-muted text-[11px]">{[...driverMeta, ...workloadMeta].join(" · ")}</p>
           )}
           <AvailabilityChip availability={driver.availability} />
         </div>

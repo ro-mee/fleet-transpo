@@ -8,6 +8,7 @@ import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateTrip, estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { saveRecommendationSnapshot, getActiveRecommendation } from "@/services/recommendation.service";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 
 // Dispatch recommendation — the advisory panel behind the review dialog.
 //
@@ -192,6 +193,14 @@ async function fetchCandidates(request) {
               ROUND(AVG(t.customer_rating)::numeric, 2)      AS avg_guest_rating,
               ROUND(AVG(t.smooth_driving_score)::numeric, 2) AS avg_driving_score,
               COUNT(t.trip_id)::int                          AS total_completed_trips,
+              COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days')  AS trips_7d,
+              COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days') AS trips_30d,
+              COALESCE(SUM(t.distance) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days'), 0)  AS km_7d,
+              COALESCE(SUM(t.distance) FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days'), 0) AS km_30d,
+              COALESCE(SUM(EXTRACT(EPOCH FROM (t.end_time - t.start_time)) / 3600)
+                         FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days'), 0)  AS hours_7d,
+              COALESCE(SUM(EXTRACT(EPOCH FROM (t.end_time - t.start_time)) / 3600)
+                         FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days'), 0) AS hours_30d,
               COALESCE((
                 SELECT COUNT(*)
                   FROM dispatchschedules ds
@@ -219,12 +228,20 @@ async function fetchCandidates(request) {
         d._position_basis = position.basis;
         d._proximity_relevant = proximityRelevant;
         d._schedule_load = Number(d.schedule_load) || 0;
+        // Rolling workload signals (AI Fair Workload Distribution). Coerce pg's
+        // numeric returns so the pure scorer sees plain numbers.
+        d._workload_trips_7d = Number(d.trips_7d) || 0;
+        d._workload_trips_30d = Number(d.trips_30d) || 0;
+        d._workload_km_7d = Number(d.km_7d) || 0;
+        d._workload_km_30d = Number(d.km_30d) || 0;
+        d._workload_hours_7d = Number(d.hours_7d) || 0;
+        d._workload_hours_30d = Number(d.hours_30d) || 0;
         return d;
       })
     ),
   ]);
 
-  return { vehicles, drivers };
+  return { vehicles, drivers, windowStart, windowEnd };
 }
 
 /** Flatten the scorer's output into the facts the model is allowed to talk about. */
@@ -334,7 +351,15 @@ async function loadPinnedPair(vehicleId, driverId, request, trip) {
                   e.first_name,
                   e.last_name,
                   ROUND(AVG(t.customer_rating)::numeric, 2) AS avg_guest_rating,
-                  COUNT(t.trip_id)::int                     AS total_completed_trips
+                  COUNT(t.trip_id)::int                     AS total_completed_trips,
+                  COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days')  AS trips_7d,
+                  COUNT(t.trip_id) FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days') AS trips_30d,
+                  COALESCE(SUM(t.distance) FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days'), 0)  AS km_7d,
+                  COALESCE(SUM(t.distance) FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days'), 0) AS km_30d,
+                  COALESCE(SUM(EXTRACT(EPOCH FROM (t.end_time - t.start_time)) / 3600)
+                             FILTER (WHERE t.end_time >= NOW() - INTERVAL '7 days'), 0)  AS hours_7d,
+                  COALESCE(SUM(EXTRACT(EPOCH FROM (t.end_time - t.start_time)) / 3600)
+                             FILTER (WHERE t.end_time >= NOW() - INTERVAL '30 days'), 0) AS hours_30d
              FROM drivers d
              LEFT JOIN employees e ON e.employee_id = d.employee_id
              LEFT JOIN trips t
@@ -539,12 +564,21 @@ export async function GET(req, { params }) {
       }
     }
 
-    const { vehicles, drivers } = await fetchCandidates(request);
+    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(request);
     const [activePairs, activeSubstitutes] = await Promise.all([
       loadActivePairs(),
       loadActiveSubstitutes(),
     ]);
-    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs, activeSubstitutes });
+    const scheduleContext = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
+    const recommendation = buildDispatchRecommendation({
+      request,
+      vehicles,
+      drivers,
+      activePairs,
+      activeSubstitutes,
+      returnAt: windowEnd ? new Date(windowEnd) : null,
+      scheduleContext,
+    });
 
     // Only the explicit second call pays for the provider round-trip.
     recommendation.narration = await narrateForRequest(req, request, recommendation, session);
@@ -569,12 +603,21 @@ export async function POST(req, { params }) {
 
     // No narration here: this call persists the recommendation, and a write path
     // must not wait on an external provider. GET is where the prose belongs.
-    const { vehicles, drivers } = await fetchCandidates(request);
+    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(request);
     const [activePairs, activeSubstitutes] = await Promise.all([
       loadActivePairs(),
       loadActiveSubstitutes(),
     ]);
-    const recommendation = buildDispatchRecommendation({ request, vehicles, drivers, activePairs, activeSubstitutes });
+    const scheduleContext = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
+    const recommendation = buildDispatchRecommendation({
+      request,
+      vehicles,
+      drivers,
+      activePairs,
+      activeSubstitutes,
+      returnAt: windowEnd ? new Date(windowEnd) : null,
+      scheduleContext,
+    });
 
     const pairPayload = {
       trip: recommendation.trip,

@@ -108,7 +108,7 @@ export async function setDispatchStatus({ dispatchId, to, session, reason = null
     throw new AuthError(`"${to}" is not a valid dispatch status.`, 400);
   }
   const { rows: before } = await query(
-    `SELECT dispatch_id, status, vehicle_id, driver_id, reservation_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
+    `SELECT dispatch_id, status, vehicle_id, driver_id, request_id FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
     [dispatchId]
   );
   if (!before[0]) throw new AuthError("Dispatch not found", 404);

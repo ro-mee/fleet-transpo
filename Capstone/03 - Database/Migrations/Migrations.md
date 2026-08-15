@@ -10,9 +10,9 @@ last_verified: 2026-08-11
 
 # Migrations
 
-**42** files in `supabase/migrations/` (39 pre-existing + `033`–`035`), and
-since 2026-08-11 they are backed by a ledger and a checked-in `schema.sql`.
-History before that point is still not a faithful record — read
+**51** files in `supabase/migrations/` (39 pre-existing, `033`–`035` from the
+2026-08-11 backfill, and `036`–`049` since), backed by a ledger and a checked-in
+`schema.sql`. History before 2026-08-11 is still not a faithful record — read
 [[DEBT Schema Drift From Migrations]] for what was undeclared and how it was closed.
 
 > Counted with `ls supabase/migrations/*.sql | wc -l`. This vault said "38 files"
@@ -96,6 +96,25 @@ rewriting applied history for cosmetic gain, so it stays. → [[ADR-008 Manual M
 | `022_remove_front_desk_roles.sql` | Removed role ids 5/6/8 → the 6 live roles. (This vault previously cited it as `022_role_system.sql`; no such file exists.) → [[DOC rbac-model Says 9 Roles]] |
 | **`023_dispatch_overlap_guard.sql`** | **The best file in the repo.** Advisory locks + a reasoned explanation of why not `EXCLUDE USING gist`. → [[TOCTOU And Advisory Locks]] |
 | `024_driverincidents.sql` | Recreates a table `005` dropped: *"The driver portal and /api/driver/incidents still reference it, so it was missing at runtime and incident reporting was broken."* |
+| **`049_driver_work_schedule_and_leave.sql`** (2026-08-15) | Weekly schedules + leave. RLS write policies are `system_admin`+`fleet_manager` only (admin excluded). Applied **directly via pg**, see below. → [[Driver Management]] |
+
+## 2026-08-15 — `db:up` is blocked; 049 was applied directly
+
+`npm run db:status` reports **51** files: 33 applied, 3 pending
+(`036_trip_lifecycle_status.sql`, `037_remove_review_statuses.sql`, `049`), and
+**15 "changed since applied"** files (001, 003, 004, 006, 012, 013, 016, 019,
+021, 024, 037_notification_preferences, 042, 043, 046, 047). The runner refuses
+to run at all while any applied file's checksum changed — so `db:up` cannot apply
+`049` (or `036`/`037`, which remain pending in the ledger while the live DB already
+reflects them).
+
+`049` was therefore applied by a **one-off direct `pg` connection** (advisory lock
+`947112003`, then a `schema_migrations` insert with the sha256[0:16] checksum
+`895dfea7f81ed725`), followed by `npm run db:dump` (40 tables, 1 view, 83 FKs,
+89 indexes, 11 functions, 16 triggers). **Do not** "reconcile" the 15 changed
+files by editing them — that is risk on top of unknown drift. It is the pre-existing
+blocker documented in [[DEBT Schema Drift From Migrations]]; a real fix is a
+baseline/rename exercise the user has not asked for.
 
 ## What `024` teaches
 

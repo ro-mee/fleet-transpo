@@ -259,6 +259,57 @@ describe("buildFleetPairRecommendations", () => {
   });
 });
 
+describe("buildFleetPairRecommendations — AI Fair Workload Distribution", () => {
+  it("breaks ties toward the least-loaded designated driver when ETA/readiness are equal", () => {
+    const light = mkDriver({ driver_id: 5, _workload_trips_7d: 1, _workload_km_7d: 10, _workload_hours_7d: 0.5 });
+    const heavy = mkDriver({ driver_id: 8, _workload_trips_7d: 8, _workload_km_7d: 80, _workload_hours_7d: 4 });
+    const res = board({
+      vehicles: [mkVehicle({ vehicle_id: 1 }), mkVehicle({ vehicle_id: 2 })],
+      drivers: [light, heavy],
+      pairs: [
+        { driver_id: 5, vehicle_id: 1 },
+        { driver_id: 8, vehicle_id: 2 },
+      ],
+    });
+    expect(res.recommended.driver.driver_id).toBe(5);
+    expect(res.recommended.fairness_score).toBeGreaterThan(res.alternate.fairness_score);
+    expect(res.recommended.workload.trips_7d).toBe(1);
+    expect(res.recommended.checklist.some((i) => /Lowest workload among eligible drivers/.test(i.text))).toBe(true);
+  });
+
+  it("never lets a lighter substitute outrank an intact designated pair", () => {
+    const heavyDesignated = mkDriver({ driver_id: 5, _workload_trips_7d: 8 });
+    const lightSub = mkDriver({ driver_id: 9, _workload_trips_7d: 1 });
+    const res = board({
+      vehicles: [mkVehicle({ vehicle_id: 1 }), mkVehicle({ vehicle_id: 2 })],
+      drivers: [heavyDesignated, lightSub],
+      pairs: [{ driver_id: 5, vehicle_id: 1 }],
+      subs: [subFor(2, 9)],
+    });
+    // Vehicle 1 is intact (designated, +45) with a heavy driver; Vehicle 2 has a
+    // light substitute (+10). The designated-match gap (+35) exceeds the 15-point
+    // fairness pull, so designation must win.
+    expect(res.recommended.vehicle.vehicle_id).toBe(1);
+    expect(res.recommended.is_designated).toBe(true);
+  });
+
+  it("reports no fairness when no driver has workload history", () => {
+    const res = board({
+      vehicles: [mkVehicle({ vehicle_id: 1 }), mkVehicle({ vehicle_id: 2 })],
+      drivers: [mkDriver({ driver_id: 5 }), mkDriver({ driver_id: 8 })],
+      pairs: [
+        { driver_id: 5, vehicle_id: 1 },
+        { driver_id: 8, vehicle_id: 2 },
+      ],
+    });
+    expect(res.recommended.fairness_score).toBeNull();
+    expect(res.recommended.workload).toBeNull();
+    expect(res.alternate.fairness_score).toBeNull();
+    // Absent data never invents a ranking — a pair is still produced.
+    expect(res.recommended).not.toBeNull();
+  });
+});
+
 describe("buildChecklist", () => {
   it("flags the designated-driver claim for an intact pair", () => {
     const res = buildFleetPairRecommendations({

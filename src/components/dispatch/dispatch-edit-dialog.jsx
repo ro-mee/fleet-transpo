@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { getAvailableVehicles } from "@/services/vehicle.service";
 import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
+import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { formatDateTime } from "@/lib/utils";
 import { Save, Shuffle, UserCheck, CheckCircle2, Search, Users, AlertCircle, CarFront } from "lucide-react";
 
@@ -48,11 +49,15 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
           : {}
       ),
   });
+  // Availability is decided by the endpoint's time-window overlap + license/
+  // pairing checks, NOT by the driver_status label. A custodian on a trip now
+  // but free in this window must still be offered. Only truly ineligible
+  // statuses (Suspended / On Leave / Off Duty) are filtered out client-side,
+  // mirroring the server's UNAVAILABLE_STATUSES in pair-scoring.js.
   const { data: drivers = [], isLoading: loadingDrivers } = useQuery({
-    queryKey: ["drivers", { status: "Available", pickup_at: departure }],
+    queryKey: ["drivers", { pickup_at: departure }],
     queryFn: () =>
       getDrivers({
-        status: "Available",
         ...(departure ? { pickup_at: departure } : {}),
       }),
   });
@@ -66,14 +71,39 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
     return seats > 0 && seats < passengers;
   };
 
-  const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
-  const onDuty = new Set(drivers.map((d) => d.driver_id));
+  // Substitute coverage (032) for the departure date. A substitute may only
+  // drive while the vehicle's custodian is unavailable, so this list gates the
+  // substitute offers below — never a pair the designated-driver guard rejects.
+  const departureDate = departure ? new Date(departure) : null;
+  const departureDateKey = departureDate
+    ? `${departureDate.getFullYear()}-${String(departureDate.getMonth() + 1).padStart(2, "0")}-${String(
+        departureDate.getDate()
+      ).padStart(2, "0")}`
+    : null;
+  const { data: substituteData, isLoading: loadingSubstitutes } = useQuery({
+    queryKey: ["substitute-schedules", departureDateKey],
+    queryFn: () => getSubstituteSchedules(departureDateKey ? { date: departureDateKey } : {}),
+    enabled: !!departureDateKey,
+  });
 
-  const options = (pairingData?.assignments ?? [])
-    .filter((a) => {
-      const v = vById.get(a.vehicle_id);
-      return v && onDuty.has(a.driver_id) && !seatsTooFew(v);
-    })
+  const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
+  const onDuty = new Set(
+    drivers
+      .filter((d) => !["Suspended", "On Leave", "Off Duty"].includes(d.driver_status))
+      .map((d) => d.driver_id)
+  );
+
+  const eligible = (vehicleId, driverId) => {
+    const v = vById.get(vehicleId);
+    return Boolean(v && onDuty.has(driverId) && !seatsTooFew(v));
+  };
+
+  const assigned = pairingData?.assignments ?? [];
+
+  // Custodial pairings (017) — the vehicle and the driver normally responsible
+  // for it. These are the only offers while the custodian is on duty.
+  const custodialOptions = assigned
+    .filter((a) => eligible(a.vehicle_id, a.driver_id))
     .map((a) => {
       const v = vById.get(a.vehicle_id);
       const driverName =
@@ -87,8 +117,45 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
         model: v.model || "Standard Vehicle",
         seats: v.seating_capacity,
         driverName,
+        substitute: false,
       };
+    });
+
+  // The active custodian per vehicle — a substitute only stands in while this
+  // driver cannot take the wheel, mirroring resolveVehiclePairing.
+  const designatedByVehicle = new Map(assigned.map((a) => [a.vehicle_id, a.driver_id]));
+
+  // Substitute pairings (032): the same vehicles, driven by the driver
+  // explicitly scheduled to cover the departure date.
+  const substituteOptions = (substituteData?.schedules ?? [])
+    .filter((s) => {
+      const custodian = designatedByVehicle.get(s.vehicle_id);
+      if (custodian != null && onDuty.has(custodian)) return false;
+      return eligible(s.vehicle_id, s.substitute_driver_id);
     })
+    .map((s) => {
+      const v = vById.get(s.vehicle_id);
+      const driverName =
+        `${s.first_name || ""} ${s.last_name || ""}`.trim() || `Driver #${s.substitute_driver_id}`;
+      return {
+        value: `${s.vehicle_id}:${s.substitute_driver_id}`,
+        vehicleId: s.vehicle_id,
+        driverId: s.substitute_driver_id,
+        plateNumber: v.plate_number,
+        model: v.model || "Standard Vehicle",
+        seats: v.seating_capacity,
+        driverName,
+        substitute: true,
+      };
+    });
+
+  const options = [...substituteOptions, ...custodialOptions]
+    // One entry per vehicle+driver even if a driver is both custodian and
+    // scheduled substitute for the same car.
+    .reduce((acc, o) => {
+      if (!acc.some((x) => x.value === o.value)) acc.push(o);
+      return acc;
+    }, [])
     .sort((a, b) => a.plateNumber.localeCompare(b.plateNumber));
 
   const filteredOptions = options.filter((o) => {
@@ -113,7 +180,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
     onSubmit?.({ dispatch, patch });
   };
 
-  const loading = loadingVehicles || loadingDrivers || loadingPairings;
+  const loading = loadingVehicles || loadingDrivers || loadingPairings || loadingSubstitutes;
 
   return (
     <>
@@ -184,6 +251,11 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
                           {o.seats} seats
                         </span>
                       )}
+                      {o.substitute && (
+                        <span className="inline-flex items-center rounded-full border border-warning/30 bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning">
+                          Substitute
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-foreground-secondary pt-0.5">
                       <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
@@ -204,8 +276,9 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
         </div>
 
         <p className="text-[11px] text-foreground-muted leading-relaxed">
-          Pick the vehicle and its assigned driver together. Reassigning will automatically flip
-          interrupted dispatches back to <span className="font-bold text-foreground">Scheduled</span> status.
+          Pick the vehicle with its assigned driver — or the substitute covering it for this departure
+          date. Reassigning will automatically flip interrupted dispatches back to{" "}
+          <span className="font-bold text-foreground">Scheduled</span> status.
         </p>
       </div>
 

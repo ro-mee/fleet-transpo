@@ -88,10 +88,14 @@ export function AiAssignDialog({
     ),
     enabled: isOpen,
   });
+  // Availability is decided by the endpoint's time-window overlap + license/
+  // pairing checks, NOT by the driver_status label. A custodian on a trip now
+  // but free in this window must still be offered. Only truly ineligible
+  // statuses (Suspended / On Leave / Off Duty) are filtered out client-side,
+  // mirroring the server's UNAVAILABLE_STATUSES in pair-scoring.js.
   const { data: driversData, isLoading: driversLoading } = useQuery({
-    queryKey: ["drivers", { status: "Available", pickup_at: request?.pickup_datetime }],
+    queryKey: ["drivers", { pickup_at: request?.pickup_datetime }],
     queryFn: () => getDrivers({
-      status: "Available",
       ...(request?.pickup_datetime ? { pickup_at: request.pickup_datetime } : {}),
       ...(request?.scheduled_arrival ? { return_at: request.scheduled_arrival } : {}),
     }),
@@ -128,7 +132,12 @@ export function AiAssignDialog({
   const reqCategoryId = request?.requested_category_id ?? null;
   const passengers = Number(request?.passenger_count) || 1;
   const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
-  const onDuty = new Set(drivers.map((d) => d.driver_id));
+  const UNAVAILABLE_DRIVER_STATUSES = ["Suspended", "On Leave", "Off Duty"];
+  const onDuty = new Set(
+    drivers
+      .filter((d) => !UNAVAILABLE_DRIVER_STATUSES.includes(d.driver_status))
+      .map((d) => d.driver_id)
+  );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
   const pairingRows = (pairingData?.assignments ?? []).filter((a) => {
     const v = vById.get(a.vehicle_id);
@@ -249,7 +258,15 @@ export function AiAssignDialog({
 
   const pairCount   = pairings.length;
   const vehicleCount = vehicles.length;
-  const driverCount  = drivers.length;
+  // "On duty" = not Suspended / On Leave / Off Duty (mirrors onDuty). drivers
+  // now includes ineligible statuses (the endpoint only checks license + pairing),
+  // so count only the ones that could actually drive this request.
+  const driverCount  = drivers.filter((d) => onDuty.has(d.driver_id)).length;
+  const matchingVehicleCount = vehicles.filter(
+    (v) =>
+      (reqCategoryId == null || v.category_id === reqCategoryId) &&
+      (Number(v.seating_capacity) || 0) >= passengers
+  ).length;
   const pairScore   = displayVehicle?.score ?? displayDriver?.score ?? null;
 
   // The pair "Assign Now" commits: the DB-backed best eligible pair first,
@@ -367,9 +384,16 @@ export function AiAssignDialog({
 
   // Vehicles free in this window that no row offers — nobody is designated to
   // them, or their designated driver is unavailable and no substitute is
-  // assigned for this date. Reported as a footnote.
+  // assigned for this date. Reported as a footnote. Only count vehicles that
+  // could actually serve this request (right class + enough seats) so the
+  // number isn't padded by wrong-class or too-small vans.
   const manualOfferedVehicleIds = new Set(allOptions.map((o) => o.vehicleId));
-  const hiddenCount = vehicles.filter((v) => !manualOfferedVehicleIds.has(v.vehicle_id)).length;
+  const hiddenCount = vehicles.filter(
+    (v) =>
+      !manualOfferedVehicleIds.has(v.vehicle_id) &&
+      (reqCategoryId == null || v.category_id === reqCategoryId) &&
+      (Number(v.seating_capacity) || 0) >= passengers
+  ).length;
 
   const searchTerm = searchQuery.trim().toLowerCase();
   const filteredOptions = allOptions.filter((o) => {
@@ -589,7 +613,7 @@ export function AiAssignDialog({
                         <CarFront className="w-3 h-3 text-primary" />
                         <span>Vehicle</span>
                         <Badge variant="success" className="text-[11px] py-0 px-1 ml-auto font-semibold">
-                          {vehicleCount > 0 ? `${vehicleCount} Avail` : "Class Match"}
+                          {matchingVehicleCount > 0 ? `${matchingVehicleCount} Avail` : "Class Match"}
                         </Badge>
                       </div>
                       <p className="text-sm font-bold text-foreground truncate">

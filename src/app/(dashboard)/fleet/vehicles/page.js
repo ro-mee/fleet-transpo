@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FleetTable } from "@/components/tables/fleet-table";
+import { FleetGrid } from "@/components/tables/fleet-grid";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity } from "lucide-react";
+import { Plus, Download, Truck, Wrench, AlertTriangle, CheckCircle2, Activity, LayoutGrid, List } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { getVehicles } from "@/services/vehicle.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -21,6 +22,7 @@ export default function FleetVehiclesPage() {
   useVehicleStatusSync();
   const router = useRouter();
   const [filters, setFilters] = useState({});
+  const [viewMode, setViewMode] = useState("grid");
 
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles"],
@@ -138,40 +140,50 @@ export default function FleetVehiclesPage() {
         })}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => setFilters({})}
-          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", !filters.status ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
-        >
-          All
-        </button>
-        <button
-          onClick={() => setFilters({ status: "Available" })}
-          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Available" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
-        >
-          Available
-        </button>
-        <button
-          onClick={() => setFilters({ status: "In Use" })}
-          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "In Use" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
-        >
-          In Use
-        </button>
-        <button
-          onClick={() => setFilters({ status: "Under Maintenance" })}
-          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Under Maintenance" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
-        >
-          Maintenance
-        </button>
-        <button
-          onClick={() => setFilters({ status: "Registration Expired" })}
-          className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Registration Expired" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
-        >
-          Registration Expired
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setFilters({})}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", !filters.status ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+          >
+            All
+          </button>
+          <button
+            onClick={() => setFilters({ status: "Available" })}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Available" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+          >
+            Available
+          </button>
+          <button
+            onClick={() => setFilters({ status: "In Use" })}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "In Use" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+          >
+            In Use
+          </button>
+          <button
+            onClick={() => setFilters({ status: "Under Maintenance" })}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Under Maintenance" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+          >
+            Maintenance
+          </button>
+          <button
+            onClick={() => setFilters({ status: "Registration Expired" })}
+            className={cn("px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer", filters.status === "Registration Expired" ? "bg-primary text-white dark:text-slate-950 border-primary" : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40")}
+          >
+            Registration Expired
+          </button>
+        </div>
+        <div className="flex items-center gap-1 bg-surface border border-border/80 p-1 rounded-full shadow-xs">
+          <button onClick={() => setViewMode("grid")} className={cn("p-1.5 rounded-full transition-all cursor-pointer", viewMode === "grid" ? "bg-primary text-white shadow-sm" : "text-foreground-secondary hover:text-foreground")}><LayoutGrid className="w-4 h-4" /></button>
+          <button onClick={() => setViewMode("list")} className={cn("p-1.5 rounded-full transition-all cursor-pointer", viewMode === "list" ? "bg-primary text-white shadow-sm" : "text-foreground-secondary hover:text-foreground")}><List className="w-4 h-4" /></button>
+        </div>
       </div>
 
-      <FleetTable filters={filters} />
+      {viewMode === "grid" ? (
+        <FleetGrid filters={filters} />
+      ) : (
+        <FleetTable filters={filters} />
+      )}
     </div>
   );
 }

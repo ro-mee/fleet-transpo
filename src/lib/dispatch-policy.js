@@ -29,6 +29,12 @@ export const DEFAULT_DISPATCH_POLICY = {
   travelBufferEnabled: true,
   safetyBufferMinutes: 10,
   bufferFloorMinutes: 5,
+  // Driver departure/start window (departure-window.js). Distinct from the
+  // travel buffer above: travel buffer answers "can this resource be assigned
+  // to the next booking?", while these drive "when may the driver START the
+  // trip?" so they reach the pickup on time without leaving hours early.
+  departureBufferMinutes: 10,       // slack on top of ETA so the driver arrives before pickup
+  earlyStartAllowanceMinutes: 10,   // how much before recommended departure is still allowed
 };
 
 /** Upper bound on tier count — the settings UI and the card both stay legible. */
@@ -63,6 +69,10 @@ export function mergeDispatchPolicy(stored) {
     s.travelBufferEnabled === undefined ? DEFAULT_DISPATCH_POLICY.travelBufferEnabled : s.travelBufferEnabled === true;
   base.safetyBufferMinutes = POSITIVE_MINUTES(s.safetyBufferMinutes) ?? DEFAULT_DISPATCH_POLICY.safetyBufferMinutes;
   base.bufferFloorMinutes = POSITIVE_MINUTES(s.bufferFloorMinutes) ?? DEFAULT_DISPATCH_POLICY.bufferFloorMinutes;
+  base.departureBufferMinutes =
+    POSITIVE_MINUTES(s.departureBufferMinutes) ?? DEFAULT_DISPATCH_POLICY.departureBufferMinutes;
+  base.earlyStartAllowanceMinutes =
+    POSITIVE_MINUTES(s.earlyStartAllowanceMinutes) ?? DEFAULT_DISPATCH_POLICY.earlyStartAllowanceMinutes;
   return base;
 }
 
@@ -103,7 +113,7 @@ export function validateDispatchPolicy(policy) {
       return { ok: false, error: "departure alert thresholds must be distinct" };
     }
   }
-  for (const key of ["safetyBufferMinutes", "bufferFloorMinutes"]) {
+  for (const key of ["safetyBufferMinutes", "bufferFloorMinutes", "departureBufferMinutes", "earlyStartAllowanceMinutes"]) {
     const v = policy?.[key];
     if (v === undefined || v === null) continue;
     if (!Number.isFinite(Number(v)) || Number(v) <= 0) {

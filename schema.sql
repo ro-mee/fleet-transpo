@@ -130,7 +130,7 @@ CREATE TABLE dispatchschedules (
   updated_by integer,
   request_id integer,
   cancel_reason text,
-  CONSTRAINT chk_dispatch_status CHECK (((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying, 'Pending Reassignment'::character varying])::text[]))),
+  CONSTRAINT chk_dispatch_status CHECK (((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Pending Reassignment'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT dispatchschedules_pkey PRIMARY KEY (dispatch_id),
   CONSTRAINT dispatchschedules_dispatch_number_key UNIQUE (dispatch_number)
 );
@@ -147,6 +147,23 @@ CREATE TABLE driver_consents (
   CONSTRAINT driver_consents_pkey PRIMARY KEY (consent_id)
 );
 
+CREATE TABLE driver_leave_requests (
+  leave_request_id integer DEFAULT nextval('driver_leave_requests_leave_request_id_seq'::regclass) NOT NULL,
+  driver_id integer NOT NULL,
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  leave_type varchar(50) DEFAULT 'Vacation Leave'::character varying NOT NULL,
+  reason text,
+  status varchar(20) DEFAULT 'Pending'::character varying NOT NULL,
+  requested_at timestamptz DEFAULT now() NOT NULL,
+  reviewed_by integer,
+  reviewed_at timestamptz,
+  review_notes text,
+  CONSTRAINT chk_leave_interval CHECK ((end_date >= start_date)),
+  CONSTRAINT driver_leave_requests_status_check CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Declined'::character varying])::text[]))),
+  CONSTRAINT driver_leave_requests_pkey PRIMARY KEY (leave_request_id)
+);
+
 CREATE TABLE driver_vehicle_assignments (
   assignment_id integer DEFAULT nextval('driver_vehicle_assignments_assignment_id_seq'::regclass) NOT NULL,
   driver_id integer NOT NULL,
@@ -161,6 +178,26 @@ CREATE TABLE driver_vehicle_assignments (
   updated_by integer,
   CONSTRAINT chk_dva_interval CHECK (((assigned_until IS NULL) OR (assigned_until >= assigned_from))),
   CONSTRAINT driver_vehicle_assignments_pkey PRIMARY KEY (assignment_id)
+);
+
+CREATE TABLE driver_work_schedules (
+  schedule_id integer DEFAULT nextval('driver_work_schedules_schedule_id_seq'::regclass) NOT NULL,
+  driver_id integer NOT NULL,
+  day_of_week smallint NOT NULL,
+  shift_start time NOT NULL,
+  shift_end time NOT NULL,
+  break_start time,
+  break_end time,
+  is_rest_day boolean DEFAULT false NOT NULL,
+  created_by integer,
+  updated_by integer,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT chk_sched_break CHECK ((((break_start IS NULL) AND (break_end IS NULL)) OR ((break_start IS NOT NULL) AND (break_end IS NOT NULL) AND (break_end > break_start)))),
+  CONSTRAINT chk_sched_rest_day CHECK (((NOT is_rest_day) OR ((shift_start = '00:00:00'::time without time zone) AND (shift_end = '00:00:00'::time without time zone)))),
+  CONSTRAINT chk_sched_shift CHECK ((is_rest_day OR (shift_end > shift_start))),
+  CONSTRAINT driver_work_schedules_day_of_week_check CHECK (((day_of_week >= 0) AND (day_of_week <= 6))),
+  CONSTRAINT driver_work_schedules_pkey PRIMARY KEY (schedule_id)
 );
 
 CREATE TABLE driverattendance (
@@ -512,7 +549,7 @@ CREATE TABLE transportation_requests (
   is_emergency boolean DEFAULT false NOT NULL,
   derived_priority varchar(20),
   CONSTRAINT chk_transport_derived_priority CHECK (((derived_priority IS NULL) OR ((derived_priority)::text = ANY ((ARRAY['Overdue'::character varying, 'Critical'::character varying, 'High'::character varying, 'Medium'::character varying, 'Normal'::character varying, 'Future'::character varying])::text[])))),
-  CONSTRAINT chk_transport_fleet_status CHECK (((fleet_status)::text = ANY ((ARRAY['Pending'::character varying, 'Under Review'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Scheduled'::character varying, 'Assigned'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
+  CONSTRAINT chk_transport_fleet_status CHECK (((fleet_status)::text = ANY ((ARRAY['Pending'::character varying, 'Scheduled'::character varying, 'Assigned'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT chk_transport_priority CHECK (((priority)::text = ANY ((ARRAY['Urgent'::character varying, 'High'::character varying, 'Medium'::character varying, 'Low'::character varying])::text[]))),
   CONSTRAINT transportation_requests_pkey PRIMARY KEY (request_id),
   CONSTRAINT transportation_requests_external_booking_id_key UNIQUE (external_booking_id),
@@ -556,7 +593,7 @@ CREATE TABLE trips (
   smooth_driving_score numeric(3,2),
   customer_rating numeric(2,1),
   performance_notes text,
-  CONSTRAINT chk_trip_status CHECK (((trip_status)::text = ANY ((ARRAY['Assigned'::character varying, 'Pending'::character varying, 'Approved'::character varying, 'Vehicle Assigned'::character varying, 'Driver Assigned'::character varying, 'Dispatched'::character varying, 'Driver Accepted'::character varying, 'Trip Started'::character varying, 'En Route'::character varying, 'Arrived'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
+  CONSTRAINT chk_trip_status CHECK (((trip_status)::text = ANY ((ARRAY['Assigned'::character varying, 'Pending'::character varying, 'Approved'::character varying, 'Vehicle Assigned'::character varying, 'Driver Assigned'::character varying, 'Dispatched'::character varying, 'Driver Accepted'::character varying, 'Trip Started'::character varying, 'At Pickup'::character varying, 'Passenger Onboard'::character varying, 'En Route'::character varying, 'Drop-off'::character varying, 'Arrived'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT trips_pkey PRIMARY KEY (trip_id)
 );
 
@@ -633,6 +670,7 @@ CREATE TABLE vehicleinspection (
   status varchar(50) DEFAULT 'Pending'::character varying,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
+  trip_id integer,
   CONSTRAINT vehicleinspection_pkey PRIMARY KEY (inspection_id)
 );
 
@@ -710,10 +748,15 @@ ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_route_id_fkey FOR
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE driver_consents ADD CONSTRAINT driver_consents_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
+ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
+ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
+ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
+ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE driverattendance ADD CONSTRAINT driverattendance_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
@@ -771,6 +814,7 @@ ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_dispatch_id_fkey FO
 ALTER TABLE uvvrp_violations ADD CONSTRAINT uvvrp_violations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicledocuments ADD CONSTRAINT vehicledocuments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id) ON DELETE CASCADE;
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -806,6 +850,7 @@ CREATE INDEX idx_drivers_face ON public.drivers USING btree (face_image_url);
 CREATE INDEX idx_drivers_status ON public.drivers USING btree (driver_status);
 CREATE INDEX idx_dva_driver_history ON public.driver_vehicle_assignments USING btree (driver_id, assigned_from DESC);
 CREATE INDEX idx_dva_vehicle_history ON public.driver_vehicle_assignments USING btree (vehicle_id, assigned_from DESC);
+CREATE INDEX idx_dws_driver ON public.driver_work_schedules USING btree (driver_id);
 CREATE INDEX idx_employees_email ON public.employees USING btree (email);
 CREATE INDEX idx_employees_role ON public.employees USING btree (role_id);
 CREATE INDEX idx_employees_status ON public.employees USING btree (status);
@@ -814,6 +859,8 @@ CREATE INDEX idx_fuel_vehicle ON public.fuelrecords USING btree (vehicle_id);
 CREATE INDEX idx_integration_event ON public.integration_log USING btree (event_type);
 CREATE INDEX idx_integration_external ON public.integration_log USING btree (external_booking_id);
 CREATE INDEX idx_integration_status ON public.integration_log USING btree (status);
+CREATE INDEX idx_leave_driver ON public.driver_leave_requests USING btree (driver_id, start_date DESC);
+CREATE INDEX idx_leave_status ON public.driver_leave_requests USING btree (status);
 CREATE INDEX idx_locations_name ON public.locations USING btree (name);
 CREATE INDEX idx_maintenance_date ON public.vehiclemaintenance USING btree (maintenance_date);
 CREATE INDEX idx_maintenance_status ON public.vehiclemaintenance USING btree (status);
@@ -857,6 +904,7 @@ CREATE INDEX idx_uvvrp_violations_vehicle ON public.uvvrp_violations USING btree
 CREATE INDEX idx_vehicledocuments_expiry ON public.vehicledocuments USING btree (expiry_date);
 CREATE INDEX idx_vehicledocuments_type ON public.vehicledocuments USING btree (document_type);
 CREATE INDEX idx_vehicledocuments_vehicle ON public.vehicledocuments USING btree (vehicle_id);
+CREATE INDEX idx_vehicleinspection_trip ON public.vehicleinspection USING btree (trip_id, inspection_date DESC, created_at DESC);
 CREATE INDEX idx_vehicleinspection_vehicle_date ON public.vehicleinspection USING btree (vehicle_id, inspection_date DESC, created_at DESC);
 CREATE INDEX idx_vehicles_category ON public.vehicles USING btree (category_id);
 CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
@@ -864,6 +912,7 @@ CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status)
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
 CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments USING btree (driver_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dva_active_vehicle ON public.driver_vehicle_assignments USING btree (vehicle_id) WHERE (assigned_until IS NULL);
+CREATE UNIQUE INDEX uq_dws_driver_day ON public.driver_work_schedules USING btree (driver_id, day_of_week);
 CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots USING btree (request_id) WHERE (is_consumed = false);
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
 

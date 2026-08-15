@@ -9,6 +9,8 @@ import {
   maintenanceRiskGain,
   scoreReservationVehicles,
   scoreDispatchDrivers,
+  workloadIndex,
+  scoreWorkloadBalance,
 } from "@/lib/ai/rule-engine";
 
 const NOW = new Date(2026, 7, 4, 12, 0, 0);
@@ -76,6 +78,47 @@ describe("maintenanceRiskGain", () => {
     expect(maintenanceRiskGain(RISK.CRITICAL)).toBeLessThan(0);
     expect(maintenanceRiskGain(RISK.OVERDUE)).toBeLessThan(0);
     expect(maintenanceRiskGain(undefined)).toBe(0.5);
+  });
+});
+
+describe("workloadIndex (AI Fair Workload Distribution)", () => {
+  it("weights recent activity heavier than older activity", () => {
+    const recent = workloadIndex({ trips7d: 2, trips30d: 0 });
+    const older = workloadIndex({ trips7d: 0, trips30d: 4 });
+    expect(recent).toBeGreaterThan(older);
+    expect(recent).toBe(2);
+    expect(older).toBeCloseTo(1.6);
+  });
+
+  it("folds distance and drive time onto the trip-count scale", () => {
+    const tripsOnly = workloadIndex({ trips7d: 4 });
+    const withKm = workloadIndex({ trips7d: 4, km7d: 40, hours7d: 1.5 });
+    expect(withKm).toBeGreaterThan(tripsOnly);
+  });
+
+  it("returns 0 (neutral) when there is no recorded history", () => {
+    expect(workloadIndex({})).toBe(0);
+    expect(workloadIndex({ trips7d: 0, trips30d: 0 })).toBe(0);
+    expect(workloadIndex(null)).toBe(0);
+  });
+});
+
+describe("scoreWorkloadBalance (AI Fair Workload Distribution)", () => {
+  it("scores the lightest driver 1.0 and the heaviest 0.0 (pool-relative)", () => {
+    expect(scoreWorkloadBalance(0, 10)).toBe(1);
+    expect(scoreWorkloadBalance(10, 10)).toBe(0);
+    expect(scoreWorkloadBalance(5, 10)).toBe(0.5);
+  });
+
+  it("is neutral (0.5) when the pool has no workload data", () => {
+    expect(scoreWorkloadBalance(0, 0)).toBe(0.5);
+    expect(scoreWorkloadBalance(3, undefined)).toBe(0.5);
+    expect(scoreWorkloadBalance(null, null)).toBe(0.5);
+  });
+
+  it("clamps to 0..1", () => {
+    expect(scoreWorkloadBalance(30, 10)).toBe(0);
+    expect(scoreWorkloadBalance(-5, 10)).toBe(1);
   });
 });
 

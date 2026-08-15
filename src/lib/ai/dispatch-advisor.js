@@ -245,6 +245,10 @@ function toPairCandidate(pair, request, trip) {
     confidence: Number(pair.confidence),
     reasons: pair.reasons,
     checklist: pair.checklist ?? [],
+    // AI Fair Workload Distribution — pool-relative fairness score + the
+    // driver's rolling workload detail (null when no history exists).
+    fairness_score: pair.fairness_score ?? null,
+    workload: pair.workload ?? null,
     estimated_pickup_minutes: pair.estimated_pickup_minutes,
     distance_km: pair.distance_km,
   };
@@ -304,6 +308,8 @@ export function buildDispatchRecommendation({
   activePairs = [],
   activeSubstitutes = [],
   now = new Date(),
+  returnAt,
+  scheduleContext,
 }) {
   const passengers = Number(request?.passenger_count) || 1;
   const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
@@ -317,6 +323,8 @@ export function buildDispatchRecommendation({
     activeSubstitutes,
     trip,
     now,
+    returnAt,
+    scheduleContext,
   });
 
   // Legacy independent scores, retained ONLY for backward compatibility of the

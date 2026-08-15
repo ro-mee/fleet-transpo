@@ -33,6 +33,11 @@ function LogCard({ item, colors, onPress }) {
       if (s === "approved") return { text: "APPROVED", bg: "#d1fae5", textCol: "#047857" };
       if (s === "rejected") return { text: "REJECTED", bg: "#fee2e2", textCol: "#b91c1c" };
     }
+    if (item.recordType === "INSPECTION") {
+      const s = item.status?.toLowerCase();
+      if (s === "passed") return { text: "PASSED", bg: "#d1fae5", textCol: "#047857" };
+      if (s === "failed") return { text: "FAILED", bg: "#fee2e2", textCol: "#b91c1c" };
+    }
     return { text: "LOGGED", bg: colors.secondaryContainer, textCol: colors.onSecondaryContainer };
   };
 

@@ -7,6 +7,7 @@ import { assertDispatchOwnership } from "@/lib/api/ownership";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
 import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
+import { validatePairAvailability } from "@/services/recommendation.service";
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
 const NON_DISPATCHABLE_DRIVER = ["Suspended", "On Leave", "Off Duty"];
@@ -226,6 +227,26 @@ export async function PUT(req, { params }) {
         const c = conflicts[0];
         const who = c.vehicle_id && c.vehicle_id === effVehicleId ? "vehicle" : "driver";
         return err(`This ${who} is already dispatched (${c.dispatch_number || `#${c.dispatch_id}`}) during that time window.`, 409);
+      }
+    }
+
+    // Designated-driver enforcement — the same guard the create path and the
+    // assign endpoint apply. A driver must not be dispatched in a different car
+    // than the one they are the custodian of, unless that custodian is provably
+    // unavailable and a substitute covers the departure date. The reassign
+    // dialog only offers valid pairs, but a direct caller must get the same 409.
+    if (effVehicleId && effDriverId) {
+      const pairCheck = await validatePairAvailability({
+        request: { pickup_datetime: effDeparture ?? null },
+        vehicleId: effVehicleId,
+        driverId: effDriverId,
+        now: effDeparture ? new Date(effDeparture) : new Date(),
+      });
+      if (!pairCheck.ok) {
+        return err(
+          `${pairCheck.conflict.message} Assign the designated driver, or release the pairing first.`,
+          409
+        );
       }
     }
 
