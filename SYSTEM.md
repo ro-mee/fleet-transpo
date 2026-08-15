@@ -20,9 +20,11 @@ distinct **workspace** (identity, tagline, accent, home, role-specific nav)
 driven by `src/lib/workspaces.js` (`WORKS[role]`, `getWorkspace(role)`); role
 dashboards render through `src/components/dashboard/role-dashboard.jsx` +
 `dashboard-configs.js`. Earlier additions still apply: **read-only operational/
-executive boards** (`/fleet/availability`, `/drivers/availability`,
-`/fleet/documents`, `/drivers/performance`, `/reports/cost`, `/executive`) and
-endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`.
+executive boards** (`/fleet/documents`, `/drivers/performance`, `/reports/cost`,
+`/executive`) and
+endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`. The
+`/fleet/availability` + `/drivers/availability` boards were **removed 2026-08-15**
+(availability is derived from schedule-overlap, not a board page).
 
 **Latest changes** (the current feature wave — details in §7/§8/§9):
 
@@ -626,8 +628,6 @@ workspaces. Management-facing boards are strictly read-only (no write controls).
 
 | Route | Purpose | Roles |
 |---|---|---|
-| `/fleet/availability` | Vehicles grouped by status | admin, system_admin, fleet_manager, dispatcher |
-| `/drivers/availability` | Drivers grouped by duty status | admin, system_admin, fleet_manager, dispatcher, management |
 | `/fleet/documents` | Document Expiration Center — Vehicle / Driver tabs; driver licenses + vehicle registration/OR-CR/insurance | admin, system_admin, fleet_manager |
 | `/drivers/performance` | Driver Performance Center — on-time, trips, score, cost/km | admin, system_admin, fleet_manager, management |
 | `/reports/cost` | Fleet Cost Dashboard — per-vehicle fuel/maintenance cost | admin, system_admin, fleet_manager, management |

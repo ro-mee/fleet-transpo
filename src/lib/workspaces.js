@@ -30,7 +30,6 @@ import {
   Database,
   Navigation,
   AlertTriangle,
-  LayoutGrid,
 } from "lucide-react";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
@@ -147,8 +146,7 @@ export const WORKS = {
         label: "Fleet Operations",
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
-          { href: "/fleet/availability", label: "Vehicle Availability Board", icon: Truck },
-          { href: "/drivers/availability", label: "Driver Availability Board", icon: LayoutGrid },
+
           { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
           { href: "/drivers", label: "Driver Management", icon: Users },
           { href: "/drivers/leave", label: "Driver Leave Requests", icon: CalendarCheck },

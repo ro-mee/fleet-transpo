@@ -66,6 +66,12 @@ export default function NotificationsPage() {
   const { data: notifications = [] } = useQuery({
     queryKey: ["notifications", filter],
     queryFn: () => getNotifications(filter === "unread" ? { is_read: false } : {}),
+    // New notifications should appear without a page reload: poll every 15s,
+    // keep polling in background tabs, and refetch on window focus (the
+    // global default is refetchOnWindowFocus: false).
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
 
   const markReadMutation = useMutation({

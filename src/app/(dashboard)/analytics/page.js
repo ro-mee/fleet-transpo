@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AnimatePresence, MotionConfig, animate, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { EmptyState } from "@/components/ui/empty-state";
 import {
   getFleetUtilizationReport,
   getFuelConsumptionReport,
@@ -24,7 +23,6 @@ import { exportToCSV } from "@/lib/export";
 import {
   AreaChart,
   Area,
-  BarChart,
   Bar,
   ComposedChart,
   Line,
@@ -39,22 +37,15 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
-  BarChart3,
   Activity,
-  Truck,
-  Fuel,
-  DollarSign,
-  Wrench,
-  Download,
-  Calendar,
-  ShieldCheck,
-  TrendingUp,
-  UserCheck,
-  Zap,
-  Sparkles,
   ArrowUpRight,
-  CheckCircle2,
   Award,
+  Calendar,
+  CheckCircle2,
+  DollarSign,
+  Download,
+  Fuel,
+  ShieldCheck,
   Star,
 } from "lucide-react";
 
@@ -66,26 +57,82 @@ const PIE_COLORS = {
   Overdue: "#dc2626",
 };
 
-function CustomTooltip({ active, payload, label }) {
+// The app's `@theme inline` tokens are NOT emitted as raw CSS variables, so
+// `var(--success)` etc. resolve to nothing and render black. Use the design
+// system's actual hex values for chart strokes/fills instead.
+const CHART = {
+  info: "#3b82f6",
+  success: "#10b981",
+  warning: "#f59e0b",
+  danger: "#ef4444",
+};
+
+/* ── Motion language ───────────────────────────────────────────────
+   One shared ease curve (same as the auth surfaces) and one set of
+   entrance variants. Every reveal uses transform + opacity only, and
+   MotionConfig reducedMotion="user" collapses it for reduced-motion
+   users. */
+const EASE = [0.32, 0.72, 0, 1];
+
+const container = {
+  hidden: {},
+  show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } },
+};
+
+const item = {
+  hidden: { opacity: 0, y: 24 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.7, ease: EASE } },
+};
+
+const VIEWPORT = { once: true, margin: "-60px" };
+
+// Shared recharts styling — keeps every chart consistent.
+const AXIS_TICK = { fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" };
+const AXIS_TICK_SM = { fontSize: 10, fill: "var(--fg-muted)", fontWeight: "600" };
+const GRID = { strokeDasharray: "3 3", stroke: "var(--br)", strokeOpacity: 0.55, vertical: false };
+
+// Card shadows — one source of truth for the floating-card language.
+const KPI_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_24px_48px_-32px_rgba(17,24,39,0.3)]";
+const KPI_SHADOW_HOVER = "hover:shadow-[0_28px_56px_-32px_rgba(17,24,39,0.38)]";
+const CARD_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_20px_44px_-30px_rgba(17,24,39,0.28)]";
+const CARD_SHADOW_HOVER = "hover:shadow-[0_24px_52px_-30px_rgba(17,24,39,0.34)]";
+
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const onChange = (e) => setReduced(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+/* ── Chart tooltip — inverted for contrast on both themes ────────── */
+function tooltipValue(entry) {
+  const name = (entry.name || "").toLowerCase();
+  if (name.includes("cost") || name.includes("expense")) return formatCurrency(entry.value);
+  if (name.includes("liters")) return `${Number(entry.value).toLocaleString()} L`;
+  return Number(entry.value).toLocaleString();
+}
+
+function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   return (
-    <div className="rounded-2xl border border-border/80 bg-surface shadow-xl p-3.5 text-xs space-y-1.5 min-w-[170px]">
-      <p className="font-extrabold text-foreground border-b border-border/60 pb-1 text-[11px] uppercase tracking-wider">{label}</p>
-      {payload.map((entry, idx) => (
-        <div key={idx} className="flex items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-1.5 font-bold text-foreground-secondary">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color || entry.fill }} />
-            <span>{entry.name}:</span>
+    <div className="min-w-[180px] rounded-2xl bg-foreground p-4 text-surface shadow-[0_24px_60px_-24px_rgba(17,24,39,0.5)]">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-60">{label}</p>
+      <div className="mt-2.5 space-y-2">
+        {payload.map((entry, i) => (
+          <div key={i} className="flex items-center justify-between gap-6">
+            <span className="flex items-center gap-2 text-xs font-medium opacity-85">
+              <span className="h-2 w-2 rounded-full" style={{ background: entry.color || entry.fill }} />
+              {entry.name}
+            </span>
+            <span className="font-data text-[13px] font-bold">{tooltipValue(entry)}</span>
           </div>
-          <span className="font-medium font-data text-foreground">
-            {entry.name.toLowerCase().includes("cost") || entry.name.toLowerCase().includes("expense")
-              ? formatCurrency(entry.value)
-              : entry.name.toLowerCase().includes("liters")
-              ? `${entry.value.toLocaleString()} L`
-              : entry.value.toLocaleString()}
-          </span>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -98,8 +145,146 @@ function localDayOf(value) {
   return Number.isNaN(d.getTime()) ? null : toCalendarDay(d);
 }
 
+/* ── KPI cards ────────────────────────────────────────────────────── */
+const KPI_TONES = {
+  success: { deltaText: "text-success", glow: "from-success/15" },
+  primary: { deltaText: "text-foreground-secondary", glow: "from-primary/10" },
+  info: { deltaText: "text-info", glow: "from-info/15" },
+  danger: { deltaText: "text-warning", glow: "from-danger/15" },
+};
+
+function KpiCard({ label, value, delta, deltaIcon = false, context, tone }) {
+  const t = KPI_TONES[tone] || KPI_TONES.primary;
+  return (
+    <motion.div
+      variants={item}
+      className={cn(
+        "group relative overflow-hidden rounded-[1.6rem] bg-surface p-6 ring-1 ring-black/[0.04] transition-all duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-1 dark:ring-white/[0.06]",
+        KPI_SHADOW,
+        KPI_SHADOW_HOVER
+      )}
+    >
+      {/* Tonal glow washing down from the top edge */}
+      <div aria-hidden className={cn("pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent", t.glow)} />
+      <p className="relative text-[10px] font-bold uppercase tracking-[0.18em] text-foreground-muted">{label}</p>
+      <div className="relative mt-3.5 flex items-end justify-between gap-3">
+        <p className="font-data text-[2.1rem] font-bold leading-none tracking-tight text-foreground">{value}</p>
+        <span className={cn("flex shrink-0 items-center gap-0.5 pb-1 font-data text-xs font-bold", t.deltaText)}>
+          {deltaIcon && <ArrowUpRight className="h-3.5 w-3.5" strokeWidth={2.25} />}
+          {delta}
+        </span>
+      </div>
+      <p className="relative mt-2.5 text-[11px] font-medium text-foreground-secondary">{context}</p>
+    </motion.div>
+  );
+}
+
+/* ── Chart card shell ────────────────────────────────────────────── */
+function ChartCard({ icon: Icon, iconTone, title, subtitle, actions, className, children }) {
+  return (
+    <motion.div
+      variants={item}
+      className={cn(
+        "group rounded-[1.75rem] border border-border/70 bg-surface p-5 transition-shadow duration-500 sm:p-6",
+        CARD_SHADOW,
+        CARD_SHADOW_HOVER,
+        className
+      )}
+    >
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:shadow-none", iconTone)}>
+            <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-[15px] font-bold tracking-tight text-foreground">{title}</h3>
+            {subtitle && <p className="mt-0.5 truncate text-xs font-medium text-foreground-muted">{subtitle}</p>}
+          </div>
+        </div>
+        {actions && <div className="flex shrink-0 items-center">{actions}</div>}
+      </header>
+      {children}
+    </motion.div>
+  );
+}
+
+/* ── Segmented toggle (pill with sliding indicator) ──────────────── */
+function SegmentedToggle({ value, onChange, layoutId, options }) {
+  return (
+    <div className="flex items-center gap-1 rounded-full bg-hover/70 p-1 ring-1 ring-border/60">
+      {options.map((opt) => {
+        const active = value === opt.value;
+        const Icon = opt.icon;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => onChange(opt.value)}
+            aria-pressed={active}
+            className={cn(
+              "relative cursor-pointer rounded-full px-3 py-1.5 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+              active ? "text-foreground" : "text-foreground-muted hover:text-foreground"
+            )}
+          >
+            {active && (
+              <motion.span
+                layoutId={layoutId}
+                className="absolute inset-0 rounded-full bg-surface shadow-[0_1px_4px_rgba(17,24,39,0.18)] ring-1 ring-border/50"
+                transition={{ type: "spring", stiffness: 480, damping: 38 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-1.5">
+              {Icon && <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />}
+              {opt.label}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ── Timeframe segmented control ─────────────────────────────────── */
+function TimeframeControl({ value, onChange }) {
+  const options = [
+    { id: "7d", label: "7 Days" },
+    { id: "30d", label: "30 Days" },
+    { id: "month", label: "This Month" },
+    { id: "all", label: "All Time" },
+  ];
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-full bg-hover/70 p-1 ring-1 ring-border/60">
+      {options.map((p) => {
+        const active = value === p.id;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onChange(p.id)}
+            aria-pressed={active}
+            className={cn(
+              "relative cursor-pointer rounded-full px-4 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface",
+              active ? "text-surface" : "text-foreground-secondary hover:text-foreground"
+            )}
+          >
+            {active && (
+              <motion.span
+                layoutId="timeframe-pill"
+                className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]"
+                transition={{ type: "spring", stiffness: 480, damping: 38 }}
+              />
+            )}
+            <span className="relative z-10">{p.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AnalyticsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  const reducedMotion = useReducedMotion();
 
   const [dateRange, setDateRange] = useState("30d");
 
@@ -327,478 +512,592 @@ export default function AnalyticsPage() {
     return days;
   }, [reservations]);
 
+  // Donut center count-up.
+  const [riskCount, setRiskCount] = useState(0);
+  useEffect(() => {
+    if (reducedMotion) {
+      setRiskCount(totalRiskCount);
+      return;
+    }
+    const controls = animate(0, totalRiskCount, {
+      duration: 1.1,
+      ease: EASE,
+      onUpdate: (v) => setRiskCount(Math.round(v)),
+    });
+    return () => controls.stop();
+  }, [totalRiskCount, reducedMotion]);
+
+  // Unique gradient ids per chart instance.
+  const areaGradId = useId().replace(/:/g, "");
+  const fuelBarGradId = useId().replace(/:/g, "");
+  const monthlyBarGradId = useId().replace(/:/g, "");
+
+  const kpis = [
+    {
+      label: "Total Operational Cost",
+      value: formatCurrency(fi.totalCost || 148500),
+      tone: "success",
+      delta: "+4.2%",
+      deltaIcon: true,
+      context: "Fuel & maintenance total",
+    },
+    {
+      label: "Cost Per Kilometer",
+      value: formatCurrency(fi.costPerKm || 14.85),
+      tone: "primary",
+      delta: "Optimal",
+      context: `${formatDistance(f.totalDistance || 10000)} total distance`,
+    },
+    {
+      label: "Fleet Utilization",
+      value: `${f.utilization || 78}%`,
+      tone: "info",
+      delta: "High Capacity",
+      context: `${f.totalTrips || 142} total trips completed`,
+    },
+    {
+      label: "Maintenance Risk Due",
+      value: maintDue || 3,
+      tone: "danger",
+      delta: "Action Needed",
+      context: `${maintDue || 3} vehicles need service`,
+    },
+  ];
+
+  const driverRowVariant = {
+    hidden: { opacity: 0, y: 16 },
+    show: (i) => ({ opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE, delay: i * 0.06 } }),
+  };
+
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
-      {/* ── HERO HEADER BAR ── */}
-      <HeroHeader
-        icon={Activity}
-        title="Fleet Telemetry & Executive Analytics"
-        badge="Telemetry Engine"
-        description="Real-time operational trends across vehicle utilization, fuel economy, maintenance risks, and driver leaderboards."
-        actions={
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() =>
-              exportToCSV(
-                [
-                  {
-                    utilization: `${f.utilization}%`,
-                    total_distance_km: f.totalDistance,
-                    total_trips: f.totalTrips,
-                    fuel_liters: fu.totalLiters,
-                    fuel_cost: fu.totalCost,
-                    maintenance_cost: fi.maintCost,
-                    total_cost: fi.totalCost,
-                    cost_per_km: fi.costPerKm,
-                  },
-                ],
-                "fleet-analytics-summary",
-                [
-                  { label: "Utilization Rate", key: "utilization" },
-                  { label: "Total Distance (km)", key: "total_distance_km" },
-                  { label: "Total Trips", key: "total_trips" },
-                  { label: "Fuel Consumed (L)", key: "fuel_liters" },
-                  { label: "Fuel Expenses (₱)", key: "fuel_cost" },
-                  { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
-                  { label: "Total Operating Expenses (₱)", key: "total_cost" },
-                  { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
-                ]
-              )
+    <MotionConfig reducedMotion="user">
+      <div className="relative w-full select-none space-y-6 pb-16">
+        {/* Ambient background orbs — decorative, painted behind the cards */}
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] overflow-hidden">
+          <div className="absolute -top-24 right-[6%] h-80 w-80 rounded-full bg-primary/[0.05] blur-3xl" />
+          <div className="absolute left-[24%] top-16 h-72 w-72 rounded-full bg-info/[0.06] blur-3xl" />
+          <div className="absolute right-[38%] top-40 h-64 w-64 rounded-full bg-success/[0.05] blur-3xl" />
+        </div>
+
+        {/* ── HERO HEADER BAR ── */}
+        <motion.div variants={item} initial="hidden" animate="show" className="relative">
+          <HeroHeader
+            icon={Activity}
+            title="Fleet Telemetry & Executive Analytics"
+            badge="Telemetry Engine"
+            description="Real-time operational trends across vehicle utilization, fuel economy, maintenance risks, and driver leaderboards."
+            actions={
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() =>
+                  exportToCSV(
+                    [
+                      {
+                        utilization: `${f.utilization}%`,
+                        total_distance_km: f.totalDistance,
+                        total_trips: f.totalTrips,
+                        fuel_liters: fu.totalLiters,
+                        fuel_cost: fu.totalCost,
+                        maintenance_cost: fi.maintCost,
+                        total_cost: fi.totalCost,
+                        cost_per_km: fi.costPerKm,
+                      },
+                    ],
+                    "fleet-analytics-summary",
+                    [
+                      { label: "Utilization Rate", key: "utilization" },
+                      { label: "Total Distance (km)", key: "total_distance_km" },
+                      { label: "Total Trips", key: "total_trips" },
+                      { label: "Fuel Consumed (L)", key: "fuel_liters" },
+                      { label: "Fuel Expenses (₱)", key: "fuel_cost" },
+                      { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
+                      { label: "Total Operating Expenses (₱)", key: "total_cost" },
+                      { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
+                    ]
+                  )
+                }
+                className={cn(
+                  "group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs",
+                  heroButtonPrimaryClass
+                )}
+              >
+                <Download className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                Export Analytics CSV
+                <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
+                  <ArrowUpRight className="h-4 w-4" strokeWidth={2} />
+                </span>
+              </Button>
             }
-            className={cn("rounded-full h-10 px-5 text-xs font-bold shadow-2xs cursor-pointer", heroButtonPrimaryClass)}
           >
-            <Download className="w-4 h-4 mr-2" /> Export Analytics CSV
-          </Button>
-        }
-      />
+            <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-slate-600">
+              <span className="relative flex h-2 w-2">
+                <motion.span
+                  className="absolute inline-flex h-full w-full rounded-full bg-emerald-400"
+                  animate={{ scale: [1, 2.6], opacity: [0.5, 0] }}
+                  transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
+                />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+              </span>
+              Live Telemetry
+            </span>
+          </HeroHeader>
+        </motion.div>
 
-      {/* ── TIMEFRAME SELECTOR BAR ── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-3xl bg-surface border border-border/80 shadow-xs">
-        <div className="flex items-center gap-2 text-xs font-bold text-foreground uppercase tracking-wider">
-          <Calendar className="w-4 h-4 text-primary" /> Timeframe Period:
-        </div>
+        {/* ── TIMEFRAME SELECTOR ── */}
+        <motion.div variants={item} initial="hidden" animate="show" className="relative">
+          <div className="flex flex-col gap-4 rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)] md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary">
+                <Calendar className="h-4 w-4" strokeWidth={1.75} />
+              </span>
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Timeframe Period</p>
+                <p className="mt-0.5 text-[11px] font-medium text-foreground-muted">
+                  {dateBounds.from} → {dateBounds.to}
+                </p>
+              </div>
+            </div>
+            <TimeframeControl value={dateRange} onChange={setDateRange} />
+          </div>
+        </motion.div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {[
-            { id: "7d", label: "Last 7 Days" },
-            { id: "30d", label: "Last 30 Days" },
-            { id: "month", label: "This Month" },
-            { id: "all", label: "All Time" },
-          ].map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setDateRange(p.id)}
-              className={cn(
-                "px-4 h-9 rounded-full text-xs font-bold transition-all cursor-pointer",
-                dateRange === p.id
-                  ? "bg-primary text-white dark:text-slate-950 border-primary shadow-2xs"
-                  : "bg-surface text-foreground-secondary border border-border/80 hover:border-primary/40"
-              )}
-            >
-              {p.label}
-            </button>
+        {/* ── AI ANALYST NARRATIVE (Tier 1) ── */}
+        <motion.div variants={item} initial="hidden" whileInView="show" viewport={VIEWPORT}>
+          <AiAnalystCard
+            title="AI Analyst · Executive Telemetry"
+            reportLabel="Consolidated analysis of utilization, cost-per-km, and maintenance risk"
+            loading={narrativeLoading || narrativeFetching}
+            data={narrative}
+            onRegenerate={() => setNarrativeForce((n) => n + 1)}
+            isRegenerating={narrativeFetching}
+          />
+        </motion.div>
+
+        {/* ── EXECUTIVE KPI CARDS ── */}
+        <motion.div
+          variants={container}
+          initial="hidden"
+          whileInView="show"
+          viewport={VIEWPORT}
+          className="relative grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-4"
+        >
+          {kpis.map((kpi) => (
+            <KpiCard key={kpi.label} {...kpi} />
           ))}
-        </div>
-      </div>
+        </motion.div>
 
-      {/* ── AI ANALYST NARRATIVE (Tier 1) ── */}
-      <AiAnalystCard
-        title="AI Analyst · Executive Telemetry"
-        reportLabel="Consolidated analysis of utilization, cost-per-km, and maintenance risk"
-        loading={narrativeLoading || narrativeFetching}
-        data={narrative}
-        onRegenerate={() => setNarrativeForce((n) => n + 1)}
-        isRegenerating={narrativeFetching}
-      />
-
-      {/* ── EXECUTIVE KPI CARDS ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Operational Cost */}
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Operational Cost</span>
-            <div className="p-2 rounded-2xl bg-success/10 text-success border border-success/20">
-              <DollarSign className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
-              <span>{formatCurrency(fi.totalCost || 148500)}</span>
-              <span className="text-xs font-bold text-success inline-flex items-center bg-success/10 px-2 py-0.5 rounded-full border border-success/20">
-                <ArrowUpRight className="w-3 h-3 mr-0.5" /> +4.2%
-              </span>
-            </div>
-            <p className="text-[11px] text-success font-semibold mt-1">Fuel &amp; maintenance total</p>
-          </div>
-        </div>
-
-        {/* KPI 2: Cost Per Km */}
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Cost Per Kilometer</span>
-            <div className="p-2 rounded-2xl bg-primary/10 text-primary border border-primary/20">
-              <TrendingUp className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
-              <span>{formatCurrency(fi.costPerKm || 14.85)}</span>
-              <span className="text-xs font-bold text-primary inline-flex items-center bg-primary/10 px-2 py-0.5 rounded-full border border-primary/20">
-                Optimal
-              </span>
-            </div>
-            <p className="text-[11px] text-primary font-medium mt-1 font-data">{formatDistance(f.totalDistance || 10000)} total distance</p>
-          </div>
-        </div>
-
-        {/* KPI 3: Fleet Utilization */}
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Fleet Utilization</span>
-            <div className="p-2 rounded-2xl bg-info/10 text-info border border-info/20">
-              <Truck className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
-              <span>{f.utilization || 78}%</span>
-              <span className="text-xs font-bold text-info inline-flex items-center bg-info/10 px-2 py-0.5 rounded-full border border-info/20">
-                High Capacity
-              </span>
-            </div>
-            <p className="text-[11px] text-info font-medium mt-1.5">{f.totalTrips || 142} total trips completed</p>
-          </div>
-        </div>
-
-        {/* KPI 4: Maintenance Risk Due */}
-        <div className="p-5 rounded-3xl border border-border/80 bg-surface shadow-xs flex flex-col justify-between space-y-3 hover:border-primary/50 hover:shadow-md transition-all duration-300">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Maintenance Risk Due</span>
-            <div className="p-2 rounded-2xl bg-danger/10 text-danger border border-danger/20">
-              <Wrench className="w-4.5 h-4.5" />
-            </div>
-          </div>
-          <div>
-            <div className="text-3xl font-medium text-foreground font-data flex items-center justify-between">
-              <span>{maintDue || 3}</span>
-              <span className="text-xs font-bold text-warning inline-flex items-center bg-warning/10 px-2 py-0.5 rounded-full border border-warning/20">
-                Action Needed
-              </span>
-            </div>
-            <p className="text-[11px] text-danger font-semibold mt-1">{maintDue || 3} vehicles need service</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── CHARTS ROW 1: Pickup Volume Dual-View Card & Donut Chart ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Pickup Volume Card with Dual-View Toggle (8 Cols) */}
-        <Card className="lg:col-span-8 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between gap-3">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-              <Activity className="w-4 h-4 text-primary" /> Pickup Request &amp; Booking Volume Trend
-            </CardTitle>
-
-            {/* DUAL-VIEW TOGGLE SWITCH (Chart vs Calendar View) */}
-            <div className="flex items-center gap-1 bg-muted/80 p-1 rounded-full border border-border/60 shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setVolumeView("chart")}
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
-                  volumeView === "chart"
-                    ? "bg-surface text-foreground shadow-2xs"
-                    : "text-foreground-secondary hover:text-foreground"
-                )}
-              >
-                <Activity className="w-3.5 h-3.5" /> Trend Chart
-              </button>
-              <button
-                type="button"
-                onClick={() => setVolumeView("calendar")}
-                className={cn(
-                  "px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5",
-                  volumeView === "calendar"
-                    ? "bg-surface text-foreground shadow-2xs"
-                    : "text-foreground-secondary hover:text-foreground"
-                )}
-              >
-                <Calendar className="w-3.5 h-3.5" /> Calendar View
-              </button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5">
-            {volumeView === "chart" ? (
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                  <AreaChart data={pickupDemandTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="areaGradPrimary" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
-                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Area type="monotone" dataKey="requests" name="Booking Requests" stroke="#3b82f6" strokeWidth={3} fill="url(#areaGradPrimary)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              /* CALENDAR HEATMAP VIEW */
-              <div className="space-y-3">
-                <div className="grid grid-cols-7 text-center text-[11px] font-bold text-foreground-secondary uppercase tracking-wider pb-1">
-                  <span>Sun</span>
-                  <span>Mon</span>
-                  <span>Tue</span>
-                  <span>Wed</span>
-                  <span>Thu</span>
-                  <span>Fri</span>
-                  <span>Sat</span>
-                </div>
-                <div className="grid grid-cols-7 gap-1.5">
-                  {calendarDaysData.map((d) => {
-                    if (d.isPadding) {
-                      return <div key={d.id} className="h-12 rounded-xl bg-muted/10 border border-transparent" />;
-                    }
-                    const isHigh = d.count >= 20;
-                    const isMed = d.count >= 10 && d.count < 20;
-                    return (
-                      <div
-                        key={d.id}
-                        className={cn(
-                          "h-12 rounded-xl p-1.5 flex flex-col justify-between border transition-all hover:scale-105",
-                          d.isToday ? "border-primary ring-2 ring-primary/30" : "border-border/60",
-                          isHigh
-                            ? "bg-success/15 border-success/30"
-                            : isMed
-                            ? "bg-primary/10 border-primary/20"
-                            : "bg-muted/30"
-                        )}
-                      >
-                        <div className="flex items-center justify-between text-[10px] font-bold">
-                          <span className={cn(d.isToday ? "text-primary font-medium" : "text-foreground-secondary")}>
-                            {d.dayNumber}
-                          </span>
-                          {d.isToday && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+        {/* ── CHARTS ROW 1: Pickup Volume & Fleet Risk ── */}
+        <div className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+          {/* Pickup Volume — large area chart with dual view toggle */}
+          <ChartCard
+            className="lg:col-span-7"
+            icon={Activity}
+            iconTone="bg-info/10 text-info border-info/20"
+            title="Pickup Request & Booking Volume"
+            subtitle="Requests per day across the selected period"
+            actions={
+              <SegmentedToggle
+                value={volumeView}
+                onChange={setVolumeView}
+                layoutId="volume-view-pill"
+                options={[
+                  { value: "chart", icon: Activity, label: "Trend" },
+                  { value: "calendar", icon: Calendar, label: "Calendar" },
+                ]}
+              />
+            }
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              {volumeView === "chart" ? (
+                <motion.div
+                  key="chart"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3, ease: EASE }}
+                  className="h-[300px]"
+                >
+                  <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                    {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
+                    <AreaChart key={dateRange} data={pickupDemandTrend} margin={{ top: 10, right: 6, left: -8, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id={areaGradId} x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={CHART.info} stopOpacity={0.3} />
+                          <stop offset="100%" stopColor={CHART.info} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid {...GRID} />
+                      <XAxis
+                        dataKey="date"
+                        tick={AXIS_TICK}
+                        axisLine={false}
+                        tickLine={false}
+                        dy={8}
+                        interval="preserveStartEnd"
+                        minTickGap={24}
+                      />
+                      <YAxis
+                        allowDecimals={false}
+                        width={38}
+                        tick={AXIS_TICK}
+                        axisLine={false}
+                        tickLine={false}
+                      />
+                      <Tooltip content={<ChartTooltip />} cursor={{ stroke: "var(--br)", strokeWidth: 1, strokeDasharray: "4 4" }} />
+                      <Area
+                        type="monotone"
+                        dataKey="requests"
+                        name="Booking Requests"
+                        stroke={CHART.info}
+                        strokeWidth={2.5}
+                        fill={`url(#${areaGradId})`}
+                        dot={false}
+                        activeDot={{ r: 6, strokeWidth: 2, stroke: "var(--sf)" }}
+                        animationDuration={reducedMotion ? 0 : 900}
+                        animationEasing="ease-out"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </motion.div>
+              ) : (
+                /* CALENDAR HEATMAP VIEW */
+                <motion.div
+                  key="calendar"
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3, ease: EASE }}
+                  className="space-y-3 pt-1"
+                >
+                  <div className="grid grid-cols-7 text-center text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
+                    <span>Sun</span>
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1.5">
+                    {calendarDaysData.map((d) => {
+                      if (d.isPadding) {
+                        return <div key={d.id} className="h-12 rounded-xl border border-transparent bg-muted/10" />;
+                      }
+                      const isHigh = d.count >= 20;
+                      const isMed = d.count >= 10 && d.count < 20;
+                      return (
+                        <div
+                          key={d.id}
+                          className={cn(
+                            "flex h-12 flex-col justify-between rounded-xl border p-1.5 transition-all duration-200",
+                            d.isToday ? "border-primary ring-2 ring-primary/25" : "border-border/60",
+                            isHigh
+                              ? "border-success/30 bg-success/15 hover:bg-success/20"
+                              : isMed
+                              ? "border-primary/20 bg-primary/10 hover:bg-primary/15"
+                              : "bg-muted/30 hover:bg-muted/50",
+                            !d.isPadding && "hover:scale-[1.03]"
+                          )}
+                        >
+                          <div className="flex items-center justify-between text-[10px] font-bold">
+                            <span className={cn(d.isToday ? "text-primary" : "text-foreground-secondary")}>{d.dayNumber}</span>
+                            {d.isToday && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                          </div>
+                          <div className="text-right">
+                            <span
+                              className={cn(
+                                "font-data text-[10px] font-medium rounded-md px-1.5 py-0.5",
+                                isHigh
+                                  ? "bg-success/20 text-success"
+                                  : isMed
+                                  ? "bg-primary/20 text-primary"
+                                  : "bg-muted text-foreground-muted"
+                              )}
+                            >
+                              {d.count} req
+                            </span>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <span
-                            className={cn(
-                              "font-data text-[10px] font-medium px-1.5 py-0.5 rounded-md",
-                              isHigh
-                                ? "bg-success/20 text-success"
-                                : isMed
-                                ? "bg-primary/20 text-primary"
-                                : "bg-muted text-foreground-muted"
-                            )}
-                          >
-                            {d.count} req
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                      );
+                    })}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </ChartCard>
 
-        {/* Enhanced Fleet Risk Distribution Card */}
-        <Card className="lg:col-span-4 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-              <ShieldCheck className="w-4 h-4 text-primary" /> Fleet Risk Distribution
-            </CardTitle>
-            <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[10px] font-bold">
-              92% Healthy
-            </Badge>
-          </CardHeader>
-          <CardContent className="p-5">
-            {/* Donut Chart with Radial Track & Corner Radius Slices */}
-            <div className="h-[220px] flex items-center justify-center relative">
+          {/* Fleet Risk Distribution — donut with animated count-up */}
+          <ChartCard
+            className="lg:col-span-5"
+            icon={ShieldCheck}
+            iconTone="bg-success/10 text-success border-success/20"
+            title="Fleet Risk Distribution"
+            subtitle="Predictive maintenance exposure by tier"
+            actions={
+              <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[10px] font-bold">
+                92% Healthy
+              </Badge>
+            }
+          >
+            <div className="relative flex h-[230px] items-center justify-center">
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <PieChart>
-                  {/* Subtle Background Track Rail */}
+                  {/* Subtle background track */}
                   <Pie
                     data={[{ value: 1 }]}
                     dataKey="value"
-                    innerRadius={60}
-                    outerRadius={88}
+                    innerRadius={64}
+                    outerRadius={92}
                     fill="var(--br)"
                     opacity={0.25}
                     isAnimationActive={false}
                   />
-                  {/* Main Rounded Slices */}
+                  {/* Rounded animated slices */}
                   <Pie
                     data={maintenanceRiskPie}
                     dataKey="value"
                     nameKey="name"
-                    innerRadius={60}
-                    outerRadius={88}
-                    paddingAngle={6}
-                    cornerRadius={6}
+                    innerRadius={64}
+                    outerRadius={92}
+                    paddingAngle={5}
+                    cornerRadius={7}
+                    animationDuration={reducedMotion ? 0 : 1000}
+                    animationEasing="ease-out"
                   >
                     {maintenanceRiskPie.map((entry) => (
                       <Cell key={entry.name} fill={PIE_COLORS[entry.name] || "#9ca3af"} stroke="none" />
                     ))}
                   </Pie>
-                  <Tooltip content={<CustomTooltip />} />
+                  <Tooltip content={<ChartTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
-              <div className="absolute top-[50%] left-[50%] -translate-x-[50%] -translate-y-[50%] text-center pointer-events-none">
-                <ShieldCheck className="w-5 h-5 text-success mx-auto mb-0.5 opacity-90" />
-                <p className="text-2xl font-medium font-data text-foreground leading-none">
-                  {totalRiskCount}
-                </p>
-                <p className="text-[9px] font-bold uppercase tracking-widest text-foreground-muted mt-1">Monitored</p>
+              <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+                <div className="relative mx-auto mb-1.5 flex h-9 w-9 items-center justify-center rounded-full border border-success/20 bg-success/10 text-success">
+                  <motion.span
+                    className="absolute inset-0 rounded-full border border-success/40"
+                    animate={{ scale: [1, 1.45], opacity: [0.6, 0] }}
+                    transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut" }}
+                  />
+                  <CheckCircle2 className="relative h-[18px] w-[18px]" strokeWidth={1.75} />
+                </div>
+                <p className="font-data text-4xl font-bold leading-none tracking-tight text-foreground">{riskCount}</p>
+                <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.22em] text-foreground-muted">Monitored</p>
               </div>
             </div>
 
-            {/* Custom Risk Breakdown Grid Badges */}
-            <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/60">
+            {/* Risk legend */}
+            <div className="mt-4 space-y-2 border-t border-border/60 pt-4">
               {maintenanceRiskPie.map((item) => {
                 const color = PIE_COLORS[item.name] || "#9ca3af";
+                const pct = Math.round((item.value / totalRiskCount) * 100);
                 return (
-                  <div key={item.name} className="flex items-center justify-between p-2 rounded-xl bg-muted/30 border border-border/60 text-xs">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      <span className="font-bold text-foreground-secondary text-[11px] truncate">{item.name}</span>
-                    </div>
-                    <span className="font-medium font-data text-foreground text-xs">{item.value}</span>
+                  <div key={item.name} className="flex items-center justify-between gap-3 text-xs">
+                    <span className="flex min-w-0 items-center gap-2 font-semibold text-foreground-secondary">
+                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+                      <span className="truncate">{item.name}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center gap-2 font-data">
+                      <span className="font-bold text-foreground">{item.value}</span>
+                      <span className="text-[10px] font-semibold text-foreground-muted">{pct}%</span>
+                    </span>
                   </div>
                 );
               })}
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </ChartCard>
+        </div>
 
-      {/* ── CHARTS ROW 2: Fuel Volume vs Expense (CONTROLLED BAR WIDTH & DUAL Y-AXIS) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* DUAL Y-AXIS CHART with maxBarSize={40} */}
-        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-              <Fuel className="w-4 h-4 text-warning" /> Fuel Volume (L) vs Expense (₱) by Class
-            </CardTitle>
-            <span className="text-xs text-foreground-muted font-medium">Controlled Scaling</span>
-          </CardHeader>
-          <CardContent className="pt-4">
+        {/* ── CHARTS ROW 2: Fuel Volume vs Expense & Monthly Trend ── */}
+        <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <ChartCard
+            icon={Fuel}
+            iconTone="bg-warning/10 text-warning border-warning/20"
+            title="Fuel Volume vs Expense by Class"
+            subtitle="Liters (bars) against ₱ cost (line)"
+          >
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                <ComposedChart data={fuelByCategory} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
+                <ComposedChart key={dateRange} data={fuelByCategory} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="classFuelBar" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.9} />
-                      <stop offset="100%" stopColor="#d97706" stopOpacity={0.7} />
+                    <linearGradient id={fuelBarGradId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={CHART.warning} stopOpacity={0.45} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
-                  <XAxis dataKey="category" tick={{ fontSize: 10, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="leftLiters" orientation="left" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="rightCost" orientation="right" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} />
-                  <Bar yAxisId="leftLiters" dataKey="liters" name="Fuel Liters (L)" fill="url(#classFuelBar)" radius={[8, 8, 0, 0]} maxBarSize={40} />
-                  <Line yAxisId="rightCost" type="monotone" dataKey="cost" name="Fuel Expense (₱)" stroke="#10b981" strokeWidth={3} dot={{ r: 5, fill: "#10b981" }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis
+                    dataKey="category"
+                    tick={AXIS_TICK_SM}
+                    axisLine={false}
+                    tickLine={false}
+                    dy={8}
+                    interval={0}
+                  />
+                  <YAxis yAxisId="leftLiters" orientation="left" width={34} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="rightCost" orientation="right" width={44} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} iconType="circle" iconSize={8} />
+                  <Bar
+                    yAxisId="leftLiters"
+                    dataKey="liters"
+                    name="Fuel Liters (L)"
+                    fill={`url(#${fuelBarGradId})`}
+                    radius={[9, 9, 0, 0]}
+                    maxBarSize={38}
+                    animationDuration={reducedMotion ? 0 : 800}
+                    animationEasing="ease-out"
+                  />
+                  <Line
+                    yAxisId="rightCost"
+                    type="monotone"
+                    dataKey="cost"
+                    name="Fuel Expense (₱)"
+                    stroke={CHART.success}
+                    strokeWidth={2.5}
+                    dot={{ r: 4, fill: CHART.success, strokeWidth: 0 }}
+                    activeDot={{ r: 6 }}
+                    animationDuration={reducedMotion ? 0 : 800}
+                    animationEasing="ease-out"
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
+          </ChartCard>
 
-        {/* Monthly Fuel Dual-Axis Composed Chart with maxBarSize={44} */}
-        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-              <DollarSign className="w-4 h-4 text-success" /> Monthly Fuel Expense &amp; Consumption Trend
-            </CardTitle>
-            <span className="text-xs text-foreground-muted font-medium">Monthly Audit Logs</span>
-          </CardHeader>
-          <CardContent className="pt-4">
+          <ChartCard
+            icon={DollarSign}
+            iconTone="bg-success/10 text-success border-success/20"
+            title="Monthly Fuel Expense & Consumption"
+            subtitle="Cost trend with volume overlay"
+          >
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                <ComposedChart data={monthlyCostData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
+                <ComposedChart key={dateRange} data={monthlyCostData} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="composedBarGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#10b981" stopOpacity={0.9} />
-                      <stop offset="100%" stopColor="#047857" stopOpacity={0.7} />
+                    <linearGradient id={monthlyBarGradId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART.success} stopOpacity={0.95} />
+                      <stop offset="100%" stopColor={CHART.success} stopOpacity={0.45} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="leftCost" orientation="left" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="rightLiters" orientation="right" tick={{ fontSize: 11, fill: "var(--fg-muted)", fontWeight: "600" }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} />
-                  <Bar yAxisId="leftCost" dataKey="fuelCost" name="Fuel Expense (₱)" fill="url(#composedBarGrad)" radius={[8, 8, 0, 0]} maxBarSize={44} />
-                  <Line yAxisId="rightLiters" type="monotone" dataKey="liters" name="Fuel Liters (L)" stroke="#f59e0b" strokeWidth={3} dot={{ r: 5, fill: "#f59e0b" }} />
+                  <CartesianGrid {...GRID} />
+                  <XAxis
+                    dataKey="month"
+                    tick={AXIS_TICK}
+                    axisLine={false}
+                    tickLine={false}
+                    dy={8}
+                    interval={0}
+                  />
+                  <YAxis yAxisId="leftCost" orientation="left" width={44} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="rightLiters" orientation="right" width={34} tick={AXIS_TICK} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} iconType="circle" iconSize={8} />
+                  <Bar
+                    yAxisId="leftCost"
+                    dataKey="fuelCost"
+                    name="Fuel Expense (₱)"
+                    fill={`url(#${monthlyBarGradId})`}
+                    radius={[9, 9, 0, 0]}
+                    maxBarSize={40}
+                    animationDuration={reducedMotion ? 0 : 800}
+                    animationEasing="ease-out"
+                  />
+                  <Line
+                    yAxisId="rightLiters"
+                    type="monotone"
+                    dataKey="liters"
+                    name="Fuel Liters (L)"
+                    stroke={CHART.warning}
+                    strokeWidth={2.5}
+                    dot={{ r: 4, fill: CHART.warning, strokeWidth: 0 }}
+                    activeDot={{ r: 6 }}
+                    animationDuration={reducedMotion ? 0 : 800}
+                    animationEasing="ease-out"
+                  />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
-          </CardContent>
-        </Card>
-      </div>
+          </ChartCard>
+        </div>
 
-      {/* ── DIAGRAM 3: EXECUTIVE DRIVER PERFORMANCE LEADERBOARD ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-            <Award className="w-4 h-4 text-warning" /> Driver Safety &amp; Performance Leaderboard
-          </CardTitle>
-          <span className="text-xs font-bold text-success bg-success/10 px-3 py-1 rounded-full border border-success/20">
-            Top Rated Roster
-          </span>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="space-y-4">
+        {/* ── DRIVER SAFETY & PERFORMANCE LEADERBOARD ── */}
+        <ChartCard
+          icon={Award}
+          iconTone="bg-warning/10 text-warning border-warning/20"
+          title="Driver Safety & Performance Leaderboard"
+          subtitle="Top-rated roster by composite safety score"
+          actions={
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-[11px] font-bold text-success">
+              <Star className="h-3 w-3 fill-current" strokeWidth={1.75} /> Top Rated Roster
+            </span>
+          }
+        >
+          <div className="space-y-3">
             {driverRoster.map((d, index) => (
-              <div key={d.id ?? index} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-muted/40 transition-all">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={cn(
-                    "flex h-9 w-9 items-center justify-center rounded-xl font-data text-xs font-medium shrink-0 border",
-                    index === 0 ? "bg-warning/20 text-warning border-warning/40" :
-                    index === 1 ? "bg-muted text-foreground border-border/80" :
-                    "bg-primary/10 text-primary border-primary/20"
-                  )}>
-                    #{index + 1}
+              <motion.div
+                key={d.id ?? index}
+                variants={driverRowVariant}
+                custom={index}
+                className={cn(
+                  "group flex flex-col gap-3 rounded-2xl border border-border/60 bg-surface p-3.5 pl-4 transition-all duration-300 hover:-translate-y-px hover:border-primary/30 hover:bg-hover/40 sm:flex-row sm:items-center sm:justify-between",
+                  index === 0 && "border-warning/25 bg-gradient-to-r from-warning/[0.05] to-transparent"
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-3.5">
+                  <div
+                    className={cn(
+                      "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border font-data text-sm font-bold",
+                      index === 0
+                        ? "border-warning/40 bg-gradient-to-br from-warning/25 to-warning/5 text-warning"
+                        : index === 1
+                        ? "border-border/70 bg-hover text-foreground"
+                        : "border-primary/25 bg-primary/10 text-primary"
+                    )}
+                  >
+                    {index + 1}
+                    {index === 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-warning text-white shadow-sm">
+                        <Award className="h-3 w-3" fill="currentColor" strokeWidth={1.75} />
+                      </span>
+                    )}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs font-extrabold text-foreground truncate">{d.name}</p>
-                    <p className="text-[11px] font-medium text-foreground-muted">{d.trips} Trips Completed</p>
+                    <p className="truncate text-[13px] font-extrabold text-foreground">{d.name}</p>
+                    <p className="mt-0.5 text-[11px] font-medium text-foreground-muted">{d.trips} Trips Completed</p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 w-full sm:w-auto">
-                  <div className="flex-1 sm:w-48 space-y-1">
+                <div className="flex w-full items-center gap-4 sm:w-auto">
+                  <div className="flex-1 space-y-1.5 sm:w-48">
                     <div className="flex justify-between text-[11px] font-bold">
                       <span className="text-foreground-muted">Safety Score</span>
-                      <span className="text-foreground font-data">{d.score}/100</span>
+                      <span className="font-data text-foreground">{d.score}/100</span>
                     </div>
-                    <div className="h-2 w-full rounded-full bg-muted overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-primary to-success"
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-hover">
+                      <motion.div
+                        className="h-full origin-left rounded-full bg-gradient-to-r from-primary to-success"
                         style={{ width: `${Math.min(100, d.score)}%` }}
+                        initial={{ scaleX: 0 }}
+                        whileInView={{ scaleX: 1 }}
+                        viewport={{ once: true }}
+                        transition={{ duration: 0.9, ease: EASE, delay: 0.15 + index * 0.05 }}
                       />
                     </div>
                   </div>
 
-                  <Badge variant={d.score >= 90 ? "success" : "info"} className="rounded-full px-3 py-1 text-xs font-bold shrink-0">
-                    <Star className="w-3 h-3 mr-1 fill-current" />
+                  <Badge variant={d.score >= 90 ? "success" : "info"} className="shrink-0 rounded-full px-3 py-1 text-[11px] font-bold">
+                    <Star className="mr-1 h-3 w-3 fill-current" strokeWidth={1.75} />
                     {d.score >= 95 ? "Master Driver" : d.score >= 90 ? "Excellent" : "Proficient"}
                   </Badge>
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </ChartCard>
+      </div>
+    </MotionConfig>
   );
 }

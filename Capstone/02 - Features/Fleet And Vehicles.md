@@ -32,12 +32,9 @@ A vehicle is unavailable if it has an overlapping [[dispatchschedules]] row, is 
 
 Except — grounding is currently broken: **any** incident grounds **any** vehicle. → [[BUG shouldGroundVehicle Is A Stub]]
 
-## Missing pages — CONFIRMED
+## Availability boards — REMOVED 2026-08-15
 
-- `/fleet/availability` — **no page file**
-- `src/app/(dashboard)/fleet/maintenance/` — **empty directory**
-
-INFERRED: nav links may point here. **TODO:** grep the nav component.
+The standalone `/fleet/availability` and `/drivers/availability` pages (with the shared `StatusBoard` component) were removed 2026-08-15, along with their nav entries in `workspaces.js`. Availability is answered by schedule-overlap and grounding, not a board page. `src/app/(dashboard)/fleet/maintenance/` remains an empty leftover of the relocation to `/maintenance`.
 
 ## Database tables used
 

@@ -38,15 +38,17 @@ Route groups `(name)` don't appear in the URL — they exist to give each audien
 
 Radix UI primitives (17 packages) in the shadcn/ui pattern: unstyled accessible primitives wrapped in local components under `src/components/ui/`. Styling is **Tailwind v4**, which is **CSS-first** — there is no `tailwind.config.js`; configuration lives in the CSS via `@theme`. That trips people up coming from v3.
 
-Charts: `recharts`. Maps: `leaflet` + `react-leaflet`. Motion: `framer-motion`.
+Charts: `recharts`. Maps: `leaflet` + `react-leaflet`. Motion: `framer-motion` (first used on the login surface, 2026-08-15).
+
+Auth surfaces (`(auth)/`) render without the dashboard chrome (the `DashboardLayout` short-circuits for those routes) and carry a premium editorial-split presentation: a branded left panel with animated route-line artwork plus a double-bezel form card. Motion respects `prefers-reduced-motion` via `MotionConfig reducedMotion="user"`; entrance states are rendered identically on server and client so hydration is safe.
 
 ## Empty and missing routes — CONFIRMED
 
 | Path | State |
 |---|---|
-| `/fleet/availability` | Page (Phase 4, 2026-08-12) |
-| `/drivers/availability` | Page (Phase 4, 2026-08-12) |
 | `/maintenance` | Full CRUD register — was `/fleet/maintenance`, relocated by `9c69f08` (2026-07-30) |
+
+The standalone `/fleet/availability` and `/drivers/availability` boards (Phase 4, 2026-08-12) were **removed 2026-08-15**: availability is answered by schedule-overlap (see [[Fleet And Vehicles]] and [[Dispatch]]), and their nav entries were dropped from `workspaces.js`. The shared `StatusBoard` component is likewise no longer wired to a page.
 
 The empty `src/app/(dashboard)/fleet/maintenance/` directory left behind by that
 relocation was removed 2026-08-12.

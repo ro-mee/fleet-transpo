@@ -52,7 +52,7 @@ last_verified: 2026-08-11
 
 ## What is incomplete — CONFIRMED
 
-- `/fleet/availability`, `/drivers/availability` — **added 2026-08-12** (Phase 4 item 15) with the shared `StatusBoard` component
+- ~~`/fleet/availability`, `/drivers/availability`~~ — added 2026-08-12 (Phase 4 item 15) with the shared `StatusBoard` component, **removed 2026-08-15**: availability is derived from schedule-overlap, not a board page → [[Fleet And Vehicles]] · [[Dispatch]]
 - `src/app/(dashboard)/fleet/maintenance/` — **removed 2026-08-12**; maintenance CRUD lives at `/maintenance` (relocated there by `9c69f08`), the dir was an empty leftover
 - **10 tables have zero rows** — `fuelrecords`, `vehicleinspection`, `notification_preferences`, `recommendation_snapshots`, `ai_insights`, `ai_recommendations`, `uvvrp_violations`, `driverattendance`, `service_types`, `booking_channels`. INFERRED: built, never exercised end-to-end. (Was 11; `vehiclereservations` was dropped rather than filled.)
 - Mobile: no push notifications, no offline sync, no background location, no guest experience (per `mobile/README.md`)

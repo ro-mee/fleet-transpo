@@ -101,7 +101,7 @@ eslint config doesn't resolve imports. Grep after every deletion.
 ## Phase 4 — prove the system actually works (multi-day)
 
 14. **Seed realistic data.** ~200 trips over 3 months, fuel records, attendance. Then re-check every report against hand-computed values → [[Reports]]
-15. Write the missing pages: `/fleet/availability`, `/drivers/availability`, `fleet/maintenance` → [[Frontend]]
+15. ~~Write the missing pages: `/fleet/availability`, `/drivers/availability`, `fleet/maintenance`~~ — the two availability boards were written (Phase 4 item 15) then **removed 2026-08-15**; availability is derived from schedule-overlap. `/maintenance` lives at `/maintenance`. → [[Frontend]]
 16. Exercise the 10 zero-row tables end to end → [[Feature Index]]
 17. A **two-connection race test** against `trg_dispatch_overlap` — the guard has never actually been raced → [[ADR-006 Dual Double-Booking Guard]]
 

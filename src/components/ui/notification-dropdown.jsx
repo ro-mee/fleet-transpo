@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -54,6 +55,14 @@ const typeBg = {
   Trip: "bg-primary/10 text-primary",
 };
 
+function toastTypeFor(type) {
+  if (type === "Alert" || type === "Warning") return "warning";
+  if (type === "Success") return "success";
+  return "info";
+}
+
+const EASE = [0.32, 0.72, 0, 1];
+
 export function NotificationDropdown() {
   const [open, setOpen] = useState(false);
   const router = useRouter();
@@ -61,11 +70,50 @@ export function NotificationDropdown() {
   const role = employee?.roles?.role_name;
   const queryClient = useQueryClient();
 
-  const { data: notifications = [] } = useQuery({
+  // Bumped on every newly-arrived notification so the bell icon does a quick
+  // wiggle, drawing the eye before the toast grows out of it.
+  const [bellPulse, setBellPulse] = useState(0);
+
+  const { data: notifications = [], isSuccess } = useQuery({
     queryKey: ["notifications", "header-list"],
     queryFn: () => getNotifications(),
-    refetchInterval: 30000,
+    // Stay current without a page reload: poll every 15s, keep polling in
+    // background tabs, and refetch the moment the tab regains focus (the
+    // global default is refetchOnWindowFocus: false).
+    refetchInterval: 15000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
   });
+
+  // Live pop-up: when a notification we haven't seen before shows up between
+  // polls, surface it as a 3-second toast. The seen set is only seeded after
+  // the first fetch actually completes — seeding while data is still loading
+  // (empty snapshot) would make every historical notification look "new" and
+  // flood the screen with old toasts on mount.
+  const seenIdsRef = useRef(new Set());
+  const hasLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!isSuccess) return;
+    const ids = new Set(notifications.map((n) => n.notification_id).filter(Boolean));
+    if (!hasLoadedRef.current) {
+      hasLoadedRef.current = true;
+      seenIdsRef.current = ids;
+      return;
+    }
+    notifications.forEach((n) => {
+      if (!n.notification_id || seenIdsRef.current.has(n.notification_id)) return;
+      seenIdsRef.current.add(n.notification_id);
+      toast.show({
+        type: toastTypeFor(n.type),
+        title: n.title,
+        message: n.message,
+        duration: 3000,
+        position: "top-right", // appear right below the notification bell
+      });
+      setBellPulse((p) => p + 1);
+    });
+  }, [notifications, isSuccess]);
 
   const markReadMut = useMutation({
     mutationFn: markAsRead,
@@ -107,12 +155,24 @@ export function NotificationDropdown() {
           )}
           title="Notifications"
         >
-          <Bell className="h-4 w-4" />
-          {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white shadow-sm">
-              {unreadCount > 9 ? "9+" : unreadCount}
-            </span>
-          )}
+          <motion.span
+            key={bellPulse}
+            className="relative inline-flex"
+            initial={{ rotate: 0, scale: 1 }}
+            animate={
+              bellPulse > 0
+                ? { rotate: [0, -16, 14, -8, 0], scale: [1, 1.25, 1] }
+                : { rotate: 0, scale: 1 }
+            }
+            transition={{ duration: 0.55, ease: EASE }}
+          >
+            <Bell className="h-4 w-4" />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white shadow-sm">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </motion.span>
         </button>
       </DropdownMenuTrigger>
 

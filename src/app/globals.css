@@ -226,3 +226,14 @@ body {
 .dialog-content[data-state="open"] {
   opacity: 1;
 }
+
+/* Browser-owned form surfaces must carry the design system: autofill would
+   otherwise paint Chrome's yellow over the surface token. */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--sf) inset;
+  -webkit-text-fill-color: var(--fg);
+  caret-color: var(--primary);
+  transition: background-color 9999s ease-out 0s;
+}
