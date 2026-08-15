@@ -4,10 +4,12 @@ status: working
 tags: [feature, dispatch, concurrency]
 source:
   - src/app/api/dispatch/route.js
+  - src/app/api/dispatch/[id]/route.js
+  - src/components/dispatch/dispatch-edit-dialog.jsx
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-08-11
+last_verified: 2026-08-15
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -70,6 +72,63 @@ The app check is racy by nature (check-then-act across HTTP requests). The trigg
 - **Missing `scheduled_arrival`** → `COALESCE` treats it as a zero-length window; back-to-back bookings at the same instant do **not** conflict (half-open interval).
 - **`'Pending Reassignment'`** → the DB accepts it, the state machine rejects it: dead-end row. → [[BUG Pending Reassignment Not In State Machine]]
 - **Cancelled dispatch overlapping a live one** → allowed, and that's why a trigger was used instead of `EXCLUDE USING gist`.
+
+## Reassigning a dispatch — CONFIRMED 2026-08-15
+
+`PUT /api/dispatch/[id]` (edit page + `dispatch-edit-dialog.jsx`) now enforces the same
+**designated-driver rule** as the create path and the reservation assign gate
+(`validatePairAvailability` in `recommendation.service.js`): a driver may only be put
+in a car they are the custodian of, or that a substitute explicitly covers for the
+departure date. A direct API caller gets the same 409 the UI gets.
+
+The reassign dialog now offers **both** kinds of pair:
+- **Custodial pairs** (017) — vehicle + its normal driver, offered while that driver is on duty.
+- **Substitute pairs** (032) — the same vehicles driven by the driver scheduled to cover the
+  departure date, offered **only** when the custodian is not on duty (mirroring
+  `resolveVehiclePairing`: a substitute stands in only while the custodian cannot drive).
+
+The substitute offer is date-scoped to `scheduled_departure`, so a vehicle whose custodian
+is away but has no coverage for that date stays withheld — a dispatcher records a substitute
+schedule first, then reassigns.
+
+## Schedule & leave now gate availability — CONFIRMED 2026-08-15
+
+When a pickup window is given, a driver is additionally **blocked by their weekly
+schedule and approved leave** (migration 049): approved leave covering the date,
+no schedule row for that `day_of_week` (fail-closed), rest day, window outside
+shift hours, or half-open break overlap → driver is not offered. The vehicle
+follows its **effective driver** for the date (custodian, or the substitute the
+schedule names via `ctx.pairings`) — a vehicle is withheld if that driver is
+schedule-blocked. `conflicts.js` surfaces the same result as a
+`DRIVER_UNAVAILABLE` finding before the user submits. The dispatch calendar
+probe renders approved leave per-day and `work_schedules` on the calendar.
+→ [[Driver Management]]
+
+## Availability is decided by the window, not the status label — CONFIRMED 2026-08-15
+
+`GET /api/vehicles/available` and `GET /api/drivers` (when `pickup_at`/`return_at` are given)
+decide availability by **time-window overlap + license + coding/registration/insurance + the
+designated-driver pairing + schedule/leave**, not by the coarse `vehicle_status` / `driver_status` labels.
+A vehicle currently `In Use` (out on a trip now) is offered for a later window where it is
+free; a driver labeled `On Trip` but free in the window is offered too. `Reserved` / `In Use`
+are slot flags, so a windowed search includes them and the NOT EXISTS overlap answers the real
+question.
+
+Only true disqualifiers stay hard-blocked:
+
+- Vehicle: `Under Maintenance` / `Decommissioned` / `Registration Expired`, expired
+  registration/insurance, UVVRP number-coding, or no cleared driver (custodian `Suspended` /
+  `On Leave` / `Off Duty` with no substitute for the date).
+- Driver: `Suspended` / `On Leave` / `Off Duty` (ineligible to drive, `UNAVAILABLE_STATUSES`
+  in `pair-scoring.js`), expired license, or an active window conflict.
+
+Changes that made this consistent: `vehicles/available/route.js` includes `In Use` when a
+window is given; `dispatch-edit-dialog.jsx` and `ai-assign-dialog.jsx` no longer fetch drivers
+with `status: "Available"` but filter out `Suspended` / `On Leave` / `Off Duty` client-side
+(their data is still window/license/pairing-checked by the endpoint). The `ai-assign-dialog`
+"no driver cleared" footnote now only counts vehicles that could actually serve the request
+(right class + enough seats). This mirrors the AI engine, which already ranked the whole roster
+and answered availability by schedule overlap.
 
 ## What I learned
 

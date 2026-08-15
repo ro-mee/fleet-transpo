@@ -72,6 +72,58 @@ export function scheduleGapGain(load) {
 }
 
 /**
+ * A driver's recency-weighted workload index (AI Fair Workload Distribution).
+ *
+ * Combines the three workload dimensions the user cares about — trip count,
+ * distance, and drive time — across a rolling lookback, giving more weight to
+ * recent activity. This is the fairness input, NOT a hard rule: it only ranks
+ * who SHOULD be recommended among already-eligible pairs.
+ *
+ * Units are folded onto the trip-count scale so a very distant/heavy trip does
+ * not dwarf a busy week: distance is normalised by an assumed ~40 km per trip
+ * and hours by ~1.5 h per trip. Recency weight: the last 7 days count 1.0 and
+ * the last 30 days 0.4, so a driver busy this week reads heavier than one who
+ * was busy three weeks ago.
+ *
+ * @param {object} w
+ * @param {number} [w.trips7d] completed trips, last 7 days
+ * @param {number} [w.trips30d] completed trips, last 30 days
+ * @param {number} [w.km7d] completed distance (km), last 7 days
+ * @param {number} [w.km30d] completed distance (km), last 30 days
+ * @param {number} [w.hours7d] completed drive hours, last 7 days
+ * @param {number} [w.hours30d] completed drive hours, last 30 days
+ * @returns {number} 0 when there is no recorded history (neutral, never a penalty)
+ */
+export function workloadIndex(w) {
+  const obj = w ?? {};
+  const trips = (Number(obj.trips7d ?? obj.trips_7d) || 0) + 0.4 * (Number(obj.trips30d ?? obj.trips_30d) || 0);
+  const km = (Number(obj.km7d ?? obj.km_7d) || 0) + 0.4 * (Number(obj.km30d ?? obj.km_30d) || 0);
+  const hours = (Number(obj.hours7d ?? obj.hours_7d) || 0) + 0.4 * (Number(obj.hours30d ?? obj.hours_30d) || 0);
+  if (trips <= 0 && km <= 0 && hours <= 0) return 0;
+  return trips + km / 40 + hours / 1.5;
+}
+
+/**
+ * Pool-relative workload fairness, 0..1 (higher = lighter load).
+ *
+ * The fairness score is defined against the OTHER candidates in the pool, not an
+ * arbitrary absolute threshold: 1.0 means this driver is the least-loaded in the
+ * eligible set ("lowest workload among eligible drivers"). A driver with no
+ * history scores a neutral 0.5 — never rewarded for having no data, never
+ * penalised for it.
+ *
+ * @param {number} index the driver's workloadIndex
+ * @param {number} poolMax the max workloadIndex among the eligible candidates
+ * @returns {number} 0..1
+ */
+export function scoreWorkloadBalance(index, poolMax) {
+  const i = Number(index) || 0;
+  const max = Number(poolMax) || 0;
+  if (!(max > 0)) return 0.5;
+  return Math.min(1, Math.max(0, 1 - i / max));
+}
+
+/**
  * Lowest maintenance risk, as a signed gain from -1.5 (overdue/critical) to 1
  * (low). Callers multiply by their weight budget. Unknown risk is a neutral 0.5
  * midpoint — never claimed healthy without a schedule.

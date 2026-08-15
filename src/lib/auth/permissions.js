@@ -32,6 +32,7 @@ export const NAV_ROLES = {
   "/incidents": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "system_admin", "fleet_manager"],
+  "/drivers/leave": ["admin", "system_admin", "fleet_manager"],
   "/drivers/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],
   "/executive": ["admin", "management"],
@@ -88,6 +89,10 @@ const MATRIX = {
     // Day-scoped substitute driver coverage (migration 032) follows the same
     // fleet-management authority as the custodial pairing it complements.
     substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
+    // Weekly work schedules + leave (migration 049): admin observes, the fleet
+    // manager sets them (see fleet_manager). Same split as driver_assignments.
+    driver_work_schedules: { read: true },
+    driver_leave_requests: { read: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -112,6 +117,11 @@ const MATRIX = {
     // interval (see /api/driver-assignments/[id]).
     driver_assignments: { create: true, read: true, update: true, delete: true },
     substitute_driver_schedules: { create: true, read: true, update: true, delete: true },
+    // Work schedules + leave review (migration 049) live with the fleet manager:
+    // they set the weekly schedule and approve/decline leave. delete:true on
+    // leave is deliberate (a mistaken request can be withdrawn).
+    driver_work_schedules: { create: true, read: true, update: true, delete: true },
+    driver_leave_requests: { create: true, read: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -136,6 +146,10 @@ const MATRIX = {
     // call. The API mirrors this — POST/DELETE exclude dispatcher.
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
+    // Schedules/leave are visible so the dispatch screen can explain why a
+    // driver is not offered for a window, but a dispatcher never edits them.
+    driver_work_schedules: { read: true },
+    driver_leave_requests: { read: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
       approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
@@ -158,6 +172,11 @@ const MATRIX = {
     dispatch: { read: true, update: true },
     trips: { read: true, update: true },
     drivers: { read: true },
+    // Self-service (migration 049): a driver reads their own schedule and files
+    // their own leave requests. Everything else about schedules is the fleet
+    // manager's.
+    driver_work_schedules: { read: true },
+    driver_leave_requests: { create: true, read: true },
     maintenance: { create: true, read: true },
     fuel: { create: true, read: true },
     reports: { read: false },
@@ -170,6 +189,8 @@ const MATRIX = {
     vehicles: { read: true },
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
+    driver_work_schedules: { read: true },
+    driver_leave_requests: { read: true },
     reservations: {
       read: true,
       approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,

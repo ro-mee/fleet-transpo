@@ -1,5 +1,8 @@
 import { query } from "@/lib/db";
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
+import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
+import { tomtomEtaMinutes, etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
+import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 
 /**
  * GET /api/mobile/driver/trips
@@ -72,6 +75,57 @@ export async function GET(req) {
         LIMIT $3`,
       [session.user.driverId, statuses, limit]
     );
+
+    // Pre-trip + departure-window enrichment. Only the trip awaiting START
+    // ROUTE (Driver Accepted) needs the window, so ETA (a TomTom network call)
+    // is computed for that one row, not the whole list.
+    const actionable = rows.find((t) => t.trip_status === "Driver Accepted");
+    let preTripStatus = null;
+    if (actionable) {
+      const { rows: pretrips } = await query(
+        `SELECT status FROM vehicleinspection
+          WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [actionable.trip_id]
+      );
+      preTripStatus = pretrips[0]?.status ?? null;
+      actionable.pre_trip_status = preTripStatus;
+
+      let window = null;
+      if (actionable.departure_time) {
+        const policy = mergeDispatchPolicy(
+          (await query(
+            `SELECT setting_value FROM system_settings WHERE setting_key = 'dispatch_policy' LIMIT 1`
+          )).rows[0]?.setting_value
+        );
+        let etaMinutes = null;
+        const dest = actionable.origin_latitude != null
+          ? [Number(actionable.origin_latitude), Number(actionable.origin_longitude)]
+          : null;
+        const { rows: pos } = await query(
+          `SELECT current_latitude, current_longitude FROM drivers WHERE driver_id = $1 LIMIT 1`,
+          [session.user.driverId]
+        );
+        const src = pos[0]?.current_latitude != null
+          ? [Number(pos[0].current_latitude), Number(pos[0].current_longitude)]
+          : null;
+        if (src && dest) etaMinutes = await tomtomEtaMinutes({ origin: src, destination: dest });
+        if (etaMinutes == null && src && dest) etaMinutes = etaFromDistanceKm(haversineKm(src, dest));
+        if (etaMinutes == null) {
+          const d = Number(actionable.estimated_duration);
+          etaMinutes = Number.isFinite(d) && d > 0 ? d : null;
+        }
+        window = computeDepartureWindow({
+          pickup: actionable.departure_time,
+          etaMinutes,
+          departureBufferMinutes: policy.departureBufferMinutes,
+          earlyStartAllowanceMinutes: policy.earlyStartAllowanceMinutes,
+        });
+      }
+      actionable.eta_to_pickup_min = window?.eta_minutes ?? null;
+      actionable.recommended_departure = window?.recommended_departure ?? null;
+      actionable.earliest_start = window?.earliest_start ?? null;
+      actionable.latest_start = window?.latest_start ?? null;
+    }
 
     return ok(rows);
   } catch (e) {

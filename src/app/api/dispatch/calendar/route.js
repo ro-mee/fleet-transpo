@@ -22,10 +22,10 @@ export async function GET(req) {
     const from = sp.get("from");
     const to = sp.get("to");
     if (!from || !to) {
-      return ok({ dispatches: [], maintenance: [], leave: [], vehicles: [], drivers: [] });
+      return ok({ dispatches: [], maintenance: [], leave: [], work_schedules: [], vehicles: [], drivers: [] });
     }
 
-    const [dispatches, maintenance, leave, vehicles, drivers] = await Promise.all([
+    const [dispatches, maintenance, leave, workSchedules, vehicles, drivers] = await Promise.all([
       // Cancelled dispatches are included: the board greys them out rather than
       // hiding them, because "this slot was freed" is worth seeing. They are
       // excluded from overlap detection client-side via holdsResource.
@@ -75,13 +75,30 @@ export async function GET(req) {
         [from, to]
       ).then((r) => r.rows).catch(() => []),
 
+      // Approved leave requests (migration 049) expanded into one row per
+      // covered calendar day, shaped like the legacy driverattendance rows the
+      // calendar's leaveToEvent() consumes. `status` carries the leave type so
+      // the board still titles the block.
       query(
-        `SELECT attendance_id, driver_id, date, status, remarks
-           FROM driverattendance
-          WHERE status IN ('On Leave', 'Absent')
-            AND date >= $1::date AND date <= $2::date
+        `SELECT lr.leave_request_id AS attendance_id,
+                lr.driver_id,
+                g.date::date AS date,
+                lr.leave_type AS status,
+                lr.reason AS remarks
+           FROM driver_leave_requests lr
+          CROSS JOIN LATERAL generate_series(lr.start_date, lr.end_date, '1 day'::interval) g(date)
+          WHERE lr.status = 'Approved'
+            AND g.date::date >= $1::date AND g.date::date <= $2::date
           ORDER BY date ASC`,
         [from, to]
+      ).then((r) => r.rows).catch(() => []),
+
+      // Standing weekly work schedules (migration 049) — the calendar overlays
+      // rest days and shift hours per driver lane.
+      query(
+        `SELECT schedule_id, driver_id, day_of_week, shift_start, shift_end, break_start, break_end, is_rest_day
+           FROM driver_work_schedules
+          ORDER BY driver_id ASC, day_of_week ASC`
       ).then((r) => r.rows).catch(() => []),
 
       query(
@@ -102,7 +119,7 @@ export async function GET(req) {
       ).then((r) => r.rows).catch(() => []),
     ]);
 
-    return ok({ dispatches, maintenance, leave, vehicles, drivers });
+    return ok({ dispatches, maintenance, leave, work_schedules: workSchedules, vehicles, drivers });
   } catch (e) {
     return handleError(e);
   }

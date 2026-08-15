@@ -4,6 +4,8 @@ import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/l
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 
 const EMPLOYEE_FIELDS = `json_build_object(
   'employee_id', e.employee_id,
@@ -186,7 +188,21 @@ export async function GET(req) {
     // drivers list page is unaffected.
     if (pickupAt) {
       const ctx = await loadDriverTravelContext(pickupAt);
-      return ok(data.filter((d) => driverCanTravel(d, ctx)));
+      const scheduleCtx = await loadDriverScheduleContext(data.map((d) => d.driver_id));
+      const pickup = new Date(pickupAt);
+      const returnAt = returnAt ? new Date(returnAt) : null;
+      return ok(
+        data.filter((d) => {
+          if (!driverCanTravel(d, ctx)) return false;
+          const block = driverBlockReason({
+            driverId: d.driver_id,
+            pickup,
+            returnAt,
+            ctx: scheduleCtx,
+          });
+          return !block?.blocked;
+        })
+      );
     }
 
     return ok(data);

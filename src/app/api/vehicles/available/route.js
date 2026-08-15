@@ -1,26 +1,30 @@
 import { query } from "@/lib/db";
 import { requireAuth, ok, handleError } from "@/lib/api/utils";
 import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 
 export async function GET(req) {
   try {
     await requireAuth(req);
     const { searchParams } = new URL(req.url);
 
-    // `Reserved` is not a reason to hide a vehicle from a *windowed* search.
-    // status.service.js writes that status whenever the vehicle has an open
-    // booking that starts on or before the end of today — a whole-day flag, not
-    // a slot one. So a vehicle out at 1pm still reads as Reserved for an 8pm
-    // search, and this endpoint used to drop it. The NOT EXISTS below already
-    // answers the real question ("is it taken during THIS window?") precisely,
-    // so when a window is given it supersedes the coarse status flag. Without a
-    // window there is nothing to compare against, so the strict reading stands.
+    // `Reserved` / `In Use` are not reasons to hide a vehicle from a *windowed*
+    // search. status.service.js writes those when the vehicle has an open
+    // booking/dispatch — a whole-day flag, not a slot one. So a vehicle out at
+    // 1pm still reads as Reserved/In Use for an 8pm search, and this endpoint
+    // used to drop it. The NOT EXISTS below already answers the real question
+    // ("is it taken during THIS window?") precisely, so when a window is given
+    // it supersedes the coarse status flag. Without a window there is nothing
+    // to compare against, so the strict reading stands.
     //
-    // Under Maintenance / In Use / Decommissioned / Registration Expired stay
-    // excluded either way: those are conditions of the vehicle, not of a slot.
+    // Only true vehicle conditions stay excluded either way: Under Maintenance,
+    // Decommissioned and Registration Expired. Availability is otherwise decided
+    // by slot overlap (below) plus travel-date pair-coupled checks
+    // (`vehicleCanTravel`: coding/UVVRP, registration/insurance, paired driver).
     const pickupAt = searchParams.get("pickup_at");
     const returnAt = searchParams.get("return_at");
-    const statuses = pickupAt ? `ARRAY['Available','Reserved']` : `ARRAY['Available']`;
+    const statuses = pickupAt ? `ARRAY['Available','Reserved','In Use']` : `ARRAY['Available']`;
 
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories
                FROM vehicles v
@@ -64,6 +68,39 @@ export async function GET(req) {
     const codingDate = pickupAt ? new Date(pickupAt) : new Date();
     const ctx = await loadVehicleTravelContext(codingDate);
     const available = (rows || []).filter((v) => vehicleCanTravel(v, ctx));
+
+    // Work-schedule / leave blocking for the pair. The effective driver is the
+    // custodian, or the substitute covering the date (loadVehicleTravelContext
+    // already substituted it into ctx.pairings). A vehicle whose driver has no
+    // schedule, a rest day, approved leave, or an out-of-shift window is hidden
+    // — the pair cannot operate in this slot. Custodianless vehicles have no
+    // driver to check and stay listed.
+    if (pickupAt && available.length) {
+      const effectiveIds = (ctx.pairings || [])
+        .filter((p) => p.vehicle_id != null)
+        .map((p) => p.driver_id)
+        .filter(Boolean);
+      const scheduleCtx = await loadDriverScheduleContext(effectiveIds);
+      const pickup = new Date(pickupAt);
+      const returnAt = returnAt ? new Date(returnAt) : null;
+      const pairByVehicle = new Map(
+        (ctx.pairings || [])
+          .filter((p) => p.vehicle_id != null && p.driver_id != null)
+          .map((p) => [Number(p.vehicle_id), Number(p.driver_id)])
+      );
+      const filtered = [];
+      for (const v of available) {
+        const driverId = pairByVehicle.get(Number(v.vehicle_id));
+        if (driverId == null) {
+          filtered.push(v);
+          continue;
+        }
+        const block = driverBlockReason({ driverId, pickup, returnAt, ctx: scheduleCtx });
+        if (block?.blocked) continue;
+        filtered.push(v);
+      }
+      return ok(filtered);
+    }
 
     return ok(available);
   } catch (e) { return handleError(e); }

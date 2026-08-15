@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { format, isSameMonth } from "date-fns";
+import { format, isSameMonth, startOfDay, endOfDay } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +24,7 @@ import {
   shiftAnchor,
 } from "@/lib/scheduling/calendar";
 import { cn } from "@/lib/utils";
+import { DAY_NAMES } from "@/lib/scheduling/driver-schedule";
 import {
   CalendarDays,
   CarFront,
@@ -115,6 +116,29 @@ export default function DispatchCalendarPage() {
       const e = leaveToEvent(a);
       if (e) out.push(e);
     }
+    // Standing weekly rest days (migration 049): a rest-day row stamps one
+    // all-day block per matching weekday in the visible range, the same shape
+    // the leave overlay uses so both read as "driver not available this day".
+    for (const ws of data.work_schedules || []) {
+      if (!ws.is_rest_day) continue;
+      for (const day of days) {
+        if (day.getDay() !== Number(ws.day_of_week)) continue;
+        out.push({
+          id: `rest-${ws.schedule_id}-${format(day, "yyyy-MM-dd")}`,
+          kind: "leave",
+          start: startOfDay(day),
+          end: endOfDay(day),
+          allDay: true,
+          holdsResource: true,
+          tone: "warning",
+          title: `Rest day (${DAY_NAMES[Number(ws.day_of_week)] || "Rest day"})`,
+          subtitle: "Weekly work schedule",
+          vehicleId: null,
+          driverId: ws.driver_id ?? null,
+          raw: ws,
+        });
+      }
+    }
     for (const v of data.vehicles || []) {
       if (!VEHICLE_DOWN.includes(v.vehicle_status)) continue;
       out.push(
@@ -144,7 +168,7 @@ export default function DispatchCalendarPage() {
     }
 
     return out;
-  }, [data, start, end]);
+  }, [data, start, end, days]);
 
   const conflicts = useMemo(() => findOverlaps(events), [events]);
 

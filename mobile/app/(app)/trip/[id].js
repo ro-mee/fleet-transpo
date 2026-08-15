@@ -47,13 +47,21 @@ export default function TripDetailsScreen() {
     setAccepting(true);
     try {
       if (trip?.trip_status === "Driver Accepted") {
-        await api.put(`/api/trips/${id}/start`, {}).catch(() => {});
+        await api.put(`/api/trips/${id}/start`, {});
+        router.replace("/map");
       } else {
-        await api.put(`/api/trips/${id}/accept`, { accept: true }).catch(() => {});
+        await api.put(`/api/trips/${id}/accept`, { accept: true });
+        router.replace("/map");
       }
-      router.replace("/map");
     } catch (e) {
-      Alert.alert("Error", "Could not update trip.");
+      const msg = e.message || "Could not update trip.";
+      const buttons = String(msg).toLowerCase().includes("inspection")
+        ? [
+            { text: "PRE-TRIP CHECK", onPress: () => router.push({ pathname: "/inspection", params: { tripId: String(id) } }) },
+            { text: "Cancel", style: "cancel" },
+          ]
+        : [{ text: "OK" }];
+      Alert.alert("Cannot Start Trip", msg, buttons);
       setAccepting(false);
     }
   };

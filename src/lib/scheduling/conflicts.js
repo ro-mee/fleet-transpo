@@ -7,6 +7,8 @@ import { resolveSubstituteForDate } from "@/lib/ai/pair-scoring";
 import { getDispatchPolicy } from "@/services/dispatch-settings.service";
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
 import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
+import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 
 // Double-booking prevention.
 //
@@ -191,7 +193,7 @@ function travelBufferFindings(request, resource, kind, cfg) {
  * @param {object[]} ctx.assignments     ACTIVE driver_vehicle_assignments rows for that vehicle/driver
  * @returns {Array<{type: string, severity: string, message: string, detail?: object}>}
  */
-export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
+export function evaluateRequestConflicts(request, { vehicle = null, driver = null, dispatches = [], maintenance = [], assignments = [], substitutes = [], uvvrp = null, scheduleContext, travelBufferEnabled, safetyBufferMinutes, bufferFloorMinutes } = {}) {
   const findings = [];
   const passengers = Number(request?.passenger_count) || 1;
   const pickup = request?.pickup_datetime || null;
@@ -270,6 +272,25 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
         message: `Driver ${name} license ${toCalendarDay(driver.license_expiry)} is not valid for this trip.`,
         detail: { driver_id: driver.driver_id },
       });
+    }
+    // Work-schedule + approved-leave blocking (migration 049): no schedule row,
+    // a rest day, approved leave, or an out-of-shift / break-overlapping window.
+    // `scheduleContext` is loaded by the entry points; absent, the rule fails open.
+    if (driver && pickup && scheduleContext) {
+      const block = driverBlockReason({
+        driverId: driver.driver_id,
+        pickup: new Date(pickup),
+        returnAt: arrival ? new Date(arrival) : null,
+        ctx: scheduleContext,
+      });
+      if (block?.blocked) {
+        findings.push({
+          type: CONFLICT_TYPE.DRIVER_UNAVAILABLE,
+          severity: SEVERITY.BLOCKING,
+          message: `Driver ${name} ${block.reason}`,
+          detail: { driver_id: driver.driver_id, schedule_block: block.reason },
+        });
+      }
     }
   }
 
@@ -512,6 +533,11 @@ export async function detectRequestConflicts(request, opts = {}) {
   if (vehicleRow && travel.vehicle?.etaMinutes != null) vehicleRow._eta_to_pickup_min = travel.vehicle.etaMinutes;
   if (driverRow && travel.driver?.etaMinutes != null) driverRow._eta_to_pickup_min = travel.driver.etaMinutes;
 
+  // Work-schedule + approved-leave context (migration 049) for the checked driver.
+  const scheduleContext = driverId
+    ? await loadDriverScheduleContext([driverId]).catch(() => ({ schedules: new Map(), leave: new Map() }))
+    : null;
+
   return evaluateRequestConflicts(request, {
     vehicle: vehicleRow,
     driver: driverRow,
@@ -520,6 +546,7 @@ export async function detectRequestConflicts(request, opts = {}) {
     assignments,
     substitutes,
     uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime),
+    scheduleContext,
     travelBufferEnabled: policy?.travelBufferEnabled,
     safetyBufferMinutes: policy?.safetyBufferMinutes,
     bufferFloorMinutes: policy?.bufferFloorMinutes,
@@ -623,6 +650,12 @@ export async function detectConflictsForRequests(requests = []) {
   const vehicleById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
+  // Work-schedule + approved-leave context (migration 049) for every driver on
+  // the page, loaded once so the per-request loop never queries per driver.
+  const scheduleContext = driverIds.length
+    ? await loadDriverScheduleContext(driverIds).catch(() => ({ schedules: new Map(), leave: new Map() }))
+    : null;
+
   const uvvrpPolicy = await getUvvrpPolicy().catch(() => null);
   const exemptVehicleIds = uvvrpPolicy?.enabled
     ? await getExemptVehicleIds().catch(() => new Set())
@@ -672,6 +705,7 @@ export async function detectConflictsForRequests(requests = []) {
         assignments,
         substitutes,
         uvvrp,
+        scheduleContext,
         travelBufferEnabled: dispatchPolicy?.travelBufferEnabled,
         safetyBufferMinutes: dispatchPolicy?.safetyBufferMinutes,
         bufferFloorMinutes: dispatchPolicy?.bufferFloorMinutes,

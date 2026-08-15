@@ -68,6 +68,42 @@ export async function getMyIncidents() {
   return apiFetch("/api/driver/incidents");
 }
 
+// Weekly work schedule + leave (migration 049).
+export async function getDriverWorkSchedule(driverId) {
+  return apiFetch(`/api/driver-work-schedules?driver_id=${driverId}`);
+}
+
+export async function saveDriverWorkSchedule(driverId, days) {
+  return apiFetch("/api/driver-work-schedules", { method: "PUT", body: { driver_id: driverId, days } });
+}
+
+export async function getMyWorkSchedule() {
+  return apiFetch("/api/driver-work-schedules");
+}
+
+export async function getMyLeaveRequests() {
+  return apiFetch("/api/driver/leave");
+}
+
+export async function requestDriverLeave(data) {
+  return apiFetch("/api/driver/leave", { method: "POST", body: data });
+}
+
+export async function withdrawDriverLeave(leaveRequestId) {
+  return apiFetch(`/api/driver/leave?leave_request_id=${leaveRequestId}`, { method: "DELETE" });
+}
+
+export async function getDriverLeaveRequests(driverId) {
+  return apiFetch(driverId ? `/api/driver-leave-requests?driver_id=${driverId}` : "/api/driver-leave-requests");
+}
+
+export async function reviewDriverLeave(leaveRequestId, status, notes) {
+  return apiFetch(`/api/driver-leave-requests/${leaveRequestId}`, {
+    method: "PATCH",
+    body: { status, notes },
+  });
+}
+
 export async function reportIncident(incident) {
   return apiFetch("/api/driver/incidents", { method: "POST", body: incident });
 }

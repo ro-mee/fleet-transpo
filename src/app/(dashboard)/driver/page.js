@@ -19,6 +19,7 @@ const MODULES = [
   { href: "/driver/vehicle", label: "My Vehicle", description: "Assigned vehicle and inspection status.", icon: CarFront },
   { href: "/driver/fuel", label: "Fuel Logs", description: "Log fuel and track verification.", icon: Fuel },
   { href: "/driver/incidents", label: "Incident Reporting", description: "Report an incident or near miss.", icon: AlertTriangle },
+  { href: "/driver/schedule", label: "My Schedule & Leave", description: "Weekly work schedule and leave requests.", icon: CalendarCheck },
   { href: "/driver/profile", label: "Profile & Credentials", description: "License, performance and attendance.", icon: IdCard },
 ];
 

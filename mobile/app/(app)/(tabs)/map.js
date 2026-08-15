@@ -23,6 +23,7 @@ export default function MapTab() {
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [routeData, setRouteData] = useState(null);
+  const [now, setNow] = useState(Date.now());
   const mapRef = useRef(null);
 
   // Refs for background GPS sync loop
@@ -251,7 +252,29 @@ export default function MapTab() {
   const isState4 = ["Drop-off", "Arrived", "In Progress"].includes(status); // ARRIVED AT DESTINATION
   
   const isHeadingToPickup = isPending || isDriverAccepted || isState1 || isState2;
-  
+
+  // Countdown tick: re-renders every 30s while a Driver Accepted trip is
+  // showing, so the START ROUTE gate flips when the departure window opens.
+  useEffect(() => {
+    if (activeTrip?.trip_status !== "Driver Accepted") return;
+    const t = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(t);
+  }, [activeTrip?.trip_status]);
+
+  // Departure-window gate for the START ROUTE button. When earliest_start is
+  // null (no scheduled departure / no ETA) the window is open — fail-open.
+  const earliestStart = activeTrip?.earliest_start
+    ? new Date(activeTrip.earliest_start).getTime()
+    : null;
+  const windowOpen = earliestStart == null || now >= earliestStart;
+  const preTripDone = activeTrip?.pre_trip_status === "Passed";
+  const minsToStart = earliestStart != null
+    ? Math.max(0, Math.ceil((earliestStart - now) / 60000))
+    : 0;
+  const windowOpenAt = earliestStart != null
+    ? new Date(earliestStart).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : null;
+
   const destLat = isHeadingToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude;
   const destLng = isHeadingToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude;
 
@@ -407,10 +430,15 @@ export default function MapTab() {
             </View>
           ) : (
             <Pressable 
-              style={[styles.actionBtn, { backgroundColor: colors.primary }]}
+              style={[styles.actionBtn, { backgroundColor: (isDriverAccepted && !preTripDone) || (isDriverAccepted && !windowOpen) ? colors.surfaceContainerHigh : colors.primary }]}
               onPress={async () => {
                 try {
                   if (isDriverAccepted) {
+                    if (!preTripDone) {
+                      router.push({ pathname: "/inspection", params: { tripId: String(activeTrip.trip_id) } });
+                      return;
+                    }
+                    if (!windowOpen) return;
                     await api.put(`/api/trips/${activeTrip.trip_id}/start`, {});
                     loadTrip();
                   } else if (isState1) {
@@ -463,8 +491,10 @@ export default function MapTab() {
                 }
               }}
             >
-              <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>
-                {isDriverAccepted && "START ROUTE"}
+              <Text style={[styles.actionBtnText, { color: isDriverAccepted && (!preTripDone || !windowOpen) ? colors.onSurface : colors.onPrimary }]}>
+                {isDriverAccepted && !preTripDone && "PRE-TRIP CHECK"}
+                {isDriverAccepted && preTripDone && !windowOpen && `START IN ${minsToStart} MIN`}
+                {isDriverAccepted && preTripDone && windowOpen && "START ROUTE"}
                 {isState1 && "ARRIVED AT PICKUP"}
                 {isState2 && "PICKED UP GUEST"}
                 {isState3 && "ARRIVED AT DESTINATION"}

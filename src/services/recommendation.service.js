@@ -5,6 +5,7 @@ import {
   vehicleOperationallyAvailable,
   PAIRING_KIND,
 } from "@/lib/ai/pair-scoring";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -206,6 +207,12 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
+  // Work-schedule + approved-leave context (migration 049). Loaded once for the
+  // drivers the rule could name, then threaded into resolveVehiclePairing so a
+  // no-schedule, rest-day, out-of-shift, or on-approved-leave driver is treated
+  // as unavailable exactly like an expired license or off-duty status would be.
+  const scheduleCtx = await loadDriverScheduleContext(wanted);
+
   const pairing = resolveVehiclePairing({
     vehicleId,
     pickupDate,
@@ -213,6 +220,8 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
     activeSubstitutes: substitutes,
     driverById,
     now,
+    returnAt: windowEnd ? new Date(windowEnd) : null,
+    scheduleContext: scheduleCtx,
   });
 
   if (!pairing.ok) {
