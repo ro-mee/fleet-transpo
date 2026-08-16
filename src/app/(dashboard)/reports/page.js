@@ -45,7 +45,7 @@ import {
   Fuel,
   Wrench,
   Users,
-  DollarSign,
+  PhilippinePeso,
   Calendar,
   Download,
   Activity,
@@ -116,7 +116,7 @@ const REPORT_TYPES = [
   { id: "fuel", label: "Fuel Consumption", icon: Fuel },
   { id: "maintenance", label: "Maintenance Audit", icon: Wrench },
   { id: "drivers", label: "Driver Performance", icon: Users },
-  { id: "financial", label: "Financial Summary", icon: DollarSign },
+  { id: "financial", label: "Financial Summary", icon: PhilippinePeso },
 ];
 
 export default function ReportsPage() {
@@ -557,7 +557,7 @@ export default function ReportsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Fuel Expense</span>
                 <div className="p-2 rounded-2xl bg-success/10 text-success border border-success/20">
-                  <DollarSign className="w-4 h-4" />
+                  <PhilippinePeso className="w-4 h-4" />
                 </div>
               </div>
               <div>
@@ -841,7 +841,7 @@ export default function ReportsPage() {
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider font-data">Total Operational Cost</span>
                 <div className="p-2 rounded-2xl bg-success/10 text-success border border-success/20">
-                  <DollarSign className="w-4 h-4" />
+                  <PhilippinePeso className="w-4 h-4" />
                 </div>
               </div>
               <div>
@@ -902,7 +902,7 @@ export default function ReportsPage() {
           <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
             <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
               <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-                <DollarSign className="w-4 h-4 text-success" /> Financial Cost Allocation Breakdown
+                <PhilippinePeso className="w-4 h-4 text-success" /> Financial Cost Allocation Breakdown
               </CardTitle>
               <span className="text-xs font-bold text-success bg-success/10 px-3 py-1 rounded-full border border-success/20">
                 Operating Cost Allocation

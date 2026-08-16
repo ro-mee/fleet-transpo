@@ -171,9 +171,9 @@ export default function AddUserPage() {
                   {...form.register("role_id")}
                   className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                 >
-                  <option value="">Select system role</option>
+                  <option value="" className="bg-background text-foreground">Select system role</option>
                   {ACCOUNT_ROLES.map((role) => (
-                    <option key={role.id} value={role.id}>
+                    <option key={role.id} value={role.id} className="bg-background text-foreground">
                       {role.name} ({role.label})
                     </option>
                   ))}
