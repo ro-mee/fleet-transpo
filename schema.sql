@@ -842,6 +842,7 @@ CREATE INDEX idx_dispatch_driver ON public.dispatchschedules USING btree (driver
 CREATE INDEX idx_dispatch_request ON public.dispatchschedules USING btree (request_id);
 CREATE INDEX idx_dispatch_status ON public.dispatchschedules USING btree (status);
 CREATE INDEX idx_dispatch_vehicle ON public.dispatchschedules USING btree (vehicle_id);
+CREATE INDEX idx_dispatchschedules_request_id ON public.dispatchschedules USING btree (request_id);
 CREATE INDEX idx_driver_consents_driver ON public.driver_consents USING btree (driver_id, accepted_at DESC);
 CREATE INDEX idx_driverincidents_driver ON public.driverincidents USING btree (driver_id, created_at DESC);
 CREATE INDEX idx_driverincidents_status ON public.driverincidents USING btree (status, incident_date DESC);
@@ -874,8 +875,10 @@ CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING 
 CREATE INDEX idx_rec_snapshots_validity ON public.recommendation_snapshots USING btree (valid_until) WHERE (is_consumed = false);
 CREATE INDEX idx_reservation_events_request_timeline ON public.reservation_events USING btree (request_id, occurred_at DESC);
 CREATE INDEX idx_routes_dest_loc ON public.routes USING btree (destination_location_id);
+CREATE INDEX idx_routes_destination_location ON public.routes USING btree (destination_location_id);
 CREATE INDEX idx_routes_name ON public.routes USING btree (route_name);
 CREATE INDEX idx_routes_origin_loc ON public.routes USING btree (origin_location_id);
+CREATE INDEX idx_routes_origin_location ON public.routes USING btree (origin_location_id);
 CREATE INDEX idx_sub_driver ON public.substitute_vehicle_schedules USING btree (substitute_driver_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_history ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_range ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from, effective_until);
@@ -891,12 +894,15 @@ CREATE INDEX idx_transport_requests_fleet_status ON public.transportation_reques
 CREATE INDEX idx_transport_requests_pickup ON public.transportation_requests USING btree (pickup_datetime);
 CREATE INDEX idx_transport_requests_reservation_number ON public.transportation_requests USING btree (reservation_number);
 CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests USING btree (vehicle_id);
+CREATE INDEX idx_trips_created_at ON public.trips USING btree (deleted_at, created_at DESC);
 CREATE INDEX idx_trips_date ON public.trips USING btree (start_time);
 CREATE INDEX idx_trips_driver ON public.trips USING btree (driver_id);
+CREATE INDEX idx_trips_driver_start ON public.trips USING btree (driver_id, start_time);
 CREATE INDEX idx_trips_on_time ON public.trips USING btree (on_time_completion);
 CREATE INDEX idx_trips_rating ON public.trips USING btree (customer_rating);
 CREATE INDEX idx_trips_status ON public.trips USING btree (trip_status);
 CREATE INDEX idx_trips_vehicle ON public.trips USING btree (vehicle_id);
+CREATE INDEX idx_trips_vehicle_start ON public.trips USING btree (vehicle_id, start_time);
 CREATE INDEX idx_uvvrp_exemptions_active ON public.uvvrp_exemptions USING btree (active);
 CREATE INDEX idx_uvvrp_exemptions_vehicle ON public.uvvrp_exemptions USING btree (vehicle_id) WHERE active;
 CREATE INDEX idx_uvvrp_violations_action ON public.uvvrp_violations USING btree (action, created_at DESC);
