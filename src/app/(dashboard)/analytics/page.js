@@ -42,7 +42,7 @@ import {
   Award,
   Calendar,
   CheckCircle2,
-  DollarSign,
+  PhilippinePeso,
   Download,
   Fuel,
   ShieldCheck,
@@ -967,7 +967,7 @@ export default function AnalyticsPage() {
           </ChartCard>
 
           <ChartCard
-            icon={DollarSign}
+            icon={PhilippinePeso}
             iconTone="bg-success/10 text-success border-success/20"
             title="Monthly Fuel Expense & Consumption"
             subtitle="Cost trend with volume overlay"

@@ -22,7 +22,7 @@ import { getVehicleMaintenance, createVehicleMaintenance, updateVehicleMaintenan
 import { cn, formatCurrency, formatDate, formatNumber } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toDateInput } from "@/lib/dates";
-import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2, TriangleAlert, DollarSign, Calendar, Sparkles, ChevronRight, Activity, Tag, FileText } from "lucide-react";
+import { Pencil, Trash2, Eye, Wrench, Clock, CheckCircle2, TriangleAlert, PhilippinePeso, Calendar, Sparkles, ChevronRight, Activity, Tag, FileText } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -364,7 +364,7 @@ export default function MaintenancePage() {
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-foreground-secondary uppercase tracking-wider">Total Expense</span>
             <div className="p-2 rounded-xl bg-success/10 text-success">
-              <DollarSign className="w-4 h-4" />
+              <PhilippinePeso className="w-4 h-4" />
             </div>
           </div>
           <div>
@@ -505,7 +505,7 @@ export default function MaintenancePage() {
                   />
                 </div>
 
-                <FloatingField label="Cost (₱)" icon={DollarSign} error={fieldError("cost").error}>
+                <FloatingField label="Cost (₱)" icon={PhilippinePeso} error={fieldError("cost").error}>
                   <input
                     id="cost"
                     type="number"

@@ -8,7 +8,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getFuelAnalytics } from "@/services/fuel.service";
 import { formatCurrency } from "@/lib/utils";
-import { Fuel, TrendingDown, DollarSign, BarChart3, PieChart, TrendingUp } from "lucide-react";
+import { Fuel, TrendingDown, PhilippinePeso, BarChart3, PieChart, TrendingUp } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function FuelAnalyticsPage() {
@@ -31,7 +31,7 @@ export default function FuelAnalyticsPage() {
 
       <StatGrid cols={4}>
         <StatCard icon={Fuel} label="Total Fuel Consumed" value={`${a.totalLiters.toFixed(1)} L`} tone="primary" />
-        <StatCard icon={DollarSign} label="Total Cost" value={formatCurrency(a.totalCost)} tone="success" />
+        <StatCard icon={PhilippinePeso} label="Total Cost" value={formatCurrency(a.totalCost)} tone="success" />
         <StatCard icon={TrendingDown} label="Avg Cost / Liter" value={formatCurrency(a.avgCostPerLiter)} tone="warning" />
         <StatCard icon={BarChart3} label="Total Transactions" value={a.recordsCount} tone="info" />
       </StatGrid>
