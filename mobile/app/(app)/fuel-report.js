@@ -1,16 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
-  Alert,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform,  } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -18,6 +8,7 @@ import { useTheme } from "../../lib/theme-context";
 import { fonts, radius, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
 import * as ImagePicker from "expo-image-picker";
+import { AppAlert } from '../../components/AppAlert';
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
@@ -41,7 +32,7 @@ export default function FuelReport() {
       if (useCamera) {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert("Permission Required", "Camera permission is required to scan receipts.");
+          AppAlert.alert("Permission Required", "Camera permission is required to scan receipts.");
           return;
         }
         result = await ImagePicker.launchCameraAsync({
@@ -51,7 +42,7 @@ export default function FuelReport() {
       } else {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (status !== 'granted') {
-          Alert.alert("Permission Required", "Photo library permission is required to upload receipts.");
+          AppAlert.alert("Permission Required", "Photo library permission is required to upload receipts.");
           return;
         }
         result = await ImagePicker.launchImageLibraryAsync({
@@ -65,7 +56,7 @@ export default function FuelReport() {
         await processReceipt(asset);
       }
     } catch (e) {
-      Alert.alert("Error", "Could not capture receipt image.");
+      AppAlert.alert("Error", "Could not capture receipt image.");
     }
   };
 
@@ -94,13 +85,13 @@ export default function FuelReport() {
         if (d.amount) setCost(String(d.amount));
         if (d.station_name) setStation(d.station_name);
         setMode("manual"); // Open the form so they can verify the extracted data
-        Alert.alert("Receipt Scanned", "Please verify the extracted details.");
+        AppAlert.alert("Receipt Scanned", "Please verify the extracted details.");
       } else {
-         Alert.alert("Scan Complete", "Could not automatically read details. Please enter them manually.");
+         AppAlert.alert("Scan Complete", "Could not automatically read details. Please enter them manually.");
          setMode("manual");
       }
     } catch (e) {
-      Alert.alert("Scan Error", e.message || "Failed to process receipt.");
+      AppAlert.alert("Scan Error", e.message || "Failed to process receipt.");
     } finally {
       setScanning(false);
     }
@@ -108,7 +99,7 @@ export default function FuelReport() {
 
   const handleSubmit = async () => {
     if (!odometer || !liters || !cost) {
-      Alert.alert("Missing Fields", "Enter Odometer, Volume, and Total Cost.");
+      AppAlert.alert("Missing Fields", "Enter Odometer, Volume, and Total Cost.");
       return;
     }
     try {
@@ -132,7 +123,7 @@ export default function FuelReport() {
       }
       setSubmittedRecord(res);
     } catch (e) {
-      Alert.alert("Error", e.message || "Could not save fuel entry.");
+      AppAlert.alert("Error", e.message || "Could not save fuel entry.");
     } finally {
       setSubmitting(false);
     }
@@ -340,13 +331,19 @@ export default function FuelReport() {
               disabled={submitting}
               style={({ pressed }) => [
                 styles.submitBtn,
-                { backgroundColor: colors.primary, opacity: pressed ? 0.9 : 1 },
+                { 
+                  backgroundColor: colors.primary, 
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  opacity: pressed ? 0.9 : 1 
+                },
               ]}
             >
-              <Ionicons name="checkmark" size={20} color={colors.onPrimary} />
               <Text style={[styles.submitBtnText, { color: colors.onPrimary }]}>
-                {submitting ? "Saving..." : "Save Fuel Entry"}
+                {submitting ? "Saving Entry..." : "Save Fuel Entry"}
               </Text>
+              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Ionicons name="checkmark" size={17} color={colors.onPrimary} />
+              </View>
             </Pressable>
           </View>
         ) : null}
@@ -364,13 +361,19 @@ export default function FuelReport() {
               style={({ pressed }) => [
                 styles.receiptBtn,
                 styles.receiptBtnPrimary,
-                { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.9 : 1 },
+                { 
+                  backgroundColor: colors.primary, 
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  opacity: pressed || scanning ? 0.9 : 1 
+                },
               ]}
             >
-              <Ionicons name="scan" size={20} color={colors.onPrimary} />
               <Text style={[styles.receiptBtnText, { color: colors.onPrimary }]}>
-                {scanning ? "Processing..." : "Scan Receipt"}
+                {scanning ? "Processing..." : "Scan Receipt (Camera)"}
               </Text>
+              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                <Ionicons name="scan" size={17} color={colors.onPrimary} />
+              </View>
             </Pressable>
 
             <Pressable
@@ -379,25 +382,28 @@ export default function FuelReport() {
               style={({ pressed }) => [
                 styles.receiptBtn,
                 {
-                  backgroundColor: colors.surfaceContainerHigh,
-                  borderColor: colors.outlineVariant,
+                  backgroundColor: colors.surfaceContainerLow,
+                  borderColor: colors.outlineVariant + '50',
                   borderWidth: 1,
-                  opacity: pressed || scanning ? 0.7 : 1,
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  opacity: pressed || scanning ? 0.8 : 1,
                 },
               ]}
             >
-              <Ionicons name="cloud-upload-outline" size={20} color={colors.onSurface} />
               <Text style={[styles.receiptBtnText, { color: colors.onSurface }]}>
-                Upload Receipt
+                Upload from Gallery
               </Text>
+              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                <Ionicons name="cloud-upload-outline" size={17} color={colors.onSurface} />
+              </View>
             </Pressable>
           </View>
 
           {/* OR Divider */}
           <View style={styles.orRow}>
-            <View style={[styles.orLine, { backgroundColor: colors.surfaceContainerHighest }]} />
+            <View style={[styles.orLine, { backgroundColor: colors.outlineVariant + '40' }]} />
             <Text style={[styles.orText, { color: colors.onSurfaceVariant }]}>OR</Text>
-            <View style={[styles.orLine, { backgroundColor: colors.surfaceContainerHighest }]} />
+            <View style={[styles.orLine, { backgroundColor: colors.outlineVariant + '40' }]} />
           </View>
 
           <Pressable
@@ -407,11 +413,12 @@ export default function FuelReport() {
               {
                 borderColor: colors.primary,
                 backgroundColor: "transparent",
-                opacity: pressed ? 0.7 : 1,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+                opacity: pressed ? 0.8 : 1,
               },
             ]}
           >
-            <Ionicons name="create-outline" size={20} color={colors.primary} />
+            <Ionicons name={mode === "manual" ? "eye-off-outline" : "create-outline"} size={18} color={colors.primary} />
             <Text style={[styles.manualBtnText, { color: colors.primary }]}>
               {mode === "manual" ? "Hide Manual Entry" : "Enter Details Manually"}
             </Text>
@@ -427,111 +434,115 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: moderateScale(16),
-    paddingBottom: moderateScale(12),
-    height: TOUCH_TARGET + 0,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
   },
-  topBarLeft: { flexDirection: "row", alignItems: "center", gap: moderateScale(16) },
+  topBarLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
   closeBtn: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(20),
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
-  topBarTitle: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
-  scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(24), gap: moderateScale(16) },
-  heading: { gap: moderateScale(4) },
-  headingTitle: { fontSize: moderateScale(28), fontFamily: fonts.displayBold, lineHeight: moderateScale(36) },
-  headingSub: { fontSize: moderateScale(18), fontFamily: fonts.body, lineHeight: moderateScale(28) },
-  infoGrid: { flexDirection: "row", gap: moderateScale(16), flexWrap: "wrap" },
+  topBarTitle: { fontSize: 17, fontFamily: fonts.displayBold },
+  scroll: { paddingHorizontal: 16, paddingTop: 20, gap: 16 },
+  heading: { gap: 4 },
+  headingTitle: { fontSize: 24, fontFamily: fonts.displayBold, letterSpacing: -0.5 },
+  headingSub: { fontSize: 14, fontFamily: fonts.body },
+  infoGrid: { flexDirection: "row", gap: 12 },
   infoCard: {
     flex: 1,
-    minWidth: moderateScale(140),
-    borderRadius: moderateScale(12),
-    padding: moderateScale(20),
+    borderRadius: 16,
+    padding: 16,
     borderWidth: 1,
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
-    gap: moderateScale(8),
+    gap: 8,
   },
   infoCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  infoCardLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: moderateScale(4) },
-  infoCardValue: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  infoCardSub: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24) },
+  infoCardLabel: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 2 },
+  infoCardValue: { fontSize: 16, fontFamily: fonts.bodySemiBold },
+  infoCardSub: { fontSize: 13, fontFamily: fonts.body },
   infoCardIcon: {
-    width: moderateScale(48),
-    height: moderateScale(48),
-    borderRadius: moderateScale(24),
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
   },
-  fuelLevelRow: { flexDirection: "row", alignItems: "flex-end", gap: moderateScale(8) },
-  fuelPercentage: { fontSize: moderateScale(44), fontFamily: fonts.displayBold, lineHeight: moderateScale(52) },
-  fuelBar: { height: moderateScale(8), borderRadius: moderateScale(4), overflow: "hidden", marginTop: moderateScale(8) },
-  fuelBarFill: { height: "100%", borderRadius: moderateScale(4) },
+  fuelLevelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  fuelPercentage: { fontSize: 28, fontFamily: fonts.displayBold, letterSpacing: -0.5 },
+  fuelBar: { height: 6, borderRadius: 3, overflow: "hidden", marginTop: 4 },
+  fuelBarFill: { height: "100%", borderRadius: 3 },
   formCard: {
-    borderRadius: moderateScale(12),
+    borderRadius: 16,
     borderWidth: 1,
-    padding: moderateScale(20),
-    gap: moderateScale(16),
+    padding: 18,
+    gap: 14,
   },
-  formTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  fieldGroup: { gap: moderateScale(6) },
-  fieldRow: { flexDirection: "row", gap: moderateScale(12) },
-  fieldLabel: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
+  formTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
+  fieldGroup: { gap: 6 },
+  fieldRow: { flexDirection: "row", gap: 12 },
+  fieldLabel: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase" },
   input: {
-    height: TOUCH_TARGET,
+    height: 48,
     borderWidth: 1,
-    borderRadius: moderateScale(8),
-    paddingHorizontal: moderateScale(12),
-    fontSize: moderateScale(16),
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    fontSize: 15,
     fontFamily: fonts.body,
   },
   submitBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
+    height: 52,
+    borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(8),
-    marginTop: moderateScale(4),
-  },
-  submitBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
-  receiptSection: { gap: moderateScale(12) },
-  receiptTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  receiptButtons: { gap: moderateScale(12) },
-  receiptBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: moderateScale(8),
+    gap: 12,
+    marginTop: 4,
     shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  submitBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
+  receiptSection: { gap: 12, marginTop: 4 },
+  receiptTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
+  receiptButtons: { gap: 10 },
+  receiptBtn: {
+    height: 52,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
     elevation: 1,
   },
   receiptBtnPrimary: {},
-  receiptBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
-  orRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(16) },
+  receiptBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
+  btnIconCapsule: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  orRow: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 4 },
   orLine: { flex: 1, height: 1 },
-  orText: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
+  orText: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.8, textTransform: "uppercase" },
   manualBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
-    borderWidth: 2,
+    height: 50,
+    borderRadius: 14,
+    borderWidth: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(8),
+    gap: 8,
   },
-  manualBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  manualBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
 });

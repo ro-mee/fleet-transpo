@@ -295,6 +295,74 @@ export function StatusPill({ label, status, tone = "neutral" }) {
 }
 
 /**
+ * A softly pulsing dot for genuinely live state (e.g. an active trip). Reserved
+ * for live indicators only — never static records (design-system §5).
+ */
+export function PulsingDot({ color, size = 8, style }) {
+  const { colors } = useTheme();
+  const pulse = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.35,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color ?? colors.secondary,
+          opacity: pulse,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/**
+ * Counts up from 0 to `value` when mounted. Numbers animate via transform/opacity
+ * only; used for small dashboard figures. Respects reduced-motion via `motion`.
+ */
+export function CountUpText({ value, style, duration = 600 }) {
+  const { colors } = useTheme();
+  const anim = useRef(new Animated.Value(0)).current;
+  const [shown, setShown] = useState(0);
+
+  useEffect(() => {
+    const target = Number(value) || 0;
+    const listener = anim.addListener(({ value: v }) => setShown(Math.round(v)));
+    Animated.timing(anim, {
+      toValue: target,
+      duration,
+      useNativeDriver: false,
+    }).start();
+    return () => {
+      anim.removeListener(listener);
+    };
+  }, [value, duration, anim]);
+
+  return <Animated.Text style={style}>{shown}</Animated.Text>;
+}
+
+/**
  * MD3 outlined text field with focus state. An optional `right` accessory is
  * rendered inside the same bordered box as the input (e.g. a show-password
  * toggle), so it always sits within the field at any width.

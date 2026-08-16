@@ -33,15 +33,16 @@ export const radius = {
   pill: 999,
 };
 
-// ---- Typefaces (Inter matches Stitch spec) ----
+// ---- Typefaces (design-system spec: Archivo + IBM Plex) ----
 export const fonts = {
-  display: "Inter_700Bold",
-  displayBold: "Inter_700Bold",
-  body: "Inter_400Regular",
-  bodyMedium: "Inter_500Medium",
-  bodySemiBold: "Inter_600SemiBold",
-  data: "Inter_500Medium",
-  dataSemiBold: "Inter_600SemiBold",
+  display: "Archivo_700Bold",
+  displayBold: "Archivo_700Bold",
+  displaySemiBold: "Archivo_600SemiBold",
+  body: "IBMPlexSans_400Regular",
+  bodyMedium: "IBMPlexSans_500Medium",
+  bodySemiBold: "IBMPlexSans_600SemiBold",
+  data: "IBMPlexMono_500Medium",
+  dataSemiBold: "IBMPlexMono_600SemiBold",
 };
 
 // ---- Stitch FleetOps Tactical Palette — Light Mode ----

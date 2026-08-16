@@ -27,6 +27,13 @@ Feature components sit alongside the pages that use them under `src/app/(dashboa
 
 `mobile/components/ui.js` — a **single file** of shared UI, not a directory. Appropriate for a five-screen app; worth splitting if it grows.
 
+### Mobile premium primitives (added 2026-08-16)
+
+- `PulsingDot` — infinite soft pulse for genuinely live state only (e.g. active trip). Follows the "pulse only for a live state" rule; never for static records.
+- `CountUpText` — animates a small figure from 0 to `value` on mount (dashboard stats). Numbers only, no decorative counters.
+
+Both use RN `Animated` with `useNativeDriver` where possible; no new animation dependency.
+
 ## The import hazard
 
 Client components import from `src/services/`, which also contains server-side modules that reach for `@/lib/db` and the **service role key**. Importing the wrong one into a client component pulls privileged code toward the browser. → [[DEBT Services Folder Mixes Two Concerns]]

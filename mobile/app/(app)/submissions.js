@@ -22,7 +22,7 @@ function LogCard({ item, colors, onPress }) {
   const isFuel = item.recordType === "FUEL";
   const isRejected = isFuel && item.status?.toLowerCase() === "rejected";
 
-  const icon = isFuel ? "water" : item.recordType === "INSPECTION" ? "clipboard" : "warning";
+  const icon = isFuel ? "water-outline" : item.recordType === "INSPECTION" ? "clipboard-outline" : "warning-outline";
   const iconColor = isIncident ? colors.error : isFuel ? colors.secondary : colors.primary;
 
   const getStatusDisplay = () => {
@@ -42,18 +42,10 @@ function LogCard({ item, colors, onPress }) {
   };
 
   const statusStyle = getStatusDisplay();
-  const CardComponent = isRejected ? Pressable : View;
-
-  return (
-    <CardComponent
-      onPress={isRejected ? onPress : undefined}
-      style={[
-        styles.logCard,
-        { backgroundColor: colors.surfaceContainerLowest, borderColor: isRejected ? colors.error : colors.outlineVariant },
-      ]}
-    >
+  const content = (
+    <>
       <View style={styles.logCardRow}>
-        <View style={[styles.logIcon, { backgroundColor: isIncident ? colors.errorContainer : colors.secondaryContainer }]}>
+        <View style={[styles.logIcon, { backgroundColor: isIncident ? colors.errorContainer + '60' : isFuel ? colors.secondaryContainer + '60' : colors.primaryContainer + '60' }]}>
           <Ionicons name={icon} size={20} color={iconColor} />
         </View>
         <View style={styles.logInfo}>
@@ -62,19 +54,19 @@ function LogCard({ item, colors, onPress }) {
           </Text>
           {isFuel ? (
             <Text style={[styles.logMain, { color: colors.onSurface }]}>
-              ₱{parseFloat(item.amount || item.total_cost || 0).toFixed(2)}
+              ₱{parseFloat(item.amount || item.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
             </Text>
           ) : item.recordType === "INSPECTION" ? (
             <Text style={[styles.logMain, { color: colors.onSurface }]}>
-              Pre-Shift Inspection
+              Pre-Trip Inspection
             </Text>
           ) : (
             <Text style={[styles.logMain, { color: colors.error }]}>
-              {item.title || item.incident_type || "Incident"}
+              {item.title || item.incident_type || "Incident Report"}
             </Text>
           )}
           <Text style={[styles.logSub, { color: colors.onSurfaceVariant }]}>
-            {item.date ? new Date(item.date).toLocaleString() : "—"}
+            {item.date ? new Date(item.date).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
           </Text>
         </View>
         <View style={[styles.logBadge, { backgroundColor: statusStyle.bg }]}>
@@ -88,7 +80,37 @@ function LogCard({ item, colors, onPress }) {
           {item.description}
         </Text>
       ) : null}
-    </CardComponent>
+    </>
+  );
+
+  if (isRejected) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.logCard,
+          {
+            backgroundColor: colors.surfaceContainerLow,
+            borderColor: colors.error,
+            transform: [{ scale: pressed ? 0.97 : 1 }],
+            opacity: pressed ? 0.9 : 1,
+          },
+        ]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View
+      style={[
+        styles.logCard,
+        { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' },
+      ]}
+    >
+      {content}
+    </View>
   );
 }
 
@@ -150,22 +172,22 @@ export default function SubmissionsScreen() {
       <View
         style={[
           styles.topBar,
-          { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant, paddingTop: insets.top },
+          { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant + '30', paddingTop: insets.top },
         ]}
       >
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
         <View>
-          <Text style={[styles.topBarTitle, { color: colors.onSurface }]}>My Submissions</Text>
+          <Text style={[styles.topBarTitle, { color: colors.onSurface }]}>Activity Logs</Text>
           <Text style={[styles.topBarSub, { color: colors.onSurfaceVariant }]}>
-            Fuel · Inspections · Incidents
+            Fuel • Inspections • Incidents
           </Text>
         </View>
       </View>
 
       {/* Filter Tabs */}
-      <View style={[styles.filterBar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
+      <View style={[styles.filterBar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant + '30' }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
           {FILTERS.map((f) => {
             const active = filter === f;
@@ -173,18 +195,20 @@ export default function SubmissionsScreen() {
               <Pressable
                 key={f}
                 onPress={() => setFilter(f)}
-                style={[
+                style={({ pressed }) => [
                   styles.filterTab,
                   {
-                    backgroundColor: active ? colors.primaryContainer : "transparent",
-                    borderColor: active ? colors.primary : colors.outlineVariant,
+                    backgroundColor: active ? colors.primary : colors.surfaceContainerLow,
+                    borderColor: active ? colors.primary : colors.outlineVariant + '40',
+                    transform: [{ scale: pressed ? 0.97 : 1 }],
+                    opacity: pressed ? 0.85 : 1,
                   },
                 ]}
               >
                 <Text
                   style={[
                     styles.filterText,
-                    { color: active ? colors.onPrimaryContainer : colors.onSurfaceVariant },
+                    { color: active ? colors.onPrimary : colors.onSurfaceVariant },
                   ]}
                 >
                   {f}
@@ -197,6 +221,7 @@ export default function SubmissionsScreen() {
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 32 }]}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -212,7 +237,9 @@ export default function SubmissionsScreen() {
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="document-text-outline" size={48} color={colors.outline} />
+            <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
+              <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Records Found</Text>
             <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
               Your submitted logs will appear here.
@@ -251,69 +278,67 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    gap: moderateScale(12),
-    paddingHorizontal: moderateScale(16),
-    paddingBottom: moderateScale(12),
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
     borderBottomWidth: 1,
-    shadowColor: "#000",
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 2,
   },
   backBtn: {
-    width: TOUCH_TARGET,
-    height: TOUCH_TARGET,
+    width: 38,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: TOUCH_TARGET / 2,
+    borderRadius: 19,
   },
-  topBarTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  topBarSub: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  topBarTitle: { fontSize: 17, fontFamily: fonts.displayBold },
+  topBarSub: { fontSize: 12, fontFamily: fonts.body },
   filterBar: { borderBottomWidth: 1 },
-  filterScroll: { paddingHorizontal: moderateScale(16), paddingVertical: moderateScale(10), gap: moderateScale(8), flexDirection: "row" },
+  filterScroll: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, flexDirection: "row" },
   filterTab: {
-    paddingHorizontal: moderateScale(16),
-    paddingVertical: moderateScale(6),
-    borderRadius: moderateScale(999),
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
   },
-  filterText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
-  scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(12) },
-  loadingBox: { padding: moderateScale(32), alignItems: "center" },
-  loadingText: { fontSize: moderateScale(16), fontFamily: fonts.body },
-  emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(8) },
-  emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  emptySub: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
+  filterText: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.5 },
+  scroll: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
+  loadingBox: { padding: 32, alignItems: "center" },
+  loadingText: { fontSize: 14, fontFamily: fonts.body },
+  emptyBox: { padding: 48, alignItems: "center", gap: 12 },
+  emptyIconCircle: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 17, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
+  emptySub: { fontSize: 14, fontFamily: fonts.body, textAlign: "center" },
   logCard: {
-    borderRadius: moderateScale(12),
+    borderRadius: 16,
     borderWidth: 1,
-    padding: moderateScale(16),
-    gap: moderateScale(8),
+    padding: 16,
+    gap: 8,
     shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04,
-    shadowRadius: 3,
+    shadowRadius: 4,
     elevation: 1,
   },
-  logCardRow: { flexDirection: "row", alignItems: "center", gap: moderateScale(12) },
+  logCardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   logIcon: {
-    width: moderateScale(44),
-    height: moderateScale(44),
-    borderRadius: moderateScale(22),
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
   },
-  logInfo: { flex: 1, gap: moderateScale(2) },
-  logType: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
-  logMain: { fontSize: moderateScale(16), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(24) },
-  logSub: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  logInfo: { flex: 1, gap: 2 },
+  logType: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase" },
+  logMain: { fontSize: 15, fontFamily: fonts.bodySemiBold },
+  logSub: { fontSize: 12, fontFamily: fonts.body },
   logBadge: {
-    paddingHorizontal: moderateScale(10),
-    paddingVertical: moderateScale(4),
-    borderRadius: moderateScale(999),
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     alignItems: "center",
     justifyContent: "center",
   },
-  logBadgeText: { fontSize: moderateScale(10), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(14), letterSpacing: 0.5 },
-  logDesc: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), paddingLeft: moderateScale(56) },
+  logBadgeText: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.5 },
+  logDesc: { fontSize: 13, fontFamily: fonts.body, lineHeight: 18, paddingLeft: 52 },
 });

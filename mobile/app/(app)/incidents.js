@@ -1,16 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
-  Alert,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform,  } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
+import { AppAlert } from '../../components/AppAlert';
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -42,11 +33,11 @@ export default function IncidentsScreen() {
 
   const handleSubmit = async () => {
     if (!type) {
-      Alert.alert("Missing Type", "Please select an incident type.");
+      AppAlert.alert("Missing Type", "Please select an incident type.");
       return;
     }
     if (!description.trim()) {
-      Alert.alert("Required", "Please describe the incident.");
+      AppAlert.alert("Required", "Please describe the incident.");
       return;
     }
     try {
@@ -93,7 +84,7 @@ export default function IncidentsScreen() {
       });
       setShowSuccess(true);
     } catch (e) {
-      Alert.alert("Error", e.message || "Could not submit report.");
+      AppAlert.alert("Error", e.message || "Could not submit report.");
     } finally {
       setSubmitting(false);
     }
@@ -117,25 +108,26 @@ export default function IncidentsScreen() {
         <Text style={[styles.topBarTitle, { color: colors.onErrorContainer }]}>
           Report Incident
         </Text>
-        <Ionicons name="warning" size={24} color={colors.onErrorContainer} />
+        <Ionicons name="warning" size={22} color={colors.onErrorContainer} />
       </View>
 
       {/* Emergency Banner */}
       <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
-        <Ionicons name="radio-outline" size={18} color={colors.onError} />
+        <Ionicons name="radio-outline" size={16} color={colors.onError} />
         <Text style={[styles.emergencyText, { color: colors.onError }]}>
-          Dispatching alert to fleet coordinator immediately upon submission
+          Fleet Coordinator will be notified immediately upon submission.
         </Text>
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 100 }]}
         keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
       >
         {/* Incident Type */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Incident Type
+            Incident Category
           </Text>
           <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
             Select the category that best describes the situation
@@ -153,16 +145,19 @@ export default function IncidentsScreen() {
                       backgroundColor: selected
                         ? colors.errorContainer
                         : colors.surfaceContainerLow,
-                      borderColor: selected ? colors.error : colors.outlineVariant,
-                      opacity: pressed ? 0.7 : 1,
+                      borderColor: selected ? colors.error : colors.outlineVariant + '40',
+                      transform: [{ scale: pressed ? 0.97 : 1 }],
+                      opacity: pressed ? 0.9 : 1,
                     },
                   ]}
                 >
-                  <Ionicons
-                    name={t.icon}
-                    size={24}
-                    color={selected ? colors.onErrorContainer : colors.onSurfaceVariant}
-                  />
+                  <View style={[styles.typeIconWrap, { backgroundColor: selected ? colors.error + '20' : colors.surfaceContainerHighest }]}>
+                    <Ionicons
+                      name={t.icon}
+                      size={20}
+                      color={selected ? colors.onErrorContainer : colors.onSurfaceVariant}
+                    />
+                  </View>
                   <Text
                     style={[
                       styles.typeCardText,
@@ -179,7 +174,7 @@ export default function IncidentsScreen() {
 
         {/* Severity */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity</Text>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity Level</Text>
           <View style={styles.severityRow}>
             {["low", "medium", "high"].map((s) => {
               const selected = severity === s;
@@ -193,11 +188,13 @@ export default function IncidentsScreen() {
                 <Pressable
                   key={s}
                   onPress={() => setSeverity(s)}
-                  style={[
+                  style={({ pressed }) => [
                     styles.severityBtn,
                     {
                       backgroundColor: selected ? c : colors.surfaceContainerLow,
-                      borderColor: selected ? c : colors.outlineVariant,
+                      borderColor: selected ? c : colors.outlineVariant + '40',
+                      transform: [{ scale: pressed ? 0.97 : 1 }],
+                      opacity: pressed ? 0.9 : 1,
                     },
                   ]}
                 >
@@ -222,12 +219,14 @@ export default function IncidentsScreen() {
         {/* Location (Auto) */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Current Location
+            Live Location
           </Text>
-          <View style={[styles.input, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerLow, flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 14 }]}>
-            <Ionicons name="location" size={20} color={colors.primary} />
-            <Text style={{ flex: 1, color: colors.onSurfaceVariant, fontSize: 14, fontFamily: fonts.bodyMedium }}>
-              Your live GPS coordinates will be automatically attached to this report for immediate dispatch tracking.
+          <View style={[styles.locationCard, { borderColor: colors.outlineVariant + '40', backgroundColor: colors.surfaceContainerLow }]}>
+            <View style={[styles.locIconWrap, { backgroundColor: colors.primaryContainer }]}>
+              <Ionicons name="location" size={18} color={colors.onPrimaryContainer} />
+            </View>
+            <Text style={{ flex: 1, color: colors.onSurfaceVariant, fontSize: 13, fontFamily: fonts.body, lineHeight: 18 }}>
+              Your exact GPS coordinates are automatically tagged to this report for rapid response.
             </Text>
           </View>
         </View>
@@ -235,13 +234,12 @@ export default function IncidentsScreen() {
         {/* Description */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
-            Description
+            Incident Details
           </Text>
           <TextInput
             style={[
-              styles.input,
               styles.textarea,
-              { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
+              { borderColor: colors.outlineVariant + '50', color: colors.onSurface, backgroundColor: colors.surfaceContainerLow },
             ]}
             placeholder="Describe what happened, current situation, and any immediate needs..."
             placeholderTextColor={colors.outline}
@@ -259,7 +257,7 @@ export default function IncidentsScreen() {
           styles.footer,
           {
             backgroundColor: colors.surface,
-            borderTopColor: colors.outlineVariant,
+            borderTopColor: colors.outlineVariant + '30',
             paddingBottom: insets.bottom + 16,
           },
         ]}
@@ -271,34 +269,37 @@ export default function IncidentsScreen() {
             styles.submitBtn,
             {
               backgroundColor: colors.error,
+              transform: [{ scale: pressed ? 0.97 : 1 }],
               opacity: pressed ? 0.9 : 1,
             },
           ]}
         >
-          <Ionicons name="radio" size={20} color={colors.onError} />
           <Text style={[styles.submitBtnText, { color: colors.onError }]}>
             {submitting ? "Sending Alert..." : "Send Emergency Report"}
           </Text>
+          <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Ionicons name="radio" size={17} color={colors.onError} />
+          </View>
         </Pressable>
       </View>
 
-      {/* Premium Success Overlay */}
+      {/* Success Overlay */}
       {showSuccess && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 32 }]}>
-          <View style={{ width: 96, height: 96, borderRadius: 48, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 32 }}>
-            <View style={{ width: 72, height: 72, borderRadius: 36, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
-              <Ionicons name="shield-checkmark" size={36} color={colors.onErrorContainer} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 24 }]}>
+          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
+            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="shield-checkmark" size={32} color={colors.onErrorContainer} />
             </View>
           </View>
-          <Text style={{ fontFamily: fonts.titleLg, fontSize: 26, color: colors.onSurface, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' }}>Help is on the way.</Text>
-          <Text style={{ fontFamily: fonts.bodyLg, fontSize: 16, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 40, lineHeight: 26 }}>
-            Dispatch has received your exact coordinates and incident details. {"\n\n"}Please prioritize your safety and await further instructions.
+          <Text style={{ fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 12, textAlign: 'center' }}>Help is on the way</Text>
+          <Text style={{ fontFamily: fonts.body, fontSize: 15, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 32, lineHeight: 22 }}>
+            Dispatch has received your exact coordinates and incident report. Please prioritize safety and await instructions.
           </Text>
           <Pressable
             onPress={() => router.back()}
-            style={({pressed}) => [{ backgroundColor: colors.primary, paddingHorizontal: 32, paddingVertical: 18, borderRadius: 100, width: '100%', alignItems: 'center', opacity: pressed ? 0.8 : 1 }]}
+            style={({pressed}) => [{ backgroundColor: colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: '100%', alignItems: 'center', opacity: pressed ? 0.9 : 1 }]}
           >
-            <Text style={{ fontFamily: fonts.bodyBold, fontSize: 16, color: colors.onPrimary }}>Return to Dashboard</Text>
+            <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 15, color: colors.onPrimary }}>Return to Dashboard</Text>
           </Pressable>
         </View>
       )}
@@ -311,79 +312,109 @@ const styles = StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: moderateScale(16),
-    paddingBottom: moderateScale(12),
-    gap: moderateScale(12),
-    height: TOUCH_TARGET + 0,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 12,
   },
   closeBtn: {
-    width: moderateScale(40),
-    height: moderateScale(40),
-    borderRadius: moderateScale(20),
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
   },
-  topBarTitle: { flex: 1, fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
+  topBarTitle: { flex: 1, fontSize: 17, fontFamily: fonts.displayBold },
   emergencyBanner: {
     flexDirection: "row",
     alignItems: "center",
-    gap: moderateScale(8),
-    paddingHorizontal: moderateScale(16),
-    paddingVertical: moderateScale(10),
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
   },
-  emergencyText: { flex: 1, fontSize: moderateScale(13), fontFamily: fonts.body, lineHeight: moderateScale(18) },
-  scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(20), gap: moderateScale(24) },
-  section: { gap: moderateScale(10) },
-  sectionTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
-  sectionSub: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), marginTop: moderateScale(-4) },
-  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: moderateScale(12) },
+  emergencyText: { flex: 1, fontSize: 12, fontFamily: fonts.bodyMedium },
+  scroll: { paddingHorizontal: 16, paddingTop: 18, gap: 20 },
+  section: { gap: 8 },
+  sectionTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold, letterSpacing: -0.2 },
+  sectionSub: { fontSize: 13, fontFamily: fonts.body },
+  typeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   typeCard: {
-    width: "47%",
-    borderRadius: moderateScale(12),
+    width: "48%",
+    borderRadius: 16,
     borderWidth: 1,
-    padding: moderateScale(16),
+    padding: 14,
     alignItems: "center",
-    gap: moderateScale(8),
-    minHeight: TOUCH_TARGET,
+    gap: 8,
   },
-  typeCardText: { fontSize: moderateScale(13), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(18), textAlign: "center" },
-  severityRow: { flexDirection: "row", gap: moderateScale(12) },
+  typeIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeCardText: { fontSize: 13, fontFamily: fonts.bodySemiBold, textAlign: "center" },
+  severityRow: { flexDirection: "row", gap: 10 },
   severityBtn: {
     flex: 1,
-    height: TOUCH_TARGET,
-    borderRadius: moderateScale(8),
+    height: 46,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  severityText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
-  input: {
+  severityText: { fontSize: 13, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.5 },
+  locationCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
     borderWidth: 1,
-    borderRadius: moderateScale(8),
-    paddingHorizontal: moderateScale(12),
-    paddingVertical: moderateScale(12),
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(24),
-    minHeight: TOUCH_TARGET,
   },
-  textarea: { minHeight: moderateScale(120), textAlignVertical: "top" },
+  locIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  textarea: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 14,
+    fontFamily: fonts.body,
+    minHeight: 110,
+    textAlignVertical: "top",
+  },
   footer: {
-    paddingHorizontal: moderateScale(16),
-    paddingTop: moderateScale(12),
+    paddingHorizontal: 16,
+    paddingTop: 12,
     borderTopWidth: 1,
   },
   submitBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
+    height: 52,
+    borderRadius: 16,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(8),
+    gap: 12,
     shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
     elevation: 3,
   },
-  submitBtnText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(20) },
+  submitBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.bodySemiBold,
+    letterSpacing: 0.3,
+  },
+  btnIconCapsule: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

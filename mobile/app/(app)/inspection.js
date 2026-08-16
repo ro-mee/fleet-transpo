@@ -1,20 +1,13 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState, useCallback } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
-  Alert,
-  TextInput,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput,  } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, space, radius, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
+import { AppAlert } from '../../components/AppAlert';
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -47,7 +40,7 @@ export default function PreShiftInspection() {
 
   const handleSubmit = async () => {
     if (!allAnswered) {
-      Alert.alert("Incomplete", "Please answer all checklist items before proceeding.");
+      AppAlert.alert("Incomplete", "Please answer all checklist items before proceeding.");
       return;
     }
     try {
@@ -62,11 +55,11 @@ export default function PreShiftInspection() {
         })),
         inspected_at: new Date().toISOString(),
       });
-      Alert.alert("Shift Started", "Pre-shift check complete. Drive safely!", [
+      AppAlert.alert("Shift Started", "Pre-shift check complete. Drive safely!", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (e) {
-      Alert.alert("Error", e.message || "Could not submit inspection.");
+      AppAlert.alert("Error", e.message || "Could not submit inspection.");
     } finally {
       setSubmitting(false);
     }
@@ -149,24 +142,25 @@ export default function PreShiftInspection() {
                   {/* PASS button */}
                   <Pressable
                     onPress={() => setStatus(item.id, "PASS")}
-                    style={[
+                    style={({ pressed }) => [
                       styles.checkBtn,
                       {
                         backgroundColor: isPass
                           ? colors.secondaryContainer
-                          : colors.surfaceContainerHighest,
-                        borderColor: isPass ? colors.secondary : colors.outlineVariant,
+                          : colors.surfaceContainerHigh,
+                        borderColor: isPass ? colors.secondary : colors.outlineVariant + '40',
+                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                        opacity: pressed ? 0.9 : 1,
                       },
                     ]}
                   >
                     <Ionicons
-                      name="checkmark-circle"
-                      size={20}
+                      name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
+                      size={18}
                       color={isPass ? colors.onSecondaryContainer : colors.onSurfaceVariant}
                     />
                     <Text
                       style={[
-                        type.labelLg,
                         styles.checkBtnText,
                         { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
                       ]}
@@ -178,24 +172,25 @@ export default function PreShiftInspection() {
                   {/* FAIL button */}
                   <Pressable
                     onPress={() => setStatus(item.id, "FAIL")}
-                    style={[
+                    style={({ pressed }) => [
                       styles.checkBtn,
                       {
                         backgroundColor: isFail
                           ? colors.errorContainer
-                          : colors.surfaceContainerHighest,
-                        borderColor: isFail ? colors.error : colors.outlineVariant,
+                          : colors.surfaceContainerHigh,
+                        borderColor: isFail ? colors.error : colors.outlineVariant + '40',
+                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                        opacity: pressed ? 0.9 : 1,
                       },
                     ]}
                   >
                     <Ionicons
-                      name={item.failLabel === "WARNING" ? "warning" : "close-circle"}
-                      size={20}
+                      name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? "close-circle" : "close-circle-outline"}
+                      size={18}
                       color={isFail ? colors.onErrorContainer : colors.onSurfaceVariant}
                     />
                     <Text
                       style={[
-                        type.labelLg,
                         styles.checkBtnText,
                         { color: isFail ? colors.onErrorContainer : colors.onSurface },
                       ]}
@@ -208,19 +203,18 @@ export default function PreShiftInspection() {
                 {/* Remarks input when failed */}
                 {isFail && (
                   <TextInput
-                    placeholder="Describe issue..."
+                    placeholder="Describe issue (e.g. Low tire pressure, broken bulb)..."
                     placeholderTextColor={colors.outline}
                     value={remarks[item.id] || ""}
                     onChangeText={(text) =>
                       setRemarks((prev) => ({ ...prev, [item.id]: text }))
                     }
                     style={[
-                      type.bodyMd,
                       styles.remarkInput,
                       {
-                        borderColor: colors.outlineVariant,
+                        borderColor: colors.error + '60',
                         color: colors.onSurface,
-                        backgroundColor: colors.surfaceContainerLow,
+                        backgroundColor: colors.surfaceContainerLowest,
                       },
                     ]}
                     multiline
@@ -238,7 +232,7 @@ export default function PreShiftInspection() {
           styles.footer,
           {
             backgroundColor: colors.surface,
-            borderTopColor: colors.outlineVariant,
+            borderTopColor: colors.outlineVariant + '30',
             paddingBottom: insets.bottom + 16,
           },
         ]}
@@ -252,25 +246,27 @@ export default function PreShiftInspection() {
               backgroundColor:
                 allAnswered && !submitting
                   ? colors.primary
-                  : colors.surfaceVariant,
+                  : colors.surfaceContainerHigh,
+              transform: [{ scale: pressed ? 0.97 : 1 }],
               opacity: pressed ? 0.9 : 1,
             },
           ]}
         >
-          <Ionicons
-            name={allAnswered ? "play" : "lock-closed"}
-            size={20}
-            color={allAnswered ? colors.onPrimary : colors.onSurfaceVariant}
-          />
           <Text
             style={[
-              type.labelLg,
               styles.startBtnText,
               { color: allAnswered ? colors.onPrimary : colors.onSurfaceVariant },
             ]}
           >
-            {submitting ? "SUBMITTING..." : "START SHIFT"}
+            {submitting ? "SUBMITTING..." : allAnswered ? "COMPLETE INSPECTION" : `COMPLETE ALL ITEMS (${Object.values(statuses).filter(Boolean).length}/${CHECKLIST.length})`}
           </Text>
+          <View style={[styles.btnIconCapsule, { backgroundColor: allAnswered && !submitting ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }]}>
+            <Ionicons
+              name={allAnswered ? "checkmark-circle-outline" : "lock-closed-outline"}
+              size={17}
+              color={allAnswered ? colors.onPrimary : colors.onSurfaceVariant}
+            />
+          </View>
         </Pressable>
       </View>
     </View>
@@ -367,20 +363,34 @@ const styles = StyleSheet.create({
     minHeight: moderateScale(60),
     textAlignVertical: "top",
   },
+  startBtn: {
+    height: 52,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  startBtnText: {
+    fontSize: 15,
+    fontFamily: fonts.bodySemiBold,
+    letterSpacing: 0.3,
+  },
+  btnIconCapsule: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   footer: {
     paddingHorizontal: moderateScale(16),
     paddingTop: moderateScale(12),
     borderTopWidth: 1,
-  },
-  startBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: moderateScale(8),
-  },
-  startBtnText: {
-    letterSpacing: 0.5,
   },
 });

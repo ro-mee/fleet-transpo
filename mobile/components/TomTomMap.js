@@ -70,19 +70,20 @@ const TomTomMap = forwardRef(({
               .on-route-badge.yellow { background: #eab308; }
 
               /* Ultra Premium Glassmorphic Navigation Header */
-              .nav-header { position: absolute; top: 20px; left: 20px; right: 20px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; pointer-events: none; }
+              .nav-header { position: absolute; top: 36px; left: 20px; right: 20px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; pointer-events: none; }
               
               .nav-main-banner { 
-                  background: rgba(15, 23, 42, 0.85); 
-                  backdrop-filter: blur(16px); 
-                  -webkit-backdrop-filter: blur(16px);
-                  border: 1px solid rgba(255, 255, 255, 0.15);
-                  border-radius: 32px; 
-                  padding: 8px 24px 8px 8px; 
+                  background: rgba(18, 18, 18, 0.7); 
+                  backdrop-filter: blur(24px) saturate(150%); 
+                  -webkit-backdrop-filter: blur(24px) saturate(150%);
+                  border: 1px solid rgba(255, 255, 255, 0.12);
+                  border-top: 1px solid rgba(255, 255, 255, 0.25);
+                  border-radius: 36px; 
+                  padding: 10px 24px 10px 10px; 
                   display: flex; 
                   align-items: center; 
                   color: white; 
-                  box-shadow: 0 16px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1); 
+                  box-shadow: 0 24px 48px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.05); 
                   position: relative; 
                   max-width: 400px;
                   width: 100%;
@@ -92,8 +93,9 @@ const TomTomMap = forwardRef(({
                   width: 56px; 
                   height: 56px; 
                   border-radius: 28px; 
-                  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-                  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+                  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+                  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 8px 16px rgba(0,0,0,0.4);
+                  border: 1px solid rgba(255, 255, 255, 0.08);
                   display: flex; 
                   align-items: center; 
                   justify-content: center; 
@@ -101,42 +103,36 @@ const TomTomMap = forwardRef(({
                   position: relative;
               }
               
-              .nav-icon-wrapper::after {
-                  content: '';
-                  position: absolute;
-                  inset: 0;
-                  border-radius: 50%;
-                  box-shadow: inset 0 2px 4px rgba(255,255,255,0.4);
-              }
+              .nav-icon { width: 26px; height: 26px; fill: #38bdf8; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
               
-              .nav-icon { width: 28px; height: 28px; fill: white; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.2)); }
+              .nav-info { margin-left: 18px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; }
               
-              .nav-info { margin-left: 16px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; }
+              .nav-dist-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 2px; }
+              .nav-dist { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+              .nav-dist-unit { font-size: 14px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; }
               
-              .nav-dist-row { display: flex; align-items: baseline; gap: 6px; }
-              .nav-dist { font-size: 24px; font-weight: 800; letter-spacing: -0.5px; background: linear-gradient(to right, #ffffff, #cbd5e1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-              .nav-dist-unit { font-size: 13px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; }
-              
-              .nav-street { font-size: 16px; font-weight: 500; color: #f8fafc; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; letter-spacing: 0.2px; }
+              .nav-street { font-size: 17px; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; letter-spacing: 0px; }
               
               .nav-then-badge { 
-                  background: rgba(15, 23, 42, 0.7); 
-                  border: 1px solid rgba(255, 255, 255, 0.1);
+                  background: rgba(15, 23, 42, 0.85); 
+                  border: 1px solid rgba(255, 255, 255, 0.12);
+                  border-top: 1px solid rgba(255, 255, 255, 0.2);
                   border-radius: 20px; 
-                  padding: 6px 16px; 
+                  padding: 6px 18px; 
                   display: inline-flex; 
                   align-items: center; 
-                  color: #e2e8f0; 
-                  margin-top: 12px;
-                  font-weight: 600; 
+                  color: #94a3b8;
+                  position: relative;
+                  margin-top: 8px;
+                  font-weight: 700; 
                   font-size: 12px; 
-                  box-shadow: 0 8px 16px rgba(0,0,0,0.2); 
-                  backdrop-filter: blur(8px);
-                  -webkit-backdrop-filter: blur(8px);
-                  letter-spacing: 0.5px;
+                  box-shadow: 0 8px 16px rgba(0,0,0,0.3); 
+                  backdrop-filter: blur(12px);
+                  -webkit-backdrop-filter: blur(12px);
+                  letter-spacing: 1px;
                   text-transform: uppercase;
               }
-              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: #e2e8f0; }
+              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: #94a3b8; }
 
               /* Map Controls (Hidden in favor of Native controls) */
               .overview-btn { display: none !important; }
@@ -856,7 +852,7 @@ const TomTomMap = forwardRef(({
       </html>
     `;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop]);
+  }, [destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
 
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   useEffect(() => {

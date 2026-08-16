@@ -4,6 +4,30 @@ Status: DRAFT for redesign. Scope: driver application UI/UX only. Guest mode is 
 implemented (requires backend work, out of scope); the design system is built so a Guest
 flow can be layered on later without a visual redesign.
 
+## Home tab redesign — IMPLEMENTED 2026-08-16
+
+The driver **Home tab** (`mobile/app/(app)/(tabs)/index.js`) was rebuilt as a premium
+operational surface. Same data + RBAC logic; visual layer upgraded:
+
+- **Hero panel** — linear-gradient indigo→near-black panel (light/dark/high-contrast
+  consistent), daily-dispatch eyebrow, greeting + date, live-status chip with `PulsingDot`
+  for an active trip, assigned vehicle row with the `Plate` component.
+- **Trip card** — dominant, elevated; tonal badge, tabular departure-time pill, dashed
+  route rail, guest row with "open in maps" action, full-width pill CTA with nested icon
+  circle, `StatusPill`.
+- **Stats strip** — two tiles with icons and animated `CountUpText` figures.
+- **Quick actions** — 2×2 tiles with per-action tinted icon chips + chevron affordance.
+- **Micro-motion** — staggered section entrance (RN `Animated`, `useNativeDriver`),
+  press-scale feedback, live pulse only. No ambient/scroll decoration.
+- **Typography** — switched the whole app to the design-system typeface spec (Archivo
+  display + IBM Plex Sans interface + IBM Plex Mono data) in `app/_layout.js` + `lib/theme.js`.
+- Added `expo-linear-gradient` (SDK 54).
+
+Remaining P1/P2 items for future waves: unread badge on Alerts, skeletons on History /
+Notifications / Profile, sectioned Profile cards, ETA/distance on trip cards.
+
+Report follows.
+
 ---
 
 ## 1. Executive summary

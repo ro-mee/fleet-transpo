@@ -1,19 +1,12 @@
 import React, { useState, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  ScrollView,
-  ActivityIndicator,
-  Alert
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api } from "../../../lib/api";
+import { AppAlert } from '../../../components/AppAlert';
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -37,7 +30,7 @@ export default function LicenseInformation() {
       const me = await api.get("/api/driver/me");
       setProfile(me);
     } catch {
-      Alert.alert("Error", "Could not load license info.");
+      AppAlert.alert("Error", "Could not load license info.");
     } finally {
       setLoading(false);
     }

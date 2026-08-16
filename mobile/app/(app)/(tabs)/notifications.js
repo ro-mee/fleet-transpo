@@ -189,7 +189,7 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
                 {todayNotifs.map((n) => (
-                  <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                  <NotifCard key={n.notification_id || n.id} notif={n} colors={colors} onPress={handleNotifPress} />
                 ))}
               </>
             )}
@@ -197,7 +197,7 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
                 {earlierNotifs.map((n) => (
-                  <NotifCard key={n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                  <NotifCard key={n.notification_id || n.id} notif={n} colors={colors} onPress={handleNotifPress} />
                 ))}
               </>
             )}

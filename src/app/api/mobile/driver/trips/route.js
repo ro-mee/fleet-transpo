@@ -28,6 +28,20 @@ const STATUS_GROUPS = {
   active: ["Driver Accepted", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "In Progress"],
   completed: ["Completed", "Cancelled"],
 };
+STATUS_GROUPS.all = [
+  ...STATUS_GROUPS.pending,
+  ...STATUS_GROUPS.active,
+  ...STATUS_GROUPS.completed,
+];
+
+async function preTripStatus(tripId) {
+  const { rows } = await query(
+    `SELECT status FROM vehicleinspection
+      WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [tripId]
+  );
+  return rows[0]?.status ?? null;
+}
 
 export async function GET(req) {
   try {
@@ -71,60 +85,69 @@ export async function GET(req) {
          LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
         WHERE t.driver_id = $1 AND t.deleted_at IS NULL
           AND t.trip_status = ANY($2)
-        ORDER BY t.start_time ASC NULLS LAST, t.trip_id ASC
+        ORDER BY ds.scheduled_departure ASC NULLS LAST, t.trip_id ASC
         LIMIT $3`,
       [session.user.driverId, statuses, limit]
     );
 
-    // Pre-trip + departure-window enrichment. Only the trip awaiting START
-    // ROUTE (Driver Accepted) needs the window, so ETA (a TomTom network call)
-    // is computed for that one row, not the whole list.
-    const actionable = rows.find((t) => t.trip_status === "Driver Accepted");
-    let preTripStatus = null;
-    if (actionable) {
-      const { rows: pretrips } = await query(
-        `SELECT status FROM vehicleinspection
-          WHERE trip_id = $1 ORDER BY created_at DESC LIMIT 1`,
-        [actionable.trip_id]
-      );
-      preTripStatus = pretrips[0]?.status ?? null;
-      actionable.pre_trip_status = preTripStatus;
+    // Pre-trip + departure-window enrichment. Every pre-start trip (not yet
+    // STARTED) gets the window fields so the app can show "when can I start".
+    // ETA (a TomTom network call) is only computed for the one trip actually
+    // awaiting START ROUTE (Driver Accepted), not the whole list.
+    const preStart = rows.filter((t) =>
+      [...STATUS_GROUPS.pending, "Driver Accepted"].includes(t.trip_status)
+    );
+    const actionable = preStart.find((t) => t.trip_status === "Driver Accepted");
 
-      let window = null;
-      if (actionable.departure_time) {
-        const policy = mergeDispatchPolicy(
-          (await query(
-            `SELECT setting_value FROM system_settings WHERE setting_key = 'dispatch_policy' LIMIT 1`
-          )).rows[0]?.setting_value
-        );
-        let etaMinutes = null;
-        const dest = actionable.origin_latitude != null
-          ? [Number(actionable.origin_latitude), Number(actionable.origin_longitude)]
-          : null;
+    // ETA is resolved once (from the driver's current position) and reused.
+    let driverPos = null;
+    const resolveEta = async (trip) => {
+      if (trip.eta_to_pickup_min != null) return trip.eta_to_pickup_min;
+      const dest = trip.origin_latitude != null
+        ? [Number(trip.origin_latitude), Number(trip.origin_longitude)]
+        : null;
+      if (!driverPos) {
         const { rows: pos } = await query(
           `SELECT current_latitude, current_longitude FROM drivers WHERE driver_id = $1 LIMIT 1`,
           [session.user.driverId]
         );
-        const src = pos[0]?.current_latitude != null
+        driverPos = pos[0]?.current_latitude != null
           ? [Number(pos[0].current_latitude), Number(pos[0].current_longitude)]
           : null;
-        if (src && dest) etaMinutes = await tomtomEtaMinutes({ origin: src, destination: dest });
-        if (etaMinutes == null && src && dest) etaMinutes = etaFromDistanceKm(haversineKm(src, dest));
-        if (etaMinutes == null) {
-          const d = Number(actionable.estimated_duration);
-          etaMinutes = Number.isFinite(d) && d > 0 ? d : null;
-        }
-        window = computeDepartureWindow({
-          pickup: actionable.departure_time,
-          etaMinutes,
-          departureBufferMinutes: policy.departureBufferMinutes,
-          earlyStartAllowanceMinutes: policy.earlyStartAllowanceMinutes,
-        });
       }
-      actionable.eta_to_pickup_min = window?.eta_minutes ?? null;
-      actionable.recommended_departure = window?.recommended_departure ?? null;
-      actionable.earliest_start = window?.earliest_start ?? null;
-      actionable.latest_start = window?.latest_start ?? null;
+      const src = driverPos;
+      let eta = null;
+      if (src && dest) eta = await tomtomEtaMinutes({ origin: src, destination: dest });
+      if (eta == null && src && dest) eta = etaFromDistanceKm(haversineKm(src, dest));
+      if (eta == null) {
+        const d = Number(trip.estimated_duration);
+        eta = Number.isFinite(d) && d > 0 ? d : null;
+      }
+      trip.eta_to_pickup_min = eta;
+      return eta;
+    };
+
+    const policy = mergeDispatchPolicy(
+      (await query(
+        `SELECT setting_value FROM system_settings WHERE setting_key = 'dispatch_policy' LIMIT 1`
+      )).rows[0]?.setting_value
+    );
+
+    for (const t of preStart) {
+      t.pre_trip_status = await preTripStatus(t.trip_id);
+      
+      if (!t.departure_time) continue;
+      const etaMinutes = await resolveEta(t);
+      const window = computeDepartureWindow({
+        pickup: t.departure_time,
+        etaMinutes,
+        departureBufferMinutes: policy.departureBufferMinutes,
+        earlyStartAllowanceMinutes: policy.earlyStartAllowanceMinutes,
+      });
+      t.recommended_departure = window?.recommended_departure ?? null;
+      t.earliest_start = window?.earliest_start ?? null;
+      t.latest_start = window?.latest_start ?? null;
+      t.eta_to_pickup_min = window?.eta_minutes ?? etaMinutes ?? null;
     }
 
     return ok(rows);

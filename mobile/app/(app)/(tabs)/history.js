@@ -1,15 +1,6 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useState } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  Pressable,
-  RefreshControl,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
+import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, ActivityIndicator,  } from 'react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +8,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 import { StatusPill } from "../../../components/ui";
+import { AppAlert } from '../../../components/AppAlert';
 
 const STATUS_ORDER = [
   "Pending",
@@ -163,7 +155,7 @@ export default function TripsTab() {
   });
 
   const handleTripPress = (trip) => {
-    Alert.alert(
+    AppAlert.alert(
       `Trip #${trip.trip_id}`,
       `Status: ${trip.trip_status}\n\nFrom: ${trip.origin || "—"}\nTo: ${trip.destination || "—"}`,
       [{ text: "OK" }]

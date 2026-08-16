@@ -5,17 +5,26 @@ import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_600SemiBold,
-  Inter_700Bold,
-} from "@expo-google-fonts/inter";
-// ^ All Inter weights are exported from the root package index
+  Archivo_600SemiBold,
+  Archivo_700Bold,
+} from "@expo-google-fonts/archivo";
+import {
+  IBMPlexSans_400Regular,
+  IBMPlexSans_500Medium,
+  IBMPlexSans_600SemiBold,
+} from "@expo-google-fonts/ibm-plex-sans";
+import {
+  IBMPlexMono_500Medium,
+  IBMPlexMono_600SemiBold,
+} from "@expo-google-fonts/ibm-plex-mono";
+// ^ Design-system type spec (docs/design-system.md): Archivo display,
+//   IBM Plex Sans interface, IBM Plex Mono data.
 import { AuthProvider } from "../lib/auth";
 import { ErrorBoundary } from "../components/error-boundary";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { SettingsProvider } from "../lib/settings-context";
 import { syncQueue } from "../lib/sync";
+import { AppAlertHost } from "../components/AppAlert";
 
 // Keep the native splash up while fonts load so the app never flashes in a
 // fallback typeface. Hidden in the effect below once fonts are ready.
@@ -32,6 +41,8 @@ function ThemedApp() {
           contentStyle: { backgroundColor: colors.background },
         }}
       />
+      {/* Premium alert overlay — above everything, below nothing */}
+      <AppAlertHost />
     </ErrorBoundary>
   );
 }
@@ -45,10 +56,13 @@ function ThemedApp() {
  */
 export default function RootLayout() {
   const [loaded, error] = useFonts({
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_600SemiBold,
-    Inter_700Bold,
+    Archivo_600SemiBold,
+    Archivo_700Bold,
+    IBMPlexSans_400Regular,
+    IBMPlexSans_500Medium,
+    IBMPlexSans_600SemiBold,
+    IBMPlexMono_500Medium,
+    IBMPlexMono_600SemiBold,
   });
 
   const ready = loaded || error;

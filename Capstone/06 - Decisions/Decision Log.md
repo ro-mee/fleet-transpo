@@ -10,7 +10,7 @@ last_verified: 2026-08-11
 
 # Decision Log
 
-Architectural decisions **reconstructed from repository evidence**. Where the repo states a reason, it's quoted. Where it doesn't, the note says so — no reasoning is invented.
+	Architectural decisions **reconstructed from repository evidence**. Where the repo states a reason, it's quoted. Where it doesn't, the note says so — no reasoning is invented.
 
 ## The ADRs
 

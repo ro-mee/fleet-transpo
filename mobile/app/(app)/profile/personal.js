@@ -1,20 +1,12 @@
 import React, { useState, useCallback, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Pressable,
-  TextInput,
-  ScrollView,
-  ActivityIndicator,
-  Alert
-} from "react-native";
+import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api, apiFetch } from "../../../lib/api";
+import { AppAlert } from '../../../components/AppAlert';
 
 function InfoRow({ label, value, colors }) {
   return (
@@ -42,7 +34,7 @@ export default function PersonalInformation() {
       setProfile(me);
       setPhone(me?.phone ?? "");
     } catch {
-      Alert.alert("Error", "Could not load profile.");
+      AppAlert.alert("Error", "Could not load profile.");
     } finally {
       setLoading(false);
     }
@@ -59,9 +51,9 @@ export default function PersonalInformation() {
         body: JSON.stringify({ phone: phone.trim() }),
       });
       setEditingPhone(false);
-      Alert.alert("Saved", "Phone number updated.");
+      AppAlert.alert("Saved", "Phone number updated.");
     } catch (e) {
-      Alert.alert("Error", e.message || "Could not save phone.");
+      AppAlert.alert("Error", e.message || "Could not save phone.");
     } finally {
       setSaving(false);
     }
