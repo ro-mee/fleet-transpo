@@ -4,12 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
@@ -166,18 +167,24 @@ export default function AddUserPage() {
               </FloatingField>
 
               <FloatingField label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2">
-                <select
-                  id="role_id"
-                  {...form.register("role_id")}
-                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                >
-                  <option value="" className="bg-background text-foreground">Select system role</option>
-                  {ACCOUNT_ROLES.map((role) => (
-                    <option key={role.id} value={role.id} className="bg-background text-foreground">
-                      {role.name} ({role.label})
-                    </option>
-                  ))}
-                </select>
+                <Controller
+                  control={form.control}
+                  name="role_id"
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger className="w-full bg-transparent border-0 px-0 py-1 h-auto shadow-none focus:ring-0 focus:ring-offset-0 text-xs font-semibold text-foreground cursor-pointer hover:text-primary transition-colors">
+                        <SelectValue placeholder="Select system role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACCOUNT_ROLES.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            {role.name} ({role.label})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
               </FloatingField>
             </div>
 
