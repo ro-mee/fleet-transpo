@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
+import { useQuery, keepPreviousData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -55,7 +55,19 @@ export default function FuelPage() {
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState("Pending"); // 'Pending' | 'Approved' | 'Rejected' | 'all'
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState([]);
+
+  // Debounce the server-side search so every keystroke doesn't hit the API.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   // Modals state
   const [inspectRecord, setInspectRecord] = useState(null);
@@ -73,23 +85,50 @@ export default function FuelPage() {
   const [editForm, setEditForm] = useState({});
   const { validate: validateEdit, fieldError: editFieldError, registerField: registerEditField } = useFormValidation(editFuelSchema);
 
-  // Fetch fuel records
-  const { data: records = [], isLoading } = useQuery({
-    queryKey: ["fuel-records"],
-    queryFn: () => getFuelRecords(),
+  // The status tab maps to a server-side `status` param. "all" = no filter.
+  const statusParam = activeTab === "all" ? undefined : activeTab;
+
+  // Fetch a page of fuel records. Filtering/sorting/pagination now happen on the
+  // server; the API returns `{ rows, total, counts }` for the table + stat cards.
+  const {
+    data = { rows: [], total: 0, counts: { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 } },
+    isLoading,
+  } = useQuery({
+    queryKey: ["fuel-records", { page, activeTab, search, sort }],
+    queryFn: () =>
+      getFuelRecords({
+        page,
+        pageSize: 10,
+        status: statusParam,
+        search: search || undefined,
+        sort: sort[0]?.id,
+        sortDir: sort[0]?.desc ? "desc" : "asc",
+      }),
     refetchInterval: 30_000,
+    placeholderData: keepPreviousData,
   });
 
-  // Filter records based on tab & search
-  const filteredRecords = useMemo(() => {
-    return records.filter((r) => {
-      const currentStatus = (r.status || "Pending").toLowerCase();
-      if (activeTab === "Pending" && currentStatus !== "pending") return false;
-      if (activeTab === "Approved" && currentStatus !== "approved" && currentStatus !== "completed") return false;
-      if (activeTab === "Rejected" && currentStatus !== "rejected") return false;
-      return true;
+  const records = data.rows || [];
+  const total = data.total || 0;
+  const counts = data.counts || { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 };
+
+  // Export needs the whole (filtered) set, not just the current page.
+  const handleExport = async () => {
+    const all = await getFuelRecords({
+      status: statusParam,
+      search: search || undefined,
     });
-  }, [records, activeTab]);
+    exportToCSV(all || [], "fuel-receipt-claims", [
+      { label: "Refuel Date", key: "fuel_date" },
+      { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
+      { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
+      { label: "Station", key: "station_name" },
+      { label: "Fuel Type", key: "fuel_type" },
+      { label: "Liters", key: "liters" },
+      { label: "Total Amount", key: "amount" },
+      { label: "Status", key: "status" },
+    ]);
+  };
 
   // Mutations
   const updateStatusMutation = useMutation({
@@ -124,13 +163,11 @@ export default function FuelPage() {
     onError: (err) => toast.error(err.message || "Failed to archive record"),
   });
 
-  // Stats calculation
-  const pendingCount = records.filter((r) => (r.status || "Pending").toLowerCase() === "pending").length;
-  const approvedCount = records.filter((r) => ["approved", "completed"].includes((r.status || "").toLowerCase())).length;
-  const rejectedCount = records.filter((r) => (r.status || "").toLowerCase() === "rejected").length;
-  const totalCost = records
-    .filter((r) => ["approved", "completed"].includes((r.status || "").toLowerCase()))
-    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+  // Stats come from the server-side counts (whole set, not the current page).
+  const pendingCount = counts.pending;
+  const approvedCount = counts.approved;
+  const rejectedCount = counts.rejected;
+  const totalCost = counts.approvedCost;
 
   const columns = [
     {
@@ -342,18 +379,7 @@ export default function FuelPage() {
           <Button
             variant="outline"
             className={cn("h-10", heroButtonOutlineClass)}
-            onClick={() =>
-              exportToCSV(records, "fuel-receipt-claims", [
-                { label: "Refuel Date", key: "fuel_date" },
-                { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
-                { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
-                { label: "Station", key: "station_name" },
-                { label: "Fuel Type", key: "fuel_type" },
-                { label: "Liters", key: "liters" },
-                { label: "Total Amount", key: "amount" },
-                { label: "Status", key: "status" },
-              ])
-            }
+            onClick={handleExport}
           >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
@@ -369,7 +395,7 @@ export default function FuelPage() {
           return (
             <button
               type="button"
-              onClick={() => setActiveTab("all")}
+              onClick={() => { setActiveTab("all"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -382,7 +408,7 @@ export default function FuelPage() {
                 <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Fuel className="w-4 h-4" /></div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{records.length}</div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.total}</div>
               </div>
             </button>
           );
@@ -394,7 +420,7 @@ export default function FuelPage() {
           return (
             <button
               type="button"
-              onClick={() => setActiveTab("Pending")}
+              onClick={() => { setActiveTab("Pending"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -419,7 +445,7 @@ export default function FuelPage() {
           return (
             <button
               type="button"
-              onClick={() => setActiveTab("Approved")}
+              onClick={() => { setActiveTab("Approved"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -444,7 +470,7 @@ export default function FuelPage() {
           return (
             <button
               type="button"
-              onClick={() => setActiveTab("Rejected")}
+              onClick={() => { setActiveTab("Rejected"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -470,30 +496,30 @@ export default function FuelPage() {
           <div className="flex items-center gap-2 overflow-x-auto">
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Pending" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => setActiveTab("Pending")}
+              onClick={() => { setActiveTab("Pending"); setPage(1); }}
             >
               <Clock className="w-3.5 h-3.5 mr-1.5" /> Pending Review ({pendingCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Approved" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => setActiveTab("Approved")}
+              onClick={() => { setActiveTab("Approved"); setPage(1); }}
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Approved ({approvedCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Rejected" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => setActiveTab("Rejected")}
+              onClick={() => { setActiveTab("Rejected"); setPage(1); }}
             >
               <XCircle className="w-3.5 h-3.5 mr-1.5" /> Rejected ({rejectedCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "all" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => setActiveTab("all")}
+              onClick={() => { setActiveTab("all"); setPage(1); }}
             >
-              All Records ({records.length})
+              All Records ({counts.total})
             </button>
           </div>
         </CardHeader>
@@ -501,7 +527,7 @@ export default function FuelPage() {
         <CardContent className="p-0">
           <DataTable
             columns={columns}
-            data={filteredRecords}
+            data={records}
             isLoading={isLoading}
             pageSize={10}
             title="Fuel Audit Registry"
@@ -509,9 +535,14 @@ export default function FuelPage() {
             icon={Fuel}
             context={activeTab === "all" ? "All Fuel Logs" : activeTab}
             searchable
-            searchValue={search}
-            onSearchChange={setSearch}
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
             searchPlaceholder="Search driver, plate #, station..."
+            manualPagination
+            pageIndex={page - 1}
+            onPageChange={(idx) => setPage(idx + 1)}
+            rowCount={total}
+            onSortChange={(s) => { setSort(s); setPage(1); }}
           />
         </CardContent>
       </Card>

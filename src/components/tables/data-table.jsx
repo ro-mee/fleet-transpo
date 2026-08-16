@@ -40,13 +40,20 @@ export function DataTable({
   context,
   emptyTitle = "No results found",
   emptyDescription = "Try adjusting your search or filters.",
+  manualPagination = false,
+  pageIndex: controlledPageIndex,
+  onPageChange,
+  rowCount,
+  onSortChange,
 }) {
   const [sorting, setSorting] = useState([]);
   const [internalFilter, setInternalFilter] = useState("");
+  const [internalPageIndex, setInternalPageIndex] = useState(0);
 
   const isControlled = searchValue !== undefined;
   const globalFilter = isControlled ? searchValue : internalFilter;
   const setGlobalFilter = isControlled ? onSearchChange : setInternalFilter;
+  const pageIndex = manualPagination ? (controlledPageIndex ?? 0) : internalPageIndex;
 
   const columns = useMemo(() => {
     if (!rawColumns?.length) return [];
@@ -62,21 +69,34 @@ export function DataTable({
     }));
   }, [rawColumns]);
 
+  const paginationState = { pageIndex, pageSize };
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter },
-    onSortingChange: setSorting,
+    state: { sorting, globalFilter, pagination: paginationState },
+    onSortingChange: (updater) => {
+      const next = typeof updater === "function" ? updater(sorting) : updater;
+      setSorting(next);
+      if (manualPagination) onSortChange?.(next);
+    },
     onGlobalFilterChange: setGlobalFilter,
+    onPaginationChange: (updater) => {
+      const next = typeof updater === "function" ? updater(paginationState) : updater;
+      if (manualPagination) onPageChange?.(next.pageIndex);
+      else setInternalPageIndex(next.pageIndex);
+    },
     getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize } },
+    getSortedRowModel: manualPagination ? undefined : getSortedRowModel(),
+    getFilteredRowModel: manualPagination ? undefined : getFilteredRowModel(),
+    getPaginationRowModel: manualPagination ? undefined : getPaginationRowModel(),
+    manualPagination,
+    manualSorting: manualPagination,
+    manualFiltering: manualPagination,
+    pageCount: manualPagination ? Math.max(1, Math.ceil((rowCount ?? data.length) / pageSize)) : undefined,
   });
 
-  const totalRows = table.getFilteredRowModel().rows.length;
-  const { pageIndex, pageSize: currentPageSize } = table.getState().pagination;
+  const totalRows = manualPagination ? (rowCount ?? data.length) : table.getFilteredRowModel().rows.length;
+  const { pageSize: currentPageSize } = table.getState().pagination;
   const pageCount = table.getPageCount();
   const visibleStart = totalRows ? pageIndex * currentPageSize + 1 : 0;
   const visibleEnd = Math.min((pageIndex + 1) * currentPageSize, totalRows);

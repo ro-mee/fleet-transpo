@@ -42,6 +42,44 @@ const FIELD_TO_COLUMN = {
 // drivers — see the comment on the recompute call in POST.
 const SCHEDULE_OWNER_ROLES = ["system_admin", "admin", "fleet_manager"];
 
+// Lean projection for the paginated register. Only the columns the maintenance
+// page renders + the detail dialog needs, instead of `vm.*` + `row_to_json(v.*)`.
+const MT_LIST_SELECT = `
+  vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
+  vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
+  vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
+  CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
+    json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
+  END AS vehicles
+`;
+
+const MT_FROM = `
+  FROM vehiclemaintenance vm
+  LEFT JOIN vehicles v ON vm.vehicle_id = v.vehicle_id
+`;
+
+// Whitelist of sortable columns for the register. Maps the TanStack accessor id
+// to a SQL expression so user input never reaches ORDER BY.
+const MT_SORTABLE = {
+  "vehicles.plate_number": "v.plate_number",
+  maintenance_type: "vm.maintenance_type",
+  maintenance_date: "vm.maintenance_date",
+  status: "vm.status",
+  priority: "vm.priority",
+  cost: "vm.cost",
+  service_provider: "vm.service_provider",
+};
+
+// Stat-card totals, computed server-side so the register never needs the whole set.
+const MT_COUNTS_SQL = `
+  SELECT
+    count(*) AS total,
+    count(*) FILTER (WHERE vm.status = 'Scheduled') AS scheduled,
+    count(*) FILTER (WHERE vm.status = 'In Progress') AS "inProgress",
+    COALESCE(SUM(vm.cost), 0) AS total_cost
+  FROM vehiclemaintenance vm WHERE vm.deleted_at IS NULL
+`;
+
 const maintenanceWriteSchema = {
   vehicle_id: { required: true, type: "id", label: "Vehicle" },
   maintenance_date: { required: true, type: "date", label: "Maintenance date", validate: maintenanceDateRule },
@@ -78,28 +116,71 @@ export async function GET(req) {
     await requireAuth(req);
     const { searchParams } = new URL(req.url);
 
-    let sql = `SELECT vm.*, row_to_json(v.*) as vehicles
-               FROM vehiclemaintenance vm
-               LEFT JOIN vehicles v ON vm.vehicle_id = v.vehicle_id
-               WHERE vm.deleted_at IS NULL`;
+    let where = " WHERE vm.deleted_at IS NULL";
     const params = [];
     let idx = 1;
 
     const vehicle_id = searchParams.get("vehicle_id");
-    if (vehicle_id) { sql += ` AND vm.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
+    if (vehicle_id) { where += ` AND vm.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
 
     const status = searchParams.get("status");
-    if (status) { sql += ` AND vm.status = $${idx++}`; params.push(status); }
+    if (status) { where += ` AND vm.status = $${idx++}`; params.push(status); }
 
     const from_date = searchParams.get("from_date");
-    if (from_date) { sql += ` AND vm.maintenance_date >= $${idx++}`; params.push(from_date); }
+    if (from_date) { where += ` AND vm.maintenance_date >= $${idx++}`; params.push(from_date); }
 
     const to_date = searchParams.get("to_date");
-    if (to_date) { sql += ` AND vm.maintenance_date <= $${idx++}`; params.push(to_date); }
+    if (to_date) { where += ` AND vm.maintenance_date <= $${idx++}`; params.push(to_date); }
 
-    sql += " ORDER BY vm.maintenance_date DESC";
+    const search = searchParams.get("search");
+    if (search) {
+      where += ` AND (v.plate_number ILIKE $${idx} OR vm.service_provider ILIKE $${idx} OR vm.service_center ILIKE $${idx} OR vm.maintenance_type ILIKE $${idx})`;
+      params.push(`%${search}%`);
+      idx++;
+    }
 
-    const { rows } = await query(sql, params);
+    const page = parseInt(searchParams.get("page"));
+    const ps = parseInt(searchParams.get("pageSize"));
+    if (page && ps) {
+      // Paginated mode: lean projection + sort + server totals/counts. Returns
+      // `{ rows, total, counts }` so the table + stat cards don't need the set.
+      const whereCount = params.length;
+      const sort = searchParams.get("sort");
+      const sortDir = (searchParams.get("sortDir") || "asc").toLowerCase() === "desc" ? "DESC" : "ASC";
+      const orderBy = sort && MT_SORTABLE[sort]
+        ? ` ORDER BY ${MT_SORTABLE[sort]} ${sortDir}`
+        : " ORDER BY vm.maintenance_date DESC";
+
+      const [rowsRes, totalRes, countsRes] = await Promise.all([
+        query(
+          `SELECT ${MT_LIST_SELECT} ${MT_FROM} ${where} ${orderBy} LIMIT $${idx++} OFFSET $${idx++}`,
+          [...params, ps, (page - 1) * ps]
+        ),
+        query(`SELECT count(*) AS total ${MT_FROM} ${where}`, params.slice(0, whereCount)),
+        query(MT_COUNTS_SQL),
+      ]);
+
+      const c = countsRes.rows[0] || {};
+      return ok({
+        rows: rowsRes.rows,
+        total: Number(totalRes.rows[0]?.total) || 0,
+        page,
+        pageSize: ps,
+        counts: {
+          total: Number(c.total) || 0,
+          scheduled: Number(c.scheduled) || 0,
+          inProgress: Number(c.inProgress) || 0,
+          totalCost: Number(c.total_cost) || 0,
+        },
+      });
+    }
+
+    // Non-paginated: full array (other callers).
+    const { rows } = await query(
+      `SELECT vm.*, row_to_json(v.*) as vehicles
+       ${MT_FROM} ${where} ORDER BY vm.maintenance_date DESC`,
+      params
+    );
     return ok(rows);
   } catch (e) { return handleError(e); }
 }

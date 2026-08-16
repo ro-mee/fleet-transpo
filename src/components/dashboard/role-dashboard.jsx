@@ -109,11 +109,12 @@ export function RoleDashboard({ role, employee }) {
     queryFn: () => getDriverStats(),
     enabled: q.includes("driverStats"),
   });
-  const { data: trips = [] } = useQuery({
+  const { data: tripsData = { rows: [] } } = useQuery({
     queryKey: ["trips"],
     queryFn: () => getTrips(),
     enabled: q.includes("trips"),
   });
+  const trips = tripsData.rows ?? [];
   const { data: activeTrips = [] } = useQuery({
     queryKey: ["trips-active"],
     queryFn: () => getActiveTrips(),

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useEffect } from "react";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/tables/data-table";
@@ -56,30 +56,59 @@ const columnHelper = createColumnHelper();
 // Statuses that still need someone to do something, for the "Open" stat.
 const OPEN_STATUSES = [L.PENDING, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS];
 
-const isSameLocalDay = (value, day) => {
-  if (!value) return false;
-  const d = new Date(value);
-  return (
-    d.getFullYear() === day.getFullYear() &&
-    d.getMonth() === day.getMonth() &&
-    d.getDate() === day.getDate()
-  );
-};
-
 export default function ReservationsPage() {
   const router = useRouter();
+  const [activeFilter, setActiveFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(12);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState([]);
+
+  // Debounce the server-side search so every keystroke doesn't hit the API.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Map the register's filter chips to server-side params the API understands.
+  // "open" is a group -> comma-separated statuses; "review" = Pending;
+  // "today" = that date; "all" = no filter.
+  const filterParams = useMemo(() => {
+    if (activeFilter === "open") return { fleet_status: OPEN_STATUSES.join(",") };
+    if (activeFilter === "review") return { fleet_status: L.PENDING };
+    if (activeFilter === "today") return { pickup_date: new Date().toISOString().slice(0, 10) };
+    return {};
+  }, [activeFilter]);
 
   const {
-    data: requests = [],
+    data: requestsData = { rows: [], counts: { total: 0, open: 0, review: 0, today: 0 }, total: 0 },
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "list"],
-    queryFn: () => getTransportRequests(),
+    queryKey: ["transport-requests", "list", { page, pageSize, activeFilter, search, sort }],
+    queryFn: () =>
+      getTransportRequests({
+        page,
+        pageSize,
+        search: search || undefined,
+        sort: sort[0]?.id,
+        sortDir: sort[0]?.desc ? "desc" : "asc",
+        ...filterParams,
+      }),
+    placeholderData: keepPreviousData,
     refetchInterval: 30_000,
   });
+
+  const requests = requestsData.rows ?? [];
+  const total = requestsData.total ?? 0;
+  const counts = requestsData.counts ?? { total: 0, open: 0, review: 0, today: 0 };
+  const displayRequests = requests;
 
   const columns = useMemo(
     () => [
@@ -207,54 +236,76 @@ export default function ReservationsPage() {
     [router]
   );
 
-  const [activeFilter, setActiveFilter] = useState("all");
-  const today = useMemo(() => new Date(), []);
-
-  const displayRequests = useMemo(() => {
-    if (activeFilter === "open") return requests.filter((r) => OPEN_STATUSES.includes(r.fleet_status));
-    if (activeFilter === "review") return requests.filter((r) => r.fleet_status === L.PENDING);
-    if (activeFilter === "today") return requests.filter((r) => isSameLocalDay(r.pickup_datetime, today));
-    return requests;
-  }, [requests, activeFilter, today]);
-
   const statCards = [
     {
       label: "Total Requests",
-      value: requests.length,
+      value: counts.total,
       icon: CalendarCheck,
       tone: "primary",
       trend: "all time",
       active: activeFilter === "all",
-      onClick: () => setActiveFilter("all"),
+      onClick: () => { setActiveFilter("all"); setPage(1); },
     },
     {
       label: "Open",
-      value: requests.filter((r) => OPEN_STATUSES.includes(r.fleet_status)).length,
+      value: counts.open,
       icon: Clock,
       tone: "warning",
       trend: "still in the pipeline",
       active: activeFilter === "open",
-      onClick: () => setActiveFilter("open"),
+      onClick: () => { setActiveFilter("open"); setPage(1); },
     },
     {
       label: "Awaiting Assignment",
-      value: requests.filter((r) => r.fleet_status === L.PENDING).length,
+      value: counts.review,
       icon: Inbox,
       tone: "info",
       trend: "needs a decision",
       active: activeFilter === "review",
-      onClick: () => setActiveFilter("review"),
+      onClick: () => { setActiveFilter("review"); setPage(1); },
     },
     {
       label: "Pickups Today",
-      value: requests.filter((r) => isSameLocalDay(r.pickup_datetime, today)).length,
+      value: counts.today,
       icon: Calendar,
       tone: "success",
       trend: "scheduled today",
       active: activeFilter === "today",
-      onClick: () => setActiveFilter("today"),
+      onClick: () => { setActiveFilter("today"); setPage(1); },
     },
   ];
+
+  // Export needs the whole register, not the current page — re-fetch unpaginated.
+  const handleExport = async () => {
+    try {
+      const all = await getTransportRequests();
+      exportToCSV(all || [], "reservations", [
+        { label: "Reservation No.", key: "reservation_number" },
+        { label: "Booking Reference", key: "booking_reference" },
+        { label: "Source", key: "source_system" },
+        { label: "Guest", key: "guest_name" },
+        { label: "Pickup Location", key: "pickup_location" },
+        { label: "Dropoff Location", key: "dropoff_location" },
+        { label: "Pickup", key: "pickup_datetime" },
+        { label: "Passengers", key: "passenger_count" },
+        { label: "Priority", key: "priority" },
+        { label: "Service", accessor: (r) => r.service_types?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type || "" },
+        { label: "Vehicle", accessor: (r) => r.vehicles?.plate_number || "" },
+        {
+          label: "Driver",
+          accessor: (r) =>
+            r.drivers ? [r.drivers.first_name, r.drivers.last_name].filter(Boolean).join(" ") : "",
+        },
+        { label: "Est. Distance (km)", key: "estimated_distance" },
+        { label: "Est. Duration (min)", key: "estimated_duration" },
+        { label: "Fleet Status", key: "fleet_status" },
+        { label: "Booking Status", key: "booking_status" },
+        { label: "Reason", key: "status_reason" },
+      ]);
+    } catch {
+      /* keep current page data on export failure */
+    }
+  };
 
   const filters = [
     { value: "all", label: "All requests" },
@@ -288,31 +339,7 @@ export default function ReservationsPage() {
               variant="outline"
               disabled={!requests.length}
               className={cn(heroButtonOutlineClass)}
-              onClick={() =>
-                exportToCSV(requests, "reservations", [
-                  { label: "Reservation No.", key: "reservation_number" },
-                  { label: "Booking Reference", key: "booking_reference" },
-                  { label: "Source", key: "source_system" },
-                  { label: "Guest", key: "guest_name" },
-                  { label: "Pickup Location", key: "pickup_location" },
-                  { label: "Dropoff Location", key: "dropoff_location" },
-                  { label: "Pickup", key: "pickup_datetime" },
-                  { label: "Passengers", key: "passenger_count" },
-                  { label: "Priority", key: "priority" },
-                  { label: "Service", accessor: (r) => r.service_types?.service_name || r.vehiclecategories?.category_name || r.requested_vehicle_type || "" },
-                  { label: "Vehicle", accessor: (r) => r.vehicles?.plate_number || "" },
-                  {
-                    label: "Driver",
-                    accessor: (r) =>
-                      r.drivers ? [r.drivers.first_name, r.drivers.last_name].filter(Boolean).join(" ") : "",
-                  },
-                  { label: "Est. Distance (km)", key: "estimated_distance" },
-                  { label: "Est. Duration (min)", key: "estimated_duration" },
-                  { label: "Fleet Status", key: "fleet_status" },
-                  { label: "Booking Status", key: "booking_status" },
-                  { label: "Reason", key: "status_reason" },
-                ])
-              }
+              onClick={handleExport}
             >
               <Download className="mr-2 h-4 w-4" />
               Export
@@ -356,7 +383,7 @@ export default function ReservationsPage() {
                   <button
                     key={filter.value}
                     type="button"
-                    onClick={() => setActiveFilter(filter.value)}
+                    onClick={() => { setActiveFilter(filter.value); setPage(1); }}
                     className={cn(
                       "whitespace-nowrap rounded-full px-3 h-7 text-[11px] font-bold border transition-colors cursor-pointer",
                       activeFilter === filter.value
@@ -372,6 +399,13 @@ export default function ReservationsPage() {
             emptyTitle="No transportation requests yet"
             emptyDescription="Requests arrive from the Booking subsystem. Use Inject Mock Request to create one in development."
             onRowClick={(row) => router.push(`/reservations/${row.request_id}`)}
+            manualPagination
+            pageIndex={page - 1}
+            onPageChange={(idx) => setPage(idx + 1)}
+            rowCount={total}
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
+            onSortChange={(s) => { setSort(s); setPage(1); }}
           />
         </CardContent>
       </Card>

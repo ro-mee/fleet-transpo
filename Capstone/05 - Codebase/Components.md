@@ -43,3 +43,22 @@ Client components import from `src/services/`, which also contains server-side m
 ## Related
 
 [[Frontend]] · [[Codebase Map]] · [[Technology Stack]] · [[Mobile Architecture]]
+
+---
+
+## DataTable - server-side pagination (added 2026-08-16)
+
+`src/components/tables/data-table.jsx` is the shared list/table used by most dashboard
+pages. It supports two modes:
+
+- **Client mode (default):** `getSortedRowModel` / `getFilteredRowModel` /
+  `getPaginationRowModel` sort, filter, and paginate in the browser.
+- **Server mode (`manualPagination`):** skips the client models; the parent owns
+  paging/filtering/sort and passes `data` (current page), `pageIndex` / `onPageChange`,
+  `rowCount`, `onSortChange`, and controlled `searchValue` / `onSearchChange`. The page
+  puts those in its React Query key so each change refetches one page from the API.
+
+Use server mode for large tables; the pilot is the Trips list (see `trips/page.js`).
+Replicate the same pattern (`manualPagination` + query-key params + `keepPreviousData`)
+to the other big lists (drivers, vehicles, fuel, incidents, dispatch, reservations,
+routes, audit) to keep downloads to one page instead of the whole table.

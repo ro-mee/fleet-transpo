@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery, keepPreviousData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -44,6 +44,20 @@ const columnHelper = createColumnHelper();
 export default function MaintenancePage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const queryClient = useQueryClient();
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState([]);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+
+  // Debounce the server-side search so every keystroke doesn't hit the API.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const [dialogOpen, setDialogOpen] = useState(false);
   const [viewingRecord, setViewingRecord] = useState(null);
   const [editingRecord, setEditingRecord] = useState(null);
@@ -65,15 +79,27 @@ export default function MaintenancePage() {
   const { validate, fieldError, registerField, resetValidation } = useFormValidation(maintenanceFormSchema);
 
   const {
-    data: records = [],
+    data = { rows: [], total: 0, counts: { total: 0, scheduled: 0, inProgress: 0, totalCost: 0 } },
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["maintenance"],
-    queryFn: () => getVehicleMaintenance(),
+    queryKey: ["maintenance", { page, search, sort }],
+    queryFn: () =>
+      getVehicleMaintenance({
+        page,
+        pageSize: 10,
+        search: search || undefined,
+        sort: sort[0]?.id,
+        sortDir: sort[0]?.desc ? "desc" : "asc",
+      }),
+    placeholderData: keepPreviousData,
   });
+
+  const records = data.rows || [];
+  const total = data.total || 0;
+  const stats = data.counts || { total: 0, scheduled: 0, inProgress: 0, totalCost: 0 };
 
   const { data: vehicles = [] } = useQuery({
     queryKey: ["vehicles-for-maintenance"],
@@ -272,13 +298,6 @@ export default function MaintenancePage() {
     []
   );
 
-  const stats = useMemo(() => {
-    const scheduled = records.filter((r) => r.status === "Scheduled").length;
-    const inProgress = records.filter((r) => r.status === "In Progress").length;
-    const totalCost = records.reduce((sum, r) => sum + Number(r.cost || 0), 0);
-    return { total: records.length, scheduled, inProgress, totalCost };
-  }, [records]);
-
   if (isError) {
     return (
       <div className="space-y-6 pb-12 w-full">
@@ -386,8 +405,16 @@ export default function MaintenancePage() {
             description="Schedule, track, and audit vehicle repairs, preventive maintenance, and service costs."
             icon={Wrench}
             context="Maintenance"
+            searchable
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
             searchPlaceholder="Search maintenance by vehicle plate or provider..."
             onRowClick={openViewDialog}
+            manualPagination
+            pageIndex={page - 1}
+            onPageChange={(idx) => setPage(idx + 1)}
+            rowCount={total}
+            onSortChange={(s) => { setSort(s); setPage(1); }}
           />
         </CardContent>
       </Card>

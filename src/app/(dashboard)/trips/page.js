@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState, useEffect } from "react";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { useRouter } from "next/navigation";
 import { DataTable } from "@/components/tables/data-table";
@@ -24,17 +24,44 @@ export default function TripsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(10);
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState([]);
+
+  // Debounce the server-side search so every keystroke doesn't hit the API.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchInput);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   const {
-    data: trips = [],
+    data: tripsData = { rows: [], counts: { total: 0, active: 0, completed: 0 }, total: 0 },
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["trips"],
-    queryFn: () => getTrips(),
+    queryKey: ["trips", { page, pageSize, status: statusFilter, search, sort }],
+    queryFn: () =>
+      getTrips({
+        page,
+        pageSize,
+        status: statusFilter !== "all" ? statusFilter : undefined,
+        search: search || undefined,
+        sort: sort[0]?.id,
+        sortDir: sort[0]?.desc ? "desc" : "asc",
+      }),
+    placeholderData: keepPreviousData,
   });
+
+  const trips = tripsData.rows ?? [];
+  const total = tripsData.total ?? 0;
+  const counts = tripsData.counts ?? { total: 0, active: 0, completed: 0 };
 
   const { data: activeTrips = [] } = useQuery({
     queryKey: ["trips-active"],
@@ -42,14 +69,7 @@ export default function TripsPage() {
     refetchInterval: 30000,
   });
 
-  const displayTrips = useMemo(() => {
-    if (statusFilter === "Active")
-      return trips.filter((t) =>
-        ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"].includes(t.trip_status)
-      );
-    if (statusFilter === "Completed") return trips.filter((t) => t.trip_status === "Completed");
-    return trips;
-  }, [trips, statusFilter]);
+  const displayTrips = trips;
 
   const columns = useMemo(
     () => [
@@ -185,23 +205,17 @@ export default function TripsPage() {
     []
   );
 
-  const activeCount = useMemo(
-    () =>
-      trips.filter((t) =>
-        ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"].includes(t.trip_status)
-      ).length,
-    [trips]
-  );
-  const completedCount = useMemo(() => trips.filter((t) => t.trip_status === "Completed").length, [trips]);
+  const activeCount = counts.active;
+  const completedCount = counts.completed;
 
   const statCards = [
     {
       label: "Total Trips",
-      value: trips.length,
+      value: counts.total,
       icon: Route,
       color: "primary",
       active: statusFilter === "all",
-      onClick: () => setStatusFilter("all"),
+      onClick: () => { setStatusFilter("all"); setPage(1); },
     },
     {
       label: "Active",
@@ -209,7 +223,7 @@ export default function TripsPage() {
       icon: Truck,
       color: "info",
       active: statusFilter === "Active",
-      onClick: () => setStatusFilter(statusFilter === "Active" ? "all" : "Active"),
+      onClick: () => { setStatusFilter(statusFilter === "Active" ? "all" : "Active"); setPage(1); },
     },
     {
       label: "Completed",
@@ -217,9 +231,34 @@ export default function TripsPage() {
       icon: CheckCircle2,
       color: "success",
       active: statusFilter === "Completed",
-      onClick: () => setStatusFilter(statusFilter === "Completed" ? "all" : "Completed"),
+      onClick: () => { setStatusFilter(statusFilter === "Completed" ? "all" : "Completed"); setPage(1); },
     },
   ];
+
+  const handleExport = async () => {
+    try {
+      const all = await getTrips();
+      exportToCSV(all?.rows || [], "trips", [
+        { label: "ID", key: "trip_id" },
+        { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
+        {
+          label: "Driver",
+          accessor: (t) =>
+            t.drivers ? `${t.drivers.first_name || ""} ${t.drivers.last_name || ""}`.trim() : "",
+        },
+        { label: "Dispatch", accessor: (t) => t.dispatchschedules?.dispatch_number || "" },
+        { label: "Route", accessor: (t) => t.routes?.route_name || "" },
+        { label: "Start Time", key: "start_time" },
+        { label: "End Time", key: "end_time" },
+        { label: "Distance (km)", key: "distance" },
+        { label: "Duration (min)", key: "actual_duration" },
+        { label: "Status", key: "trip_status" },
+        { label: "Notes", key: "notes" },
+      ]);
+    } catch {
+      /* keep current page data on export failure */
+    }
+  };
 
   if (isError) {
     return (
@@ -274,25 +313,7 @@ export default function TripsPage() {
               variant="outline"
               size="sm"
               className={cn(heroButtonOutlineClass)}
-              onClick={() =>
-                exportToCSV(trips, "trips", [
-                  { label: "ID", key: "trip_id" },
-                  { label: "Vehicle", accessor: (t) => t.vehicles?.plate_number || "" },
-                  {
-                    label: "Driver",
-                    accessor: (t) =>
-                      t.drivers ? `${t.drivers.first_name || ""} ${t.drivers.last_name || ""}`.trim() : "",
-                  },
-                  { label: "Dispatch", accessor: (t) => t.dispatchschedules?.dispatch_number || "" },
-                  { label: "Route", accessor: (t) => t.routes?.route_name || "" },
-                  { label: "Start Time", key: "start_time" },
-                  { label: "End Time", key: "end_time" },
-                  { label: "Distance (km)", key: "distance" },
-                  { label: "Duration (min)", key: "actual_duration" },
-                  { label: "Status", key: "trip_status" },
-                  { label: "Notes", key: "notes" },
-                ])
-              }
+              onClick={handleExport}
             >
               <Download className="w-4 h-4 mr-2" />
               Export
@@ -312,7 +333,7 @@ export default function TripsPage() {
           return (
             <button
               type="button"
-              onClick={() => setStatusFilter('all')}
+              onClick={() => { setStatusFilter('all'); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -325,7 +346,7 @@ export default function TripsPage() {
                 <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Route className="w-4 h-4" /></div>
               </div>
               <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{trips.length}</div>
+                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.total}</div>
               </div>
             </button>
           );
@@ -337,7 +358,7 @@ export default function TripsPage() {
           return (
             <button
               type="button"
-              onClick={() => setStatusFilter(statusFilter === 'Active' ? 'all' : 'Active')}
+              onClick={() => { setStatusFilter(statusFilter === 'Active' ? 'all' : 'Active'); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -362,7 +383,7 @@ export default function TripsPage() {
           return (
             <button
               type="button"
-              onClick={() => setStatusFilter(statusFilter === 'Completed' ? 'all' : 'Completed')}
+              onClick={() => { setStatusFilter(statusFilter === 'Completed' ? 'all' : 'Completed'); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 isActive
@@ -397,6 +418,13 @@ export default function TripsPage() {
             emptyTitle="No trips found"
             emptyDescription="Trips will appear here once dispatches are scheduled."
             onRowClick={(row) => router.push(`/trips/${row.trip_id}`)}
+            manualPagination
+            pageIndex={page - 1}
+            onPageChange={(idx) => setPage(idx + 1)}
+            rowCount={total}
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
+            onSortChange={(s) => { setSort(s); setPage(1); }}
           />
         </CardContent>
       </Card>

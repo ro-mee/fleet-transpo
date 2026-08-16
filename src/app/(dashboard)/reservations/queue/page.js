@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,12 +18,16 @@ import {
   pullTransportRequests,
   setRequestFlags,
 } from "@/services/transport.service";
-import { groupQueue, QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
+import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
   CarFront,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   DownloadCloud,
   Inbox,
   PlayCircle,
@@ -62,10 +66,21 @@ export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
   const [tab, setTab] = useState("today");
+  const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [assigning, setAssigning] = useState(null);
   const [assignError, setAssignError] = useState(null);
   const [busyId, setBusyId] = useState(null);
+
+  // Debounce the free-text search so we don't hit the server on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedSearch(search);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const permissions = useMemo(
     () => ({
@@ -77,20 +92,50 @@ export default function UnifiedQueuePage() {
     [can]
   );
 
-  // One query for the whole queue. Conflicts are advisory and opt-in; the
-  // queue renders them as chips, assignment enforces them.
+  const PAGE_SIZE = 25;
+
+  // One query for the active tab. The server buckets + counts every tab and
+  // returns only this tab's page of cards, so a 30s poll never ships hundreds
+  // of Completed rows just to show the Today lane. Conflicts are advisory and
+  // opt-in; the queue renders them as chips, assignment enforces them.
   const {
-    data: requests = [],
+    data,
     isLoading,
     isError,
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue"],
-    queryFn: () => getTransportRequests({ with_conflicts: "true" }),
+    queryKey: ["transport-requests", "unified-queue", tab, page, debouncedSearch],
+    queryFn: () =>
+      getTransportRequests({
+        tab,
+        page,
+        pageSize: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        with_conflicts: "true",
+      }),
     refetchInterval: REFETCH_MS,
-    placeholderData: (prev) => prev,
   });
+
+  const requests = data?.rows || [];
+  const total = data?.total || 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const counts = data?.counts?.tabs || {};
+
+  // Compact page-number list with ellipses, mirroring the DataTable footer.
+  const pageNumbers = useMemo(() => {
+    const current = Math.min(page, pageCount);
+    if (pageCount <= 7) return Array.from({ length: pageCount }, (_, i) => i + 1);
+    const set = new Set([1, pageCount, current - 1, current, current + 1]);
+    const ordered = [...set].filter((n) => n >= 1 && n <= pageCount).sort((a, b) => a - b);
+    const out = [];
+    for (let i = 0; i < ordered.length; i++) {
+      const n = ordered[i];
+      if (i > 0 && n - ordered[i - 1] > 1) out.push("…");
+      out.push(n);
+    }
+    return out;
+  }, [page, pageCount]);
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["transport-requests"] });
@@ -147,29 +192,7 @@ export default function UnifiedQueuePage() {
     },
   });
 
-  // Group into the five tabs, each auto-sorted by derived_priority.
-  const grouped = useMemo(() => groupQueue(requests), [requests]);
-
-  const counts = useMemo(() => {
-    const c = {};
-    for (const k of QUEUE_TABS) c[k] = grouped[k]?.length || 0;
-    return c;
-  }, [grouped]);
-
-  const items = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const list = grouped[tab] || [];
-    if (!term) return list;
-    return list.filter((r) =>
-      [r.guest_name, r.reservation_number, r.booking_reference, r.pickup_location, r.dropoff_location]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(term)
-    );
-  }, [grouped, tab, search]);
-
-  const searching = search.trim().length > 0;
+  const searching = debouncedSearch.trim().length > 0;
   const tabTone = (id) => {
     if (id === "inProgress") return "warning";
     if (id === "completed") return "success";
@@ -209,7 +232,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => setTab("today")}
+              onClick={() => { setTab("today"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "today"
@@ -233,7 +256,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => setTab("upcoming")}
+              onClick={() => { setTab("upcoming"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "upcoming"
@@ -257,7 +280,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => setTab("inProgress")}
+              onClick={() => { setTab("inProgress"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "inProgress"
@@ -281,7 +304,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => setTab("assigned")}
+              onClick={() => { setTab("assigned"); setPage(1); }}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "assigned"
@@ -314,7 +337,7 @@ export default function UnifiedQueuePage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setTab(id)}
+                onClick={() => { setTab(id); setPage(1); }}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
                   active
@@ -364,7 +387,7 @@ export default function UnifiedQueuePage() {
           <ReservationCardSkeleton />
           <ReservationCardSkeleton />
         </div>
-      ) : items.length === 0 ? (
+      ) : requests.length === 0 ? (
         <div className="rounded-3xl border border-border bg-surface">
           <EmptyState
             icon={searching ? Search : Inbox}
@@ -394,7 +417,7 @@ export default function UnifiedQueuePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {items.map((r) => (
+          {requests.map((r) => (
             <ReservationCard
               key={r.request_id}
               request={r}
@@ -407,6 +430,67 @@ export default function UnifiedQueuePage() {
               }}
             />
           ))}
+        </div>
+      )}
+
+      {pageCount > 1 && (
+        <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface px-6 py-4 sm:flex-row sm:items-center sm:justify-between shadow-xs">
+          <span className="text-xs font-semibold text-foreground-secondary">
+            Showing <span className="font-bold text-foreground">{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}</span> of <span className="font-bold text-foreground">{total}</span> entries
+          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {page} of {pageCount}</span>
+            <button
+              aria-label="First page"
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+              className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              aria-label="Previous page"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            {pageNumbers.map((pg) =>
+              typeof pg === "string" ? (
+                <span key={pg} className="px-1 text-xs text-foreground-muted">…</span>
+              ) : (
+                <button
+                  key={pg}
+                  onClick={() => setPage(pg)}
+                  className={cn(
+                    "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                    pg === page
+                      ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                      : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                  )}
+                >
+                  {pg}
+                </button>
+              )
+            )}
+            <button
+              aria-label="Next page"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={page === pageCount}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+            <button
+              aria-label="Last page"
+              onClick={() => setPage(pageCount)}
+              disabled={page === pageCount}
+              className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+            >
+              <ChevronsRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
 

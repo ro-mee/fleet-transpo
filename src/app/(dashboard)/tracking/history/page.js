@@ -42,7 +42,7 @@ export default function TrackingHistoryPage() {
     queryKey: ["trips-history"],
     queryFn: async () => {
       const all = await getTrips({ trip_status: "Completed", limit: 50 });
-      return all || [];
+      return (all && all.rows) || [];
     },
   });
 
