@@ -25,7 +25,7 @@ function fmtDate(value) {
 }
 
 export default function DriverLeaveRequestsPage() {
-  useRequireRole(["system_admin", "admin", "fleet_manager", "dispatcher"]);
+  useRequireRole(["system_admin", "admin", "fleet_manager"]);
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
   const [filter, setFilter] = useState("Pending");
