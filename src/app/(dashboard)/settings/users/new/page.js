@@ -177,8 +177,8 @@ export default function AddUserPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {ACCOUNT_ROLES.map((role) => (
-                          <SelectItem key={role.id} value={role.id}>
-                            {role.name} ({role.label})
+                          <SelectItem key={role.id} value={String(role.id)}>
+                            {role.name}
                           </SelectItem>
                         ))}
                       </SelectContent>
