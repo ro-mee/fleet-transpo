@@ -4,18 +4,19 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { createEmployeeAccount } from "@/services/auth.service";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Mail, Lock, User, Truck } from "lucide-react";
-import { FloatingField, FloatingSelect } from "@/components/ui/field";
+import { FloatingField } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
@@ -170,14 +171,26 @@ export default function AddUserPage() {
                 </div>
               </FloatingField>
 
-              <FloatingSelect label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2" id="role_id" {...form.register("role_id")}>
-                  <option value="" className="bg-background text-foreground">Select system role</option>
-                  {ACCOUNT_ROLES.map((role) => (
-                    <option key={role.id} value={role.id} className="bg-background text-foreground">
-                      {role.name} ({role.label})
-                    </option>
-                  ))}
-                </FloatingSelect>
+<FloatingField label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2">
+                <Controller
+                  control={form.control}
+                  name="role_id"
+                  render={({ field }) => (
+                    <Select onValueChange={field.onChange} value={field.value}>
+                      <SelectTrigger className="w-full bg-transparent border-0 px-0 py-1 h-auto shadow-none focus:ring-0 focus:ring-offset-0 text-xs font-semibold text-foreground cursor-pointer hover:text-primary transition-colors">
+                        <SelectValue placeholder="Select system role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ACCOUNT_ROLES.map((role) => (
+                          <SelectItem key={role.id} value={String(role.id)}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </FloatingField>
             </div>
 
             <div className="p-4 rounded-2xl bg-info/10 border border-info/20 text-xs text-foreground-secondary flex items-start gap-2.5 md:col-span-2 mt-4">

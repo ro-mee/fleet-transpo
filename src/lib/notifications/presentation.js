@@ -13,6 +13,7 @@ const CATEGORY = {
   maintenance: { label: "Maintenance", chipClass: "bg-warning/10 text-warning" },
   document: { label: "Document", chipClass: "bg-warning/10 text-warning" },
   uvvrp: { label: "UVVRP", chipClass: "bg-primary/10 text-primary" },
+  leave_request: { label: "Leave", chipClass: "bg-secondary/10 text-secondary" },
 };
 
 /** @param {string} referenceType notification.reference_type */

@@ -224,6 +224,7 @@ export const WORKS = {
           { href: "/driver/vehicle", label: "My Vehicle", icon: Truck },
           { href: "/driver/fuel", label: "Fuel Logs", icon: Fuel },
           { href: "/driver/incidents", label: "Incident Reporting", icon: AlertTriangle },
+          { href: "/driver/schedule", label: "My Schedule & Leave", icon: CalendarCheck },
         ],
       },
       {

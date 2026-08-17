@@ -200,7 +200,9 @@ export async function GET(req) {
             returnAt,
             ctx: scheduleCtx,
           });
-          return !block?.blocked;
+          if (block?.blocked) return false;
+          d.schedule_warning = block?.warning ? block.reason : null;
+          return true;
         })
       );
     }
