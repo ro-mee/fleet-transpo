@@ -1,4 +1,18 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "instructions": ["AGENTS.md", ".agents/AGENTS.md"]
+  "instructions": ["AGENTS.md", ".agents/AGENTS.md"],
+  "provider": {
+    "agentrouter": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "AgentRouter (Anthropic)",
+      "options": {
+        "baseURL": "https://agentrouter.org"
+      },
+      "models": {
+        "claude-opus-4-6": {
+          "name": "claude-opus-4-6"
+        }
+      }
+    }
+  }
 }

@@ -41,12 +41,16 @@ import {
   ArrowUpRight,
   Award,
   Calendar,
+  CalendarDays,
   CheckCircle2,
   PhilippinePeso,
   Download,
   Fuel,
+  Layers,
   ShieldCheck,
+  Sparkles,
   Star,
+  TrendingUp,
 } from "lucide-react";
 
 const PIE_COLORS = {
@@ -109,18 +113,45 @@ function useReducedMotion() {
   return reduced;
 }
 
-/* ── Chart tooltip — inverted for contrast on both themes ────────── */
+/* ── Chart tooltip & tick formatting — inverted for contrast on both themes ── */
+function formatCurrencyK(val) {
+  const n = Number(val) || 0;
+  if (n >= 1000000) return `₱${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `₱${(n / 1000).toFixed(0)}k`;
+  if (n === 0) return "₱0";
+  return `₱${n}`;
+}
+
+function formatLitersK(val) {
+  const n = Number(val) || 0;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k L`;
+  if (n === 0) return "0 L";
+  return `${n} L`;
+}
+
 function tooltipValue(entry) {
   const name = (entry.name || "").toLowerCase();
   if (name.includes("cost") || name.includes("expense")) return formatCurrency(entry.value);
-  if (name.includes("liters")) return `${Number(entry.value).toLocaleString()} L`;
+  if (name.includes("liters") || name.includes("volume")) return `${Number(entry.value).toLocaleString()} L`;
   return Number(entry.value).toLocaleString();
 }
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
+
+  const costEntry = payload.find(
+    (p) => (p.name || "").toLowerCase().includes("cost") || (p.name || "").toLowerCase().includes("expense")
+  );
+  const litersEntry = payload.find(
+    (p) => (p.name || "").toLowerCase().includes("liters") || (p.name || "").toLowerCase().includes("volume")
+  );
+  const unitRate =
+    costEntry && litersEntry && Number(litersEntry.value) > 0
+      ? (Number(costEntry.value) / Number(litersEntry.value)).toFixed(2)
+      : null;
+
   return (
-    <div className="min-w-[180px] rounded-2xl bg-foreground p-4 text-surface shadow-[0_24px_60px_-24px_rgba(17,24,39,0.5)]">
+    <div className="min-w-[190px] rounded-2xl bg-foreground p-4 text-surface shadow-[0_24px_60px_-24px_rgba(17,24,39,0.5)] ring-1 ring-white/10">
       <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-60">{label}</p>
       <div className="mt-2.5 space-y-2">
         {payload.map((entry, i) => (
@@ -133,6 +164,12 @@ function ChartTooltip({ active, payload, label }) {
           </div>
         ))}
       </div>
+      {unitRate && (
+        <div className="mt-2.5 flex items-center justify-between border-t border-surface/15 pt-2 text-[11px]">
+          <span className="font-medium opacity-70">Unit Efficiency</span>
+          <span className="font-data font-bold text-success">₱{unitRate} / L</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -475,14 +512,18 @@ export default function AnalyticsPage() {
 
   const [volumeView, setVolumeView] = useState("chart"); // "chart" | "calendar"
 
-  const calendarDaysData = useMemo(() => {
+  const calendarData = useMemo(() => {
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
+    const monthName = now.toLocaleString("en-US", { month: "long", year: "numeric" });
+    const firstDayIndex = new Date(year, month, 1).getDay();
     const totalDaysInMonth = new Date(year, month + 1, 0).getDate();
+    const prevMonthTotalDays = new Date(year, month, 0).getDate();
 
     const countMap = new Map();
+    let totalMonthlyRequests = 0;
+    let activeDays = 0;
     reservations.forEach((r) => {
       const key = localDayOf(r.created_at || r.pickup_datetime);
       if (key) {
@@ -490,26 +531,64 @@ export default function AnalyticsPage() {
       }
     });
 
+    let maxCount = 0;
+    let peakDayNum = null;
+
     const days = [];
-    for (let i = 0; i < firstDay; i++) {
-      days.push({ id: `pad-${i}`, isPadding: true });
+    // Previous month ghost days
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const prevNum = prevMonthTotalDays - i;
+      days.push({
+        id: `prev-${prevNum}`,
+        dayNumber: prevNum,
+        isPadding: true,
+      });
     }
 
+    // Current month days
     for (let d = 1; d <= totalDaysInMonth; d++) {
       const dateObj = new Date(year, month, d);
       const dateStr = toCalendarDay(dateObj);
-      const realCount = countMap.get(dateStr);
-      const count = realCount !== undefined ? realCount : 0;
+      const realCount = countMap.get(dateStr) || 0;
+      totalMonthlyRequests += realCount;
+      if (realCount > 0) activeDays += 1;
+      if (realCount > maxCount) {
+        maxCount = realCount;
+        peakDayNum = d;
+      }
 
       days.push({
         id: dateStr,
         dayNumber: d,
         dateStr,
-        count,
+        dateObj,
+        count: realCount,
         isToday: d === now.getDate(),
+        weekday: dateObj.toLocaleString("en-US", { weekday: "short" }),
       });
     }
-    return days;
+
+    // Trailing days for grid completion
+    const remainingSlots = (7 - (days.length % 7)) % 7;
+    for (let nextD = 1; nextD <= remainingSlots; nextD++) {
+      days.push({
+        id: `next-${nextD}`,
+        dayNumber: nextD,
+        isPadding: true,
+      });
+    }
+
+    const avgDaily = totalDaysInMonth > 0 ? (totalMonthlyRequests / totalDaysInMonth).toFixed(1) : "0.0";
+
+    return {
+      days,
+      monthName,
+      totalMonthlyRequests,
+      activeDays,
+      maxCount: Math.max(maxCount, 1),
+      peakDayNum,
+      avgDaily,
+    };
   }, [reservations]);
 
   // Donut center count-up.
@@ -528,9 +607,31 @@ export default function AnalyticsPage() {
   }, [totalRiskCount, reducedMotion]);
 
   // Unique gradient ids per chart instance.
-  const areaGradId = useId().replace(/:/g, "");
-  const fuelBarGradId = useId().replace(/:/g, "");
-  const monthlyBarGradId = useId().replace(/:/g, "");
+  const rawId = useId().replace(/:/g, "");
+  const areaGradId = `${rawId}-area`;
+  const fuelCostGradId = `${rawId}-fuelCost`;
+  const fuelLitersGradId = `${rawId}-fuelLiters`;
+  const monthlyCostAreaGradId = `${rawId}-monthlyCost`;
+  const monthlyLitersBarGradId = `${rawId}-monthlyLiters`;
+
+  const totalFuelCategoryStats = useMemo(() => {
+    const totalCost = fuelByCategory.reduce((acc, c) => acc + (Number(c.cost) || 0), 0);
+    const totalLiters = fuelByCategory.reduce((acc, c) => acc + (Number(c.liters) || 0), 0);
+    const avgRate = totalLiters > 0 ? (totalCost / totalLiters).toFixed(2) : "0.00";
+    return { totalCost, totalLiters, avgRate };
+  }, [fuelByCategory]);
+
+  const monthlyFuelStats = useMemo(() => {
+    const totalCost = monthlyCostData.reduce((acc, m) => acc + (Number(m.fuelCost) || 0), 0);
+    const totalLiters = monthlyCostData.reduce((acc, m) => acc + (Number(m.liters) || 0), 0);
+    const latest = monthlyCostData[monthlyCostData.length - 1];
+    const prev = monthlyCostData.length >= 2 ? monthlyCostData[monthlyCostData.length - 2] : null;
+    const momChange =
+      prev && prev.fuelCost > 0
+        ? (((latest.fuelCost - prev.fuelCost) / prev.fuelCost) * 100).toFixed(1)
+        : null;
+    return { totalCost, totalLiters, momChange, latest, prev };
+  }, [monthlyCostData]);
 
   const kpis = [
     {
@@ -768,59 +869,152 @@ export default function AnalyticsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: EASE }}
-                  className="space-y-3 pt-1"
+                  className="space-y-3 pt-0.5"
                 >
-                  <div className="grid grid-cols-7 text-center text-[11px] font-bold uppercase tracking-wider text-foreground-secondary">
-                    <span>Sun</span>
-                    <span>Mon</span>
-                    <span>Tue</span>
-                    <span>Wed</span>
-                    <span>Thu</span>
-                    <span>Fri</span>
-                    <span>Sat</span>
+                  {/* Calendar Top Context & Metrics Header */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-info/10 text-info ring-1 ring-info/20">
+                        <CalendarDays className="h-3.5 w-3.5" />
+                      </div>
+                      <span className="text-xs font-extrabold tracking-tight text-foreground">
+                        {calendarData.monthName}
+                      </span>
+                      <span className="text-[11px] font-medium text-foreground-muted">
+                        • {calendarData.totalMonthlyRequests} total bookings
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      {calendarData.peakDayNum && calendarData.maxCount > 1 && (
+                        <div className="flex items-center gap-1 rounded-full bg-info/10 px-2.5 py-0.5 text-[10.5px] font-bold text-info ring-1 ring-info/25">
+                          <Sparkles className="h-3 w-3" />
+                          <span>Peak: Day {calendarData.peakDayNum} ({calendarData.maxCount} req)</span>
+                        </div>
+                      )}
+                      <div className="rounded-full bg-muted/40 px-2.5 py-0.5 text-[10.5px] font-medium text-foreground-muted">
+                        Avg: <strong className="font-bold text-foreground">{calendarData.avgDaily}</strong>/day
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Weekday Header Row */}
+                  <div className="grid grid-cols-7 gap-1.5 text-center text-[10.5px] font-extrabold uppercase tracking-widest text-foreground-muted">
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                      <div key={day} className="rounded-lg border border-border/40 bg-muted/15 py-1">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Calendar 7-Column Heatmap Grid */}
                   <div className="grid grid-cols-7 gap-1.5">
-                    {calendarDaysData.map((d) => {
+                    {calendarData.days.map((d) => {
                       if (d.isPadding) {
-                        return <div key={d.id} className="h-12 rounded-xl border border-transparent bg-muted/10" />;
+                        return (
+                          <div
+                            key={d.id}
+                            className="flex min-h-[52px] flex-col justify-between rounded-xl border border-dashed border-border/25 bg-muted/5 p-1.5 opacity-25 select-none"
+                          >
+                            <span className="text-[10px] font-medium text-foreground-muted">{d.dayNumber}</span>
+                          </div>
+                        );
                       }
-                      const isHigh = d.count >= 20;
-                      const isMed = d.count >= 10 && d.count < 20;
+
+                      const ratio = d.count / calendarData.maxCount;
+                      const isZero = d.count === 0;
+                      const isPeak = d.count > 0 && d.count === calendarData.maxCount && d.count >= 5;
+                      const isHigh = !isZero && !isPeak && (ratio >= 0.6 || d.count >= 8);
+                      const isMed = !isZero && !isPeak && !isHigh && (ratio >= 0.25 || d.count >= 3);
+                      const isLow = !isZero && !isPeak && !isHigh && !isMed;
+
                       return (
                         <div
                           key={d.id}
                           className={cn(
-                            "flex h-12 flex-col justify-between rounded-xl border p-1.5 transition-all duration-200",
-                            d.isToday ? "border-primary ring-2 ring-primary/25" : "border-border/60",
-                            isHigh
-                              ? "border-success/30 bg-success/15 hover:bg-success/20"
+                            "group relative flex min-h-[52px] flex-col justify-between rounded-xl border p-1.5 select-none transition-all duration-200",
+                            "ease-[cubic-bezier(0.34,1.56,0.64,1)] hover:-translate-y-1 hover:shadow-md hover:z-20",
+                            d.isToday ? "ring-2 ring-primary border-primary shadow-xs" : "",
+                            isPeak
+                              ? "border-info/60 bg-gradient-to-br from-info/25 via-info/15 to-primary/10 text-foreground ring-1 ring-info/35 shadow-xs hover:border-info"
+                              : isHigh
+                              ? "border-info/40 bg-info/15 text-foreground hover:bg-info/25 hover:border-info/60"
                               : isMed
-                              ? "border-primary/20 bg-primary/10 hover:bg-primary/15"
-                              : "bg-muted/30 hover:bg-muted/50",
-                            !d.isPadding && "hover:scale-[1.03]"
+                              ? "border-info/25 bg-info/10 text-foreground hover:bg-info/20 hover:border-info/40"
+                              : isLow
+                              ? "border-info/15 bg-info/5 text-foreground hover:bg-info/15 hover:border-info/30"
+                              : "border-border/60 bg-surface hover:bg-hover hover:border-border text-foreground-muted"
                           )}
                         >
-                          <div className="flex items-center justify-between text-[10px] font-bold">
-                            <span className={cn(d.isToday ? "text-primary" : "text-foreground-secondary")}>{d.dayNumber}</span>
-                            {d.isToday && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                          </div>
-                          <div className="text-right">
+                          {/* Top Row: Day number + Today / Peak indicators */}
+                          <div className="flex items-center justify-between text-[10.5px]">
                             <span
                               className={cn(
-                                "font-data text-[10px] font-medium rounded-md px-1.5 py-0.5",
-                                isHigh
-                                  ? "bg-success/20 text-success"
-                                  : isMed
-                                  ? "bg-primary/20 text-primary"
-                                  : "bg-muted text-foreground-muted"
+                                "font-bold",
+                                d.isToday
+                                  ? "rounded-md bg-primary px-1.5 py-0.2 text-[10px] font-black text-surface"
+                                  : isZero
+                                  ? "text-foreground-muted/70 font-medium"
+                                  : "text-foreground font-extrabold"
                               )}
                             >
-                              {d.count} req
+                              {d.dayNumber}
                             </span>
+                            {isPeak ? (
+                              <span className="flex items-center gap-0.5 text-[8.5px] font-black uppercase tracking-wider text-info bg-info/20 px-1 py-0.2 rounded-full">
+                                <Sparkles className="h-2.5 w-2.5 text-info" />
+                              </span>
+                            ) : d.isToday ? (
+                              <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                            ) : null}
+                          </div>
+
+                          {/* Bottom Row: Count Pill with dynamic badges */}
+                          <div className="text-right">
+                            {d.count > 0 ? (
+                              <span
+                                className={cn(
+                                  "font-data text-[10px] rounded-md px-1.5 py-0.5 transition-colors",
+                                  isPeak
+                                    ? "bg-info font-black text-white shadow-xs"
+                                    : isHigh
+                                    ? "bg-info/25 text-info font-bold ring-1 ring-info/30"
+                                    : isMed
+                                    ? "bg-info/20 text-info font-bold"
+                                    : "bg-info/10 text-info font-semibold"
+                                )}
+                              >
+                                {d.count} <span className="text-[8.5px] opacity-80">req</span>
+                              </span>
+                            ) : (
+                              <span className="font-data text-[9.5px] text-foreground-muted/40 font-medium pr-1">
+                                -
+                              </span>
+                            )}
                           </div>
                         </div>
                       );
                     })}
+                  </div>
+
+                  {/* Bottom Legend */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-border/40 text-[11px] text-foreground-muted px-1">
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium">
+                      <span className="h-2 w-2 rounded-full bg-primary" /> Current Day Indicator
+                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] uppercase tracking-wider font-bold text-foreground-muted">Heatmap:</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[10px] text-foreground-muted">0</span>
+                        <div className="h-3.5 w-3.5 rounded border border-border/60 bg-surface" />
+                        <div className="h-3.5 w-3.5 rounded border border-info/15 bg-info/5" />
+                        <div className="h-3.5 w-3.5 rounded border border-info/25 bg-info/10" />
+                        <div className="h-3.5 w-3.5 rounded border border-info/40 bg-info/20" />
+                        <div className="h-3.5 w-3.5 rounded border border-info/60 bg-info/35" />
+                        <span className="text-[10px] font-bold text-info">Peak</span>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -909,116 +1103,273 @@ export default function AnalyticsPage() {
         </div>
 
         {/* ── CHARTS ROW 2: Fuel Volume vs Expense & Monthly Trend ── */}
-        <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+          {/* Fuel Volume vs Expense by Class */}
           <ChartCard
             icon={Fuel}
             iconTone="bg-warning/10 text-warning border-warning/20"
             title="Fuel Volume vs Expense by Class"
-            subtitle="Liters (bars) against ₱ cost (line)"
+            subtitle="Liters consumed vs ₱ spend across vehicle categories"
+            actions={
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warning/25 bg-warning/10 px-2.5 py-0.5 text-[10.5px] font-bold text-warning">
+                  <Fuel className="h-3 w-3" /> {totalFuelCategoryStats.totalLiters.toLocaleString()} L
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success">
+                  {formatCurrency(totalFuelCategoryStats.totalCost)}
+                </span>
+              </div>
+            }
           >
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
-                <ComposedChart key={dateRange} data={fuelByCategory} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id={fuelBarGradId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.95} />
-                      <stop offset="100%" stopColor={CHART.warning} stopOpacity={0.45} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid {...GRID} />
-                  <XAxis
-                    dataKey="category"
-                    tick={AXIS_TICK_SM}
-                    axisLine={false}
-                    tickLine={false}
-                    dy={8}
-                    interval={0}
-                  />
-                  <YAxis yAxisId="leftLiters" orientation="left" width={34} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="rightCost" orientation="right" width={44} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} iconType="circle" iconSize={8} />
-                  <Bar
-                    yAxisId="leftLiters"
-                    dataKey="liters"
-                    name="Fuel Liters (L)"
-                    fill={`url(#${fuelBarGradId})`}
-                    radius={[9, 9, 0, 0]}
-                    maxBarSize={38}
-                    animationDuration={reducedMotion ? 0 : 800}
-                    animationEasing="ease-out"
-                  />
-                  <Line
-                    yAxisId="rightCost"
-                    type="monotone"
-                    dataKey="cost"
-                    name="Fuel Expense (₱)"
-                    stroke={CHART.success}
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: CHART.success, strokeWidth: 0 }}
-                    activeDot={{ r: 6 }}
-                    animationDuration={reducedMotion ? 0 : 800}
-                    animationEasing="ease-out"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+            <div className="space-y-4">
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                  <ComposedChart key={dateRange} data={fuelByCategory} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id={fuelCostGradId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.success} stopOpacity={0.95} />
+                        <stop offset="100%" stopColor={CHART.success} stopOpacity={0.35} />
+                      </linearGradient>
+                      <linearGradient id={fuelLitersGradId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.95} />
+                        <stop offset="100%" stopColor={CHART.warning} stopOpacity={0.35} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid {...GRID} />
+                    <XAxis
+                      dataKey="category"
+                      tick={AXIS_TICK_SM}
+                      axisLine={false}
+                      tickLine={false}
+                      dy={8}
+                      interval={0}
+                    />
+                    <YAxis
+                      yAxisId="leftCost"
+                      orientation="left"
+                      width={48}
+                      tick={AXIS_TICK}
+                      tickFormatter={formatCurrencyK}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      yAxisId="rightLiters"
+                      orientation="right"
+                      width={44}
+                      tick={AXIS_TICK}
+                      tickFormatter={formatLitersK}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip content={<ChartTooltip />} cursor={{ fill: "var(--hv)", opacity: 0.35 }} />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, fontWeight: "700", paddingTop: 8 }}
+                      iconType="circle"
+                      iconSize={8}
+                    />
+                    <Bar
+                      yAxisId="leftCost"
+                      dataKey="cost"
+                      name="Fuel Expense (₱)"
+                      fill={`url(#${fuelCostGradId})`}
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={36}
+                      animationDuration={reducedMotion ? 0 : 800}
+                      animationEasing="ease-out"
+                    />
+                    <Bar
+                      yAxisId="rightLiters"
+                      dataKey="liters"
+                      name="Fuel Volume (L)"
+                      fill={`url(#${fuelLitersGradId})`}
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={36}
+                      animationDuration={reducedMotion ? 0 : 800}
+                      animationEasing="ease-out"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Category Breakdown Chips */}
+              <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
+                {fuelByCategory.map((c, i) => {
+                  const pct =
+                    totalFuelCategoryStats.totalCost > 0
+                      ? Math.round((c.cost / totalFuelCategoryStats.totalCost) * 100)
+                      : 0;
+                  const unitPrice = c.liters > 0 ? (c.cost / c.liters).toFixed(2) : "0.00";
+                  return (
+                    <div
+                      key={c.category || i}
+                      className="group flex flex-col justify-between rounded-2xl border border-border/60 bg-surface p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="truncate text-xs font-bold text-foreground">{c.category}</span>
+                        <span className="rounded-full bg-muted/60 px-2 py-0.5 font-data text-[10px] font-bold text-foreground-muted">
+                          {pct}% share
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-baseline justify-between gap-2">
+                        <div>
+                          <span className="font-data text-sm font-black text-foreground">
+                            {formatCurrency(c.cost)}
+                          </span>
+                          <span className="ml-1.5 font-data text-[11px] font-semibold text-warning">
+                            {c.liters.toLocaleString()} L
+                          </span>
+                        </div>
+                        <span className="font-data text-[10.5px] font-bold text-foreground-muted">
+                          ₱{unitPrice}/L
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted/30">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-success to-warning transition-all duration-500"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </ChartCard>
 
+          {/* Monthly Fuel Expense & Consumption */}
           <ChartCard
             icon={PhilippinePeso}
             iconTone="bg-success/10 text-success border-success/20"
             title="Monthly Fuel Expense & Consumption"
-            subtitle="Cost trend with volume overlay"
+            subtitle="Historical cost trajectory and volumetric consumption"
+            actions={
+              monthlyFuelStats.momChange ? (
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold",
+                    Number(monthlyFuelStats.momChange) >= 0
+                      ? "border border-danger/20 bg-danger/10 text-danger"
+                      : "border border-success/20 bg-success/10 text-success"
+                  )}
+                >
+                  <TrendingUp className="h-3 w-3" />
+                  {Number(monthlyFuelStats.momChange) >= 0
+                    ? `+${monthlyFuelStats.momChange}%`
+                    : `${monthlyFuelStats.momChange}%`}{" "}
+                  MoM
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success">
+                  {formatCurrency(monthlyFuelStats.totalCost)}
+                </span>
+              )
+            }
           >
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
-                <ComposedChart key={dateRange} data={monthlyCostData} margin={{ top: 10, right: 6, left: -10, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id={monthlyBarGradId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART.success} stopOpacity={0.95} />
-                      <stop offset="100%" stopColor={CHART.success} stopOpacity={0.45} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid {...GRID} />
-                  <XAxis
-                    dataKey="month"
-                    tick={AXIS_TICK}
-                    axisLine={false}
-                    tickLine={false}
-                    dy={8}
-                    interval={0}
-                  />
-                  <YAxis yAxisId="leftCost" orientation="left" width={44} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="rightLiters" orientation="right" width={34} tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Legend wrapperStyle={{ fontSize: 12, fontWeight: "600", color: "var(--fg)" }} iconType="circle" iconSize={8} />
-                  <Bar
-                    yAxisId="leftCost"
-                    dataKey="fuelCost"
-                    name="Fuel Expense (₱)"
-                    fill={`url(#${monthlyBarGradId})`}
-                    radius={[9, 9, 0, 0]}
-                    maxBarSize={40}
-                    animationDuration={reducedMotion ? 0 : 800}
-                    animationEasing="ease-out"
-                  />
-                  <Line
-                    yAxisId="rightLiters"
-                    type="monotone"
-                    dataKey="liters"
-                    name="Fuel Liters (L)"
-                    stroke={CHART.warning}
-                    strokeWidth={2.5}
-                    dot={{ r: 4, fill: CHART.warning, strokeWidth: 0 }}
-                    activeDot={{ r: 6 }}
-                    animationDuration={reducedMotion ? 0 : 800}
-                    animationEasing="ease-out"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+            <div className="space-y-4">
+              <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%" debounce={200}>
+                  <ComposedChart key={dateRange} data={monthlyCostData} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id={monthlyCostAreaGradId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.success} stopOpacity={0.38} />
+                        <stop offset="100%" stopColor={CHART.success} stopOpacity={0.02} />
+                      </linearGradient>
+                      <linearGradient id={monthlyLitersBarGradId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART.warning} stopOpacity={0.92} />
+                        <stop offset="100%" stopColor={CHART.warning} stopOpacity={0.35} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid {...GRID} />
+                    <XAxis
+                      dataKey="month"
+                      tick={AXIS_TICK}
+                      axisLine={false}
+                      tickLine={false}
+                      dy={8}
+                      interval={0}
+                    />
+                    <YAxis
+                      yAxisId="leftCost"
+                      orientation="left"
+                      width={48}
+                      tick={AXIS_TICK}
+                      tickFormatter={formatCurrencyK}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      yAxisId="rightLiters"
+                      orientation="right"
+                      width={44}
+                      tick={AXIS_TICK}
+                      tickFormatter={formatLitersK}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip
+                      content={<ChartTooltip />}
+                      cursor={{ stroke: "var(--br)", strokeWidth: 1, strokeDasharray: "4 4" }}
+                    />
+                    <Legend
+                      wrapperStyle={{ fontSize: 11, fontWeight: "700", paddingTop: 8 }}
+                      iconType="circle"
+                      iconSize={8}
+                    />
+                    <Area
+                      yAxisId="leftCost"
+                      type="monotone"
+                      dataKey="fuelCost"
+                      name="Fuel Expense (₱)"
+                      stroke={CHART.success}
+                      strokeWidth={3}
+                      fill={`url(#${monthlyCostAreaGradId})`}
+                      dot={{ r: 4, fill: CHART.success, strokeWidth: 2, stroke: "var(--sf)" }}
+                      activeDot={{ r: 6, fill: CHART.success, strokeWidth: 2, stroke: "var(--sf)" }}
+                      animationDuration={reducedMotion ? 0 : 800}
+                      animationEasing="ease-out"
+                    />
+                    <Bar
+                      yAxisId="rightLiters"
+                      dataKey="liters"
+                      name="Fuel Volume (L)"
+                      fill={`url(#${monthlyLitersBarGradId})`}
+                      radius={[8, 8, 0, 0]}
+                      maxBarSize={36}
+                      animationDuration={reducedMotion ? 0 : 800}
+                      animationEasing="ease-out"
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Monthly Overview Chips */}
+              <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
+                {monthlyCostData.map((m, i) => {
+                  const unitPrice = m.liters > 0 ? (m.fuelCost / m.liters).toFixed(2) : "0.00";
+                  return (
+                    <div
+                      key={m.month || i}
+                      className="group flex flex-col justify-between rounded-2xl border border-border/60 bg-surface p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:shadow-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-foreground">{m.month}</span>
+                        <span className="rounded-full bg-success/10 px-2 py-0.5 font-data text-[10px] font-bold text-success">
+                          ₱{unitPrice}/L
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-baseline justify-between gap-2">
+                        <span className="font-data text-sm font-black text-foreground">
+                          {formatCurrency(m.fuelCost)}
+                        </span>
+                        <span className="font-data text-xs font-bold text-warning">
+                          {m.liters.toLocaleString()} L
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </ChartCard>
         </div>
