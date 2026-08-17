@@ -32,7 +32,7 @@ export const NAV_ROLES = {
   "/incidents": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers": ["admin", "system_admin", "fleet_manager"],
-  "/drivers/leave": ["admin", "system_admin", "fleet_manager"],
+  "/drivers/leave": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/drivers/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],
   "/executive": ["admin", "management"],
@@ -146,8 +146,8 @@ const MATRIX = {
     // call. The API mirrors this — POST/DELETE exclude dispatcher.
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
-    // Schedules/leave are visible so the dispatch screen can explain why a
-    // driver is not offered for a window, but a dispatcher never edits them.
+    // Schedules are visible so the dispatch screen can explain why a
+    // driver is not offered for a window. Dispatchers can now also review (update) leave requests.
     driver_work_schedules: { read: true },
     driver_leave_requests: { read: true },
     reservations: {

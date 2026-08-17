@@ -87,6 +87,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
   });
 
   const vById = new Map(vehicles.map((v) => [v.vehicle_id, v]));
+  const dById = new Map(drivers.map((d) => [d.driver_id, d]));
   const onDuty = new Set(
     drivers
       .filter((d) => !["Suspended", "On Leave", "Off Duty"].includes(d.driver_status))
@@ -106,6 +107,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
     .filter((a) => eligible(a.vehicle_id, a.driver_id))
     .map((a) => {
       const v = vById.get(a.vehicle_id);
+      const d = dById.get(a.driver_id);
       const driverName =
         `${a?.employees?.first_name || a?.first_name || ""} ${a?.employees?.last_name || a?.last_name || ""}`.trim() ||
         `Driver #${a.driver_id}`;
@@ -118,6 +120,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
         seats: v.seating_capacity,
         driverName,
         substitute: false,
+        scheduleWarning: d?.schedule_warning,
       };
     });
 
@@ -135,6 +138,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
     })
     .map((s) => {
       const v = vById.get(s.vehicle_id);
+      const d = dById.get(s.substitute_driver_id);
       const driverName =
         `${s.first_name || ""} ${s.last_name || ""}`.trim() || `Driver #${s.substitute_driver_id}`;
       return {
@@ -146,6 +150,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
         seats: v.seating_capacity,
         driverName,
         substitute: true,
+        scheduleWarning: d?.schedule_warning,
       };
     });
 
@@ -260,6 +265,11 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
                     <div className="flex items-center gap-1.5 text-xs text-foreground-secondary pt-0.5">
                       <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
                       <span className="font-semibold truncate">{o.driverName}</span>
+                      {o.scheduleWarning && (
+                        <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[10px] font-bold text-warning truncate max-w-[120px]">
+                          {o.scheduleWarning}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="shrink-0 pl-2">

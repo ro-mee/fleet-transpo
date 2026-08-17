@@ -6,7 +6,7 @@ const migrationFile = process.argv[2];
 if (!migrationFile) { console.error('usage: node apply_migration.js <file.sql>'); process.exit(1); }
 const sql = fs.readFileSync(path.join(__dirname, migrationFile), 'utf8');
 
-const envFile = fs.readFileSync(path.join(__dirname, '.env.local'), 'utf8');
+const envFile = fs.readFileSync(path.join(__dirname, '.env'), 'utf8');
 let dbUrl = '';
 for (const line of envFile.split('\n')) if (line.startsWith('DATABASE_URL=')) dbUrl = line.replace('DATABASE_URL=', '').trim();
 

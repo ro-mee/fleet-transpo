@@ -104,6 +104,14 @@ export async function reviewDriverLeave(leaveRequestId, status, notes) {
   });
 }
 
+export async function getDriverLeaveBalances(driverId) {
+  return apiFetch(driverId ? `/api/driver-leave-balances?driver_id=${driverId}` : "/api/driver-leave-balances");
+}
+
+export async function getMyLeaveBalances() {
+  return apiFetch("/api/driver/balances");
+}
+
 export async function reportIncident(incident) {
   return apiFetch("/api/driver/incidents", { method: "POST", body: incident });
 }

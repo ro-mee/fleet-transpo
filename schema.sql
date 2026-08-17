@@ -147,6 +147,16 @@ CREATE TABLE driver_consents (
   CONSTRAINT driver_consents_pkey PRIMARY KEY (consent_id)
 );
 
+CREATE TABLE driver_leave_balances (
+  balance_id integer DEFAULT nextval('driver_leave_balances_balance_id_seq'::regclass) NOT NULL,
+  driver_id integer NOT NULL,
+  leave_type varchar(50) NOT NULL,
+  allocated_days numeric DEFAULT 0 NOT NULL,
+  used_days numeric DEFAULT 0 NOT NULL,
+  CONSTRAINT driver_leave_balances_pkey PRIMARY KEY (balance_id),
+  CONSTRAINT driver_leave_balances_driver_id_leave_type_key UNIQUE (driver_id, leave_type)
+);
+
 CREATE TABLE driver_leave_requests (
   leave_request_id integer DEFAULT nextval('driver_leave_requests_leave_request_id_seq'::regclass) NOT NULL,
   driver_id integer NOT NULL,
@@ -159,6 +169,8 @@ CREATE TABLE driver_leave_requests (
   reviewed_by integer,
   reviewed_at timestamptz,
   review_notes text,
+  start_time time,
+  end_time time,
   CONSTRAINT chk_leave_interval CHECK ((end_date >= start_date)),
   CONSTRAINT driver_leave_requests_status_check CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Declined'::character varying])::text[]))),
   CONSTRAINT driver_leave_requests_pkey PRIMARY KEY (leave_request_id)
@@ -748,6 +760,7 @@ ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_route_id_fkey FOR
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE driver_consents ADD CONSTRAINT driver_consents_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
+ALTER TABLE driver_leave_balances ADD CONSTRAINT driver_leave_balances_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_leave_requests ADD CONSTRAINT driver_leave_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
 ALTER TABLE driver_vehicle_assignments ADD CONSTRAINT driver_vehicle_assignments_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
@@ -860,6 +873,7 @@ CREATE INDEX idx_fuel_vehicle ON public.fuelrecords USING btree (vehicle_id);
 CREATE INDEX idx_integration_event ON public.integration_log USING btree (event_type);
 CREATE INDEX idx_integration_external ON public.integration_log USING btree (external_booking_id);
 CREATE INDEX idx_integration_status ON public.integration_log USING btree (status);
+CREATE INDEX idx_leave_balances_driver ON public.driver_leave_balances USING btree (driver_id);
 CREATE INDEX idx_leave_driver ON public.driver_leave_requests USING btree (driver_id, start_date DESC);
 CREATE INDEX idx_leave_status ON public.driver_leave_requests USING btree (status);
 CREATE INDEX idx_locations_name ON public.locations USING btree (name);
@@ -1153,6 +1167,52 @@ END;
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION public.notify_leave_requested()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+  SELECT
+    e.employee_id,
+    'New Leave Request',
+    'A driver has requested ' || NEW.leave_type || ' from ' || NEW.start_date || ' to ' || NEW.end_date || '.',
+    'Info',
+    'leave_request',
+    NEW.leave_request_id
+  FROM employees e
+  WHERE e.role_id IN (SELECT role_id FROM roles WHERE role_name IN ('fleet_manager', 'admin', 'dispatcher'));
+
+  RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.notify_leave_reviewed()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  IF (NEW.status = 'Approved' OR NEW.status = 'Declined') AND OLD.status = 'Pending' THEN
+    INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+    SELECT
+      d.employee_id,
+      'Leave Request ' || NEW.status,
+      'Your leave request from ' || NEW.start_date || ' to ' || NEW.end_date || ' was ' || LOWER(NEW.status) || '.',
+      CASE WHEN NEW.status = 'Approved' THEN 'Success' ELSE 'Warning' END,
+      'leave_request',
+      NEW.leave_request_id
+    FROM drivers d
+    WHERE d.driver_id = NEW.driver_id;
+  END IF;
+
+  RETURN NEW;
+END;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION public.notify_maintenance_due()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -1215,6 +1275,8 @@ CREATE TRIGGER trg_dispatch_number BEFORE INSERT ON public.dispatchschedules FOR
 CREATE TRIGGER trg_dispatch_overlap BEFORE INSERT OR UPDATE OF vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_dispatch_overlap();
 CREATE TRIGGER trigger_notify_dispatch_created AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION notify_dispatch_created();
 CREATE TRIGGER trigger_notify_document_expiry AFTER INSERT OR UPDATE ON public.vehicledocuments FOR EACH ROW EXECUTE FUNCTION notify_document_expiry();
+CREATE TRIGGER trigger_notify_leave_requested AFTER INSERT ON public.driver_leave_requests FOR EACH ROW EXECUTE FUNCTION notify_leave_requested();
+CREATE TRIGGER trigger_notify_leave_reviewed AFTER UPDATE ON public.driver_leave_requests FOR EACH ROW WHEN (((((new.status)::text = 'Approved'::text) OR ((new.status)::text = 'Declined'::text)) AND ((old.status)::text = 'Pending'::text))) EXECUTE FUNCTION notify_leave_reviewed();
 CREATE TRIGGER trigger_notify_maintenance_due AFTER INSERT OR UPDATE ON public.vehiclemaintenance FOR EACH ROW EXECUTE FUNCTION notify_maintenance_due();
 CREATE TRIGGER trigger_notify_trip_completed AFTER UPDATE ON public.trips FOR EACH ROW WHEN ((((new.trip_status)::text = 'Completed'::text) AND ((old.trip_status)::text <> 'Completed'::text))) EXECUTE FUNCTION notify_trip_completed();
 CREATE TRIGGER update_dispatch_updated_at BEFORE UPDATE ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION update_updated_at();

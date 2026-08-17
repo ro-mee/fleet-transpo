@@ -11,7 +11,8 @@ import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { getDriverLeaveRequests, reviewDriverLeave } from "@/services/driver.service";
-import { CalendarClock, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { CalendarClock, Loader2, CheckCircle2, XCircle, User, IdCard, CalendarDays } from "lucide-react";
 
 const FILTERS = ["Pending", "Approved", "Declined", "All"];
 
@@ -24,10 +25,11 @@ function fmtDate(value) {
 }
 
 export default function DriverLeaveRequestsPage() {
-  useRequireRole(["system_admin", "admin", "fleet_manager"]);
+  useRequireRole(["system_admin", "admin", "fleet_manager", "dispatcher"]);
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
   const [filter, setFilter] = useState("Pending");
+  const [selectedRequest, setSelectedRequest] = useState(null);
 
   const { data: leave = [], isLoading, isError } = useQuery({
     queryKey: ["all-leave-requests"],
@@ -103,14 +105,14 @@ export default function DriverLeaveRequestsPage() {
                         </Badge>
                       </div>
                       <p className="text-xs text-foreground-secondary font-medium">
-                        {fmtDate(l.start_date)} – {fmtDate(l.end_date)}
+                        {fmtDate(l.start_date)} {l.start_time ? `(${l.start_time})` : ""} – {fmtDate(l.end_date)} {l.end_time ? `(${l.end_time})` : ""}
                         {l.leave_type ? ` · ${l.leave_type}` : ""}
                       </p>
                       {l.reason && <p className="text-xs text-foreground-muted truncate max-w-xl">{l.reason}</p>}
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 shrink-0">
                       {l.status === "Pending" && can("driver_leave_requests", "update") && (
-                        <>
+                        <div className="flex items-center gap-2">
                           <Button
                             variant="outline"
                             size="sm"
@@ -129,11 +131,19 @@ export default function DriverLeaveRequestsPage() {
                             {review.isPending && <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />}
                             <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Approve
                           </Button>
-                        </>
+                        </div>
                       )}
                       {l.status !== "Pending" && (
-                        <span className="text-[11px] text-foreground-muted">Reviewed</span>
+                        <span className="text-[11px] text-foreground-muted mr-2">Reviewed</span>
                       )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 rounded-xl text-xs font-semibold text-primary hover:bg-primary/10"
+                        onClick={() => setSelectedRequest(l)}
+                      >
+                        View Details
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -142,6 +152,68 @@ export default function DriverLeaveRequestsPage() {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && setSelectedRequest(null)}>
+        <DialogContent className="sm:max-w-md rounded-3xl overflow-hidden border-border/60 shadow-lg p-0">
+          {selectedRequest && (
+            <>
+              <div className="bg-muted/30 p-6 border-b border-border/40">
+                <DialogHeader>
+                  <DialogTitle className="text-xl font-bold flex items-center gap-2">
+                    <User className="w-5 h-5 text-primary" /> Driver & Leave Details
+                  </DialogTitle>
+                </DialogHeader>
+                <div className="mt-4 flex items-center gap-4">
+                  <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-xl font-bold">
+                    {selectedRequest.driver?.first_name?.[0]}{selectedRequest.driver?.last_name?.[0]}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-foreground">
+                      {selectedRequest.driver?.first_name} {selectedRequest.driver?.last_name}
+                    </h3>
+                    <p className="text-sm font-medium text-foreground-secondary flex items-center gap-1.5 mt-1">
+                      <IdCard className="w-4 h-4 text-foreground-muted" /> License: <span className="font-data font-bold">{selectedRequest.driver?.license_number || "—"}</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-6 space-y-4 bg-surface">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Leave Type</span>
+                    <p className="font-bold text-sm text-foreground">{selectedRequest.leave_type || "—"}</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Status</span>
+                    <div>
+                      <Badge variant={selectedRequest.status === "Approved" ? "success" : selectedRequest.status === "Declined" ? "danger" : "secondary"} className="rounded-full text-xs">
+                        {selectedRequest.status}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5 col-span-2">
+                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5">
+                      <CalendarDays className="w-3.5 h-3.5" /> Date Range
+                    </span>
+                    <p className="font-medium text-sm text-foreground bg-muted/20 p-2.5 rounded-xl border border-border/40">
+                      {fmtDate(selectedRequest.start_date)} {selectedRequest.start_time ? `(${selectedRequest.start_time})` : ""} <span className="text-border mx-1">➔</span> {fmtDate(selectedRequest.end_date)} {selectedRequest.end_time ? `(${selectedRequest.end_time})` : ""}
+                    </p>
+                  </div>
+                  <div className="space-y-1.5 col-span-2">
+                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Reason</span>
+                    <p className="font-medium text-sm text-foreground-secondary bg-muted/20 p-2.5 rounded-xl border border-border/40">
+                      {selectedRequest.reason || "No reason provided."}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end">
+                <Button variant="outline" className="rounded-xl shadow-xs h-9 px-4 text-xs font-semibold" onClick={() => setSelectedRequest(null)}>Close</Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

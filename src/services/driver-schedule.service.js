@@ -22,9 +22,9 @@ export async function loadDriverScheduleContext(driverIds) {
       [ids]
     ),
     query(
-      `SELECT leave_request_id, driver_id, start_date, end_date, leave_type, status
+      `SELECT leave_request_id, driver_id, start_date, end_date, start_time, end_time, leave_type, status
          FROM driver_leave_requests
-        WHERE driver_id = ANY($1) AND status = 'Approved'`,
+        WHERE driver_id = ANY($1) AND status IN ('Approved', 'Pending')`,
       [ids]
     ),
   ]);
@@ -98,7 +98,7 @@ export async function saveWorkSchedule(driverId, days, actorId) {
 /** A driver's leave requests, newest first. */
 export async function listLeaveRequests(driverId) {
   const { rows } = await query(
-    `SELECT leave_request_id, driver_id, start_date, end_date, leave_type, reason, status, requested_at, reviewed_by, reviewed_at, review_notes
+    `SELECT leave_request_id, driver_id, start_date, end_date, start_time, end_time, leave_type, reason, status, requested_at, reviewed_by, reviewed_at, review_notes
        FROM driver_leave_requests
       WHERE driver_id = $1
       ORDER BY requested_at DESC`,
@@ -111,13 +111,15 @@ export async function listLeaveRequests(driverId) {
 export async function createLeaveRequest(driverId, data, requestedAt = new Date()) {
   const { rows } = await query(
     `INSERT INTO driver_leave_requests
-       (driver_id, start_date, end_date, leave_type, reason, requested_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+       (driver_id, start_date, end_date, start_time, end_time, leave_type, reason, requested_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
     [
       Number(driverId),
       data.start_date,
       data.end_date,
+      data.start_time || null,
+      data.end_time || null,
       data.leave_type || "Vacation",
       data.reason || null,
       requestedAt,
@@ -129,7 +131,7 @@ export async function createLeaveRequest(driverId, data, requestedAt = new Date(
 /** All leave requests (optionally for one driver), newest first. */
 export async function listAllLeaveRequests({ driverId } = {}) {
   const { rows } = await query(
-    `SELECT lr.leave_request_id, lr.driver_id, lr.start_date, lr.end_date, lr.leave_type, lr.reason, lr.status,
+    `SELECT lr.leave_request_id, lr.driver_id, lr.start_date, lr.end_date, lr.start_time, lr.end_time, lr.leave_type, lr.reason, lr.status,
             lr.requested_at, lr.reviewed_by, lr.reviewed_at, lr.review_notes,
             json_build_object('employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name) AS driver
        FROM driver_leave_requests lr
@@ -156,7 +158,7 @@ export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, not
 
   return withTransaction(async (tx) => {
     const { rows } = await tx.query(
-      `SELECT driver_id, start_date, end_date FROM driver_leave_requests WHERE leave_request_id = $1`,
+      `SELECT driver_id, start_date, end_date, leave_type FROM driver_leave_requests WHERE leave_request_id = $1`,
       [id]
     );
     const current = rows[0];
@@ -179,6 +181,27 @@ export async function reviewLeaveRequest(leaveRequestId, status, reviewerId, not
         e.status = 409;
         throw e;
       }
+
+      // Balance deduction
+      const msPerDay = 1000 * 60 * 60 * 24;
+      const days = Math.max(1, Math.round((new Date(current.end_date) - new Date(current.start_date)) / msPerDay) + 1);
+      await tx.query(
+        `UPDATE driver_leave_balances
+            SET used_days = used_days + $1
+          WHERE driver_id = $2 AND leave_type = $3`,
+        [days, current.driver_id, current.leave_type]
+      );
+
+      // Auto-reassignment of overlapping trips
+      await tx.query(
+        `UPDATE dispatchschedules
+            SET status = 'Pending Reassignment', driver_id = NULL
+          WHERE driver_id = $1 
+            AND status IN ('Scheduled', 'In Progress')
+            AND DATE(scheduled_departure) <= $2 
+            AND DATE(scheduled_arrival) >= $3`,
+        [current.driver_id, current.end_date, current.start_date]
+      );
     }
 
     const { rows: updated } = await tx.query(

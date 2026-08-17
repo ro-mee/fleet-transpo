@@ -17,6 +17,7 @@ const STAFF_ROUTES = {
   document: () => `/fleet/documents`,
   driver: (id) => `/drivers/${id}`,
   incident: () => `/incidents`,
+  leave_request: () => `/drivers/leave`,
 };
 
 const DRIVER_ROUTES = {
@@ -25,6 +26,7 @@ const DRIVER_ROUTES = {
   vehicle: () => `/driver`,
   driver: () => `/driver/profile`,
   incident: () => `/driver/incidents`,
+  leave_request: () => `/driver/schedule`,
 };
 
 /** @param {object} notification notification row (reference_type, reference_id, link) */

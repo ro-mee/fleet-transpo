@@ -56,13 +56,26 @@ function fmtTime(value) {
  * leaveRows entries may carry either snake_case (pg `date` -> local Date or
  * "YYYY-MM-DD" string) or camelCase column names.
  */
-export function hasApprovedLeave(leaveRows, date) {
-  const day = toCalendarDay(date);
+export function hasLeaveConflict(leaveRows, pickup, returnAt, targetStatus = 'Approved') {
+  const day = toCalendarDay(pickup);
   if (day === null) return false;
-  return (leaveRows || []).some((l) => {
+
+  const pTime = pickup ? localTimeOfDay(pickup) : null;
+  const rTime = returnAt ? localTimeOfDay(returnAt) : pTime;
+
+  return (leaveRows || []).filter(l => l.status === targetStatus).some((l) => {
     const s = toCalendarDay(l.start_date ?? l.startDate);
     const e = toCalendarDay(l.end_date ?? l.endDate);
-    return s !== null && e !== null && day >= s && day <= e;
+    if (s === null || e === null || day < s || day > e) return false;
+
+    if (l.start_time && l.end_time) {
+      const st = String(l.start_time);
+      const et = String(l.end_time);
+      if (pTime && rTime) {
+        return (st < rTime && et > pTime);
+      }
+    }
+    return true; // Full day leave or exact times unknown
   });
 }
 
@@ -149,8 +162,13 @@ export function driverBlockReason({ driverId, pickup, returnAt, ctx }) {
   const schedule = schedules ? schedules.get(day) : undefined;
 
   const leave = ctx.leave?.get?.(Number(driverId));
-  if (hasApprovedLeave(leave, pickup)) {
-    return { blocked: true, reason: "Driver is on approved leave for this date." };
+  if (hasLeaveConflict(leave, pickup, returnAt, 'Approved')) {
+    return { blocked: true, reason: "Driver is on approved leave during this time." };
+  }
+  
+  if (hasLeaveConflict(leave, pickup, returnAt, 'Pending')) {
+    // Note: Pending doesn't block assignment, but can be surfaced as a warning
+    return { blocked: false, warning: true, reason: "Driver has a pending leave request during this time." };
   }
 
   return scheduleBlockReason({ schedule, pickup, returnAt });

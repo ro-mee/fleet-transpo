@@ -7,13 +7,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
 import { toast } from "@/components/ui/toast";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import {
-  getMyWorkSchedule, getMyLeaveRequests,
+  getMyWorkSchedule, getMyLeaveRequests, getMyLeaveBalances,
   requestDriverLeave, withdrawDriverLeave,
 } from "@/services/driver.service";
 import { DAY_NAMES } from "@/lib/scheduling/driver-schedule";
@@ -48,17 +50,20 @@ export default function DriverSchedulePage() {
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [leaveType, setLeaveType] = useState("");
   const [reason, setReason] = useState("");
 
   const scheduleQ = useQuery({ queryKey: ["driver-work-schedule-me"], queryFn: getMyWorkSchedule });
   const leaveQ = useQuery({ queryKey: ["driver-leave-me"], queryFn: getMyLeaveRequests });
+  const balanceQ = useQuery({ queryKey: ["driver-leave-balances-me"], queryFn: getMyLeaveBalances });
 
   const request = useMutation({
-    mutationFn: () => requestDriverLeave({ start_date: startDate, end_date: endDate, leave_type: leaveType, reason }),
+    mutationFn: () => requestDriverLeave({ start_date: startDate, end_date: endDate, start_time: startTime, end_time: endTime, leave_type: leaveType, reason }),
     onSuccess: () => {
       toast.success("Leave request submitted for approval");
-      setStartDate(""); setEndDate(""); setLeaveType(""); setReason("");
+      setStartDate(""); setEndDate(""); setStartTime(""); setEndTime(""); setLeaveType(""); setReason("");
       queryClient.invalidateQueries({ queryKey: ["driver-leave-me"] });
     },
     onError: (err) => toast.error(err.message || "Failed to submit leave request"),
@@ -75,6 +80,7 @@ export default function DriverSchedulePage() {
 
   const days = scheduleQ.data?.days ?? [];
   const leave = leaveQ.data ?? [];
+  const balances = balanceQ.data ?? [];
 
   return (
     <DriverConsentGate>
@@ -131,14 +137,29 @@ export default function DriverSchedulePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-4 space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label className="text-[11px]">Start date</Label>
-                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              {balances.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {balances.map(b => (
+                    <Badge key={b.leave_type} variant="secondary" className="rounded-md">
+                      {b.leave_type}: {b.used_days} / {b.allocated_days} days used
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-x-3 gap-y-4">
+                <div className="pt-2">
+                  <DatePicker label="Start date" value={startDate} onChange={setStartDate} disablePast />
+                </div>
+                <div className="pt-2">
+                  <DatePicker label="End date" value={endDate} onChange={setEndDate} disablePast />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-[11px]">End date</Label>
-                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  <Label className="text-[11px] text-foreground-secondary ml-1">Start time (optional)</Label>
+                  <TimePicker value={startTime} onChange={setStartTime} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-[11px] text-foreground-secondary ml-1">End time (optional)</Label>
+                  <TimePicker value={endTime} onChange={setEndTime} />
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -190,7 +211,7 @@ export default function DriverSchedulePage() {
                     <div key={l.leave_request_id} className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border bg-muted/20 text-sm">
                       <div className="min-w-0">
                         <p className="font-semibold text-foreground text-xs">
-                          {fmtDate(l.start_date)} – {fmtDate(l.end_date)}
+                          {fmtDate(l.start_date)} {l.start_time ? `(${l.start_time})` : ""} – {fmtDate(l.end_date)} {l.end_time ? `(${l.end_time})` : ""}
                           {l.leave_type ? <span className="text-foreground-muted"> · {l.leave_type}</span> : null}
                         </p>
                         {l.reason && <p className="text-[11px] text-foreground-secondary truncate mt-0.5">{l.reason}</p>}
