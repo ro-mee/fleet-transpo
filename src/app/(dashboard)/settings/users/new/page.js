@@ -15,9 +15,11 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import { createUserSchema } from "@/lib/validation/schemas";
 import { REGISTRATION_ROLES } from "@/lib/constants";
 import { ArrowLeft, Loader2, UserPlus, CheckCircle2, Eye, EyeOff, ShieldCheck, Mail, Lock, User, Truck } from "lucide-react";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
+import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 const ACCOUNT_ROLES = REGISTRATION_ROLES.filter((r) => r.value !== "driver");
 
@@ -57,6 +59,35 @@ export default function AddUserPage() {
 
   const isSubmitting = createMutation.isPending;
 
+  const formActions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.back()}
+        className={cn("rounded-xl", heroButtonOutlineClass)}
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        onClick={form.handleSubmit(onSubmit)}
+        disabled={isSubmitting}
+        className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...
+          </>
+        ) : (
+          <>
+            <CheckCircle2 className="w-4 h-4 mr-2" /> Create Account
+          </>
+        )}
+      </Button>
+    </>
+  );
+
   const onSubmit = (data) => {
     createMutation.mutate({
       email: data.email.trim().toLowerCase(),
@@ -68,45 +99,19 @@ export default function AddUserPage() {
   };
 
   return (
-    <div className="space-y-6 w-full pb-6">
+    <PageEntrance className="space-y-6 w-full pb-28">
       {/* ── Top Hero Header Bar ── */}
       <HeroHeader
         icon={UserPlus}
         title="Create Employee Account"
         badge="User Provisioning"
         description="Provision a new internal staff or driver user account with role-based access control."
-        actions={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => router.back()}
-              className={cn("rounded-xl", heroButtonOutlineClass)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={form.handleSubmit(onSubmit)}
-              disabled={isSubmitting}
-              className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4 mr-2" /> Create Account
-                </>
-              )}
-            </Button>
-          </>
-        }
+        actions={formActions}
       />
+      <StickyActionBar>{formActions}</StickyActionBar>
 
       {/* ── USER ACCOUNT PROVISIONING CARD ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+      <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
           <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
             <UserPlus className="w-4 h-4 text-primary" /> Employee Profile &amp; Role Credentials
@@ -165,20 +170,14 @@ export default function AddUserPage() {
                 </div>
               </FloatingField>
 
-              <FloatingField label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2">
-                <select
-                  id="role_id"
-                  {...form.register("role_id")}
-                  className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                >
+              <FloatingSelect label="Assigned System Role" icon={ShieldCheck} required error={form.formState.errors.role_id?.message} className="md:col-span-2" id="role_id" {...form.register("role_id")}>
                   <option value="" className="bg-background text-foreground">Select system role</option>
                   {ACCOUNT_ROLES.map((role) => (
                     <option key={role.id} value={role.id} className="bg-background text-foreground">
                       {role.name} ({role.label})
                     </option>
                   ))}
-                </select>
-              </FloatingField>
+                </FloatingSelect>
             </div>
 
             <div className="p-4 rounded-2xl bg-info/10 border border-info/20 text-xs text-foreground-secondary flex items-start gap-2.5 md:col-span-2 mt-4">
@@ -196,6 +195,6 @@ export default function AddUserPage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </PageEntrance>
   );
 }

@@ -251,42 +251,45 @@ export function DateTimePicker({
         <div
           id={id}
           className={cn(
-            "relative flex items-center justify-between border border-border/80 bg-surface hover:bg-hover px-4 py-2 rounded-2xl cursor-pointer transition-all select-none group min-h-[46px]",
-            selectedDate ? "border-primary/40 hover:border-primary" : "border-border hover:border-primary/50",
+            "relative rounded-2xl p-[5px] transition-all select-none group cursor-pointer",
+            "bg-gradient-to-b from-border/70 to-border/30 ring-1 ring-border/70 hover:ring-primary/50",
+            selectedDate ? "ring-primary/60" : "",
             disabled && "opacity-50 cursor-not-allowed",
             className
           )}
         >
-          {/* Floating Pill Label */}
-          <div className="-top-2.5 left-3.5 absolute bg-surface border border-primary/30 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-primary flex items-center gap-1">
-            {label}
-          </div>
-
-          {/* Value Display or Placeholder */}
-          {selectedDate ? (
-            <div className="flex items-center gap-2.5 text-sm font-semibold text-foreground pt-0.5">
-              <div className="flex items-center gap-1.5 text-foreground">
-                <CalendarIcon className="w-4 h-4 text-primary shrink-0" />
-                <span>{formattedDateString}</span>
-              </div>
-
-              <span className="text-border-strong font-normal">|</span>
-
-              <div className="flex items-center gap-1.5 text-foreground">
-                <Clock className="w-4 h-4 text-primary shrink-0" />
-                <span>{formattedTimeString}</span>
-              </div>
+          <div className="relative flex items-center justify-between bg-surface px-4 py-2 rounded-[11px] min-h-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+            {/* Floating Pill Label */}
+            <div className="-top-2.5 left-4 absolute bg-surface border border-primary/30 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-primary flex items-center gap-1 z-10">
+              {label}
             </div>
-          ) : (
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground-muted pt-0.5">
-              <CalendarClock className="w-4 h-4 text-primary/70 shrink-0" />
-              <span>{placeholder}</span>
-            </div>
-          )}
 
-          {/* Right Icon Button */}
-          <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-            <CalendarClock className="w-4 h-4" />
+            {/* Value Display or Placeholder */}
+            {selectedDate ? (
+              <div className="flex items-center gap-2.5 text-sm font-semibold text-foreground pt-0.5">
+                <div className="flex items-center gap-1.5 text-foreground">
+                  <CalendarIcon className="w-4 h-4 text-primary shrink-0" />
+                  <span>{formattedDateString}</span>
+                </div>
+
+                <span className="text-border-strong font-normal">|</span>
+
+                <div className="flex items-center gap-1.5 text-foreground">
+                  <Clock className="w-4 h-4 text-primary shrink-0" />
+                  <span>{formattedTimeString}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm font-medium text-foreground-muted pt-0.5">
+                <CalendarClock className="w-4 h-4 text-primary/70 shrink-0" />
+                <span>{placeholder}</span>
+              </div>
+            )}
+
+            {/* Right Icon Button */}
+            <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+              <CalendarClock className="w-4 h-4" />
+            </div>
           </div>
         </div>
       </PopoverTrigger>

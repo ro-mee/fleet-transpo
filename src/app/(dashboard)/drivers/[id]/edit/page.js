@@ -329,7 +329,7 @@ export default function EditDriverPage() {
   }
 
   return (
-    <div className="space-y-6 w-full pb-6">
+    <div className="space-y-6 w-full pb-28">
       {/* ── Top Page Banner & Header Bar ── */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
         <div className="flex items-center gap-3.5">

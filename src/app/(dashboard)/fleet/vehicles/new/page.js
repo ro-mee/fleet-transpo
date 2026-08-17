@@ -15,7 +15,6 @@ import { scanDocumentWithAi } from "@/services/ai.service";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { toDateInput } from "@/lib/dates";
 import {
-  ArrowLeft,
   Loader2,
   Upload,
   FileText,
@@ -38,8 +37,12 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { cn } from "@/lib/utils";
+import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
+import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 import { vehicleSchema } from "@/lib/validation/schemas";
 
@@ -267,51 +270,46 @@ export default function VehicleFormPage({ params }) {
 
   const isSubmitting = createMutation.isPending || updateMutation.isPending;
 
-  return (
-    <div className="space-y-6 w-full pb-6">
-      {/* ── Top Page Banner & Header Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
-            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">
-                {isEdit ? "Edit Vehicle" : "Add New Vehicle"}
-              </h1>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
-                {isEdit ? "Update Vehicle Record" : "Fleet Registration"}
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              {isEdit ? `Editing ${vehicle?.plate_number || "vehicle"}` : "Register a new vehicle and upload compliance document scans"}
-            </p>
-          </div>
-        </div>
+  const formActions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.push("/fleet/vehicles")}
+        className={cn("rounded-xl", heroButtonOutlineClass)}
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        onClick={form.handleSubmit(onSubmit)}
+        disabled={isSubmitting}
+        className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Vehicle...
+          </>
+        ) : (
+          <>
+            <CheckCircle2 className="w-4 h-4 mr-2" /> Save &amp; Register Vehicle
+          </>
+        )}
+      </Button>
+    </>
+  );
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => router.push("/fleet/vehicles")} className="rounded-xl">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            className="rounded-xl px-5 h-10 shadow-sm"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Vehicle...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4 mr-2" /> Save &amp; Register Vehicle
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+  return (
+    <PageEntrance className="space-y-6 w-full pb-28">
+      {/* ── Top Hero Header Bar ── */}
+      <HeroHeader
+        icon={Car}
+        title={isEdit ? "Edit Vehicle" : "Add New Vehicle"}
+        badge={isEdit ? "Update Vehicle Record" : "Fleet Registration"}
+        description={isEdit ? `Editing ${vehicle?.plate_number || "vehicle"}` : "Register a new vehicle and upload compliance document scans."}
+        actions={formActions}
+      />
+      <StickyActionBar>{formActions}</StickyActionBar>
 
       {submitError && (
         <div className="p-4 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger flex items-center gap-2">
@@ -327,12 +325,10 @@ export default function VehicleFormPage({ params }) {
           <div className="lg:col-span-7 space-y-6">
             
             {/* CARD 1: GENERAL INFORMATION */}
-            <Card className="border-0 shadow-sm rounded-2xl">
-              <CardHeader className="pb-3 border-b border-border/60">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-primary/10 text-primary">
-                    <Car className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <Car className="w-4 h-4 text-primary" />
                   General Information
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -400,12 +396,10 @@ export default function VehicleFormPage({ params }) {
             </Card>
 
             {/* CARD 2: CLASSIFICATION & CAPACITY */}
-            <Card className="border-0 shadow-sm rounded-2xl">
-              <CardHeader className="pb-3 border-b border-border/60">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
-                    <Tag className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <Tag className="w-4 h-4 text-blue-500" />
                   Classification &amp; Capacity
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -414,20 +408,14 @@ export default function VehicleFormPage({ params }) {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                  <FloatingField label="Vehicle Category" icon={Tag}>
-                    <select
-                      id="category_id"
-                      {...form.register("category_id")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
+                  <FloatingSelect label="Vehicle Category" icon={Tag} id="category_id" {...form.register("category_id")}>
                       <option value="">Select category</option>
                       {categories.map((cat) => (
                         <option key={cat.category_id} value={cat.category_id}>
                           {cat.category_name}
                         </option>
                       ))}
-                    </select>
-                  </FloatingField>
+                    </FloatingSelect>
 
                   <FloatingField label="Fuel Type" icon={Zap}>
                     <input
@@ -448,31 +436,23 @@ export default function VehicleFormPage({ params }) {
                     />
                   </FloatingField>
 
-                  <FloatingField label="Status" icon={AlertCircle}>
-                    <select
-                      id="vehicle_status"
-                      {...form.register("vehicle_status")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
+                  <FloatingSelect label="Status" icon={AlertCircle} id="vehicle_status" {...form.register("vehicle_status")}>
                       <option value="Available">Available</option>
                       <option value="In Use">In Use</option>
                       <option value="Under Maintenance">Under Maintenance</option>
                       <option value="Out of Service">Out of Service</option>
                       <option value="Reserved">Reserved</option>
                       <option value="Registration Expired">Registration Expired</option>
-                    </select>
-                  </FloatingField>
+                    </FloatingSelect>
                 </div>
               </CardContent>
             </Card>
 
             {/* CARD 3: LTO REGISTRATION & PREVENTIVE MAINTENANCE */}
-            <Card className="border-0 shadow-sm rounded-2xl">
-              <CardHeader className="pb-3 border-b border-border/60">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-amber-500/10 text-amber-500">
-                    <Calendar className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <Calendar className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   LTO Renewal &amp; Maintenance Schedule
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -549,10 +529,10 @@ export default function VehicleFormPage({ params }) {
           <div className="lg:col-span-5 space-y-6">
             
             {/* CARD 4: LTO OR/CR DOCUMENT SCAN */}
-            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                  <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                     <FileImage className="w-4 h-4 text-primary" /> Official Receipt / CR (OR/CR)
                   </CardTitle>
                   {orCrDoc.file_url && (
@@ -580,7 +560,7 @@ export default function VehicleFormPage({ params }) {
                         size="sm"
                         onClick={() => handleAiScan("OR_CR", orCrDoc.file_url)}
                         disabled={scanningDocType === "OR_CR"}
-                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                        className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {scanningDocType === "OR_CR" ? (
                           <>
@@ -596,7 +576,7 @@ export default function VehicleFormPage({ params }) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
                         accept="image/*,.pdf"
@@ -630,7 +610,7 @@ export default function VehicleFormPage({ params }) {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                  <div className="p-6 rounded-2xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
                     No OR/CR Document Scan Attached
                   </div>
                 )}
@@ -638,10 +618,10 @@ export default function VehicleFormPage({ params }) {
             </Card>
 
             {/* CARD 5: INSURANCE POLICY DOCUMENT SCAN */}
-            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                  <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                     <FileImage className="w-4 h-4 text-primary" /> Insurance Policy Certificate
                   </CardTitle>
                   {insuranceDoc.file_url && (
@@ -669,7 +649,7 @@ export default function VehicleFormPage({ params }) {
                         size="sm"
                         onClick={() => handleAiScan("Insurance", insuranceDoc.file_url)}
                         disabled={scanningDocType === "Insurance"}
-                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                        className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {scanningDocType === "Insurance" ? (
                           <>
@@ -685,7 +665,7 @@ export default function VehicleFormPage({ params }) {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
                         accept="image/*,.pdf"
@@ -719,7 +699,7 @@ export default function VehicleFormPage({ params }) {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                  <div className="p-6 rounded-2xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
                     No Insurance Certificate Scan Attached
                   </div>
                 )}
@@ -810,6 +790,6 @@ export default function VehicleFormPage({ params }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageEntrance>
   );
 }

@@ -19,7 +19,6 @@ import { getVehicleCategories } from "@/services/vehicle.service";
 import { getLocations } from "@/services/location.service";
 import { getRoutes } from "@/services/route.service";
 import {
-  ArrowLeft,
   Loader2,
   FlaskConical,
   DownloadCloud,
@@ -44,7 +43,10 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
+import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 const GATEWAY = process.env.NEXT_PUBLIC_BOOKING_GATEWAY || "mock";
 
@@ -170,55 +172,52 @@ export default function MockInjectorPage() {
     { label: "Hotel ➔ NAIA T1", pickup: "CoCo Star Hotel", dropoff: "NAIA Terminal 1" },
   ];
 
-  return (
-    <div className="space-y-6 w-full pb-6">
-      {/* ── Top Page Banner & Header Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
-            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">New Transport Reservation</h1>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
-                Integration Gateway ({GATEWAY})
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              Inject external transport requests from PMS/POS or generate mock airport transfers.
-            </p>
-          </div>
-        </div>
+  const formActions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.push("/reservations")}
+        className={cn("rounded-xl", heroButtonOutlineClass)}
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        onClick={submit}
+        disabled={injectMutation.isPending}
+        className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+      >
+        {injectMutation.isPending ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Injecting...
+          </>
+        ) : (
+          <>
+            <CheckCircle2 className="w-4 h-4 mr-2" /> Inject Transport Request
+          </>
+        )}
+      </Button>
+    </>
+  );
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => router.push("/reservations")} className="rounded-xl">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={submit}
-            disabled={injectMutation.isPending}
-            className="rounded-xl px-5 h-10 shadow-sm"
-          >
-            {injectMutation.isPending ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Injecting...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4 mr-2" /> Inject Transport Request
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+  return (
+    <PageEntrance className="space-y-6 w-full pb-28">
+      {/* ── Top Hero Header Bar ── */}
+      <HeroHeader
+        icon={Plane}
+        title="New Transport Reservation"
+        badge={`Integration Gateway (${GATEWAY})`}
+        description="Inject external transport requests from PMS/POS or generate mock airport transfers."
+        actions={formActions}
+      />
+      <StickyActionBar>{formActions}</StickyActionBar>
 
       {/* ── GATEWAY CONTROLS & BATCH PULL ── */}
-      <Card className="border-0 shadow-sm rounded-2xl">
-        <CardHeader className="pb-3 border-b border-border/60 flex flex-row items-center justify-between">
+      <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+            <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
               <FlaskConical className="w-4 h-4 text-primary" /> Gateway Integration Batch Simulator
             </CardTitle>
             <CardDescription className="text-xs mt-0.5">
@@ -244,9 +243,9 @@ export default function MockInjectorPage() {
       </Card>
 
       {/* ── CONNECTED AIRPORT & HOTEL ROUTE PRESETS ── */}
-      <Card className="border-0 shadow-sm rounded-2xl">
-        <CardHeader className="pb-3 border-b border-border/60">
-          <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+      <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+          <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
             <Plane className="w-4 h-4 text-primary" /> Connected Airport &amp; Hotel Route Presets
           </CardTitle>
           <CardDescription className="text-xs">
@@ -301,9 +300,9 @@ export default function MockInjectorPage() {
       </Card>
 
       {/* ── CUSTOM REQUEST FORM ── */}
-      <Card className="border-0 shadow-sm rounded-2xl">
-        <CardHeader className="pb-3 border-b border-border/60">
-          <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+      <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+          <CardTitle className="text-base font-extrabold flex items-center gap-2 text-foreground">
             <User className="w-4 h-4 text-primary" /> Transport Reservation Details
           </CardTitle>
           <CardDescription className="text-xs">
@@ -322,18 +321,17 @@ export default function MockInjectorPage() {
               />
             </FloatingField>
 
-            <FloatingField label="Source System" icon={Layers}>
-              <select
-                id="source_system"
-                value={form.source_system}
-                onChange={(e) => set("source_system", e.target.value)}
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-              >
-                <option value="PMS">PMS (Hotel Front Office)</option>
-                <option value="POS">POS (Restaurant / Concierge)</option>
-                <option value="Web">Web Booking Portal</option>
-              </select>
-            </FloatingField>
+            <FloatingSelect
+              label="Source System"
+              icon={Layers}
+              id="source_system"
+              value={form.source_system}
+              onChange={(e) => set("source_system", e.target.value)}
+            >
+              <option value="PMS">PMS (Hotel Front Office)</option>
+              <option value="POS">POS (Restaurant / Concierge)</option>
+              <option value="Web">Web Booking Portal</option>
+            </FloatingSelect>
 
             <FloatingField label="Booking Reference" icon={FileText}>
               <input
@@ -396,34 +394,32 @@ export default function MockInjectorPage() {
               />
             </FloatingField>
 
-            <FloatingField label="Requested Vehicle Category" icon={CarFront}>
-              <select
-                id="requested_vehicle_type"
-                value={form.requested_vehicle_type}
-                onChange={(e) => set("requested_vehicle_type", e.target.value)}
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-              >
-                <option value="">Any Category</option>
-                {categories.map((c) => (
-                  <option key={c.category_id} value={c.category_name}>
-                    {c.category_name}
-                  </option>
-                ))}
-              </select>
-            </FloatingField>
+            <FloatingSelect
+              label="Requested Vehicle Category"
+              icon={CarFront}
+              id="requested_vehicle_type"
+              value={form.requested_vehicle_type}
+              onChange={(e) => set("requested_vehicle_type", e.target.value)}
+            >
+              <option value="">Any Category</option>
+              {categories.map((c) => (
+                <option key={c.category_id} value={c.category_name}>
+                  {c.category_name}
+                </option>
+              ))}
+            </FloatingSelect>
 
-            <FloatingField label="Priority Level" icon={AlertCircle}>
-              <select
-                id="priority"
-                value={form.priority}
-                onChange={(e) => set("priority", e.target.value)}
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-              >
-                <option value="Normal">Normal</option>
-                <option value="High">High (VIP)</option>
-                <option value="Urgent">Urgent</option>
-              </select>
-            </FloatingField>
+            <FloatingSelect
+              label="Priority Level"
+              icon={AlertCircle}
+              id="priority"
+              value={form.priority}
+              onChange={(e) => set("priority", e.target.value)}
+            >
+              <option value="Normal">Normal</option>
+              <option value="High">High (VIP)</option>
+              <option value="Urgent">Urgent</option>
+            </FloatingSelect>
 
             <FloatingField label="Special Requests & Notes" icon={Sparkles} className="md:col-span-2">
               <input
@@ -437,6 +433,6 @@ export default function MockInjectorPage() {
           </form>
         </CardContent>
       </Card>
-    </div>
+    </PageEntrance>
   );
 }

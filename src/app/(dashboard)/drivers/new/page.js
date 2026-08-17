@@ -10,12 +10,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { createDriver } from "@/services/driver.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
 import {
-  ArrowLeft,
   Loader2,
   User,
   IdCard,
@@ -38,11 +37,16 @@ import {
   Phone,
   Mail,
   UserCheck,
+  UserPlus,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverSchema } from "@/lib/validation/schemas";
 import { rotateBase64Image } from "@/lib/images";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { cn } from "@/lib/utils";
+import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
+import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 export default function NewDriverPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -287,49 +291,46 @@ export default function NewDriverPage() {
   const values = form.watch();
   const isSubmitting = createMutation.isPending;
 
-  return (
-    <div className="space-y-6 w-full pb-6">
-      {/* ── Top Page Banner & Header Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.back()}>
-            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">Add New Driver</h1>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
-                Driver Onboarding
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              Enter driver information, credentials, emergency contacts, and upload LTO license scans.
-            </p>
-          </div>
-        </div>
+  const formActions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.push("/drivers")}
+        className={cn("rounded-xl", heroButtonOutlineClass)}
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        onClick={form.handleSubmit(onSubmit)}
+        disabled={isSubmitting}
+        className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+      >
+        {isSubmitting ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Driver...
+          </>
+        ) : (
+          <>
+            <CheckCircle2 className="w-4 h-4 mr-2" /> Save &amp; Register Driver
+          </>
+        )}
+      </Button>
+    </>
+  );
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => router.push("/drivers")} className="rounded-xl">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={isSubmitting}
-            className="rounded-xl px-5 h-10 shadow-sm"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Driver...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4 mr-2" /> Save &amp; Register Driver
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+  return (
+    <PageEntrance className="space-y-6 w-full pb-28">
+      {/* ── Top Hero Header Bar ── */}
+      <HeroHeader
+        icon={UserPlus}
+        title="Add New Driver"
+        badge="Driver Onboarding"
+        description="Enter driver information, credentials, emergency contacts, and upload LTO license scans."
+        actions={formActions}
+      />
+      <StickyActionBar>{formActions}</StickyActionBar>
 
       {submitError && (
         <div className="p-4 rounded-xl bg-danger/10 border border-danger/20 text-sm text-danger flex items-center gap-2">
@@ -346,12 +347,10 @@ export default function NewDriverPage() {
           <div className="lg:col-span-7 space-y-6">
             
             {/* CARD 1: PERSONAL INFORMATION */}
-            <Card className="border-0 shadow-sm rounded-2xl">
-              <CardHeader className="pb-3 border-b border-border/60">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-primary/10 text-primary">
-                    <User className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <User className="w-4 h-4 text-primary" />
                   Personal Information
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -406,17 +405,11 @@ export default function NewDriverPage() {
                     />
                   </div>
 
-                  <FloatingField label="Sex" icon={User}>
-                    <select
-                      id="sex"
-                      {...form.register("sex")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
+                  <FloatingSelect label="Sex" icon={User} id="sex" {...form.register("sex")}>
                       <option value="">Select sex</option>
                       <option value="M">Male</option>
                       <option value="F">Female</option>
-                    </select>
-                  </FloatingField>
+                    </FloatingSelect>
 
                   <FloatingField label="Nationality" icon={Globe} className="md:col-span-2">
                     <input
@@ -440,12 +433,10 @@ export default function NewDriverPage() {
             </Card>
 
             {/* CARD 2: LICENSE CREDENTIALS & EMPLOYMENT */}
-            <Card className="border-0 shadow-sm rounded-2xl">
-              <CardHeader className="pb-3 border-b border-border/60">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
-                    <IdCard className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <IdCard className="w-4 h-4 text-blue-500" />
                   Driver's License &amp; Duty Status
                 </CardTitle>
                 <CardDescription className="text-xs">
@@ -473,16 +464,10 @@ export default function NewDriverPage() {
                     />
                   </div>
 
-                  <FloatingField label="Vehicle License Class" icon={IdCard} required>
-                    <select
-                      id="license_class"
-                      {...form.register("license_class")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
+                  <FloatingSelect label="Vehicle License Class" icon={IdCard} required id="license_class" {...form.register("license_class")}>
                       <option value="B">Class B — Passenger Cars &amp; Light Vehicles</option>
                       <option value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</option>
-                    </select>
-                  </FloatingField>
+                    </FloatingSelect>
 
                   <FloatingField label="License Type" icon={ShieldCheck}>
                     <input
@@ -513,30 +498,22 @@ export default function NewDriverPage() {
                     />
                   </FloatingField>
 
-                  <FloatingField label="Initial Duty Status" icon={UserCheck} className="md:col-span-2">
-                    <select
-                      id="driver_status"
-                      {...form.register("driver_status")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
+                  <FloatingSelect label="Initial Duty Status" icon={UserCheck} className="md:col-span-2" id="driver_status" {...form.register("driver_status")}>
                       <option value="Available">Available (Ready for Dispatch)</option>
                       <option value="On Duty">On Duty (Assigned)</option>
                       <option value="Off Duty">Off Duty (Resting)</option>
                       <option value="On Leave">On Leave</option>
                       <option value="Suspended">Suspended</option>
-                    </select>
-                  </FloatingField>
+                    </FloatingSelect>
                 </div>
               </CardContent>
             </Card>
 
             {/* CARD 3: EMERGENCY CONTACT PERSON */}
-            <Card className="border border-amber-500/20 shadow-sm rounded-2xl bg-amber-500/5">
-              <CardHeader className="pb-3 border-b border-amber-500/10">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
-                  <div className="p-2 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                    <ShieldAlert className="w-4 h-4" />
-                  </div>
+            <Card className={cn("border border-amber-500/20 rounded-3xl overflow-hidden bg-amber-500/5", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-amber-500/10 bg-amber-500/5">
+                <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
+                  <ShieldAlert className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                   Emergency Contact Person
                 </CardTitle>
                 <CardDescription className="text-xs text-foreground-secondary">
@@ -580,10 +557,10 @@ export default function NewDriverPage() {
           <div className="lg:col-span-5 space-y-6">
             
             {/* CARD 4: FRONT OF DRIVER LICENSE SCAN */}
-            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                  <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                     <FileImage className="w-4 h-4 text-primary" /> Front of Driver License
                   </CardTitle>
                   {licenseImagePreview && (
@@ -624,7 +601,7 @@ export default function NewDriverPage() {
                         size="sm"
                         onClick={handleAiScanFront}
                         disabled={isScanningFront}
-                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                        className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningFront ? (
                           <>
@@ -640,7 +617,7 @@ export default function NewDriverPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
                         accept="image/*,.pdf"
@@ -685,7 +662,7 @@ export default function NewDriverPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                  <div className="p-6 rounded-2xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
                     No Front License Image Attached
                   </div>
                 )}
@@ -693,10 +670,10 @@ export default function NewDriverPage() {
             </Card>
 
             {/* CARD 5: BACK OF DRIVER LICENSE SCAN */}
-            <Card className="border-0 shadow-sm rounded-2xl overflow-hidden">
-              <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
+            <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
+              <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
+                  <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                     <FileImage className="w-4 h-4 text-primary" /> Back of Driver License
                   </CardTitle>
                   {licenseBackImagePreview && (
@@ -737,7 +714,7 @@ export default function NewDriverPage() {
                         size="sm"
                         onClick={handleAiScanBack}
                         disabled={isScanningBack}
-                        className="h-8 text-xs font-semibold px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                        className="h-8 text-xs font-semibold px-3 bg-info text-white hover:bg-info/90 rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                       >
                         {isScanningBack ? (
                           <>
@@ -753,7 +730,7 @@ export default function NewDriverPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-xl p-4 text-center transition-colors bg-muted/20 cursor-pointer group">
+                    <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
                         accept="image/*,.pdf"
@@ -798,7 +775,7 @@ export default function NewDriverPage() {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-6 rounded-xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
+                  <div className="p-6 rounded-2xl bg-muted/20 border border-border text-center text-xs text-foreground-muted">
                     No Back License Image Attached
                   </div>
                 )}
@@ -864,6 +841,6 @@ export default function NewDriverPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </PageEntrance>
   );
 }
