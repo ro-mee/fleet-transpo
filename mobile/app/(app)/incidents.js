@@ -79,7 +79,7 @@ export default function IncidentsScreen() {
         location: gpsLocation,
         latitude: lat,
         longitude: lng,
-        severity,
+        severity: ({ low: "Minor", medium: "Moderate", high: "Major" }[severity] || "Minor"),
         incident_date: new Date().toISOString(),
       });
       setShowSuccess(true);

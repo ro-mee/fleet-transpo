@@ -72,6 +72,7 @@ export default function AppLayout() {
       <Stack.Screen name="fuel-report" />
       <Stack.Screen name="incidents" />
       <Stack.Screen name="inspection" />
+      <Stack.Screen name="work-schedule" />
     </Stack>
   );
 }

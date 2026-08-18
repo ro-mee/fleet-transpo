@@ -3,39 +3,47 @@ import { useTheme } from "../../../lib/theme-context";
 import { useAuth } from "../../../lib/auth";
 import { fonts } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
+import { DriverSos } from "../../../components/DriverSos";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
   const { user } = useAuth();
 
   return (
+    <>
     <Tabs
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
           backgroundColor: colors.surface,
-          borderTopWidth: 0,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 4,
+          borderTopWidth: 1,
+          borderTopColor: colors.outlineVariant,
+          height: 72,
+          paddingBottom: 10,
+          paddingTop: 10,
+          paddingHorizontal: 8,
           shadowColor: "#000",
-          shadowOpacity: 0.08,
-          shadowRadius: 10,
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
           shadowOffset: { width: 0, height: -2 },
-          elevation: 8,
-          borderTopLeftRadius: 12,
-          borderTopRightRadius: 12,
+          elevation: 6,
         },
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.onSurfaceVariant,
+        tabBarActiveBackgroundColor: "transparent",
+        tabBarInactiveBackgroundColor: "transparent",
         tabBarLabelStyle: {
           fontFamily: fonts.bodyMedium,
-          fontSize: 12,
+          fontSize: 11,
           lineHeight: 16,
-          marginTop: 2,
+          marginTop: 1,
         },
         tabBarItemStyle: {
-          paddingVertical: 4,
+          height: 48,
+          alignSelf: "center",
+          borderRadius: 14,
+          marginHorizontal: 4,
+          paddingVertical: 0,
         },
       })}
     >
@@ -110,5 +118,7 @@ export default function TabsLayout() {
         }}
       />
     </Tabs>
+    <DriverSos />
+    </>
   );
 }

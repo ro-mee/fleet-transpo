@@ -1,7 +1,6 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, Linking, ActivityIndicator, Animated, Easing,  } from 'react-native';
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -227,11 +226,6 @@ export default function Home() {
     transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
   });
 
-  // Hero palette — indigo → near-black, white text; consistent light/dark/high-contrast.
-  const heroStart = colors.primaryContainer;
-  const heroEnd = colors.scrim;
-  const heroOrb = "rgba(255,255,255,0.08)";
-
   const vehicle = activeTrip || pendingTrips[0];
   const vehicleModel = vehicle?.vehicle_model || "Vehicle";
   const vehiclePlate = vehicle?.vehicle_plate;
@@ -250,15 +244,15 @@ export default function Home() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const depStart = new Date(dep.getFullYear(), dep.getMonth(), dep.getDate());
     const diffDays = Math.round((depStart - todayStart) / 86400000);
-    if (diffDays === 0) tripDayLabel = "TODAY";
-    else if (diffDays === 1) tripDayLabel = "TOMORROW";
-    else if (diffDays === -1) tripDayLabel = "YESTERDAY";
+    if (diffDays === 0) tripDayLabel = "Today";
+    else if (diffDays === 1) tripDayLabel = "Tomorrow";
+    else if (diffDays === -1) tripDayLabel = "Yesterday";
     else
       tripDayLabel = dep.toLocaleDateString([], {
         weekday: "short",
         month: "short",
         day: "numeric",
-      }).toUpperCase();
+      });
   }
 
   // Number of the driver's trips scheduled for today.
@@ -336,27 +330,25 @@ export default function Home() {
       >
         {/* ─── Hero Greeting Panel ─── */}
         <Animated.View style={fade(heroAnim)}>
-          <LinearGradient
-            colors={[heroStart, heroEnd]}
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[styles.hero, { elevation: 4 }]}
-          >
-            <View style={[styles.heroOrb, styles.heroOrbA, { backgroundColor: heroOrb }]} />
-            <View style={[styles.heroOrb, styles.heroOrbB, { backgroundColor: heroOrb }]} />
-
-            <View style={styles.heroEyebrowRow}>
-              <Text style={styles.heroEyebrow}>DAILY DISPATCH</Text>
+          <View style={[styles.hero, { backgroundColor: colors.primary }]}>
+            <View style={styles.heroTopRow}>
+              <Text style={styles.heroDate}>{todayLabel}</Text>
               <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)" }]}>
                 {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
                 <Text style={styles.statusChipText}>
-                  {activeTrip ? "ON TRIP" : "READY"}
+                        {activeTrip ? "On trip" : "Ready"}
                 </Text>
               </View>
             </View>
 
             <Text style={styles.heroGreeting}>{greeting}, {driverName}</Text>
-            <Text style={styles.heroDate}>{todayLabel}</Text>
+            <Text style={styles.heroSupport}>
+              {activeTrip
+                ? "Your active trip is ready below."
+                : nextTrip
+                  ? "Your next assignment is ready below."
+                  : "You are ready for new assignments."}
+            </Text>
 
             {vehiclePlate ? (
               <View style={styles.heroVehicle}>
@@ -370,7 +362,7 @@ export default function Home() {
                 <Plate plate={vehiclePlate} />
               </View>
             ) : null}
-          </LinearGradient>
+          </View>
         </Animated.View>
 
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
@@ -401,10 +393,10 @@ export default function Home() {
                   <Text style={[type.labelLg, styles.dayStripText, { color: "#FFFFFF" }]}>
                     {activeTrip
                       ? "Trip in progress"
-                      : tripDayLabel === "TODAY"
-                        ? "Today's Trip"
-                        : tripDayLabel === "TOMORROW"
-                          ? "Tomorrow's Trip"
+                      : tripDayLabel === "Today"
+                        ? "Today's trip"
+                        : tripDayLabel === "Tomorrow"
+                          ? "Tomorrow's trip"
                           : tripDayLabel}
                   </Text>
                   {tripsToday > 0 ? (
@@ -566,7 +558,7 @@ export default function Home() {
               <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainerHigh }]}>
                 <Ionicons name="checkmark-done" size={30} color={colors.onSurfaceVariant} />
               </View>
-              <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All Clear</Text>
+              <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All clear</Text>
               <Text style={[type.bodyMd, styles.emptyBody, { color: colors.onSurfaceVariant }]}>
                 No trips assigned right now. Pull to refresh, or check back soon.
               </Text>
@@ -597,78 +589,75 @@ export default function Home() {
         {/* ─── Quick Actions ─── */}
         <Animated.View style={fade(quickAnim)}>
           <View style={styles.quickActions}>
-            <Text style={[type.label, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>
-              Quick Actions
+            <Text style={[type.titleLg, styles.sectionTitle, { color: colors.onSurface }]}>
+              Quick actions
             </Text>
+            <Pressable
+              onPress={() => router.push("/work-schedule")}
+              style={({ pressed }) => [styles.scheduleAction, { backgroundColor: colors.primaryContainer }, pressed && styles.quickPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Open work schedule and leave requests"
+            >
+              <View style={[styles.scheduleIcon, { backgroundColor: colors.primary }]}>
+                <Ionicons name="calendar-outline" size={22} color={colors.onPrimary} />
+              </View>
+              <View style={styles.scheduleCopy}>
+                <Text style={[styles.scheduleTitle, { color: colors.onPrimaryContainer }]}>Work schedule</Text>
+                <Text style={[styles.scheduleMeta, { color: colors.onPrimaryContainer + "B8" }]}>View shifts and request leave</Text>
+              </View>
+              <View style={[styles.scheduleArrow, { backgroundColor: colors.surfaceContainerLowest }]}>
+                <Ionicons name="arrow-forward" size={17} color={colors.primary} />
+              </View>
+            </Pressable>
             <View style={styles.quickGrid}>
               <Pressable
                 onPress={() => router.push("/inspection")}
-                style={({ pressed }) => [
-                  styles.quickBtn,
-                  { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh },
-                  pressed && styles.quickPressed,
-                ]}
+                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
               >
-                <View style={[styles.quickIcon, { backgroundColor: colors.primaryContainer }]}>
-                  <Ionicons name="clipboard-outline" size={20} color={colors.primary} />
+                <View style={[styles.quickIconWrapper, { backgroundColor: colors.primaryContainer }]}>
+                  <Ionicons name="clipboard-outline" size={22} color={colors.onPrimaryContainer} />
                 </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
-                  Pre-Shift Check
+                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                  Inspection
                 </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.outline} />
               </Pressable>
 
               {canReportFuel ? (
                 <Pressable
                   onPress={() => router.push("/fuel-report")}
-                  style={({ pressed }) => [
-                    styles.quickBtn,
-                    { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh },
-                    pressed && styles.quickPressed,
-                  ]}
+                  style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
                 >
-                  <View style={[styles.quickIcon, { backgroundColor: colors.secondaryContainer }]}>
-                    <Ionicons name="water-outline" size={20} color={colors.secondary} />
+                  <View style={[styles.quickIconWrapper, { backgroundColor: colors.secondaryContainer }]}>
+                    <Ionicons name="water-outline" size={22} color={colors.onSecondaryContainer} />
                   </View>
-                  <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
-                    Log Fuel
+                  <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                    Fuel report
                   </Text>
-                  <Ionicons name="chevron-forward" size={14} color={colors.outline} />
                 </Pressable>
               ) : null}
 
               <Pressable
                 onPress={() => router.push("/incidents")}
-                style={({ pressed }) => [
-                  styles.quickBtn,
-                  { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh },
-                  pressed && styles.quickPressed,
-                ]}
+                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
               >
-                <View style={[styles.quickIcon, { backgroundColor: colors.errorContainer }]}>
-                  <Ionicons name="warning-outline" size={20} color={colors.error} />
+                <View style={[styles.quickIconWrapper, { backgroundColor: colors.errorContainer }]}>
+                  <Ionicons name="warning-outline" size={22} color={colors.onErrorContainer} />
                 </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
-                  Report Issue
+                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                  Report issue
                 </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.outline} />
               </Pressable>
 
               <Pressable
                 onPress={() => router.push("/submissions")}
-                style={({ pressed }) => [
-                  styles.quickBtn,
-                  { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh },
-                  pressed && styles.quickPressed,
-                ]}
+                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
               >
-                <View style={[styles.quickIcon, { backgroundColor: colors.surfaceContainerHigh }]}>
-                  <Ionicons name="document-text-outline" size={20} color={colors.onSurfaceVariant} />
+                <View style={[styles.quickIconWrapper, { backgroundColor: colors.surfaceContainerHigh }]}>
+                  <Ionicons name="document-text-outline" size={22} color={colors.info} />
                 </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]}>
-                  My Logs
+                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                  Submissions
                 </Text>
-                <Ionicons name="chevron-forward" size={14} color={colors.outline} />
               </Pressable>
             </View>
           </View>
@@ -676,20 +665,6 @@ export default function Home() {
       </ScrollView>
 
       {/* ─── SOS FAB ─── */}
-      <Pressable
-        onPress={() => router.push("/incidents")}
-        style={({ pressed }) => [
-          styles.sosFab,
-          { backgroundColor: colors.error, bottom: insets.bottom + 88 },
-          pressed && { transform: [{ scale: 0.94 }] },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="Report an emergency"
-      >
-        <Ionicons name="warning" size={22} color={colors.onError} />
-        <Text style={[type.labelLg, styles.sosText, { color: colors.onError }]}>SOS</Text>
-      </Pressable>
-
       {/* ─── Odometer Modal ─── */}
       <Modal
         visible={!!completingTrip}
@@ -818,21 +793,11 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
   },
-  heroOrb: { position: "absolute", borderRadius: 999 },
-  heroOrbA: { width: 180, height: 180, top: -70, right: -40 },
-  heroOrbB: { width: 120, height: 120, bottom: -50, left: -30 },
-  heroEyebrowRow: {
+  heroTopRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: moderateScale(14),
-  },
-  heroEyebrow: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 11,
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    color: "rgba(255,255,255,0.75)",
   },
   statusChip: {
     flexDirection: "row",
@@ -865,7 +830,13 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodyMedium,
     fontSize: moderateScale(14),
     color: "rgba(255,255,255,0.8)",
-    marginTop: moderateScale(2),
+  },
+  heroSupport: {
+    fontFamily: fonts.body,
+    fontSize: moderateScale(14),
+    lineHeight: moderateScale(21),
+    color: "rgba(255,255,255,0.78)",
+    marginTop: moderateScale(4),
   },
   heroVehicle: {
     flexDirection: "row",
@@ -888,7 +859,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.data,
     fontSize: 10,
     letterSpacing: 1,
-    textTransform: "uppercase",
     color: "rgba(255,255,255,0.65)",
   },
   heroVehicleModel: {
@@ -1070,7 +1040,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: moderateScale(2),
   },
-  emptyTitle: {},
+  emptyTitle: { lineHeight: moderateScale(28), textAlign: "center", includeFontPadding: false },
   emptyBody: { textAlign: "center" },
 
   // ── Stats ──
@@ -1097,47 +1067,61 @@ const styles = StyleSheet.create({
 
   // ── Quick actions ──
   quickActions: { gap: moderateScale(12) },
-  sectionTitle: {},
-  quickGrid: { flexDirection: "row", flexWrap: "wrap", gap: moderateScale(12) },
-  quickBtn: {
-    width: "47%",
+  scheduleAction: {
+    minHeight: moderateScale(76),
     borderRadius: moderateScale(18),
-    borderWidth: 1,
-    padding: moderateScale(16),
+    padding: moderateScale(12),
     flexDirection: "row",
     alignItems: "center",
     gap: moderateScale(12),
-    minHeight: TOUCH_TARGET,
   },
-  quickPressed: { transform: [{ scale: 0.98 }], opacity: 0.9 },
-  quickIcon: {
-    width: moderateScale(38),
-    height: moderateScale(38),
-    borderRadius: moderateScale(12),
+  scheduleIcon: {
+    width: moderateScale(46),
+    height: moderateScale(46),
+    borderRadius: moderateScale(14),
     alignItems: "center",
     justifyContent: "center",
-    flexShrink: 0,
   },
-  quickBtnText: { flex: 1, textAlign: "left" },
+  scheduleCopy: { flex: 1, gap: moderateScale(3) },
+  scheduleTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(14) },
+  scheduleMeta: { fontFamily: fonts.body, fontSize: moderateScale(11) },
+  scheduleArrow: {
+    width: moderateScale(32),
+    height: moderateScale(32),
+    borderRadius: moderateScale(16),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionTitle: {},
+  quickGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: moderateScale(12),
+  },
+  quickBtn: {
+    width: "48%",
+    minHeight: moderateScale(72),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(10),
+    padding: moderateScale(12),
+    borderRadius: moderateScale(16),
+  },
+  quickPressed: { transform: [{ scale: 0.97 }], opacity: 0.88 },
+  quickIconWrapper: {
+    width: moderateScale(42),
+    height: moderateScale(42),
+    borderRadius: moderateScale(13),
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickBtnText: {
+    flex: 1,
+    fontSize: moderateScale(13),
+    lineHeight: moderateScale(18),
+  },
 
   // ── SOS FAB ──
-  sosFab: {
-    position: "absolute",
-    right: moderateScale(16),
-    width: moderateScale(62),
-    height: moderateScale(62),
-    borderRadius: moderateScale(31),
-    alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "column",
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
-  },
-  sosText: { marginTop: -2 },
-
   // ── Modal ──
   modalBackdrop: {
     flex: 1,
