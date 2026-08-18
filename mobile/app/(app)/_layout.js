@@ -5,6 +5,7 @@ import { useAuth } from "../../lib/auth";
 import { isDriverSession } from "../../lib/rbac";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
 import { useTheme } from "../../lib/theme-context";
+import { NotificationFeedProvider } from "../../context/notification-feed";
 
 /**
  * Auth + consent guard for every signed-in route.
@@ -55,25 +56,27 @@ export default function AppLayout() {
     return <Redirect href="/login" />;
   }
 
-  const consented = consentVersion === CURRENT_PRIVACY_POLICY_VERSION;
+const consented = consentVersion === CURRENT_PRIVACY_POLICY_VERSION;
   if (!consented) {
     return <Redirect href="/consent" />;
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="trip/[id]" />
-      <Stack.Screen name="fuel-report" />
-      <Stack.Screen name="incidents" />
-      <Stack.Screen name="inspection" />
-      <Stack.Screen name="work-schedule" />
-    </Stack>
+    <NotificationFeedProvider>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="trip/[id]" />
+        <Stack.Screen name="fuel-report" />
+        <Stack.Screen name="incidents" />
+        <Stack.Screen name="inspection" />
+        <Stack.Screen name="work-schedule" />
+      </Stack>
+    </NotificationFeedProvider>
   );
 }
 

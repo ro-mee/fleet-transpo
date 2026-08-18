@@ -19,6 +19,7 @@ import { api } from "../../lib/api";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { AppAlert } from "../../components/AppAlert";
+import { notify } from "../../lib/notifications/notify";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -97,7 +98,7 @@ export default function WorkScheduleScreen() {
       setEndDate("");
       setReason("");
       await load();
-      AppAlert.alert("Request submitted", "Your leave request is pending fleet manager approval.");
+      notify.toast({ title: "Request submitted", message: "Leave request is pending fleet manager approval.", tone: "success" });
     } catch (e) {
       AppAlert.alert("Request not submitted", e.message || "Could not submit your leave request.");
     } finally {

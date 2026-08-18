@@ -1,5 +1,4 @@
 import { moderateScale } from '../../../lib/scaling';
-import { useCallback, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -8,12 +7,11 @@ import {
   Pressable,
   RefreshControl,
 } from "react-native";
-import { useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { useNotificationFeed } from "../../../context/notification-feed";
 
 const NOTIF_TYPE_ICONS = {
   trip_assigned: { icon: "car", color: "primary" },
@@ -85,32 +83,15 @@ export default function NotificationsTab() {
   const insets = useSafeAreaInsets();
   const { colors, type } = useTheme();
 
-  const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.get("/api/notifications");
-      setNotifications(Array.isArray(data) ? data : []);
-    } catch {
-      // non-critical
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useFocusEffect(useCallback(() => { load(); }, [load]));
-
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
-
-  const markAllRead = async () => {
-    try {
-      await api.patch("/api/notifications/read-all");
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-    } catch { /* ignore */ }
-  };
+  const {
+    notifications,
+    loading,
+    refreshing,
+    unreadCount,
+    refresh,
+    markRead,
+    markAllRead,
+  } = useNotificationFeed();
 
   // Group by date
   const today = new Date().toDateString();
@@ -123,14 +104,7 @@ export default function NotificationsTab() {
 
   const handleNotifPress = async (notif) => {
     const id = notif.notification_id || notif.id;
-    if (!notif.is_read && id) {
-      try {
-        await api.patch(`/api/notifications/${id}/read`);
-        setNotifications((prev) =>
-          prev.map((n) => ((n.notification_id || n.id) === id ? { ...n, is_read: true } : n))
-        );
-      } catch { /* ignore */ }
-    }
+    if (!notif.is_read && id) markRead(id);
   };
 
   return (
@@ -165,7 +139,7 @@ export default function NotificationsTab() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); load(); }}
+            onRefresh={() => refresh()}
             tintColor={colors.primary}
             colors={[colors.primary]}
           />

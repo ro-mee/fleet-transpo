@@ -4,6 +4,7 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { getAdminClient } from "@/lib/db";
 import { shouldGroundVehicle } from "@/lib/driver/grounding";
 import { setDispatchStatus } from "@/services/transition.service";
+import { sendPush } from "@/services/push.service";
 import { TRIP_STATUS } from "@/lib/constants";
 
 // A breakdown-type incident triggers automation (see POST): the vehicle is set
@@ -146,6 +147,14 @@ export async function POST(req) {
           reference_id: rows[0].incident_id,
         }));
         if (rows2.length) await supabase.from("notifications").insert(rows2);
+        if (rows2.length) {
+          await sendPush({
+            employeeIds: (dispatchers || []).map((e) => e.employee_id),
+            title: rows2[0].title,
+            body: rows2[0].message,
+            data: { reference_type: "incident", reference_id: rows[0].incident_id },
+          });
+        }
 
         const interval = (severity === "Major" || severity === "Critical") ? "48 hours" : "2 hours";
 
@@ -191,6 +200,12 @@ export async function POST(req) {
                 [notif.employee_id, notif.title, notif.message, notif.type, notif.reference_type, notif.reference_id]
               );
             }
+            await sendPush({
+              employeeIds: (dispatchers || []).map((e) => e.employee_id),
+              title: urgentRows[0].title,
+              body: urgentRows[0].message,
+              data: { reference_type: "dispatch", reference_id: ds.dispatch_id },
+            });
           }
         }
       } catch (e) {
@@ -217,6 +232,12 @@ export async function POST(req) {
              "Alert", "incident", incident.incident_id]
           );
         }
+        await sendPush({
+          employeeIds: overseers.rows.map((e) => e.employee_id),
+          title: "Incident Report Submitted",
+          body: `Driver ${driver.first_name || ""} ${driver.last_name || ""} reported ${incident.incident_type} (Severity: ${severity}). View in Incidents.`,
+          data: { reference_type: "incident", reference_id: incident.incident_id },
+        });
       } catch (e) {
         console.warn("incident oversight notification failed:", e?.message || e);
       }

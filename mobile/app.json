@@ -19,9 +19,13 @@
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
-      "package": "com.fleet.mobile"
+      "package": "com.fleet.mobile",
+      "googleServicesFile": "./services/google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -37,7 +41,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "FleetOps shares your location with dispatch while you are on an active trip."
+          "locationWhenInUsePermission": "FleetOps shares your location with dispatch while you are on an active trip.",
+          "locationAlwaysAndWhenInUsePermission": "FleetOps shares your live location with dispatch even while you use other apps during a trip.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
       ],
       "expo-font"

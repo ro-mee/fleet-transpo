@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { useSettings } from "../../lib/settings-context";
+import { requestPushPermission, dismissAllLocalNotifications } from "../../lib/notifications/push";
+import { AppAlert } from "../../components/AppAlert";
 import { fonts } from "../../lib/theme";
 
 export default function SettingsScreen() {
@@ -130,7 +132,23 @@ export default function SettingsScreen() {
             </View>
             <Switch
               value={settings.pushNotifications}
-              onValueChange={(val) => updateSetting('pushNotifications', val)}
+              onValueChange={async (val) => {
+                if (val) {
+                  const granted = await requestPushPermission();
+                  if (!granted) {
+                    AppAlert.alert(
+                      "Notifications blocked",
+                      "Enable notifications for FleetOps in your device settings to get push-style alerts.",
+                      [{ text: "OK" }]
+                    );
+                    updateSetting("pushNotifications", false);
+                    return;
+                  }
+                } else {
+                  await dismissAllLocalNotifications();
+                }
+                updateSetting("pushNotifications", val);
+              }}
               trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
               thumbColor={"white"}
             />

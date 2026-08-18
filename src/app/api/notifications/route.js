@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { shouldPush, sendPush } from "@/services/push.service";
 
 export async function GET(req) {
   try {
@@ -68,6 +69,37 @@ export async function POST(req) {
 
     const k = Object.keys(body), v = Object.values(body);
     const { rows } = await query(`INSERT INTO notifications (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
-    return ok(rows[0], 201);
+    const notif = rows[0];
+
+    // Best-effort real push for push-worthy rows — a delivery hiccup must never
+    // fail the notification write the caller just got a 201 for.
+    try {
+      if (notif && shouldPush(notif)) {
+        let targets = [];
+        if (notif.employee_id) {
+          targets.push(notif.employee_id);
+        } else if (body.role_id) {
+          const { rows: emps } = await query(
+            `SELECT e.employee_id
+               FROM employees e
+              WHERE e.role_id = $1 AND e.deleted_at IS NULL`,
+            [Number(body.role_id)]
+          );
+          targets = emps.map((x) => x.employee_id);
+        }
+        if (targets.length) {
+          await sendPush({
+            employeeIds: targets,
+            title: notif.title,
+            body: notif.message,
+            data: { reference_type: notif.reference_type, reference_id: notif.reference_id },
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("notification push failed:", e?.message || e);
+    }
+
+    return ok(notif, 201);
   } catch (e) { return handleError(e); }
 }

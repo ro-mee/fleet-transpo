@@ -193,4 +193,6 @@ export const api = {
     apiFetch(path, { method: "POST", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
   put: (path, body, opts) =>
     apiFetch(path, { method: "PUT", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
+  del: (path, body, opts) =>
+    apiFetch(path, { method: "DELETE", body: body instanceof FormData ? body : JSON.stringify(body), ...opts }),
 };

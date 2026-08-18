@@ -110,6 +110,18 @@ CREATE TABLE booking_channels (
   CONSTRAINT booking_channels_pkey PRIMARY KEY (channel_id)
 );
 
+CREATE TABLE device_tokens (
+  device_token_id integer DEFAULT nextval('device_tokens_device_token_id_seq'::regclass) NOT NULL,
+  employee_id integer,
+  token text NOT NULL,
+  platform varchar(20) DEFAULT 'android'::character varying NOT NULL,
+  active boolean DEFAULT true NOT NULL,
+  last_seen_at timestamptz DEFAULT now() NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT device_tokens_pkey PRIMARY KEY (device_token_id),
+  CONSTRAINT device_tokens_token_key UNIQUE (token)
+);
+
 CREATE TABLE dispatchschedules (
   dispatch_id integer DEFAULT nextval('dispatchschedules_dispatch_id_seq'::regclass) NOT NULL,
   vehicle_id integer,
@@ -753,6 +765,7 @@ CREATE TABLE vehicles (
 
 ALTER TABLE ai_recommendations ADD CONSTRAINT ai_recommendations_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE device_tokens ADD CONSTRAINT device_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_request_id_fkey FOREIGN KEY (request_id) REFERENCES transportation_requests(request_id);
@@ -849,6 +862,7 @@ CREATE INDEX idx_attendance_status ON public.driverattendance USING btree (statu
 CREATE INDEX idx_audit_created ON public.audit_logs USING btree (created_at);
 CREATE INDEX idx_audit_employee ON public.audit_logs USING btree (employee_id);
 CREATE INDEX idx_audit_resource ON public.audit_logs USING btree (resource, resource_id);
+CREATE INDEX idx_device_tokens_employee_active ON public.device_tokens USING btree (employee_id) WHERE active;
 CREATE INDEX idx_dispatch_active_departure ON public.dispatchschedules USING btree (scheduled_departure) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_dispatch_date ON public.dispatchschedules USING btree (scheduled_departure);
 CREATE INDEX idx_dispatch_driver ON public.dispatchschedules USING btree (driver_id);

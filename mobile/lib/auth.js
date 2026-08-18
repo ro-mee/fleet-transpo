@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { decodeJwtRole } from "./rbac";
 import { saveTokens, saveUser, getUser, getAccessToken, getRefreshToken, clearAll } from "./storage";
+import { registerDeviceToken, unregisterDeviceToken } from "./notifications/device-token";
 
 const AuthContext = createContext(null);
 
@@ -43,6 +44,8 @@ export function AuthProvider({ children }) {
     const driver = { ...data.driver, role: decodeJwtRole(data.accessToken) || "driver" };
     await saveUser(driver);
     setUser(driver);
+    // Best-effort push registration — never block a successful login on it.
+    registerDeviceToken();
     return driver;
   }, []);
 
@@ -59,6 +62,7 @@ export function AuthProvider({ children }) {
     } catch {
       // ignored
     }
+    unregisterDeviceToken();
     await clearAll();
     setUser(null);
   }, []);

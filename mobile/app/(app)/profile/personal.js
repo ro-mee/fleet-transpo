@@ -7,6 +7,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api, apiFetch } from "../../../lib/api";
 import { AppAlert } from '../../../components/AppAlert';
+import { notify } from "../../../lib/notifications/notify";
 
 function InfoRow({ label, value, colors }) {
   return (
@@ -51,7 +52,7 @@ export default function PersonalInformation() {
         body: JSON.stringify({ phone: phone.trim() }),
       });
       setEditingPhone(false);
-      AppAlert.alert("Saved", "Phone number updated.");
+      notify.toast({ message: "Phone number updated.", tone: "success" });
     } catch (e) {
       AppAlert.alert("Error", e.message || "Could not save phone.");
     } finally {
