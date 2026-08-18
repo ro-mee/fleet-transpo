@@ -1,0 +1,21 @@
+C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\node_modules\expo\node_modules\@expo\cli\build\src\utils\errors.js:130
+    throw error;
+    ^
+
+Error: ENOENT: no such file or directory, watch 'C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\.expo-export-check\assets\node_modules\expo\node_modules\@expo\vector-icons\build\vendor\react-native-vector-icons\Fonts'
+    at FSWatcher.<computed> (node:internal/fs/watchers:323:19)
+    at Object.watch (node:fs:3062:36)
+    at FallbackWatcher._watchdir (C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\node_modules\@expo\metro\node_modules\metro-file-map\src\watchers\FallbackWatcher.js:119:33)
+    at C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\node_modules\@expo\metro\node_modules\metro-file-map\src\watchers\FallbackWatcher.js:219:22
+    at Walker.<anonymous> (C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\node_modules\@expo\metro\node_modules\metro-file-map\src\watchers\FallbackWatcher.js:358:5)
+    at Walker.emit (node:events:509:20)
+    at C:\Users\lenovo\OneDrive\Desktop\capstone\mobile\node_modules\walker\lib\walker.js:69:16
+    at FSReqCallback.oncomplete (node:fs:184:23) {
+  errno: -4058,
+  syscall: 'watch',
+  code: 'ENOENT',
+  path: 'C:\\Users\\lenovo\\OneDrive\\Desktop\\capstone\\mobile\\.expo-export-check\\assets\\node_modules\\expo\\node_modules\\@expo\\vector-icons\\build\\vendor\\react-native-vector-icons\\Fonts',
+  filename: 'C:\\Users\\lenovo\\OneDrive\\Desktop\\capstone\\mobile\\.expo-export-check\\assets\\node_modules\\expo\\node_modules\\@expo\\vector-icons\\build\\vendor\\react-native-vector-icons\\Fonts'
+}
+
+Node.js v26.5.0

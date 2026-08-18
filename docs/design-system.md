@@ -4,6 +4,8 @@
 
 This is the shared UI/UX playbook for FleetOps and related operational systems. It defines how an interface should feel, behave, and communicate—not just which CSS values to use.
 
+**Website scope:** The patterns in this document describe the FleetOps web dashboard and its responsive website views. Mobile-app interaction patterns are intentionally documented elsewhere and must not be inferred from this file.
+
 Use it when designing a new frontend, extending an existing module, or translating a workflow into screens. The goal is a family of products that feel familiar to users while allowing each system to serve its own work.
 
 FleetOps is the reference product, not a constraint. A POS, PMS, booking, inventory, or driver application may have different tasks and layouts, but it should inherit the same foundations: calm operational clarity, predictable interaction, accessible feedback, and a consistent visual language.
@@ -219,6 +221,30 @@ Each record view should make its identity, current status, owner or source where
 ### Confirming change
 
 Before a significant state change, make the new state and side effects clear. After it succeeds, show the result in the screen itself when possible; a toast is supporting feedback, not the only confirmation.
+
+### Website emergency incidents
+
+Emergency reports are operational incidents, not general issue reports. Keep the distinction visible in the web dashboard:
+
+- Use an **Emergency** incident type and a danger treatment for urgent records; do not reuse the neutral issue-report label or presentation.
+- Show the driver, vehicle, last known location, timestamp, and response state together in the incident header.
+- Use direct response copy such as **Help is on the way** or **Dispatch has called emergency services** after the incident is acknowledged. Avoid vague success messages.
+- Place the location on the incidents map and in the incident detail record so dispatch can act from either view.
+- Keep response actions explicit: **Call ambulance**, **Call 911**, **Acknowledge**, and **Update response**. Destructive or irreversible actions require confirmation.
+- Emergency state must be communicated by text, danger color, and a supporting icon or marker; never by color alone.
+
+**The Emergency Separation Rule.** Emergency incidents share the website incident workflow and data surface, but they must remain visually and semantically distinct from routine issue reports.
+
+### Website driver schedule access
+
+Drivers should be able to reach their current work schedule from a website quick-action area without leaving the dashboard context.
+
+- Label the action **View work schedule** and pair it with a calendar icon; keep the label visible because it is consequential workflow navigation.
+- Show the current date range, assigned shift, status, and any approved leave request in the schedule view.
+- Keep **Request leave** as a secondary action beside the schedule context, with submitted, pending, approved, and declined states.
+- Preserve the dashboard shell and return path; schedule navigation should not open an unrelated modal for a full schedule review.
+
+**The Context-Preserving Action Rule.** Website quick actions should open the complete work surface with the current driver context intact, not create a disconnected shortcut flow.
 
 ## 7. Accessibility and inclusive UX
 

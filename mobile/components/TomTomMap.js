@@ -14,7 +14,8 @@ const TomTomMap = forwardRef(({
   dropoffLabel = "Destination",
   showCarIcon = false,
   autoSwoop = false,
-  onRouteData
+  onRouteData,
+  onMapReady
 }, ref) => {
   const webViewRef = useRef(null);
   const { colors, scheme } = useTheme();
@@ -669,6 +670,9 @@ const TomTomMap = forwardRef(({
 
                   map.on('load', () => {
                       window.applyFleetMapTheme();
+                      if (window.ReactNativeWebView) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
+                      }
 
                       // Origin Marker
                       const originEl = document.createElement('div');
@@ -954,6 +958,7 @@ const TomTomMap = forwardRef(({
               if (data.type === 'ROUTE_CALCULATED') {
                 onRouteData(data);
               }
+              if (data.type === 'MAP_READY' && onMapReady) onMapReady();
             } catch(e){}
           }
         }}

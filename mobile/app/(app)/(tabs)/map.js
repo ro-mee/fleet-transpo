@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { StyleSheet, View, ActivityIndicator, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView } from 'react-native';
+import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
@@ -49,6 +50,7 @@ export default function MapTab() {
   const [todayStats, setTodayStats] = useState({ completed: 0, distance: 0 });
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [mapReady, setMapReady] = useState(false);
   const [routeData, setRouteData] = useState(null);
   const [now, setNow] = useState(Date.now());
   const mapRef = useRef(null);
@@ -260,11 +262,15 @@ export default function MapTab() {
     }
   }, [routeData, isHeadingToPickup, activeTrip, recordedLeg1, recordedLeg2]);
 
-  if (loading || !driverLocation) {
+  if (!driverLocation) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ marginTop: 12, color: colors.onSurfaceVariant, fontFamily: fonts.bodyMedium }}>Acquiring GPS Signal...</Text>
+        <LottieView
+          autoPlay
+          loop
+          source={require("../../../assets/globe.json")}
+          style={styles.mapLoader}
+        />
       </View>
     );
   }
@@ -278,7 +284,18 @@ export default function MapTab() {
           destination={null}
           scrollEnabled={true}
           showCarIcon={true}
+          onMapReady={() => setMapReady(true)}
         />
+        {(!activeTrip || !mapReady) && (
+          <View style={[styles.mapLoadingOverlay, { backgroundColor: colors.background }]}>
+            <LottieView
+              autoPlay
+              loop
+              source={require("../../../assets/globe.json")}
+              style={styles.mapLoader}
+            />
+          </View>
+        )}
         
         {/* Floating Explore Pill */}
         <View style={[styles.statusPill, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + '60' }]}>
@@ -363,7 +380,18 @@ export default function MapTab() {
         showCarIcon={true}
         autoSwoop={true}
         onRouteData={setRouteData}
+        onMapReady={() => setMapReady(true)}
       />
+      {!mapReady && (
+        <View style={[styles.mapLoadingOverlay, { backgroundColor: colors.background }]}>
+          <LottieView
+            autoPlay
+            loop
+            source={require("../../../assets/globe.json")}
+            style={styles.mapLoader}
+          />
+        </View>
+      )}
 
       {/* Floating restore pill — appears when bottom sheet is hidden */}
       {activeTrip && isMinimized && (
@@ -533,7 +561,11 @@ export default function MapTab() {
                 try {
                   if (isPending || isDriverAccepted) {
                     if (isPending) {
-                      await api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true });
+                      // Optimistic: fire accept in the background so we don't
+                      // block the transition on a 1-2s network round-trip.
+                      api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).catch((e) => {
+                        AppAlert.alert("Error", e.message || "Could not accept trip");
+                      });
                     }
                     if (!preTripDone) {
                         router.push({ pathname: "/inspection", params: { tripId: String(activeTrip.trip_id) } });
@@ -564,17 +596,8 @@ export default function MapTab() {
                       
                       const startOdo = Number(activeTrip.start_odometer) || Number(activeTrip.current_mileage) || 0;
                       const endOdo = startOdo + totalKm;
-                      
-                      await api.put(`/api/trips/${activeTrip.trip_id}/complete`, { 
-                        distance: totalKm,
-                        start_odometer: startOdo,
-                        end_odometer: endOdo 
-                      });
-                      
-                      setActiveTrip(null);
-                      setRecordedLeg1(0);
-                      setRecordedLeg2(0);
-                      
+
+                      // Optimistic: navigate immediately, run the API in background.
                       router.push({
                         pathname: '/(app)/trip/complete',
                         params: {
@@ -585,6 +608,18 @@ export default function MapTab() {
                           startOdo: Math.round(startOdo).toLocaleString(),
                           endOdo: Math.round(endOdo).toLocaleString()
                         }
+                      });
+
+                      setActiveTrip(null);
+                      setRecordedLeg1(0);
+                      setRecordedLeg2(0);
+
+                      api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
+                        distance: totalKm,
+                        start_odometer: startOdo,
+                        end_odometer: endOdo,
+                      }).catch((e) => {
+                        AppAlert.alert("Error", e.message || "Could not complete trip");
                       });
                     }
                   } catch(e) {
@@ -664,6 +699,15 @@ const styles = StyleSheet.create({
   },
   center: {
     flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mapLoader: {
+    width: 180,
+    height: 180,
+  },
+  mapLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     justifyContent: "center",
   },

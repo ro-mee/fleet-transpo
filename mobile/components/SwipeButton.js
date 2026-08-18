@@ -126,15 +126,17 @@ export default function SwipeButton({
         const max = maxXRef.current;
 
         if (g.dx >= max * THRESHOLD || g.vx >= 0.6) {
-          // Velocity-aware: a fast flick triggers even if distance < threshold
+          // Velocity-aware: a fast flick triggers even if distance < threshold.
+          // Fire success IMMEDIATELY (in parallel with the thumb spring) so the
+          // next screen transition starts instantly instead of waiting ~1s for
+          // the animation to settle.
+          swipedRef.current = true;
+          setSwiped(true);
           Animated.spring(thumbX, {
             toValue: max, bounciness: 0, speed: 22, useNativeDriver: true,
-          }).start(() => {
-            swipedRef.current = true;
-            setSwiped(true);
-            if (onSuccessRef.current) onSuccessRef.current();
-            if (playSuccessRef.current) playSuccessRef.current();
-          });
+          }).start();
+          if (onSuccessRef.current) onSuccessRef.current();
+          if (playSuccessRef.current) playSuccessRef.current();
         } else {
           // Satisfying elastic snap-back
           Animated.spring(thumbX, {

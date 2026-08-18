@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { AppState } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Animated, AppState, Easing } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -22,24 +22,40 @@ import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { SettingsProvider } from "../lib/settings-context";
 import { syncQueue } from "../lib/sync";
 import { AppAlertHost } from "../components/AppAlert";
+import { LaunchScreen } from "../components/LaunchScreen";
+import { completeLaunch } from "../lib/launch";
 
 // Keep the native splash up while fonts load so the app never flashes in a
 // fallback typeface. Hidden in the effect below once fonts are ready.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-function ThemedApp() {
+function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
   const { scheme, colors } = useTheme();
   return (
     <ErrorBoundary>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
+      <Animated.View
+        style={{
+          flex: 1,
+          opacity: appEntrance,
+          transform: [{
+            scale: appEntrance.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.985, 1],
+            }),
+          }],
         }}
-      />
+      >
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        />
+      </Animated.View>
       {/* Premium alert overlay — above everything, below nothing */}
       <AppAlertHost />
+      {showLaunch && <LaunchScreen onComplete={onLaunchDone} />}
     </ErrorBoundary>
   );
 }
@@ -52,6 +68,8 @@ function ThemedApp() {
  * useSafeAreaInsets without another provider here.
  */
 export default function RootLayout() {
+  const [showLaunch, setShowLaunch] = useState(true);
+  const appEntrance = useRef(new Animated.Value(0)).current;
   const [loaded, error] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -70,6 +88,17 @@ export default function RootLayout() {
   }, [ready]);
 
   const appState = useRef(AppState.currentState);
+
+  const handleLaunchDone = (reduceMotion) => {
+    setShowLaunch(false);
+    completeLaunch();
+    Animated.timing(appEntrance, {
+      toValue: 1,
+      duration: reduceMotion ? 1 : 620,
+      easing: Easing.bezier(0.16, 1, 0.3, 1),
+      useNativeDriver: true,
+    }).start();
+  };
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -96,7 +125,11 @@ export default function RootLayout() {
     <AuthProvider>
       <SettingsProvider>
         <ThemeProvider>
-          <ThemedApp />
+          <ThemedApp
+            appEntrance={appEntrance}
+            showLaunch={showLaunch}
+            onLaunchDone={handleLaunchDone}
+          />
         </ThemeProvider>
       </SettingsProvider>
     </AuthProvider>
