@@ -17,6 +17,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { StatusPill, SkeletonCard, ErrorNotice, PulsingDot, CountUpText } from "../../../components/ui";
 import { Plate } from "../../../components/plate";
+import { onLaunchComplete } from "../../../lib/launch";
 
 /**
  * Home Dashboard — premium dispatch floor.
@@ -208,22 +209,30 @@ export default function Home() {
   const statsAnim = useRef(new Animated.Value(0)).current;
   const quickAnim = useRef(new Animated.Value(0)).current;
   const didIntro = useRef(false);
+  const [launchComplete, setLaunchComplete] = useState(false);
 
   useEffect(() => {
-    if (!loading && !didIntro.current) {
+    return onLaunchComplete(() => setLaunchComplete(true));
+  }, []);
+
+  useEffect(() => {
+    if (!loading && launchComplete && !didIntro.current) {
       didIntro.current = true;
-      Animated.stagger(80, [
-        Animated.timing(heroAnim, { toValue: 1, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(tripAnim, { toValue: 1, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(statsAnim, { toValue: 1, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(quickAnim, { toValue: 1, duration: 340, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.stagger(110, [
+        Animated.timing(heroAnim, { toValue: 1, duration: 460, easing: Easing.bezier(0.16, 1, 0.3, 1), useNativeDriver: true }),
+        Animated.timing(tripAnim, { toValue: 1, duration: 460, easing: Easing.bezier(0.16, 1, 0.3, 1), useNativeDriver: true }),
+        Animated.timing(statsAnim, { toValue: 1, duration: 460, easing: Easing.bezier(0.16, 1, 0.3, 1), useNativeDriver: true }),
+        Animated.timing(quickAnim, { toValue: 1, duration: 460, easing: Easing.bezier(0.16, 1, 0.3, 1), useNativeDriver: true }),
       ]).start();
     }
-  }, [loading, heroAnim, tripAnim, statsAnim, quickAnim]);
+  }, [loading, launchComplete, heroAnim, tripAnim, statsAnim, quickAnim]);
 
   const fade = (a) => ({
     opacity: a,
-    transform: [{ translateY: a.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) }],
+    transform: [
+      { translateY: a.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+      { scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.98, 1] }) },
+    ],
   });
 
   const vehicle = activeTrip || pendingTrips[0];

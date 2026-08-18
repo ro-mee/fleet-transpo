@@ -5,6 +5,7 @@ import { useTheme } from '../../../lib/theme-context';
 import { fonts } from '../../../lib/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import LottieView from 'lottie-react-native';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
@@ -33,8 +34,13 @@ export default function TripCompleteScreen() {
         
         {/* Success Header */}
         <View style={styles.header}>
-          <Animated.View style={[styles.iconCircle, { backgroundColor: colors.secondaryContainer + '33', transform: [{ scale: scaleAnim }] }]}>
-            <Ionicons name="checkmark-circle" size={64} color={colors.secondaryContainer} />
+          <Animated.View style={[styles.iconCircle, { backgroundColor: colors.secondaryContainer + '33', transform: [{ scale: scaleAnim }] }]}> 
+            <LottieView
+              source={require('../../../assets/Green tick.json')}
+              autoPlay
+              loop={false}
+              style={styles.successAnimation}
+            />
           </Animated.View>
           <View style={styles.headerTextGroup}>
             <Text style={[styles.title, { color: colors.onSurface }]}>Trip Completed</Text>
@@ -125,12 +131,16 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   iconCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 144,
+    height: 144,
+    borderRadius: 72,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
+  },
+  successAnimation: {
+    width: 132,
+    height: 132,
   },
   headerTextGroup: {
     alignItems: 'center',
