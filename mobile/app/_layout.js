@@ -22,6 +22,7 @@ import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { SettingsProvider } from "../lib/settings-context";
 import { syncQueue } from "../lib/sync";
 import { AppAlertHost } from "../components/AppAlert";
+import { NotificationHost } from "../components/NotificationHost";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { completeLaunch } from "../lib/launch";
 
@@ -53,8 +54,10 @@ function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
           }}
         />
       </Animated.View>
-      {/* Premium alert overlay — above everything, below nothing */}
+{/* Premium alert overlay — above everything, below nothing */}
       <AppAlertHost />
+      {/* Heads-up banners + toasts for the 3-tier notification system */}
+      <NotificationHost />
       {showLaunch && <LaunchScreen onComplete={onLaunchDone} />}
     </ErrorBoundary>
   );
