@@ -20,7 +20,7 @@ function InfoRow({ label, value, colors }) {
 export default function PersonalInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -73,12 +73,12 @@ export default function PersonalInformation() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Personal Information</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>Personal Information</Text>
+        <View style={{ width: TOUCH_TARGET }} />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
@@ -136,10 +136,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
   },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 18, fontFamily: fonts.displayBold },
+  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, textAlign: "center" },
   scroll: { padding: 16, paddingTop: 24, gap: 24 },
   
   sectionCard: {

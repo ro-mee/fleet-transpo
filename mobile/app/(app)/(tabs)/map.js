@@ -369,6 +369,8 @@ export default function MapTab() {
       {activeTrip && isMinimized && (
         <Pressable
           onPress={() => snapToMinimized(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Show trip information"
           style={({ pressed }) => [{
             position: 'absolute',
             bottom: 88,
@@ -379,24 +381,20 @@ export default function MapTab() {
             paddingHorizontal: 20,
             paddingVertical: 12,
             borderRadius: 40,
-            backgroundColor: 'rgba(15, 23, 42, 0.85)',
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.15)',
-            borderTopColor: 'rgba(255,255,255,0.25)',
+            backgroundColor: colors.inverseSurface,
             shadowColor: '#000',
             shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.4,
+            shadowOpacity: 0.22,
             shadowRadius: 16,
             elevation: 12,
             opacity: pressed ? 0.85 : 1,
             transform: [{ scale: pressed ? 0.97 : 1 }],
           }]}
         >
-          <Ionicons name="chevron-up" size={16} color="#94a3b8" />
-          <Text style={{ color: '#e2e8f0', fontFamily: fonts.bodySemiBold, fontSize: 13, letterSpacing: 0.5 }}>
+          <Ionicons name="chevron-up" size={16} color={colors.inversePrimary} />
+          <Text style={{ color: colors.inverseOnSurface, fontFamily: fonts.bodySemiBold, fontSize: 13 }}>
             SHOW TRIP INFO
           </Text>
-          <Ionicons name="chevron-up" size={16} color="#94a3b8" />
         </Pressable>
       )}
       
@@ -407,17 +405,21 @@ export default function MapTab() {
           {/* Floating Map Controls (Sticks to top of sheet) */}
           <View style={styles.floatingControlsContainer}>
             <Pressable 
-              style={[styles.mapControlBtn, { backgroundColor: colors.surface }]}
+              style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
               onPress={() => mapRef.current?.recenter()}
+              accessibilityRole="button"
+              accessibilityLabel="Recenter map on your location"
             >
               <Ionicons name="navigate" size={20} color={colors.primary} />
             </Pressable>
             <Pressable 
-              style={[styles.mapControlBtn, { backgroundColor: colors.surface }]}
+              style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
               onPress={() => {
                 mapRef.current?.overview();
                 snapToMinimized(true);
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Show full route overview"
             >
               <Ionicons name="scan-outline" size={20} color={colors.onSurfaceVariant} />
             </Pressable>
@@ -455,18 +457,18 @@ export default function MapTab() {
                   {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
                     <>
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                        <Text style={[styles.headerEtaValue, { color: '#93c5fd' }]}>
+                        <Text style={[styles.headerEtaValue, { color: colors.primary }]}>
                           {routeData 
                             ? Math.ceil(routeData.travelTimeInSeconds / 60) 
                             : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
                         </Text>
-                        <Text style={{ fontFamily: fonts.bodyBold, fontSize: 14, color: '#93c5fd', marginBottom: 2 }}> min</Text>
+                        <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
                       </View>
                       
                       {routeData?.trafficDelayInSeconds > 0 && (
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: 'rgba(248,113,113,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                          <Ionicons name="warning" size={10} color="#fca5a5" />
-                          <Text style={{ fontFamily: fonts.labelMd, fontSize: 10, color: '#fca5a5', fontWeight: 'bold' }}>
+                          <Ionicons name="warning" size={10} color={colors.error} />
+                          <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: colors.error }}>
                             +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
                           </Text>
                         </View>
@@ -480,7 +482,7 @@ export default function MapTab() {
                     </>
                   ) : (
                     <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: fonts.bodyBold, fontSize: 16, color: '#93c5fd' }}>
+                      <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 16, color: colors.primary }}>
                         {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
                       </Text>
                       <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
@@ -786,9 +788,9 @@ const styles = StyleSheet.create({
     pointerEvents: 'box-none',
   },
   mapControlBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: TOUCH_TARGET,
+    height: TOUCH_TARGET,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: "#000",

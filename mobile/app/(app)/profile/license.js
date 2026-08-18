@@ -20,7 +20,7 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function LicenseInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -50,12 +50,12 @@ export default function LicenseInformation() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.onSurface }]}>My License & Compliance</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>License & Compliance</Text>
+        <View style={{ width: TOUCH_TARGET }} />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
@@ -72,15 +72,15 @@ export default function LicenseInformation() {
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant, padding: 16, gap: 16 }]}>
-          <Text style={[styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
+          <Text style={[type.label, styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
           
-          <View style={styles.scanBox}>
+          <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Front of License</Text>
               {license?.frontScanImageUrl ? (
-                <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               ) : (
-                <Ionicons name="alert-circle" size={20} color="#f59e0b" />
+                <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
             <Pressable 
@@ -93,13 +93,13 @@ export default function LicenseInformation() {
             </Pressable>
           </View>
 
-          <View style={styles.scanBox}>
+          <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Back of License</Text>
               {license?.backScanImageUrl ? (
-                <Ionicons name="checkmark-circle" size={20} color="#10b981" />
+                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               ) : (
-                <Ionicons name="alert-circle" size={20} color="#f59e0b" />
+                <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
             <Pressable 
@@ -128,10 +128,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
   },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 18, fontFamily: fonts.displayBold },
+  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, textAlign: "center" },
   scroll: { padding: 16, paddingTop: 24, gap: 24 },
   
   sectionCard: {
@@ -150,12 +149,11 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
 
-  sectionHeading: { fontSize: 14, fontFamily: fonts.displayBold, textTransform: "uppercase", letterSpacing: 0.5 },
+  sectionHeading: {},
   scanBox: {
     padding: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#e2e8f0",
     gap: 12,
   },
   scanHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },

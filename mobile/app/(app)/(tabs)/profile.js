@@ -20,22 +20,23 @@ function MenuRow({ title, isNew = false, onPress, colors }) {
   const { type } = useTheme();
   return (
     <Pressable
-      style={({ pressed }) => [
+      style={({ hovered, pressed }) => [
         styles.menuRow,
         { 
           borderBottomColor: colors.surfaceContainerHigh,
-          backgroundColor: pressed ? colors.surfaceContainerLowest : "transparent"
+          backgroundColor: hovered || pressed ? colors.hover : "transparent"
         }
       ]}
       onPress={onPress}
+      accessibilityRole="button"
     >
       <View style={styles.menuRowLeft}>
         <Text style={[type.bodyLg, styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>
       </View>
       <View style={styles.menuRowRight}>
         {isNew && (
-          <View style={styles.newBadge}>
-            <Text style={[type.caption, styles.newBadgeText]}>New</Text>
+          <View style={[styles.newBadge, { backgroundColor: colors.secondaryContainer }]}>
+            <Text style={[type.caption, styles.newBadgeText, { color: colors.onSecondaryContainer }]}>New</Text>
           </View>
         )}
         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
@@ -91,11 +92,11 @@ export default function Profile() {
         {/* Header Profile Section */}
         <View style={styles.headerProfile}>
           <View style={styles.avatarContainer}>
-            <View style={[styles.avatarCircle, { backgroundColor: "#fee2e2" }]}>
-              <Text style={[type.headlineMd, styles.avatarInitials, { color: "#ef4444" }]}>{initials}</Text>
+            <View style={[styles.avatarCircle, { backgroundColor: colors.primaryContainer }]}>
+              <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
             </View>
-            <View style={styles.editBadge}>
-              <Ionicons name="pencil" size={12} color="black" />
+            <View style={[styles.editBadge, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+              <Ionicons name="pencil" size={12} color={colors.onSurfaceVariant} />
             </View>
           </View>
           <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
@@ -103,16 +104,16 @@ export default function Profile() {
 
         {/* My Account Section */}
         <View style={styles.section}>
-          <Text style={[type.titleMd, styles.sectionTitle, { color: colors.onSurface }]}>My Account</Text>
+          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurface }]}>Account</Text>
           <MenuRow title="Personal Information" colors={colors} onPress={() => router.push('/profile/personal')} />
-          <MenuRow title="My License & Compliance" colors={colors} onPress={() => router.push('/profile/license')} />
-          <MenuRow title="My Vehicle Documents" colors={colors} onPress={() => router.push('/profile/vehicle')} />
+          <MenuRow title="License & Compliance" colors={colors} onPress={() => router.push('/profile/license')} />
+          <MenuRow title="Assigned Vehicle" colors={colors} onPress={() => router.push('/profile/vehicle')} />
           <MenuRow title="Safety Settings" isNew={true} colors={colors} onPress={() => router.push('/profile/safety')} />
         </View>
 
         {/* General Section */}
         <View style={styles.section}>
-          <Text style={[type.titleMd, styles.sectionTitle, { color: colors.onSurface }]}>General</Text>
+          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurface }]}>General</Text>
           <MenuRow title="Help Center" colors={colors} onPress={() => router.push('/profile/help')} />
           <MenuRow title="Settings" colors={colors} onPress={() => router.push('/settings')} />
         </View>
@@ -181,7 +182,7 @@ const styles = StyleSheet.create({
     width: moderateScale(20),
     height: moderateScale(20),
     borderRadius: moderateScale(10),
-    backgroundColor: "white",
+    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
@@ -218,13 +219,11 @@ const styles = StyleSheet.create({
     gap: moderateScale(8),
   },
   newBadge: {
-    backgroundColor: "#ef4444",
     paddingHorizontal: moderateScale(8),
     paddingVertical: moderateScale(2),
     borderRadius: moderateScale(12),
   },
   newBadgeText: {
-    color: "white",
   },
 
   logoutBtn: {

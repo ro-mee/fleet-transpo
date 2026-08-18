@@ -16,16 +16,16 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 export default function HelpCenter() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
+      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
+        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
           <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
         </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Help Center</Text>
-        <View style={{ width: 24 }} />
+        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>Help & Support</Text>
+        <View style={{ width: TOUCH_TARGET }} />
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
@@ -53,7 +53,7 @@ export default function HelpCenter() {
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
 
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
 
           <Pressable style={styles.contactRow} onPress={() => Linking.openURL('mailto:support@fleetops.com')}>
             <View style={styles.contactRowLeft}>
@@ -75,12 +75,12 @@ export default function HelpCenter() {
             <Text style={[styles.faqText, { color: colors.onSurface }]}>What do I do in an emergency?</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           <Pressable style={styles.faqRow}>
             <Text style={[styles.faqText, { color: colors.onSurface }]}>How do I report a vehicle issue?</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
-          <View style={styles.divider} />
+          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           <Pressable style={styles.faqRow}>
             <Text style={[styles.faqText, { color: colors.onSurface }]}>I'm running late for a dispatch.</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
@@ -101,10 +101,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
   },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 18, fontFamily: fonts.displayBold },
+  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
+  headerTitle: { flex: 1, textAlign: "center" },
   scroll: { padding: 16, paddingTop: 24, gap: 24 },
   
   heroBox: { alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 16 },
@@ -130,7 +129,7 @@ const styles = StyleSheet.create({
   contactLabel: { fontSize: 16, fontFamily: fonts.bodyMedium },
   contactValue: { fontSize: 13, fontFamily: fonts.body },
   
-  divider: { height: 1, backgroundColor: "#e2e8f0" },
+  divider: { height: 1 },
   
   faqRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, minHeight: TOUCH_TARGET },
   faqText: { fontSize: 14, fontFamily: fonts.body, flex: 1 },

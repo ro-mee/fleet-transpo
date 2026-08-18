@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
+import { useTheme } from '../lib/theme-context';
 
 const TomTomMap = forwardRef(({ 
   origin, 
@@ -16,6 +17,7 @@ const TomTomMap = forwardRef(({
   onRouteData
 }, ref) => {
   const webViewRef = useRef(null);
+  const { colors, scheme } = useTheme();
 
   useImperativeHandle(ref, () => ({
     recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterMap) window.recenterMap(); true;`),
@@ -36,12 +38,14 @@ const TomTomMap = forwardRef(({
           <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/maps/maps-web.min.js"></script>
           <script src="https://api.tomtom.com/maps-sdk-for-web/cdn/6.x/6.25.0/services/services-web.min.js"></script>
           <style>
-              body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: #f8fafc; }
+              :root { color-scheme: ${scheme}; }
+              * { box-sizing: border-box; }
+              body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: ${colors.background}; }
               #map { height: 100vh; width: 100vw; }
               
-              .tt-popup-content { padding: 8px 12px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.15); border: none; }
-              .tt-popup-panel { background: white; }
-              .popup-title { font-family: sans-serif; font-size: 14px; font-weight: bold; color: #0f172a; margin: 0; }
+              .tt-popup-content { padding: 9px 12px; border-radius: 12px; box-shadow: 0 8px 24px rgba(22,37,31,0.16); border: none; background: ${colors.surface}; }
+              .tt-popup-panel { background: ${colors.surface}; }
+              .popup-title { font-family: system-ui, sans-serif; font-size: 13px; font-weight: 700; color: ${colors.onSurface}; margin: 0; }
               
               .origin-marker-car { 
                   width: 36px; 
@@ -53,12 +57,12 @@ const TomTomMap = forwardRef(({
                   filter: drop-shadow(0 6px 10px rgba(0,0,0,0.4)); 
               }
               .origin-marker-dot { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
-              .origin-dot-outer { width: 20px; height: 20px; border-radius: 10px; background: rgba(30, 58, 138, 0.2); display: flex; align-items: center; justify-content: center; position: absolute; top: -14px; }
-              .origin-dot-inner { width: 8px; height: 8px; border-radius: 4px; background: #1e3a8a; }
+              .origin-dot-outer { width: 22px; height: 22px; border-radius: 11px; background: ${colors.primary}2e; display: flex; align-items: center; justify-content: center; position: absolute; top: -15px; }
+              .origin-dot-inner { width: 9px; height: 9px; border-radius: 5px; background: ${colors.primary}; box-shadow: 0 0 0 3px ${colors.surface}; }
 
               .dest-marker { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
-              .dest-dot-outer { width: 20px; height: 20px; border-radius: 10px; background: rgba(14, 165, 233, 0.2); display: flex; align-items: center; justify-content: center; position: absolute; top: -14px; }
-              .dest-dot-inner { width: 8px; height: 8px; border-radius: 4px; background: #0ea5e9; }
+              .dest-dot-outer { width: 22px; height: 22px; border-radius: 11px; background: ${colors.secondary}2e; display: flex; align-items: center; justify-content: center; position: absolute; top: -15px; }
+              .dest-dot-inner { width: 9px; height: 9px; border-radius: 5px; background: ${colors.secondary}; box-shadow: 0 0 0 3px ${colors.surface}; }
 
               /* ETA Box Styling */
               .eta-box { position: absolute; bottom: 32px; left: 50%; transform: translateX(-50%); background: white; padding: 12px 24px; border-radius: 30px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 999; font-family: sans-serif; border: 1px solid #e2e8f0; }
@@ -66,24 +70,19 @@ const TomTomMap = forwardRef(({
               .eta-delay { font-size: 13px; font-weight: 700; color: #ef4444; margin-top: 2px; display: none; }
               
               /* On-Route Delay Badge */
-              .on-route-badge { background: #ef4444; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; font-family: sans-serif; box-shadow: 0 2px 6px rgba(0,0,0,0.3); border: 2px solid white; white-space: nowrap; pointer-events: none; }
-              .on-route-badge.yellow { background: #eab308; }
+              .on-route-badge { background: ${colors.error}; color: ${colors.onError}; padding: 5px 9px; border-radius: 12px; font-size: 11px; font-weight: 800; font-family: system-ui, sans-serif; box-shadow: 0 4px 12px rgba(22,37,31,0.2); border: 2px solid ${colors.surface}; white-space: nowrap; pointer-events: none; }
+              .on-route-badge.yellow { background: ${colors.secondary}; color: ${colors.onSecondary}; }
 
-              /* Ultra Premium Glassmorphic Navigation Header */
-              .nav-header { position: absolute; top: 36px; left: 20px; right: 20px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; pointer-events: none; }
+              .nav-header { position: absolute; top: 36px; left: 16px; right: 16px; display: none; flex-direction: column; align-items: center; z-index: 1000; font-family: system-ui, sans-serif; pointer-events: none; }
               
               .nav-main-banner { 
-                  background: rgba(18, 18, 18, 0.7); 
-                  backdrop-filter: blur(24px) saturate(150%); 
-                  -webkit-backdrop-filter: blur(24px) saturate(150%);
-                  border: 1px solid rgba(255, 255, 255, 0.12);
-                  border-top: 1px solid rgba(255, 255, 255, 0.25);
-                  border-radius: 36px; 
-                  padding: 10px 24px 10px 10px; 
+                  background: ${colors.inverseSurface};
+                  border-radius: 16px;
+                  padding: 8px 18px 8px 8px;
                   display: flex; 
                   align-items: center; 
-                  color: white; 
-                  box-shadow: 0 24px 48px rgba(0,0,0,0.4), inset 0 0 0 1px rgba(255,255,255,0.05); 
+                  color: ${colors.inverseOnSurface};
+                  box-shadow: 0 12px 32px rgba(22,37,31,0.24);
                   position: relative; 
                   max-width: 400px;
                   width: 100%;
@@ -92,10 +91,8 @@ const TomTomMap = forwardRef(({
               .nav-icon-wrapper { 
                   width: 56px; 
                   height: 56px; 
-                  border-radius: 28px; 
-                  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-                  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.15), 0 8px 16px rgba(0,0,0,0.4);
-                  border: 1px solid rgba(255, 255, 255, 0.08);
+                  border-radius: 12px;
+                  background: ${colors.secondary};
                   display: flex; 
                   align-items: center; 
                   justify-content: center; 
@@ -103,49 +100,47 @@ const TomTomMap = forwardRef(({
                   position: relative;
               }
               
-              .nav-icon { width: 26px; height: 26px; fill: #38bdf8; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.6)); }
+              .nav-icon { width: 26px; height: 26px; fill: ${colors.onSecondary}; }
               
               .nav-info { margin-left: 18px; flex-grow: 1; display: flex; flex-direction: column; justify-content: center; padding-right: 8px; }
               
               .nav-dist-row { display: flex; align-items: baseline; gap: 4px; margin-bottom: 2px; }
-              .nav-dist { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-              .nav-dist-unit { font-size: 14px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 1.5px; }
+              .nav-dist { font-size: 28px; font-weight: 800; color: ${colors.inverseOnSurface}; }
+              .nav-dist-unit { font-size: 13px; font-weight: 700; color: ${colors.inversePrimary}; text-transform: uppercase; letter-spacing: 0; }
               
-              .nav-street { font-size: 17px; font-weight: 600; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; letter-spacing: 0px; }
+              .nav-street { font-size: 16px; font-weight: 650; color: ${colors.inverseOnSurface}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
               
               .nav-then-badge { 
-                  background: rgba(15, 23, 42, 0.85); 
-                  border: 1px solid rgba(255, 255, 255, 0.12);
-                  border-top: 1px solid rgba(255, 255, 255, 0.2);
-                  border-radius: 20px; 
+                  background: ${colors.secondaryContainer};
+                  border-radius: 12px;
                   padding: 6px 18px; 
                   display: inline-flex; 
                   align-items: center; 
-                  color: #94a3b8;
+                  color: ${colors.onSecondaryContainer};
                   position: relative;
                   margin-top: 8px;
                   font-weight: 700; 
                   font-size: 12px; 
-                  box-shadow: 0 8px 16px rgba(0,0,0,0.3); 
-                  backdrop-filter: blur(12px);
-                  -webkit-backdrop-filter: blur(12px);
-                  letter-spacing: 1px;
+                  box-shadow: 0 6px 16px rgba(22,37,31,0.14);
+                  letter-spacing: 0;
                   text-transform: uppercase;
               }
-              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: #94a3b8; }
+              .nav-then-icon { width: 14px; height: 14px; margin-left: 8px; fill: ${colors.onSecondaryContainer}; }
 
               /* Map Controls (Hidden in favor of Native controls) */
               .overview-btn { display: none !important; }
               .recenter-btn { display: none !important; }
               
               /* Car Customizer Modal */
-              .car-customizer-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 2000; }
-              .car-customizer-modal { background: white; padding: 24px; border-radius: 20px; width: 80%; max-width: 320px; box-shadow: 0 10px 25px rgba(0,0,0,0.2); font-family: sans-serif; }
-              .car-customizer-modal h3 { margin: 0 0 16px 0; font-size: 18px; color: #0f172a; text-align: center; }
-              .car-customizer-modal label { font-size: 13px; font-weight: bold; color: #64748b; margin-bottom: 8px; display: block; text-transform: uppercase; text-align: center; }
+              .car-customizer-overlay { position: absolute; inset: 0; background: rgba(17,24,22,0.58); display: flex; align-items: flex-end; justify-content: center; z-index: 2000; padding: 16px; }
+              .car-customizer-modal { background: ${colors.surface}; padding: 24px; border-radius: 16px; width: 100%; max-width: 360px; box-shadow: 0 16px 40px rgba(22,37,31,0.24); font-family: system-ui, sans-serif; }
+              .car-customizer-modal h3 { margin: 0 0 6px 0; font-size: 20px; color: ${colors.onSurface}; text-align: left; }
+              .car-customizer-modal label { font-size: 13px; font-weight: 600; color: ${colors.onSurfaceVariant}; margin-bottom: 14px; display: block; text-align: left; }
               .color-options { display: flex; gap: 12px; margin-bottom: 24px; justify-content: center; flex-wrap: wrap; }
-              .color-swatch { width: 40px; height: 40px; border-radius: 20px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.1); border: 2px solid white; outline: 2px solid transparent; }
-              .customizer-close { width: 100%; padding: 14px; background: #0f172a; color: white; border: none; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; }
+              .color-swatch { width: 48px; height: 48px; border-radius: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(22,37,31,0.14); border: 3px solid ${colors.surface}; outline: 1px solid ${colors.outlineVariant}; }
+              .color-swatch.active { outline: 3px solid ${colors.secondary}; outline-offset: 2px; }
+              .color-swatch:active { transform: scale(0.94); }
+              .customizer-close { width: 100%; min-height: 48px; padding: 14px; background: ${colors.primary}; color: ${colors.onPrimary}; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
           </style>
       </head>
       <body>
@@ -189,14 +184,14 @@ const TomTomMap = forwardRef(({
           <!-- Car Customizer UI -->
           <div id="carCustomizer" class="car-customizer-overlay" style="display: none;">
               <div class="car-customizer-modal">
-                  <h3>Customize Vehicle</h3>
-                  <label>Color</label>
+                  <h3>Customize vehicle</h3>
+                  <label>Choose your map marker color</label>
                   <div class="color-options">
-                      <div class="color-swatch" style="background: #ef4444;" onclick="window.setCarColor('red')"></div>
-                      <div class="color-swatch" style="background: #3b82f6;" onclick="window.setCarColor('blue')"></div>
-                      <div class="color-swatch" style="background: #cbd5e1;" onclick="window.setCarColor('silver')"></div>
-                      <div class="color-swatch" style="background: #334155;" onclick="window.setCarColor('black')"></div>
-                      <div class="color-swatch" style="background: #ffffff; border: 1px solid #e2e8f0;" onclick="window.setCarColor('white')"></div>
+                      <div class="color-swatch active" data-color="forest" style="background: ${colors.primary};" onclick="window.setCarColor('forest')"></div>
+                      <div class="color-swatch" data-color="brass" style="background: ${colors.secondary};" onclick="window.setCarColor('brass')"></div>
+                      <div class="color-swatch" data-color="rust" style="background: ${colors.tertiary};" onclick="window.setCarColor('rust')"></div>
+                      <div class="color-swatch" data-color="silver" style="background: #cbd5e1;" onclick="window.setCarColor('silver')"></div>
+                      <div class="color-swatch" data-color="black" style="background: #334155;" onclick="window.setCarColor('black')"></div>
                   </div>
                   <button class="customizer-close" onclick="document.getElementById('carCustomizer').style.display = 'none';">Done</button>
               </div>
@@ -210,11 +205,14 @@ const TomTomMap = forwardRef(({
               window.ttMap = null;
               window.isFollowing = true;
               
-              window.carColor = 'silver';
+              window.carColor = 'forest';
 
               window.generateCarSvg = function(color) {
                   let baseColor, lightColor;
                   switch(color) {
+                      case 'forest': baseColor = '%23285448'; lightColor = '%23a9c8b9'; break;
+                      case 'brass': baseColor = '%238a632c'; lightColor = '%23d2a765'; break;
+                      case 'rust': baseColor = '%239d4f3f'; lightColor = '%23e0a08e'; break;
                       case 'red': baseColor = '%23b91c1c'; lightColor = '%23ef4444'; break;
                       case 'blue': baseColor = '%231d4ed8'; lightColor = '%233b82f6'; break;
                       case 'silver': baseColor = '%23475569'; lightColor = '%23cbd5e1'; break;
@@ -252,6 +250,9 @@ const TomTomMap = forwardRef(({
 
               window.setCarColor = function(color) {
                   window.carColor = color;
+                  document.querySelectorAll('.color-swatch').forEach(swatch => {
+                      swatch.classList.toggle('active', swatch.dataset.color === color);
+                  });
                   window.updateCarIcon();
               };
               
@@ -464,7 +465,7 @@ const TomTomMap = forwardRef(({
                           window.lastClosestIdx = 0;
                           
                           // Redraw the green line instantly without full map reload!
-                          const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
+                          const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
                           
                           if (window.ttMap && window.ttMap.getSource('route')) {
                               window.ttMap.getSource('route').setData(mainGeojson);
@@ -610,6 +611,31 @@ const TomTomMap = forwardRef(({
                       }
                   });
                   window.ttMap = map;
+
+                  window.applyFleetMapTheme = function() {
+                      const layers = map.getStyle().layers || [];
+                      layers.forEach(layer => {
+                          const id = layer.id.toLowerCase();
+                          if (layer.type === 'background') {
+                              map.setPaintProperty(layer.id, 'background-color', '${colors.primaryContainer}');
+                          } else if (layer.type === 'fill') {
+                              const fill = id.includes('water')
+                                  ? '${colors.info}'
+                                  : id.includes('park') || id.includes('forest') || id.includes('landcover')
+                                      ? '${colors.primaryContainer}'
+                                      : id.includes('building')
+                                          ? '${colors.surfaceContainerHigh}'
+                                          : '${colors.surfaceContainerLow}';
+                              map.setPaintProperty(layer.id, 'fill-color', fill);
+                          } else if (layer.type === 'line' && (id.includes('road') || id.includes('street') || id.includes('highway'))) {
+                              map.setPaintProperty(layer.id, 'line-color', '${colors.surfaceBright}');
+                          } else if (layer.type === 'symbol') {
+                              map.setPaintProperty(layer.id, 'text-color', '${colors.onSurface}');
+                              map.setPaintProperty(layer.id, 'text-halo-color', '${colors.surface}');
+                              map.setPaintProperty(layer.id, 'text-halo-width', 1.25);
+                          }
+                      });
+                  };
                   
                   map.on('dragstart', () => {
                       if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
@@ -642,6 +668,8 @@ const TomTomMap = forwardRef(({
                   }
 
                   map.on('load', () => {
+                      window.applyFleetMapTheme();
+
                       // Origin Marker
                       const originEl = document.createElement('div');
                       if (${showCarIcon}) {
@@ -660,9 +688,10 @@ const TomTomMap = forwardRef(({
                           carInner.className = 'origin-marker-car';
                           carInner.id = 'carInnerIcon';
                           originEl.appendChild(carInner);
+                          window.updateCarIcon();
                       } else {
                           originEl.className = 'origin-marker-dot';
-                          originEl.innerHTML = '<div class="origin-dot-outer"><div class="origin-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+                          originEl.innerHTML = '<div class="origin-dot-outer"><div class="origin-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${colors.primary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
                       }
 
                       const originPopup = new tt.Popup({ offset: 35, closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
@@ -679,7 +708,7 @@ const TomTomMap = forwardRef(({
                       // Destination Marker
                       const destEl = document.createElement('div');
                       destEl.className = 'dest-marker';
-                      destEl.innerHTML = '<div class="dest-dot-outer"><div class="dest-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+                      destEl.innerHTML = '<div class="dest-dot-outer"><div class="dest-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${colors.secondary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
                       
                       const destPopup = new tt.Popup({ offset: 35, closeButton: false }).setHTML('<h4 class="popup-title">${dropoffLabel}</h4>');
                       window.destMarker = new tt.Marker({ element: destEl })
@@ -736,14 +765,14 @@ const TomTomMap = forwardRef(({
                                           if (sec.startPointIndex > lastIndex) {
                                               const normalSegment = coords.slice(lastIndex, sec.startPointIndex + 1);
                                               if (normalSegment.length >= 2) {
-                                                  features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: normalSegment } });
+                                                  features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: normalSegment } });
                                               }
                                           }
                                           
-                                          let color = '#ef4444'; // Red
+                                          let color = '${colors.error}';
                                           let badgeClass = 'on-route-badge';
-                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '#eab308'; badgeClass += ' yellow'; }
-                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '#eab308'; badgeClass += ' yellow'; }
+                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '${colors.secondary}'; badgeClass += ' yellow'; }
+                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '${colors.secondary}'; badgeClass += ' yellow'; }
                                           
                                           const trafficSegment = coords.slice(sec.startPointIndex, sec.endPointIndex + 1);
                                           if (trafficSegment.length >= 2) {
@@ -766,10 +795,10 @@ const TomTomMap = forwardRef(({
                                   });
                                   if (lastIndex < coords.length - 1) {
                                       const rem = coords.slice(lastIndex, coords.length);
-                                      if (rem.length >= 2) features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: rem } });
+                                      if (rem.length >= 2) features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: rem } });
                                   }
                               } else {
-                                  features.push({ type: 'Feature', properties: { color: '#10b981' }, geometry: { type: 'LineString', coordinates: coords } });
+                                  features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: coords } });
                               }
                               return { type: 'FeatureCollection', features: features };
                           };
@@ -808,7 +837,7 @@ const TomTomMap = forwardRef(({
                                   'id': 'route',
                                   'type': 'line',
                                   'source': { 'type': 'geojson', 'data': { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: mainCoords } } },
-                                  'paint': { 'line-color': '#10b981', 'line-width': 6 }
+                                  'paint': { 'line-color': '${colors.primary}', 'line-width': 6 }
                               });
                           }
 
@@ -852,7 +881,7 @@ const TomTomMap = forwardRef(({
       </html>
     `;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
+  }, [colors, scheme, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
 
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   useEffect(() => {
@@ -938,7 +967,6 @@ export default TomTomMap;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#e2e8f0",
   },
   map: {
     flex: 1,
