@@ -52,18 +52,17 @@ sequenceDiagram
     C-->>S2: retry with new token
 ```
 
-## GPS tracking — CONFIRMED (`mobile/lib/tracking.js`)
+## GPS tracking — CONFIRMED
 
+**Foreground** (`mobile/lib/tracking.js`):
 - `watchPositionAsync({ accuracy: Balanced, distanceInterval: 10 })` writes to a ref
 - A separate interval POSTs the latest fix every **30 s** to `/api/mobile/driver/trips/${tripId}/gps`
 
+**Background** (`mobile/lib/background-tracking.js`, added 2026-08-19): a `expo-task-manager` task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `map.js` starts it on background via `AppState` and stops + merges km on return, so the two never overlap (no double-counted km, no duplicate posts). The foreground watcher remains the source of truth. → [[ADR-011 Background GPS Tracking]]
+
 **Decoupling the sensor from the upload is the right shape**: position updates arrive at whatever rate the GPS produces them, but network traffic is bounded at one request per 30 s.
 
-**Foreground only**, and the code says why:
-
-> *"background updates need a dev build plus Play Store review, so that is deliberately out of scope for this MVP."*
-
-An honest, well-documented scope limit. It does mean tracking stops when the driver backgrounds the app — a real operational gap to know about, not a bug. → [[Tracking]]
+Background tracking **requires a custom dev build** (not Expo Go) — see the "Version warning" note below — and Android production release needs Play Store review. The old foreground-only decision is superseded: [[ADR-010 Foreground Only GPS]] → [[ADR-011 Background GPS Tracking]].
 
 ## Client-side role decoding — CONFIRMED (`mobile/lib/rbac.js`)
 
@@ -82,6 +81,8 @@ Separate from web — 15-minute access tokens, 30-day single-use rotating refres
 `mobile/AGENTS.md`: *"Expo HAS CHANGED — read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ before writing any code."*
 
 Same trap as [[Framework Version Drift]] on the web side.
+
+**Dev-build implication:** background location ([[ADR-011 Background GPS Tracking]]) is not available in Expo Go — it needs a custom build. Since `expo prebuild --clean` on 2026-08-19, `android/` carries the background-location permissions and config, but the installed app on a device still needs a rebuild + reinstall.
 
 ## Related
 

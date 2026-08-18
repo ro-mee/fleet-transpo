@@ -4,8 +4,9 @@ status: working
 tags: [feature, tracking, gps, mobile]
 source:
   - mobile/lib/tracking.js
+  - mobile/lib/background-tracking.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 related: ["[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
@@ -13,11 +14,11 @@ related: ["[[Trips]]", "[[Mobile Architecture]]"]
 
 ## What it does
 
-Reports the driver's position to the server every 30 seconds during an active trip.
+Reports the driver's position to the server every 30 seconds during an active trip, in the **foreground** and, while an active trip is running, in the **background** (via `expo-task-manager`).
 
-## How it works — CONFIRMED (`mobile/lib/tracking.js`)
+## How it works — CONFIRMED
 
-Two decoupled mechanisms:
+Two decoupled mechanisms drive the foreground uploader (`mobile/lib/tracking.js`):
 
 ```js
 // 1. Sensor → a ref. Fires whenever the device produces a fix.
@@ -32,15 +33,15 @@ POST `/api/mobile/driver/trips/${tripId}/gps`
 
 `distanceInterval: 10` (metres) plus `accuracy: Balanced` further reduces sensor wake-ups — a stationary vehicle produces almost no updates.
 
-## Foreground only — deliberate and documented — CONFIRMED
+## Background — added 2026-08-19 (`mobile/lib/background-tracking.js`)
 
-> *"background updates need a dev build plus Play Store review, so that is deliberately out of scope for this MVP."*
+Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only GPS]]); the app has since moved to a dev build, so background tracking is now implemented. See [[ADR-011 Background GPS Tracking]] for the full decision and trade-offs.
 
-This is a **scope decision recorded in the code**, which is the best place for it.
+Summary: a headless task (`fleetops-background-location`) posts GPS and accumulates per-leg km while the app is backgrounded during an active trip. `mobile/app/(app)/(tabs)/map.js` starts it on background via `AppState`, stops it and merges the accumulated km on return. The foreground watcher stays the source of truth; the task only fills the backgrounded gap.
 
-**The operational consequence is real:** a driver who backgrounds the app or locks the phone stops being tracked. For a hotel shuttle where the driver keeps the app open, acceptable. For anything longer, not.
+**Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
 
-→ [[Mobile Architecture]]
+→ [[Mobile Architecture]] · [[ADR-011 Background GPS Tracking]]
 
 ## Database
 
@@ -48,4 +49,4 @@ GPS columns on [[trips]]. There is no separate positions table — INFERRED: onl
 
 ## Related
 
-[[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]]
+[[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]] · [[ADR-011 Background GPS Tracking]]

@@ -55,6 +55,9 @@ Things that are genuinely **UNKNOWN** — not inferred, not guessed. Answering t
 13. **Which of the 13 trip statuses have ever occurred?**
     `SELECT status, count(*) FROM trips GROUP BY status` — with 2 rows, the answer is at most 2. → [[Trips]]
 
+14. **`mobile/AGENTS.md` points at Expo SDK v57 docs, but the installed SDK is 54.**
+    `mobile/package.json` pins `expo ~54.0.8` (installed 54.0.36). The push work was verified against the SDK 54 docs (`expo-notifications@0.32.17`). Which is the intended target — upgrade the app to SDK 57, or fix the AGENTS.md link to v54? → [[Notifications]]
+
 ## How to use this note
 
 When you answer one, **delete it from here** and write the answer into the note it links to, bumping `last_verified`. A shrinking list is the point.

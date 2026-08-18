@@ -25,11 +25,12 @@ last_verified: 2026-08-11
 | [[ADR-007 Single Writer For Reservation Status]] | One function writes status | ⚠ Implied by structure, not stated |
 | [[ADR-008 Manual Migration Procedure]] | Hand-written `pg` scripts | 🔄 **Superseded 2026-08-11** — replaced by `npm run db:up` + a `schema_migrations` ledger. The stated reason in `AGENTS.md` was **false**; the underlying reason was not, and still applies. |
 | [[ADR-009 Separate Mobile Auth]] | Mobile JWT ≠ web session | ⚠ Mechanism documented, choice not |
-| [[ADR-010 Foreground Only GPS]] | No background location | ✅ Stated in `tracking.js` |
+| [[ADR-010 Foreground Only GPS]] | No background location | ✅ Stated in `tracking.js` — 🔄 **Superseded 2026-08-19** by [[ADR-011 Background GPS Tracking]] |
+| [[ADR-011 Background GPS Tracking]] | Foreground + headless background task (AppState-driven) | ✅ Decision recorded 2026-08-19 |
 
 ## What the pattern shows — INFERRED
 
-**Six of ten decisions are well-evidenced; four are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.
+**Six of eleven decisions are well-evidenced; the rest are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.
 
 The rule this suggests: **write the "why" where the "what" lives.** A reason recorded next to its implementation survives; a reason recorded in a separate file rots. → [[Documentation Rot]]
 

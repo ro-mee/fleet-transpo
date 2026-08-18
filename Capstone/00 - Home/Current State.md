@@ -55,7 +55,7 @@ last_verified: 2026-08-11
 - ~~`/fleet/availability`, `/drivers/availability`~~ — added 2026-08-12 (Phase 4 item 15) with the shared `StatusBoard` component, **removed 2026-08-15**: availability is derived from schedule-overlap, not a board page → [[Fleet And Vehicles]] · [[Dispatch]]
 - `src/app/(dashboard)/fleet/maintenance/` — **removed 2026-08-12**; maintenance CRUD lives at `/maintenance` (relocated there by `9c69f08`), the dir was an empty leftover
 - **10 tables have zero rows** — `fuelrecords`, `vehicleinspection`, `notification_preferences`, `recommendation_snapshots`, `ai_insights`, `ai_recommendations`, `uvvrp_violations`, `driverattendance`, `service_types`, `booking_channels`. INFERRED: built, never exercised end-to-end. (Was 11; `vehiclereservations` was dropped rather than filled.)
-- Mobile: no push notifications, no offline sync, no background location, no guest experience (per `mobile/README.md`)
+- ~~Mobile: no push notifications~~ — added 2026-08-19: in-app 3-tier delivery layer (heads-up banners + toasts) upgraded to **real server-sent push** (Expo Push Service + FCM, `device_tokens` migration 058) — push-worthy notifications now arrive on a locked/killed device. Still missing: offline sync, background location (built; needs device rebuild), guest experience (per `mobile/README.md`)
 - `HttpBookingGateway` throws `"not connected yet"` — only the mock gateway works
 
 ## Environment gaps — CONFIRMED

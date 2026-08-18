@@ -31,6 +31,7 @@ Existing:
 - [[2026-08-11 Phase 1 Roadmap]] — first code changes: grounding bug, three missing imports, dead `proxy.js`, vitest running
 - [[2026-08-11 Phase 2 Schema Reproducibility]] — same day, continued: `no-undef` on (and a 4th missing import), `schema.sql` checked in, migrations 033–035, a `schema_migrations` ledger, and a leaked DB password found in git history
 - [[2026-08-11 Phase 3 Deletion And Unification]] — same day, continued: `vehiclereservations` dropped, both ingest doors unified behind one writer, `README`/`rbac-model`/`SYSTEM` rewritten, four stale ERDs deleted. Lesson that cost the most: the test suite and lint both pass with a deleted symbol still imported
+- [[2026-08-19]] — mobile real per-leg km + odometer (Phase 1), start-odometer capture, fresh-mileage-before-complete, and background GPS tracking (Phase 2) via `expo-task-manager`. Superseded [[ADR-010 Foreground Only GPS]] with [[ADR-011 Background GPS Tracking]]. Prebuild ran; device rebuild/reinstall pending.
 
 ## Weekly Reviews
 

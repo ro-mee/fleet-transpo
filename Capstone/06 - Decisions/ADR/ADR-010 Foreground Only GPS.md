@@ -1,14 +1,18 @@
 ---
 type: decision
-status: accepted
+status: superseded
 date: 2026-08-11
+superseded_by: "[[ADR-011 Background GPS Tracking]]"
+superseded_date: 2026-08-19
 tags: [decision, adr, mobile, gps, scope]
 source:
   - mobile/lib/tracking.js
-last_verified: 2026-08-11
+last_verified: 2026-08-19
 ---
 
 # ADR-010: Foreground Only GPS
+
+> **SUPERSEDED 2026-08-19 by [[ADR-011 Background GPS Tracking]].** The app moved to a dev build (which background location requires), so the "no build pipeline" argument for staying foreground-only no longer holds. Background tracking is now implemented in `mobile/lib/background-tracking.js`; the foreground watcher remains the source of truth. This note is kept for the reasoning history.
 
 ## Context
 
