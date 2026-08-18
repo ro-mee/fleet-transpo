@@ -172,6 +172,7 @@ export function LaunchScreen({ onComplete }) {
                 loop
                 speed={0.9}
                 source={require("../assets/PRt4x4Ds0p.json")}
+                colorFilters={[{ keypath: "Location", color: colors.primary }]}
                 style={styles.location}
               />
             </Animated.View>
