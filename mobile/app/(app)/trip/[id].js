@@ -83,7 +83,7 @@ export default function TripDetailsScreen() {
       if (!isAccepted) {
         await api.put(`/api/trips/${id}/accept`, { accept: true });
       }
-      await api.put(`/api/trips/${id}/start`, {});
+      await api.put(`/api/trips/${id}/start`, { odometer: Number(trip?.current_mileage) || undefined });
       router.replace("/map");
     } catch (e) {
       const msg = e.message || "Could not update trip.";

@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState } from 'react-native';
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
@@ -11,6 +11,13 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
+import {
+  startBackgroundTracking,
+  stopBackgroundTracking,
+  updateLegContext,
+  mergeStoredKm,
+  legForStatus,
+} from "../../../lib/background-tracking";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const BOTTOM_SHEET_MIN_HEIGHT = 220; // Height of the collapsed view
 const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
@@ -40,6 +47,43 @@ function getTripStatusStyle(status) {
       return { bg: "#f1f5f9", fg: "#475569", dot: "#94a3b8" };
   }
 }
+
+// Statuses where the driver is still travelling to the pickup. Everything else
+// (Passenger Onboard / En Route / Drop-off / Arrived / In Progress) is the
+// second leg to the destination.
+const HEADING_TO_PICKUP_STATUSES = [
+  "Pending",
+  "Approved",
+  "Assigned",
+  "Vehicle Assigned",
+  "Driver Assigned",
+  "Dispatched",
+  "Driver Accepted",
+  "Trip Started",
+  "At Pickup",
+];
+
+// Distance in km between two lat/lng pairs (haversine).
+function haversineKm(latA, lonA, latB, lonB) {
+  const R = 6371;
+  const p1 = (latA * Math.PI) / 180;
+  const p2 = (latB * Math.PI) / 180;
+  const dp = ((latB - latA) * Math.PI) / 180;
+  const dl = ((lonB - lonA) * Math.PI) / 180;
+  const a =
+    Math.sin(dp / 2) * Math.sin(dp / 2) +
+    Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Max km a single GPS segment (≤3s apart) can plausibly be before we treat it
+// as a jump/glitch and drop it. ~400m/3s ≈ 480 km/h, far above any vehicle.
+const MAX_SEGMENT_KM = 0.4;
+// Segments shorter than this while effectively stationary are GPS jitter and
+// would inflate km while parked; only counted when the vehicle is actually
+// moving (speed > 1 m/s).
+const MIN_MOVING_SEGMENT_KM = 0.02;
 
 export default function MapTab() {
   const router = useRouter();
@@ -115,20 +159,66 @@ export default function MapTab() {
 
   const lastTripId = useRef(null);
 
+  // GPS distance accumulator for the two legs of the trip.
+  //   leg1 = km driven to the pickup
+  //   leg2 = km driven from pickup to the destination
+  // Held in a ref so it survives re-renders and the watcher closure can read and
+  // mutate it without the interval/callback being torn down.
+  const distRef = useRef({ leg1: 0, leg2: 0, prev: null, leg: null });
+
   useEffect(() => {
     activeTripRef.current = activeTrip;
     // Reset route data only when it's a completely new trip
     if (activeTrip?.trip_id !== lastTripId.current) {
       setRouteData(null);
       lastTripId.current = activeTrip?.trip_id;
+      // A new trip resets the accumulated leg distances so a previous trip's km
+      // never bleeds into the next one.
+      distRef.current = { leg1: 0, leg2: 0, prev: null, leg: null };
     }
   }, [activeTrip]);
 
+  // Keep the background task's trip/leg context in sync so it accumulates the
+  // correct leg (and posts to the right trip endpoint) when the app is
+  // backgrounded. Runs on every active trip or status change.
+  useEffect(() => {
+    updateLegContext({
+      tripId: activeTrip?.trip_id ?? null,
+      leg: legForStatus(activeTrip?.trip_status),
+    }).catch(() => {});
+  }, [activeTrip?.trip_id, activeTrip?.trip_status]);
+
+  // Background tracking, driven by AppState so there is never overlap with the
+  // foreground watcher (no double-counted km, no duplicate GPS posts):
+  //   background + active trip → start the headless task
+  //   foreground              → stop it and merge the km it accumulated
+  const appState = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      const prev = appState.current;
+      appState.current = next;
+      const hadActiveTrip = Boolean(activeTripRef.current);
+      const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
+      const isReturning = next === "active";
+
+      if (isLeavingActive && hadActiveTrip) {
+        updateLegContext({
+          tripId: activeTripRef.current?.trip_id ?? null,
+          leg: legForStatus(activeTripRef.current?.trip_status),
+        }).then(() => startBackgroundTracking()).catch(() => {});
+      } else if (isReturning) {
+        // Clear the straddling fix synchronously so a foreground watcher tick
+        // that fires before the merge resolves cannot double-count the gap
+        // between the last foreground fix and the backgrounded stretch.
+        distRef.current.prev = null;
+        stopBackgroundTracking().catch(() => {});
+        mergeStoredKm(distRef).catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const [actingOn, setActingOn] = useState(null);
-  
-  // Distance trackers for the two legs of the trip
-  const [recordedLeg1, setRecordedLeg1] = useState(0);
-  const [recordedLeg2, setRecordedLeg2] = useState(0);
 
   const loadTrip = useCallback(async () => {
     try {
@@ -202,6 +292,28 @@ export default function MapTab() {
               speed: newLoc.coords.speed
             };
           });
+
+          // 3. GPS Distance Accumulation (per leg)
+          const d = distRef.current;
+          const leg = HEADING_TO_PICKUP_STATUSES.includes(activeTripRef.current?.trip_status) ? "leg1" : "leg2";
+          const lat = newLoc.coords.latitude;
+          const lng = newLoc.coords.longitude;
+
+          // When the leg changes (pickup reached, or drop-off done), drop the
+          // straddling fix so the transition gap is not counted twice.
+          if (d.leg && d.leg !== leg) d.prev = null;
+          d.leg = leg;
+
+          if (d.prev) {
+            const seg = haversineKm(d.prev.lat, d.prev.lng, lat, lng);
+            const speed = newLoc.coords.speed ?? 0;
+            // Only count plausible segments: not a >400m/3s jump (glitch) and
+            // not GPS jitter while parked (short segment with ~0 speed).
+            if (seg > 0 && seg <= MAX_SEGMENT_KM && (speed > 1 || seg > MIN_MOVING_SEGMENT_KM)) {
+              d[leg] += seg;
+            }
+          }
+          d.prev = { lat, lng };
         }
       );
       // 3. Compass/Gyroscope Subscription for when the car is stopped
@@ -248,19 +360,6 @@ export default function MapTab() {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, [activeTrip?.trip_status]);
-
-  // Track the initial distance of each leg so we have the total km driven at the end
-  useEffect(() => {
-    if (!routeData || !activeTrip) return;
-    const distKm = routeData.lengthInMeters / 1000;
-    
-    // We only capture it once per leg when the distance is meaningful (> 0.1km)
-    if (isHeadingToPickup && recordedLeg1 === 0 && distKm > 0.1) {
-      setRecordedLeg1(distKm);
-    } else if (!isHeadingToPickup && recordedLeg2 === 0 && distKm > 0.1) {
-      setRecordedLeg2(distKm);
-    }
-  }, [routeData, isHeadingToPickup, activeTrip, recordedLeg1, recordedLeg2]);
 
   if (!driverLocation) {
     return (
@@ -572,7 +671,7 @@ export default function MapTab() {
                         return;
                       }
                       if (!windowOpen) return;
-                      await api.put(`/api/trips/${activeTrip.trip_id}/start`, {});
+                      await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
                       loadTrip();
                     } else if (isState1) {
                       await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
@@ -588,16 +687,37 @@ export default function MapTab() {
                       await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
                       loadTrip();
                     } else if (isState4) {
-                      // Combine the distance from both legs, fallback to estimated distance if somehow 0
-                      let totalKm = recordedLeg1 + recordedLeg2;
-                      if (totalKm === 0) {
+                      // Sum the GPS-accumulated km from both legs. If the watcher
+                      // never captured any (e.g. app was backgrounded the whole
+                      // time), fall back to the estimated route distance.
+                      let leg1 = distRef.current.leg1;
+                      let leg2 = distRef.current.leg2;
+                      let totalKm = leg1 + leg2;
+                      if (totalKm <= 0) {
                         totalKm = Number(activeTrip.estimated_distance) || (routeData ? (routeData.lengthInMeters / 1000) : 0);
                       }
-                      
-                      const startOdo = Number(activeTrip.start_odometer) || Number(activeTrip.current_mileage) || 0;
+
+                      // Re-fetch the LIVE vehicle mileage before computing the
+                      // odometer so the derived end reading is always >= the
+                      // server's current mileage (a stale base would otherwise be
+                      // rejected as "below recorded mileage"). In the normal case
+                      // live == loaded mileage, so distance = endOdo - startOdo
+                      // equals totalKm exactly. If another device advanced the
+                      // mileage mid-trip, the derived distance includes that extra
+                      // km — safe (never rejected), just slightly inflated.
+                      let freshMileage = null;
+                      try {
+                        const fresh = await api.get("/api/mobile/driver/trips");
+                        const ft = fresh?.find((t) => String(t.trip_id) === String(activeTrip.trip_id));
+                        freshMileage = ft ? Number(ft.current_mileage) : null;
+                      } catch {
+                        freshMileage = null;
+                      }
+                      const startOdo = Number(freshMileage) || Number(activeTrip.current_mileage) || 0;
                       const endOdo = startOdo + totalKm;
 
-                      // Optimistic: navigate immediately, run the API in background.
+                      // Navigate to the summary, then run the completion API in the
+                      // background. Values match: the screen shows what was sent.
                       router.push({
                         pathname: '/(app)/trip/complete',
                         params: {
@@ -605,14 +725,14 @@ export default function MapTab() {
                           destination: activeTrip.destination,
                           duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
                           distance: totalKm.toFixed(1) + " km",
+                          leg1: leg1.toFixed(1),
+                          leg2: leg2.toFixed(1),
                           startOdo: Math.round(startOdo).toLocaleString(),
                           endOdo: Math.round(endOdo).toLocaleString()
                         }
                       });
 
                       setActiveTrip(null);
-                      setRecordedLeg1(0);
-                      setRecordedLeg2(0);
 
                       api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
                         distance: totalKm,

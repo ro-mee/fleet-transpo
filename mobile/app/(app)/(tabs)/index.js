@@ -14,6 +14,7 @@ import {
 } from "../../../lib/tripRef";
 import { AppAlert } from '../../../components/AppAlert';
 import { useTheme } from "../../../lib/theme-context";
+import { useNotificationFeed } from "../../../context/notification-feed";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { StatusPill, SkeletonCard, ErrorNotice, PulsingDot, CountUpText } from "../../../components/ui";
 import { Plate } from "../../../components/plate";
@@ -30,6 +31,7 @@ export default function Home() {
   const router = useRouter();
   const { user } = useAuth();
   const { colors, type } = useTheme();
+  const { unreadCount } = useNotificationFeed();
 
   const [trips, setTrips] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
@@ -140,7 +142,7 @@ export default function Home() {
       setActingOn(trip.trip_id);
       try {
         await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true });
-        await api.put(`/api/trips/${trip.trip_id}/start`, {});
+        await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined });
         await load();
       } catch (e) {
         AppAlert.alert("Error", e.message || "Could not start trip.");
@@ -303,6 +305,13 @@ export default function Home() {
             accessibilityLabel="Notifications"
           >
             <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
+            {unreadCount > 0 && (
+              <View style={[styles.bellBadge, { backgroundColor: colors.error, borderColor: colors.surfaceContainer }]}>
+                <Text style={[styles.bellBadgeText, { color: colors.onError }]}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </Pressable>
           <Pressable
             onPress={() => router.push("/profile")}
@@ -773,6 +782,23 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(12),
     alignItems: "center",
     justifyContent: "center",
+  },
+  bellBadge: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    minWidth: moderateScale(18),
+    height: moderateScale(18),
+    borderRadius: moderateScale(9),
+    paddingHorizontal: moderateScale(4),
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+  },
+  bellBadgeText: {
+    fontFamily: fonts.displayBold,
+    fontSize: moderateScale(10),
+    lineHeight: moderateScale(13),
   },
   avatar: {
     width: moderateScale(38),

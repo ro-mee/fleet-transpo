@@ -106,7 +106,9 @@ export default function FullMapTab() {
           ? { accept: true }
           : action === "complete"
             ? { end_odometer: next.endOdometer }
-            : {};
+            : action === "start"
+              ? { odometer: Number(trip.current_mileage) || undefined }
+              : {};
       await api.put(path, body);
       setError(null);
       await load();

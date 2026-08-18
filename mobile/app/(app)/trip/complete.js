@@ -26,7 +26,7 @@ export default function TripCompleteScreen() {
   // time string like "8:37 AM"
   const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   
-  const { pickup, destination, duration, distance, startOdo, endOdo } = useLocalSearchParams();
+  const { pickup, destination, duration, distance, leg1, leg2, startOdo, endOdo } = useLocalSearchParams();
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -77,6 +77,19 @@ export default function TripCompleteScreen() {
               <Text style={[styles.value, { color: colors.onSurface }]}>{distance || "11.4 km"}</Text>
             </View>
           </View>
+
+          {(leg1 || leg2) ? (
+            <View style={[styles.gridRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant + '4D', paddingTop: 16 }]}>
+              <View style={styles.cardCol}>
+                <Text style={[styles.label, { color: colors.outline }]}>TO PICKUP</Text>
+                <Text style={[styles.value, { color: colors.onSurface }]}>{leg1} km</Text>
+              </View>
+              <View style={styles.cardCol}>
+                <Text style={[styles.label, { color: colors.outline }]}>TO DROP-OFF</Text>
+                <Text style={[styles.value, { color: colors.onSurface }]}>{leg2} km</Text>
+              </View>
+            </View>
+          ) : null}
 
           <View style={[styles.cardCol, { borderTopWidth: 1, borderTopColor: colors.outlineVariant + '4D', paddingTop: 16 }]}>
             <Text style={[styles.label, { color: colors.outline }]}>ODOMETER RANGE</Text>
