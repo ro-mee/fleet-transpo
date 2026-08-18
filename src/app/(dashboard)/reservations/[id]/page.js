@@ -29,7 +29,6 @@ import { AiAssignDialog } from "@/components/reservations/ai-assign-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequest,
-  assignResources,
   cancelRequest,
   rescheduleRequest,
 } from "@/services/transport.service";
@@ -192,7 +191,6 @@ export default function ReservationDetailPage() {
   const requestId = Number(params.id);
 
   const [assigning, setAssigning] = useState(false);
-  const [assignError, setAssignError] = useState(null);
   const [reason, setReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -243,26 +241,6 @@ export default function ReservationDetailPage() {
       invalidate();
     },
     onError: (e) => toast.error(e.message || "Failed to reschedule"),
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: ({ vehicleId, driverId, force }) =>
-      assignResources(requestId, { vehicleId, driverId, force }),
-    onSuccess: (res) => {
-      const forced = res?.warnings?.length;
-      toast[forced ? "warning" : "success"](
-        forced
-          ? `Assigned with ${res.warnings.length} conflict override${res.warnings.length === 1 ? "" : "s"}`
-          : "Resources assigned"
-      );
-      setAssigning(false);
-      setAssignError(null);
-      invalidate();
-    },
-    onError: (e) => {
-      if (e?.status === 409 && e?.data?.conflicts?.length) setAssignError(e);
-      else toast.error(e.message || "Failed to assign resources");
-    },
   });
 
   if (isLoading) return <DetailSkeleton />;
@@ -322,7 +300,7 @@ export default function ReservationDetailPage() {
           {isAssignable(status) && permissions.assign && (
             <Button
               size="sm"
-              onClick={() => { setAssignError(null); setAssigning(true); }}
+              onClick={() => setAssigning(true)}
               className="rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs"
             >
               <Send className="w-3.5 h-3.5 mr-1 text-white" />
@@ -535,12 +513,13 @@ export default function ReservationDetailPage() {
       <AiAssignDialog
         request={r}
         isOpen={assigning}
-        onClose={() => { setAssigning(false); setAssignError(null); }}
-        onAssign={({ vehicleId, driverId, force }) =>
-          assignMutation.mutateAsync({ vehicleId, driverId, force })
-        }
-        isPending={assignMutation.isPending}
-        conflictError={assignError}
+        onClose={() => setAssigning(false)}
+        canAssign={permissions.assign}
+        alreadyAssigned={status === L.ASSIGNED}
+        onAssigned={() => {
+          setAssigning(false);
+          invalidate();
+        }}
       />
 
       <Dialog open={cancelling} onOpenChange={setCancelling}>

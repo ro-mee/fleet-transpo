@@ -4,7 +4,7 @@ title: Bugs
 tags: [development, bugs]
 source:
   - (see individual notes)
-last_verified: 2026-08-11
+last_verified: 2026-08-17
 ---
 
 # Bugs
@@ -21,7 +21,17 @@ Open, verified defects. Each links to a full note with root cause and fix.
 
 ### Severity 2 — correctness hazards
 
-*None currently open.* The state-machine gap was closed on 2026-08-11 → [[BUG Pending Reassignment Not In State Machine]]
+- ~~**Reservation Info AI recommendations can serve stale or expired pair data.**~~
+  The assignment dialog's unsafe AI fallback was removed on 2026-08-17; the
+  Reservation Info panel's eight gaps (snapshot revalidation, canonical shape,
+  regeneration, narration-key alignment, conflict-shape normalization, snapshot
+  consumption) were **all closed 2026-08-18**. → [[BUG AI Recommendation Can Serve Stale Pair]]
+- ~~**Availability endpoints 500 → AI-Assign shows false "Fully booked".**~~
+  `/api/vehicles/available` + `/api/drivers` threw `ReferenceError` when
+  `pickup_at` was present but `return_at` absent (a self-shadowing `const returnAt =
+  returnAt ? ...`), so the AI-Assign dialog loaded no availability data and showed
+  "Fully booked / 0 / 0" despite eligible resources. **Closed 2026-08-18.** →
+  [[BUG Availability Endpoints 500 False Fully Booked]]
 
 ### Not yet filed as individual notes
 

@@ -166,6 +166,51 @@ export function normalizeName(value) {
   return String(value ?? "").trim();
 }
 
+// Standard Proper Case (Title Case) for person names.
+//
+// Lowercases the whole string, then capitalises the first letter of every word.
+// Handles hyphenated and apostrophe names so "O'NEILL" -> "O'Neill" and
+// "juan-carlos" -> "Juan-Carlos". Existing whitespace is collapsed. Designed
+// for DISPLAY / data cleanup only — do not feed it into the email-builder path
+// (drivers/route.js derives emails from normalizeName().toLowerCase(), and a
+// multi-word Title-Cased value would inject spaces into an address).
+export function toProperCase(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/(^|[\s\-'])([a-z0-9])/g, (m, sep, ch) => `${sep}${ch.toUpperCase()}`);
+}
+
+// Vehicle type acronyms that must stay uppercase in a Title-Cased name.
+// ("SUV", "MPV", "AUV", ...) — the general proper-case rule would wrongly
+// produce "Suv", "Mpv", etc.
+const VEHICLE_ACRONYMS = new Set(["SUV", "MPV", "AUV", "EV", "HEV", "PHEV", "4WD", "AWD", "2WD"]);
+
+// Standard Proper Case for VEHICLE names / models / manufacturers.
+//
+// Like toProperCase (lowercase then capitalise each word), but:
+//   - a hyphen becomes a space, so "TEST-VEHICLE" -> "Test Vehicle";
+//   - a known vehicle-type acronym stays uppercase ("SUV" stays "SUV");
+//   - a token containing a digit is treated as a model identifier and left
+//     verbatim ("CiviC18S" stays "CiviC18S", not "Civic18s").
+// Plate numbers are deliberately NOT passed through this — they are already
+// ALL CAPS identifiers and must never be lowercased.
+export function toVehicleTitleCase(value) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/-/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => {
+      const upper = word.toUpperCase();
+      if (VEHICLE_ACRONYMS.has(upper) || /\d/.test(word)) return word;
+      return word[0].toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
 export function normalizeEmail(value) {
   return String(value ?? "").trim().toLowerCase();
 }

@@ -98,7 +98,7 @@ export async function saveWorkSchedule(driverId, days, actorId) {
 /** A driver's leave requests, newest first. */
 export async function listLeaveRequests(driverId) {
   const { rows } = await query(
-    `SELECT leave_request_id, driver_id, start_date, end_date, start_time, end_time, leave_type, reason, status, requested_at, reviewed_by, reviewed_at, review_notes
+    `SELECT leave_request_id, driver_id, start_date::text AS start_date, end_date::text AS end_date, start_time, end_time, leave_type, reason, status, requested_at, reviewed_by, reviewed_at, review_notes
        FROM driver_leave_requests
       WHERE driver_id = $1
       ORDER BY requested_at DESC`,
@@ -131,7 +131,7 @@ export async function createLeaveRequest(driverId, data, requestedAt = new Date(
 /** All leave requests (optionally for one driver), newest first. */
 export async function listAllLeaveRequests({ driverId } = {}) {
   const { rows } = await query(
-    `SELECT lr.leave_request_id, lr.driver_id, lr.start_date, lr.end_date, lr.start_time, lr.end_time, lr.leave_type, lr.reason, lr.status,
+    `SELECT lr.leave_request_id, lr.driver_id, lr.start_date::text AS start_date, lr.end_date::text AS end_date, lr.start_time, lr.end_time, lr.leave_type, lr.reason, lr.status,
             lr.requested_at, lr.reviewed_by, lr.reviewed_at, lr.review_notes,
             json_build_object('employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name) AS driver
        FROM driver_leave_requests lr

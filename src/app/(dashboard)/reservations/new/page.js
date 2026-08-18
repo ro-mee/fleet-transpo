@@ -92,14 +92,7 @@ export default function MockInjectorPage() {
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
 
-  const applyRoutePreset = (pickup, dropoff) => {
-    setForm((f) => ({
-      ...f,
-      pickup_location: pickup,
-      dropoff_location: dropoff,
-    }));
-    toast.success(`Connected Route Set: ${pickup} ➔ ${dropoff}`);
-  };
+
 
   const injectMutation = useMutation({
     mutationFn: injectTransportRequest,
@@ -163,14 +156,7 @@ export default function MockInjectorPage() {
     injectMutation.mutate(form);
   };
 
-  const naiaPresets = [
-    { label: "NAIA T1 ➔ Hotel", pickup: "NAIA Terminal 1", dropoff: "CoCo Star Hotel" },
-    { label: "NAIA T2 ➔ Hotel", pickup: "NAIA Terminal 2", dropoff: "CoCo Star Hotel" },
-    { label: "NAIA T3 ➔ Hotel", pickup: "NAIA Terminal 3", dropoff: "CoCo Star Hotel" },
-    { label: "NAIA T4 ➔ Hotel", pickup: "NAIA Terminal 4", dropoff: "CoCo Star Hotel" },
-    { label: "Hotel ➔ NAIA T3", pickup: "CoCo Star Hotel", dropoff: "NAIA Terminal 3" },
-    { label: "Hotel ➔ NAIA T1", pickup: "CoCo Star Hotel", dropoff: "NAIA Terminal 1" },
-  ];
+
 
   const formActions = (
     <>
@@ -242,62 +228,7 @@ export default function MockInjectorPage() {
         </CardHeader>
       </Card>
 
-      {/* ── CONNECTED AIRPORT & HOTEL ROUTE PRESETS ── */}
-      <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
-        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-          <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
-            <Plane className="w-4 h-4 text-primary" /> Connected Airport &amp; Hotel Route Presets
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Select a preset route to pre-configure pickup and dropoff points.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="pt-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {naiaPresets.map((preset) => {
-              const active =
-                form.pickup_location === preset.pickup && form.dropoff_location === preset.dropoff;
-              const terminalMatch = (preset.pickup + preset.dropoff).match(/NAIA Terminal (\d)/);
-              const terminalTag = terminalMatch ? `NAIA T${terminalMatch[1]}` : "NAIA";
 
-              return (
-                <button
-                  key={preset.label}
-                  type="button"
-                  onClick={() => applyRoutePreset(preset.pickup, preset.dropoff)}
-                  className={cn(
-                    "flex items-center justify-between gap-3 p-3.5 rounded-3xl border text-left transition-all group cursor-pointer",
-                    active
-                      ? "border-primary bg-primary/10 text-primary ring-2 ring-primary/30 font-medium shadow-xs"
-                      : "border-border bg-surface hover:bg-hover hover:border-primary/40 text-foreground"
-                  )}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span
-                      className={cn(
-                        "flex items-center justify-center h-8 px-2 rounded-lg text-xs font-bold shrink-0 border transition-colors",
-                        active
-                          ? "bg-primary/25 text-primary border-primary/50"
-                          : "bg-hover border-border text-foreground group-hover:border-primary/50 group-hover:text-primary"
-                      )}
-                    >
-                      {terminalTag}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                        <span className="truncate">{preset.pickup.replace("NAIA ", "").replace(" Hotel", "")}</span>
-                        <ArrowRight className="w-3.5 h-3.5 shrink-0 text-primary" />
-                        <span className="truncate">{preset.dropoff.replace("NAIA ", "").replace(" Hotel", "")}</span>
-                      </div>
-                    </div>
-                  </div>
-                  {active && <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0 ml-1" />}
-                </button>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* ── CUSTOM REQUEST FORM ── */}
       <Card className={cn("border-0 rounded-3xl overflow-hidden", CARD_SHADOW)}>
@@ -353,25 +284,35 @@ export default function MockInjectorPage() {
               />
             </FloatingField>
 
-            <FloatingField label="Pickup Location" icon={MapPin}>
-              <input
-                id="pickup_location"
-                value={form.pickup_location}
-                onChange={(e) => set("pickup_location", e.target.value)}
-                placeholder="NAIA Terminal 2"
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
-              />
-            </FloatingField>
+            <FloatingSelect
+              label="Pickup Location"
+              icon={MapPin}
+              id="pickup_location"
+              value={form.pickup_location}
+              onChange={(e) => set("pickup_location", e.target.value)}
+            >
+              <option value="">Select Pickup Location</option>
+              {locations.map((loc) => (
+                <option key={loc.location_id} value={loc.name}>
+                  {loc.name}
+                </option>
+              ))}
+            </FloatingSelect>
 
-            <FloatingField label="Dropoff Location" icon={MapPin}>
-              <input
-                id="dropoff_location"
-                value={form.dropoff_location}
-                onChange={(e) => set("dropoff_location", e.target.value)}
-                placeholder="CoCo Star Hotel"
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
-              />
-            </FloatingField>
+            <FloatingSelect
+              label="Dropoff Location"
+              icon={MapPin}
+              id="dropoff_location"
+              value={form.dropoff_location}
+              onChange={(e) => set("dropoff_location", e.target.value)}
+            >
+              <option value="">Select Dropoff Location</option>
+              {locations.map((loc) => (
+                <option key={loc.location_id} value={loc.name}>
+                  {loc.name}
+                </option>
+              ))}
+            </FloatingSelect>
 
             <div>
               <DateTimePicker

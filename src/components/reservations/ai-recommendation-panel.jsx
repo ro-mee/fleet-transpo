@@ -13,6 +13,7 @@ import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { toast } from "@/components/ui/toast";
 import { getRecommendation, assignResources } from "@/services/transport.service";
 import { cn, formatDateTime, formatDistance, formatDuration } from "@/lib/utils";
+import { hasCompleteAssignment } from "@/lib/scheduling/reservation-state";
 import {
   CarFront,
   Check,
@@ -21,15 +22,15 @@ import {
   Clock,
   RefreshCw,
   Route,
-  Shuffle,
   Sparkles,
   TriangleAlert,
   UserCheck,
   X,
   Scale as ScaleIcon,
+  ChevronsUpDown,
 } from "lucide-react";
 
-// Phase 14 — the AI advisor's proposal for one request.
+// Phase 14 - the AI advisor's proposal for one request.
 //
 // AI NEVER ASSIGNS. The GET behind this panel is a pure preview that writes
 // nothing, and the only path to a committed assignment is the Accept button,
@@ -59,7 +60,7 @@ function RiskList({ risks = [] }) {
 }
 
 /**
- * One half of the proposal — the vehicle side or the driver side.
+ * One half of the proposal - the vehicle side or the driver side.
  *
  * "Choose Another" swaps to the alternate rather than opening a picker: the
  * advisor ranks a top pick and one runner-up, and anything past that is the
@@ -71,7 +72,7 @@ function RiskList({ risks = [] }) {
  *
  * The pair is the decision unit: recommended and alternate are each a full
  * vehicle+driver pair. Swapping swaps the WHOLE pair, so swapping the vehicle
- * also pulls in that vehicle's designated driver in one action — you can never
+ * also pulls in that vehicle's designated driver in one action - you can never
  * end up with a vehicle and a driver that don't belong together.
  */
 function AvailabilityChip({ availability }) {
@@ -89,7 +90,7 @@ function AvailabilityChip({ availability }) {
   );
 }
 
-/** AI Fair Workload Distribution chip — pool-relative fairness score. */
+/** AI Fair Workload Distribution chip - pool-relative fairness score. */
 function FairWorkloadChip({ fairnessScore }) {
   if (fairnessScore == null) return null;
   const high = fairnessScore >= 85;
@@ -108,13 +109,13 @@ function FairWorkloadChip({ fairnessScore }) {
   );
 }
 
-/** The always-visible "Why this pair?" checklist. */
+/** Verified dispatch checks used when AI narration is unavailable. */
 function ChecklistBlock({ items = [] }) {
   if (!items.length) return null;
   return (
     <div className="rounded-lg border border-border/60 bg-hover/30 px-3 py-2.5">
       <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">
-        Recommendation Reason
+        Verified Dispatch Checks
       </p>
       <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
         {items.map((item, i) => (
@@ -132,8 +133,8 @@ function ChecklistBlock({ items = [] }) {
   );
 }
 
-function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) {
-  const chosen = pick === PICK.ALTERNATE ? pair?.alternate : pair?.recommended;
+function VehicleDriverPairBlock({ pair, selectedPairKey, onPairChange, isNarrating, narration }) {
+  const chosen = selectedPairKey === PICK.ALTERNATE ? pair?.alternate : pair?.recommended;
   const vehicle = chosen?.vehicle;
   const driver = chosen?.driver;
 
@@ -175,7 +176,7 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
   }
 
   const vehicleTitle = vehicle.plate_number
-    ? `${vehicle.plate_number}${vehicle.vehicle_name ? ` · ${vehicle.vehicle_name}` : ""}`
+    ? `${vehicle.plate_number}${vehicle.vehicle_name ? ` - ${vehicle.vehicle_name}` : ""}`
     : "Vehicle Unassigned";
 
   const driverTitle = driver ? driver.driver_name : "No Designated Driver Available";
@@ -193,7 +194,7 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
       ].filter(Boolean)
     : [];
 
-  // Rolling workload detail (AI Fair Workload Distribution) — only when history exists.
+  // Rolling workload detail (AI Fair Workload Distribution) - only when history exists.
   const workload = chosen?.workload;
   const workloadMeta = workload
     ? (() => {
@@ -203,9 +204,25 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
         const km30 = Number(workload.km_30d) || 0;
         const trips = t7 > 0 ? t7 : t30;
         const km = km7 > 0 ? km7 : km30;
-        return [`${trips} trip${trips === 1 ? "" : "s"}${km ? ` · ${Math.round(km)} km` : ""} ${t7 > 0 ? "this week" : "this month"}`];
+        return [`${trips} trip${trips === 1 ? "" : "s"}${km ? ` - ${Math.round(km)} km` : ""} ${t7 > 0 ? "this week" : "this month"}`];
       })()
     : [];
+
+  // Build dropdown options: always show recommended; show alternate only when it exists.
+  const pairOptions = [
+    {
+      key: PICK.RECOMMENDED,
+      label: pair?.recommended
+        ? `${pair.recommended.vehicle?.plate_number ?? "Vehicle"} - ${pair.recommended.driver?.driver_name ?? "No driver"} (Recommended)`
+        : "Recommended",
+    },
+    ...(pair?.alternate
+      ? [{
+          key: PICK.ALTERNATE,
+          label: `${pair.alternate.vehicle?.plate_number ?? "Vehicle"} - ${pair.alternate.driver?.driver_name ?? "No driver"} (Alternate)`,
+        }]
+      : []),
+  ];
 
   return (
     <div className="rounded-xl border border-border bg-surface p-4 space-y-3.5 shadow-xs">
@@ -216,10 +233,32 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
           </div>
           <div>
             <p className="text-xs font-semibold text-foreground uppercase tracking-wide">
-              Recommended Fleet Pair
+              Fleet Pair
             </p>
-            <p className="text-[11px] text-foreground-muted">Vehicle paired with its designated driver</p>
+            <p className="text-[11px] text-foreground-muted">Select the pair you want to dispatch</p>
           </div>
+        </div>
+
+        {/* Choose Pair dropdown */}
+        <div className="relative shrink-0">
+          <select
+            id="choose-pair-select"
+            aria-label="Choose dispatch pair"
+            value={selectedPairKey}
+            onChange={(e) => onPairChange(e.target.value)}
+            className={cn(
+              "appearance-none pr-7 pl-3 py-1.5 rounded-xl border border-border bg-surface",
+              "text-[11px] font-semibold text-foreground cursor-pointer",
+              "focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary",
+              "transition-colors hover:border-primary/60",
+              pairOptions.length <= 1 && "opacity-50 pointer-events-none"
+            )}
+          >
+            {pairOptions.map((opt) => (
+              <option key={opt.key} value={opt.key}>{opt.label}</option>
+            ))}
+          </select>
+          <ChevronsUpDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-muted" />
         </div>
       </div>
 
@@ -239,21 +278,16 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
         <div className="space-y-0.5 min-w-0">
           <span className="flex items-center gap-1.5 text-foreground-secondary font-semibold">
             <CarFront className="w-3.5 h-3.5 text-primary shrink-0" /> Assigned Vehicle
-            {pick === PICK.ALTERNATE && (
+            {selectedPairKey === PICK.ALTERNATE && (
               <Badge variant="secondary" className="text-[11px] py-0 px-1">Alternate</Badge>
             )}
           </span>
           <p className="font-bold text-foreground text-sm truncate">{vehicleTitle}</p>
           {vehicleMeta.length > 0 && (
-            <p className="text-foreground-muted text-[11px]">{vehicleMeta.join(" · ")}</p>
+            <p className="text-foreground-muted text-[11px]">{vehicleMeta.join(" - ")}</p>
           )}
           <AvailabilityChip availability={vehicle.availability} />
         </div>
-        {pair?.alternate && (
-          <Button variant="ghost" size="sm" className="h-7 text-[11px] shrink-0" onClick={onSwap}>
-            <Shuffle className="w-3 h-3 mr-1" /> Swap Pair
-          </Button>
-        )}
       </div>
 
       {/* Driver Info */}
@@ -268,31 +302,28 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
           </span>
           <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
           {[...driverMeta, ...workloadMeta].length > 0 && (
-            <p className="text-foreground-muted text-[11px]">{[...driverMeta, ...workloadMeta].join(" · ")}</p>
+            <p className="text-foreground-muted text-[11px]">{[...driverMeta, ...workloadMeta].join(" - ")}</p>
           )}
           <AvailabilityChip availability={driver.availability} />
         </div>
       </div>
 
-      {/* Why this pair? — always visible checklist */}
-      <ChecklistBlock items={chosen?.checklist} />
-
-      {/* AI Rationale / Match Reasons */}
+      {/* AI rationale with deterministic fallback */}
       <div className="pt-3 border-t border-border/40 space-y-2">
         <div className="flex items-center gap-1.5">
           <Sparkles className="w-3.5 h-3.5 text-info shrink-0" aria-hidden="true" />
           <p className="text-[11px] font-semibold text-info uppercase tracking-wider">
-            AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
+            AI Rationale{narration?.provider ? ` - ${narration.provider}` : ""}
           </p>
         </div>
         {isNarrating ? (
           <p className="text-xs text-foreground-muted flex items-center gap-1.5">
             <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
-            Writing rationale…
+            Writing rationale...
           </p>
         ) : narration ? (
           <ul className="space-y-2 text-xs text-foreground-secondary leading-relaxed">
-            {narration.text.split(/(?<=\.)\s+/).filter(Boolean).map((sentence, idx) => (
+            {narration.text.split(/\n+|(?<=\.)\s+/).map((sentence) => sentence.trim()).filter(Boolean).map((sentence, idx) => (
               <li key={idx} className="flex items-start gap-1.5">
                 <Check className="w-3.5 h-3.5 text-info shrink-0 mt-0.5" />
                 <span>{sentence}</span>
@@ -300,9 +331,12 @@ function VehicleDriverPairBlock({ pair, pick, onSwap, isNarrating, narration }) 
             ))}
           </ul>
         ) : (
-          <p className="text-xs leading-relaxed text-foreground-muted">
-            Live rationale unavailable — the AI provider did not respond in time.
-          </p>
+          <div className="space-y-2">
+            <p className="text-xs leading-relaxed text-foreground-muted">
+              AI rationale is unavailable. Showing verified dispatch checks instead.
+            </p>
+            <ChecklistBlock items={chosen?.checklist} />
+          </div>
         )}
       </div>
 
@@ -384,14 +418,23 @@ function Countdown({ pickupAt, now }) {
  *
  * `onAssigned` fires only after the assign endpoint returns 200, so the parent
  * invalidates on a real state change rather than on an intent. A 409 keeps the
- * panel open with the server's blocking conflicts and an explicit override —
+ * panel open with the server's blocking conflicts and an explicit override -
  * identical to the manual dialog, because it is the same endpoint answering.
  */
-export function AiRecommendationPanel({ requestId, className, canAssign = false, onAssigned, alreadyAssigned = false, pickupAt = null }) {
+export function AiRecommendationPanel({
+  requestId,
+  className,
+  canAssign = false,
+  onAssigned,
+  alreadyAssigned = false,
+  pickupAt = null,
+  hideHeader = false,
+  compact = false
+}) {
   const queryClient = useQueryClient();
   const now = useNow();
   const [dismissed, setDismissed] = useState(false);
-  const [pick, setPick] = useState(PICK.RECOMMENDED);
+  const [selectedPairKey, setSelectedPairKey] = useState(PICK.RECOMMENDED);
   const [conflictError, setConflictError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
 
@@ -409,21 +452,31 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
     staleTime: 60_000,
   });
 
-  // LLM narration — slow, nullable, streams in behind the scored result only
-  // once the user opens the full explanation. Never changes the pick.
-  const { data: narrated, isFetching: isNarrating } = useQuery({
-    queryKey: ["reservation-recommendation", requestId, "narrated"],
-    queryFn: () => getRecommendation(requestId, { narrate: true }),
-    enabled: requestId != null && !dismissed,
-    staleTime: 5 * 60 * 1000,
-    retry: false,
-  });
-  const narration = narrated?.narration;
-
-  const chosen = pick === PICK.ALTERNATE ? rec?.pair?.alternate : rec?.pair?.recommended;
+  const chosen = selectedPairKey === PICK.ALTERNATE ? rec?.pair?.alternate : rec?.pair?.recommended;
   const vehicle = chosen?.vehicle ?? null;
   const driver = chosen?.driver ?? null;
   const snapshot = rec?.snapshot ?? null;
+  const chosenVehicleId = vehicle?.vehicle_id ?? null;
+  const chosenDriverId = driver?.driver_id ?? null;
+
+  // LLM narration - slow, nullable, streams in behind the scored result only
+  // once the user opens the full explanation. Never changes the pick. It is
+  // pinned to the pair being shown so the rationale always describes the pair
+  // the dispatcher sees, not the server's own first pick.
+  const { data: narrated, isFetching: isNarrating } = useQuery({
+    queryKey: ["reservation-recommendation", requestId, "narrated", chosenVehicleId, chosenDriverId],
+    queryFn: () =>
+      getRecommendation(requestId, {
+        narrate: true,
+        vehicleId: chosenVehicleId,
+        driverId: chosenDriverId,
+      }),
+    enabled: requestId != null && !dismissed && chosenVehicleId != null,
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  const narration = narrated?.narration;
 
   const assignMutation = useMutation({
     mutationFn: ({ force }) =>
@@ -437,7 +490,7 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
       toast[forced ? "warning" : "success"](
         forced
           ? `Assigned with ${res.warnings.length} conflict override${res.warnings.length === 1 ? "" : "s"}`
-          : "AI recommendation accepted — resources assigned"
+          : "AI recommendation accepted - resources assigned"
       );
       setConflictError(null);
       queryClient.invalidateQueries({ queryKey: ["reservation-timeline", requestId] });
@@ -451,58 +504,45 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
     },
   });
 
-  if (dismissed) {
-    return (
-      <Card className={className}>
-        <CardContent className="flex items-center justify-between gap-3 p-4">
-          <p className="text-sm text-foreground-secondary">
-            AI recommendation dismissed for this request.
-          </p>
-          <Button variant="outline" size="sm" onClick={() => setDismissed(false)}>
-            <Sparkles className="w-3.5 h-3.5 mr-1" />
-            Show again
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const blocking = conflictError?.data?.conflicts || [];
-  const nothingToAssign = !vehicle && !driver;
-
+  const blocking =
+    conflictError?.data?.conflicts ||
+    (conflictError?.data?.conflict ? [conflictError.data.conflict] : []);
+  const incompleteAssignment = !hasCompleteAssignment(vehicle?.vehicle_id, driver?.driver_id);
   return (
-    <Card className={className}>
-      <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-        <div className="min-w-0">
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-info" aria-hidden="true" />
-            AI Recommendation
-          </CardTitle>
-          <CardDescription>
-            Deterministic scoring of the available fleet. Advisory only — you confirm the
-            assignment.
-          </CardDescription>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={isFetching}
-            onClick={() => {
-              setConflictError(null);
-              setPick(PICK.RECOMMENDED);
-              setRegenerating(true);
-              refetch();
-            }}
-            aria-label="Regenerate recommendation"
-            title="Regenerate a fresh fleet pair"
-          >
-            <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
-          </Button>
-        </div>
-      </CardHeader>
+    <Card className={cn(className, compact && "border-0 shadow-none bg-transparent")}>
+      {!hideHeader && (
+        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-info" aria-hidden="true" />
+              AI Recommendation
+            </CardTitle>
+            <CardDescription>
+              Deterministic scoring of the available fleet. Advisory only - you confirm the
+              assignment.
+            </CardDescription>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={isFetching}
+              onClick={() => {
+                setConflictError(null);
+                setSelectedPairKey(PICK.RECOMMENDED);
+                setRegenerating(true);
+                refetch();
+              }}
+              aria-label="Regenerate recommendation"
+              title="Regenerate a fresh fleet pair"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
+            </Button>
+          </div>
+        </CardHeader>
+      )}
 
-      <CardContent className="space-y-3">
+      <CardContent className={cn("space-y-3", compact && "p-0")}>
         {isLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-9 w-full rounded-lg" />
@@ -531,7 +571,17 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
                   <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0" aria-hidden="true" />
                   {snapshot.expiry_reason}
                 </span>
-                <Button variant="outline" size="sm" className="h-7 shrink-0" onClick={() => refetch()}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 shrink-0"
+                  onClick={() => {
+                    setConflictError(null);
+                    setSelectedPairKey(PICK.RECOMMENDED);
+                    setRegenerating(true);
+                    refetch();
+                  }}
+                >
                   <RefreshCw className="w-3 h-3 mr-1" /> Regenerate
                 </Button>
               </div>
@@ -539,27 +589,21 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
 
             <VehicleDriverPairBlock
               pair={rec?.pair}
-              pick={pick}
-              onSwap={() => setPick((p) => (p === PICK.RECOMMENDED ? PICK.ALTERNATE : PICK.RECOMMENDED))}
+              selectedPairKey={selectedPairKey}
+              onPairChange={(key) => { setSelectedPairKey(key); setConflictError(null); }}
               isNarrating={isNarrating}
               narration={narration}
             />
-
-
 
             <ConflictBlock conflicts={blocking} />
 
             {canAssign && !alreadyAssigned && (
               <div className="flex flex-wrap items-center justify-end gap-1.5 border-t border-border pt-3">
-                <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>
-                  <X className="w-3.5 h-3.5 mr-1" />
-                  Reject
-                </Button>
                 {blocking.length > 0 && (
                   <Button
                     variant="destructive"
                     size="sm"
-                    disabled={assignMutation.isPending}
+                    disabled={assignMutation.isPending || incompleteAssignment || snapshot?.expired || regenerating}
                     onClick={() => assignMutation.mutate({ force: true })}
                   >
                     Override &amp; Accept
@@ -567,11 +611,11 @@ export function AiRecommendationPanel({ requestId, className, canAssign = false,
                 )}
                 <Button
                   size="sm"
-                  disabled={assignMutation.isPending || nothingToAssign}
+                  disabled={assignMutation.isPending || incompleteAssignment || snapshot?.expired || regenerating}
                   onClick={() => assignMutation.mutate({ force: false })}
                 >
                   <Check className="w-3.5 h-3.5 mr-1" />
-                  {assignMutation.isPending ? "Assigning…" : "Accept & Assign"}
+                  {assignMutation.isPending ? "Assigning..." : "Assign"}
                 </Button>
               </div>
             )}

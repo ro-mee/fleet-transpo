@@ -35,6 +35,10 @@ export function isTerminalReservationStatus(status) {
   return TERMINAL.has(status);
 }
 
+export function hasCompleteAssignment(vehicleId, driverId) {
+  return Boolean(vehicleId && driverId);
+}
+
 /**
  * Decide whether a request may move from `from` to `to`.
  * Rules:

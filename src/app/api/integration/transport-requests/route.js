@@ -54,6 +54,10 @@ async function authorize(req) {
 // Without those params it keeps the full, backward-compatible array for the
 // queue / dashboard / analytics callers.
 const OPEN_STATUSES = ["Pending", "Scheduled", "Assigned", "In Progress"];
+const NEEDS_ASSIGNMENT = `(
+  tr.fleet_status IN ('Pending', 'Scheduled', 'Assigned')
+  AND (tr.vehicle_id IS NULL OR tr.driver_id IS NULL)
+)`;
 
 const TR_LIST_SELECT = `
   tr.request_id, tr.reservation_number, tr.booking_reference, tr.guest_name,
@@ -232,6 +236,8 @@ export async function GET(req) {
     if (hasDriver === "true") where += ` AND tr.driver_id IS NOT NULL`;
     else if (hasDriver === "false") where += ` AND tr.driver_id IS NULL`;
 
+    if (sp.get("needs_assignment") === "true") where += ` AND ${NEEDS_ASSIGNMENT}`;
+
     // Free-text search across the fields a dispatcher would actually type.
     const search = sp.get("search");
     if (search) {
@@ -292,7 +298,7 @@ export async function GET(req) {
               `SELECT
                  count(*) AS total,
                  count(*) FILTER (WHERE tr.fleet_status = ANY($1)) AS open,
-                 count(*) FILTER (WHERE tr.fleet_status = 'Pending') AS review,
+                 count(*) FILTER (WHERE ${NEEDS_ASSIGNMENT}) AS review,
                  count(*) FILTER (
                    WHERE tr.pickup_datetime >= date_trunc('day', now())
                      AND tr.pickup_datetime < date_trunc('day', now()) + INTERVAL '1 day'

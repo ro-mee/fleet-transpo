@@ -114,7 +114,7 @@ export function FleetGrid({ filters = {} }) {
               <div className="flex items-start justify-between gap-2 mb-4">
                 <div>
                   <h3 className="text-lg font-black text-foreground tracking-tight leading-none mb-1.5">{v.vehicle_name}</h3>
-                  <p className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider">{v.manufacturer || "Unknown"} {v.model || ""}</p>
+                  <p className="text-[11px] font-bold text-foreground-secondary tracking-wider">{v.manufacturer || "Unassigned"} {v.model || ""}</p>
                 </div>
                 <div className="text-right shrink-0">
                   <span className="text-[10px] font-bold text-primary/70 uppercase tracking-wider block mb-0.5">Plate #</span>

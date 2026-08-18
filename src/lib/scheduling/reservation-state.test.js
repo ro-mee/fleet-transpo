@@ -1,12 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import {
+  hasCompleteAssignment,
   canTransitionReservation,
   isTerminalReservationStatus,
   isValidReservationStatus,
   nextStatuses,
   transitionPath,
 } from "@/lib/scheduling/reservation-state";
+
+describe("hasCompleteAssignment", () => {
+  it("requires both a vehicle and driver", () => {
+    expect(hasCompleteAssignment(1, null)).toBe(false);
+    expect(hasCompleteAssignment(null, 1)).toBe(false);
+    expect(hasCompleteAssignment(1, 1)).toBe(true);
+  });
+});
 
 describe("reservation state machine — linear chain", () => {
   it("isValidReservationStatus accepts the new status set only", () => {

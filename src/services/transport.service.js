@@ -15,27 +15,18 @@ export async function getTransportRequest(id) {
   return apiFetch(`/api/integration/transport-requests/${id}`);
 }
 
-// Commit resources to a request (Pending -> Scheduled -> Assigned).
-// Either id may be omitted to assign one half at a time; the server keeps the
-// value already on the request. Blocking conflicts return 409 unless `force` is
-// set, which is recorded on the timeline as an override.
+// Commit a vehicle+driver pair to a request (Pending -> Scheduled -> Assigned).
+// Blocking conflicts return 409 unless `force` is set, which is recorded on the
+// timeline as an override.
 export async function assignResources(id, { vehicleId, driverId, force = false } = {}) {
   return apiFetch(`/api/integration/transport-requests/${id}/assign`, {
     method: "PUT",
     body: {
-      ...(vehicleId != null ? { vehicle_id: vehicleId } : {}),
-      ...(driverId != null ? { driver_id: driverId } : {}),
+      vehicle_id: vehicleId,
+      driver_id: driverId,
       ...(force ? { force: true } : {}),
     },
   });
-}
-
-export async function assignVehicle(id, vehicleId, { force = false } = {}) {
-  return assignResources(id, { vehicleId, force });
-}
-
-export async function assignDriver(id, driverId, { force = false } = {}) {
-  return assignResources(id, { driverId, force });
 }
 
 // Abort a request already past intake. Requests go to Cancelled (there is no

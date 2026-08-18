@@ -12,7 +12,7 @@ export async function GET(req) {
   try {
     const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"]);
     const sp = new URL(req.url).searchParams;
-    const role = session.user?.roles?.role_name;
+    const role = session.user?.role;
     let driverId = sp.get("driver_id");
 
     if (role === "driver") {

@@ -123,12 +123,12 @@ Only true disqualifiers stay hard-blocked:
   in `pair-scoring.js`), expired license, or an active window conflict.
 
 Changes that made this consistent: `vehicles/available/route.js` includes `In Use` when a
-window is given; `dispatch-edit-dialog.jsx` and `ai-assign-dialog.jsx` no longer fetch drivers
-with `status: "Available"` but filter out `Suspended` / `On Leave` / `Off Duty` client-side
+window is given; `dispatch-edit-dialog.jsx` no longer fetches drivers
+with `status: "Available"` but filters out `Suspended` / `On Leave` / `Off Duty` client-side
 (their data is still window/license/pairing-checked by the endpoint). The `ai-assign-dialog`
-"no driver cleared" footnote now only counts vehicles that could actually serve the request
-(right class + enough seats). This mirrors the AI engine, which already ranked the whole roster
-and answered availability by schedule overlap.
+manual override was removed 2026-08-18 — it now embeds the shared `AiRecommendationPanel`,
+which renders the engine's eligible pair directly. This mirrors the AI engine, which already
+ranked the whole roster and answered availability by schedule overlap.
 
 ## What I learned
 

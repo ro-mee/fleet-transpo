@@ -3,10 +3,10 @@ import { moderateScale } from './scaling';
  * FleetOps Driver Companion — Design Tokens
  * Based exactly on Stitch FleetOps Tactical design system.
  *
- * Primary: #000666 (Deep Indigo)
- * Primary Container: #1A237E
- * Secondary: #046B5E (Tactical Teal)
- * Background: #FCF9F8 (Warm White)
+ * Primary: #285448 (Forest Green)
+ * Primary Container: #DCE9E3
+ * Secondary: #8A632C (Antique Brass)
+ * Background: #F5F2EC (Warm Ivory)
  */
 
 // ---- 8-point spacing grid ----
@@ -35,12 +35,12 @@ export const radius = {
 
 // ---- Typefaces (design-system spec: Archivo + IBM Plex) ----
 export const fonts = {
-  display: "Archivo_700Bold",
-  displayBold: "Archivo_700Bold",
-  displaySemiBold: "Archivo_600SemiBold",
-  body: "IBMPlexSans_400Regular",
-  bodyMedium: "IBMPlexSans_500Medium",
-  bodySemiBold: "IBMPlexSans_600SemiBold",
+  display: "PlusJakartaSans_700Bold",
+  displayBold: "PlusJakartaSans_700Bold",
+  displaySemiBold: "PlusJakartaSans_600SemiBold",
+  body: "PlusJakartaSans_400Regular",
+  bodyMedium: "PlusJakartaSans_500Medium",
+  bodySemiBold: "PlusJakartaSans_600SemiBold",
   data: "IBMPlexMono_500Medium",
   dataSemiBold: "IBMPlexMono_600SemiBold",
 };
@@ -48,135 +48,135 @@ export const fonts = {
 // ---- Stitch FleetOps Tactical Palette — Light Mode ----
 const light = {
   // Primary — Deep Indigo
-  primary: "#000666",
+  primary: "#285448",
   onPrimary: "#FFFFFF",
-  primaryContainer: "#1A237E",
-  onPrimaryContainer: "#8690EE",
+  primaryContainer: "#DCE9E3",
+  onPrimaryContainer: "#17382F",
 
   // Secondary — Tactical Teal
-  secondary: "#046B5E",
+  secondary: "#8A632C",
   onSecondary: "#FFFFFF",
-  secondaryContainer: "#9DEFDE",
-  onSecondaryContainer: "#0F6F62",
+  secondaryContainer: "#F1E7D6",
+  onSecondaryContainer: "#5A3D18",
 
   // Tertiary — Dark Neutral
-  tertiary: "#191B1C",
+  tertiary: "#9D4F3F",
   onTertiary: "#FFFFFF",
-  tertiaryContainer: "#2D3031",
-  onTertiaryContainer: "#969899",
+  tertiaryContainer: "#F4DDD6",
+  onTertiaryContainer: "#71352A",
 
   // Error / SOS
-  error: "#BA1A1A",
+  error: "#A84340",
   onError: "#FFFFFF",
-  errorContainer: "#FFDAD6",
-  onErrorContainer: "#93000A",
+  errorContainer: "#F4DDD9",
+  onErrorContainer: "#752825",
 
   // Background & Surface
-  background: "#F5F5F5",
-  onBackground: "#121212",
+  background: "#F5F2EC",
+  onBackground: "#1F2925",
 
-  surface: "#F5F5F5",
-  onSurface: "#121212",
-  surfaceBright: "#F5F5F5",
-  surfaceDim: "#DCD9D9",
+  surface: "#FFFDFC",
+  onSurface: "#1F2925",
+  surfaceBright: "#FFFFFF",
+  surfaceDim: "#DEDAD1",
 
-  surfaceVariant: "#E5E2E1",
-  onSurfaceVariant: "#454652",
+  surfaceVariant: "#EDEAE3",
+  onSurfaceVariant: "#53615A",
 
   surfaceContainerLowest: "#FFFFFF",
-  surfaceContainerLow: "#F6F3F2",
-  surfaceContainer: "#F0EDED",
-  surfaceContainerHigh: "#EAE7E7",
-  surfaceContainerHighest: "#E5E2E1",
+  surfaceContainerLow: "#FBF8F3",
+  surfaceContainer: "#F4F0E9",
+  surfaceContainerHigh: "#ECE7DE",
+  surfaceContainerHighest: "#E3DED5",
 
   // Outline
-  outline: "#767683",
-  outlineVariant: "#C6C5D4",
+  outline: "#68736D",
+  outlineVariant: "#D8D5CC",
 
   // Inverse
-  inverseSurface: "#303030",
-  inverseOnSurface: "#F3F0EF",
-  inversePrimary: "#BDC2FF",
+  inverseSurface: "#24302B",
+  inverseOnSurface: "#F5F1E9",
+  inversePrimary: "#A9C8B9",
 
-  shadow: "#000666",
+  shadow: "#16251F",
   scrim: "#000000",
-  surfaceTint: "#4C56AF",
+  surfaceTint: "#285448",
 
   // Semantic
-  foreground: "#1B1C1C",
-  foregroundSecondary: "#454652",
-  foregroundMuted: "#767683",
-  border: "#C6C5D4",
-  borderStrong: "#767683",
-  hover: "#F0EDED",
-  success: "#046B5E",
-  warning: "#D97706",
-  danger: "#BA1A1A",
-  info: "#000666",
-  edge: "#000666",
+  foreground: "#1F2925",
+  foregroundSecondary: "#53615A",
+  foregroundMuted: "#68736D",
+  border: "#D8D5CC",
+  borderStrong: "#68736D",
+  hover: "#F4F0E9",
+  success: "#286B54",
+  warning: "#9A4E3C",
+  danger: "#A84340",
+  info: "#3F6A7C",
+  edge: "#285448",
 };
 
 // ---- Dark Mode ----
 const dark = {
-  primary: "#BDC2FF",
-  onPrimary: "#000767",
-  primaryContainer: "#1A237E",
-  onPrimaryContainer: "#E0E0FF",
+  primary: "#A6C7B8",
+  onPrimary: "#103A30",
+  primaryContainer: "#285448",
+  onPrimaryContainer: "#DDEBE5",
 
-  secondary: "#84D5C5",
-  onSecondary: "#003730",
-  secondaryContainer: "#005046",
-  onSecondaryContainer: "#9DEFDE",
+  secondary: "#D2A765",
+  onSecondary: "#3B280D",
+  secondaryContainer: "#59431F",
+  onSecondaryContainer: "#F3E4C6",
 
-  tertiary: "#C5C7C8",
-  onTertiary: "#2D3031",
-  tertiaryContainer: "#444748",
-  onTertiaryContainer: "#E1E3E4",
+  tertiary: "#E0A08E",
+  onTertiary: "#4A2118",
+  tertiaryContainer: "#6E382C",
+  onTertiaryContainer: "#F7DDD5",
 
-  error: "#FFB4AB",
-  onError: "#690005",
-  errorContainer: "#93000A",
-  onErrorContainer: "#FFDAD6",
+  error: "#F2A39C",
+  onError: "#5B1617",
+  errorContainer: "#7A2828",
+  onErrorContainer: "#FFDAD7",
 
-  background: "#121212",
-  onBackground: "#F5F5F5",
+  background: "#111816",
+  onBackground: "#F5F1E9",
 
-  surface: "#121212",
-  onSurface: "#F5F5F5",
-  surfaceBright: "#121212",
-  surfaceDim: "#141415",
+  surface: "#19211E",
+  onSurface: "#F5F1E9",
+  surfaceBright: "#2A3530",
+  surfaceDim: "#111816",
 
-  surfaceVariant: "#454652",
-  onSurfaceVariant: "#C6C5D4",
+  surfaceVariant: "#35423B",
+  onSurfaceVariant: "#C2CBC4",
 
-  surfaceContainerLowest: "#0F0F10",
-  surfaceContainerLow: "#1B1C1E",
-  surfaceContainer: "#1F2023",
-  surfaceContainerHigh: "#2A2B2D",
-  surfaceContainerHighest: "#353638",
+  surfaceContainerLowest: "#0D1311",
+  surfaceContainerLow: "#151D1A",
+  surfaceContainer: "#1C2521",
+  surfaceContainerHigh: "#25302B",
+  surfaceContainerHighest: "#303D37",
 
-  outline: "#8F909A",
-  outlineVariant: "#454652",
+  outline: "#97A39C",
+  outlineVariant: "#35423B",
 
-  inverseSurface: "#E5E2E1",
-  inverseOnSurface: "#303031",
-  inversePrimary: "#000666",
+  inverseSurface: "#E8E4DC",
+  inverseOnSurface: "#27312D",
+  inversePrimary: "#285448",
 
   shadow: "#000000",
   scrim: "#000000",
-  surfaceTint: "#BDC2FF",
+  surfaceTint: "#A6C7B8",
 
-  foreground: "#E5E2E1",
-  foregroundSecondary: "#C6C5D4",
-  foregroundMuted: "#8F909A",
-  border: "#454652",
-  borderStrong: "#8F909A",
-  hover: "#2A2B2D",
-  success: "#84D5C5",
-  warning: "#FBBF24",
-  danger: "#FFB4AB",
-  info: "#BDC2FF",
-  edge: "#BDC2FF",
+  foreground: "#F5F1E9",
+  foregroundSecondary: "#C2CBC4",
+  foregroundMuted: "#97A39C",
+  border: "#35423B",
+  borderStrong: "#97A39C",
+  hover: "#25302B",
+  success: "#82BEA3",
+  warning: "#E5A080",
+  danger: "#F2A39C",
+  info: "#8DB9C9",
+  edge: "#A6C7B8",
 };
 
 const highContrastLight = {
@@ -250,11 +250,11 @@ export const m3 = (c) => ({
 export function statusSurfaces(c = colors) {
   const isDark = c === dark;
   return {
-    success: isDark ? "#003730" : "#D6F5EC",
-    warning: isDark ? "#4A2F00" : "#FEF3C7",
-    info: isDark ? "#1A237E" : "#E0E0FF",
-    danger: isDark ? "#690005" : "#FFDAD6",
-    neutral: isDark ? "#2A2B2D" : "#F0EDED",
+    success: isDark ? "#23483B" : "#DDEEE6",
+    warning: isDark ? "#503C1E" : "#F6E8CF",
+    info: isDark ? "#263F4B" : "#DDEAF0",
+    danger: isDark ? "#552D2B" : "#F4DDD9",
+    neutral: isDark ? "#222C27" : "#EDEAE3",
   };
 }
 
@@ -344,7 +344,6 @@ export function typeFor(c = colors, scale = 1) {
       fontSize: sc(12),
       lineHeight: sc(16),
       letterSpacing: 0.5,
-      textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
     caption: {
@@ -370,7 +369,6 @@ export function typeFor(c = colors, scale = 1) {
       fontSize: sc(12),
       lineHeight: sc(16),
       letterSpacing: 1,
-      textTransform: "uppercase",
       color: c.onSurfaceVariant,
     },
   };

@@ -7,7 +7,7 @@ import { estimateEfficiency, isProximityRelevant } from "@/lib/ai/rule-engine";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateTrip, estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
-import { saveRecommendationSnapshot, getActiveRecommendation } from "@/services/recommendation.service";
+import { saveRecommendationSnapshot, getActiveRecommendation, validatePairAvailability } from "@/services/recommendation.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 
 // Dispatch recommendation — the advisory panel behind the review dialog.
@@ -31,9 +31,12 @@ const NARRATION_BUDGET_MS = 25000;
 const RATIONALE_INSTRUCTIONS =
   "You are a fleet dispatch assistant for a hotel transportation desk. " +
   "You are given a transport request and the pairing a deterministic scorer already chose. " +
-  "Explain why the pairing fits and what to double check by writing a concise checklist of 2-3 key points. " +
-  "Start each point with a checkmark symbol (✓). Keep each point extremely brief and focused only on the most critical information. " +
-  "Use only the facts given — never invent facts. Do not recommend a different vehicle or driver. " +
+  "Write exactly three short plain-text lines starting with 'Fit:', 'Ready:', and 'Check:'. " +
+  "Keep each line to 18 words or fewer. Fit must name the selected vehicle and driver plus the strongest matching fact. " +
+  "Ready must include only the most relevant pickup-window, leave, capacity, location, fuel, maintenance, or workload fact. " +
+  "Check must state one warning or confirmation needed before assignment; if none exists, say 'No flagged risk.' " +
+  "Do not use checkmarks, bullets, markdown, headings, extra introductions, or recommend a different vehicle or driver. " +
+  "Use only the facts given - never invent facts or imply that an unverified value was checked. " +
   "Refer to the vehicle and driver EXACTLY as named in the facts; never substitute a different plate number, vehicle class, or driver name. " +
   "When a value is given as 'not recorded' or 'UNKNOWN', treat it as missing data: say it is unverified and must be confirmed. " +
   "Never restate a missing value as a number, and never describe missing data as if it were a measured result.";
@@ -421,6 +424,9 @@ async function narrate(request, recommendation, session) {
     user_prompt: buildRationalePrompt(request, recommendation),
     system_instructions: RATIONALE_INSTRUCTIONS,
     user_email: session?.user?.email || null,
+    max_tokens: 256,
+    defer_log: true,
+    prefer_fast_model: true,
   }).catch(() => null);
 
   let timer;
@@ -535,32 +541,51 @@ export async function GET(req, { params }) {
       const { snapshot, expired, reason } = await getActiveRecommendation(id);
       if (snapshot) {
         const pair = snapshot.pair_json ? JSON.parse(snapshot.pair_json) : null;
-        // Legacy read-back compat: expose the stored legacy columns too, if any.
-        const legacy = {
-          vehicle: request.ai_vehicle_recommendation,
-          driver: request.ai_driver_recommendation,
-        };
-        const narrationResult = await narrateForRequest(
-          req,
-          request,
-          { trip: pair?.trip ?? null, pair: { recommended: pair } },
-          session
-        );
-        return ok({
-          generated_at: snapshot.generated_at,
-          trip: pair?.trip ?? null,
-          pair,
-          snapshot: {
-            snapshot_id: snapshot.snapshot_id,
-            valid_until: snapshot.valid_until,
-            expired,
-            expiry_reason: reason,
-            is_consumed: snapshot.is_consumed,
-          },
-          vehicle: legacy.vehicle,
-          driver: legacy.driver,
-          narration: narrationResult,
-        });
+        // Revalidate against the LIVE pairing before serving. A stored
+        // snapshot can be minutes old; the custodian may have been reassigned
+        // or gone on leave since. If the recommended pair no longer holds,
+        // discard it and fall through to a fresh computation below — the panel
+        // must never display (or let the dispatcher accept) a pair that is no
+        // longer backed by the current designated/substitute assignment.
+        const rec = pair?.recommended ?? null;
+        const recVehicleId = rec?.vehicle?.vehicle_id ?? null;
+        const recDriverId = rec?.driver?.driver_id ?? null;
+        if (recVehicleId && recDriverId) {
+          const revalidated = await validatePairAvailability({
+            request,
+            vehicleId: recVehicleId,
+            driverId: recDriverId,
+          });
+          if (revalidated.ok) {
+            // Legacy read-back compat: expose the stored legacy columns too, if any.
+            const legacy = {
+              vehicle: request.ai_vehicle_recommendation,
+              driver: request.ai_driver_recommendation,
+            };
+            const narrationResult = await narrateForRequest(
+              req,
+              request,
+              { trip: pair?.trip ?? null, pair: { recommended: rec } },
+              session
+            );
+            return ok({
+              generated_at: snapshot.generated_at,
+              trip: pair?.trip ?? null,
+              pair,
+              snapshot: {
+                snapshot_id: snapshot.snapshot_id,
+                valid_until: snapshot.valid_until,
+                expired,
+                expiry_reason: reason,
+                is_consumed: snapshot.is_consumed,
+              },
+              vehicle: legacy.vehicle,
+              driver: legacy.driver,
+              narration: narrationResult,
+            });
+          }
+          // fall through: the stored pair is stale, regenerate fresh
+        }
       }
     }
 
@@ -626,22 +651,7 @@ export async function POST(req, { params }) {
     };
     const snapshot = await saveRecommendationSnapshot({
       request,
-      pair: {
-        trip: recommendation.trip,
-        vehicle: recommendation.pair?.recommended?.vehicle ?? null,
-        driver: recommendation.pair?.recommended?.driver ?? null,
-        designated: recommendation.pair?.recommended
-          ? {
-              driver_id: recommendation.pair.recommended.designated_driver_id,
-            }
-          : null,
-        score: recommendation.pair?.recommended?.score ?? null,
-        confidence: recommendation.pair?.recommended?.confidence ?? null,
-        reasons: recommendation.pair?.recommended?.reasons ?? [],
-        reason_type: recommendation.pair?.recommended?.reason_type ?? "designated",
-        replacement_reason: recommendation.pair?.recommended?.replacement_reason ?? null,
-        is_designated: recommendation.pair?.recommended?.is_designated ?? true,
-      },
+      pair: pairPayload,
       session,
     });
 

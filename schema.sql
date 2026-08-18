@@ -1182,7 +1182,7 @@ BEGIN
     'leave_request',
     NEW.leave_request_id
   FROM employees e
-  WHERE e.role_id IN (SELECT role_id FROM roles WHERE role_name IN ('fleet_manager', 'admin', 'dispatcher'));
+  WHERE e.role_id IN (SELECT role_id FROM roles WHERE role_name IN ('fleet_manager', 'admin'));
 
   RETURN NEW;
 END;

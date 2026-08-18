@@ -8,7 +8,7 @@ source:
   - src/lib/ai/pair-scoring.js
   - src/lib/ai/predictive-maintenance.js
   - resources/ai/instructions.md
-last_verified: 2026-08-15
+last_verified: 2026-08-17
 related: ["[[Dispatch]]", "[[AI Architecture]]"]
 ---
 
@@ -51,10 +51,13 @@ statuses that disqualify are the true ones — driver `Suspended` / `On Leave` /
 `Registration Expired`. `In Use` is deliberately allowed: a vehicle out now is free for a later
 window.
 
-The manual pickers (`ai-assign-dialog.jsx`, `dispatch-edit-dialog.jsx`) previously filtered to
-`status: "Available"` only — stricter than the engine, so they withheld pairs the engine (and
-the server's `validatePairAvailability`) would accept. They now mirror the engine
+The manual pickers previously filtered to `status: "Available"` only — stricter
+than the engine, so they withheld pairs the engine (and the server's
+`validatePairAvailability`) would accept. They were updated to mirror the engine
 (→ [[Dispatch]] "Availability is decided by the window, not the status label").
+The `ai-assign-dialog` manual override was removed 2026-08-18; the dialog now
+embeds the shared `AiRecommendationPanel`, which renders the engine's eligible
+pair directly.
 
 ## Schedule & leave feed the engine — CONFIRMED 2026-08-15
 
@@ -112,6 +115,22 @@ The zero rows are notable: the **logging** path is heavily exercised, the **pers
 - **LLM returns malformed output** → adapter swallows it, narration null.
 - **`ailogs` doesn't exist** → created at runtime. → [[DEBT Runtime DDL On Hot Path]]
 - **Narration containing an abbreviation** → the UI splits on periods per the prompt's formatting rule, so "approx. 3 km" would split mid-sentence. INFERRED fragility. **TODO:** verify the UI parser.
+
+## Assignment integrity audit - CONFIRMED 2026-08-17
+
+The AI-assisted assignment dialog previously fell back to stored AI vehicle and
+driver JSON when it could not form a current DB-backed pair. This produced a
+confirmed invalid display: `XYZ 5678 + Juan Dela Cruz`, while the live active
+custodian was Jack Mors and no substitute schedule existed.
+
+The dialog fallback is now removed. It refreshes active custodial rows on open
+and can display or commit only a current custodian or dated substitute. The
+focused pair-scoring and reservation-state suites pass 56/56.
+
+The Reservation Info recommendation panel still has open snapshot,
+regeneration, response-shape, narration-cache and consumption defects. Until
+those are fixed, the assign endpoint's live revalidation is the final
+correctness boundary. See [[BUG AI Recommendation Can Serve Stale Pair]].
 
 ## What I learned
 

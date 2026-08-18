@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject, normalizePlate, normalizeName } from "@/lib/validation/helpers";
+import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 
 const vehicleWriteSchema = {
@@ -104,7 +104,8 @@ export async function PUT(req, { params }) {
     }
 
     if (vehicleData.plate_number) vehicleData.plate_number = normalizePlate(vehicleData.plate_number);
-    if (vehicleData.vehicle_name) vehicleData.vehicle_name = normalizeName(vehicleData.vehicle_name);
+    if (vehicleData.vehicle_name) vehicleData.vehicle_name = toVehicleTitleCase(vehicleData.vehicle_name);
+    if (vehicleData.manufacturer) vehicleData.manufacturer = toVehicleTitleCase(vehicleData.manufacturer);
 
     // Built from the allowlist rather than from the body's own keys. Empty
     // strings and undefined become null on the way, to avoid PostgreSQL's

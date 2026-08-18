@@ -28,13 +28,28 @@ function actorId(session) {
   return session?.user?.employeeId ?? null;
 }
 
-/** Insert a snapshot, also back-writing the legacy columns for read-back compat. */
+/**
+ * Insert a snapshot, also back-writing the legacy columns for read-back compat.
+ *
+ * `pair` is the canonical shape the panel consumes: `{ trip, recommended,
+ * alternate }` where each half is a full vehicle+driver candidate. The flat
+ * columns (vehicle_id, driver_id, score, ...) are derived from `recommended` so
+ * the persisted row, the pair_json, and every later reader agree on one shape.
+ */
 export async function saveRecommendationSnapshot({ request, pair, session }) {
   const validUntil = new Date(
     Date.now() + SNAPSHOT_TTL_MINUTES * 60 * 1000
   ).toISOString();
 
-  const pairJson = JSON.stringify(pair);
+  const recommended = pair?.recommended ?? null;
+  const vehicle = recommended?.vehicle ?? null;
+  const driver = recommended?.driver ?? null;
+
+  const pairJson = JSON.stringify({
+    trip: pair?.trip ?? null,
+    recommended,
+    alternate: pair?.alternate ?? null,
+  });
   const { rows } = await query(
     `INSERT INTO recommendation_snapshots
        (request_id, valid_until, pair_json, vehicle_id, driver_id, designated_driver_id,
@@ -45,15 +60,15 @@ export async function saveRecommendationSnapshot({ request, pair, session }) {
       request.request_id,
       validUntil,
       pairJson,
-      pair?.vehicle?.vehicle_id ?? null,
-      pair?.driver?.driver_id ?? null,
-      pair?.designated?.driver_id ?? pair?.designated_driver_id ?? null,
-      pair?.score != null ? pair.score : null,
-      pair?.confidence != null ? pair.confidence : null,
-      pair?.reason_type ?? "designated",
-      pair?.replacement_reason ?? null,
+      vehicle?.vehicle_id ?? null,
+      driver?.driver_id ?? null,
+      recommended?.designated_driver_id ?? null,
+      recommended?.score != null ? recommended.score : null,
+      recommended?.confidence != null ? recommended.confidence : null,
+      recommended?.reason_type ?? "designated",
+      recommended?.replacement_reason ?? null,
       request.fleet_status ?? null,
-      pair?.driver?.driver_status ?? null,
+      driver?.driver_status ?? null,
       actorId(session),
     ]
   );
@@ -67,8 +82,8 @@ export async function saveRecommendationSnapshot({ request, pair, session }) {
         WHERE request_id = $1`,
       [
         request.request_id,
-        JSON.stringify(pair?.vehicle ?? null),
-        JSON.stringify(pair?.driver ?? null),
+        JSON.stringify(vehicle ?? null),
+        JSON.stringify(driver ?? null),
       ]
     ).catch(() => {});
   }

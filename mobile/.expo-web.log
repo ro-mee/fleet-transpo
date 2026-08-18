@@ -1,0 +1,10 @@
+
+> mobile@1.0.0 web
+> expo start --web --port 8082
+
+env: load .env
+env: export EXPO_PUBLIC_API_URL EXPO_PUBLIC_ENABLE_DEMO EXPO_PUBLIC_TOMTOM_API_KEY TZ
+Starting project at C:\Users\lenovo\OneDrive\Desktop\capstone\mobile
+Starting Metro Bundler
+Waiting on http://localhost:8082
+Logs for your project will appear below.

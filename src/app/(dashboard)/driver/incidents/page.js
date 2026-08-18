@@ -10,10 +10,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "@/components/ui/toast";
 import { getMyIncidents, reportIncident } from "@/services/driver.service";
+import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { AlertTriangle, Send } from "lucide-react";
+import { AlertTriangle, MapPin, Send } from "lucide-react";
 
 export default function DriverIncidentsPage() {
   useRequireRole(["driver"]);
@@ -110,19 +111,34 @@ export default function DriverIncidentsPage() {
               />
             ) : (
               <div className="divide-y divide-border">
-                {incidents.map((inc) => (
+                {incidents.map((inc) => {
+                  const coords = resolveIncidentCoords(inc);
+                  return (
                   <div key={inc.incident_id} className="py-2.5 flex items-center justify-between text-xs">
                     <div className="min-w-0 pr-3">
-                      <div className="font-medium text-foreground truncate">{inc.incident_type}</div>
-                      <div className="text-foreground-muted truncate">{inc.description}</div>
-                      {inc.location && <div className="text-foreground-muted truncate mt-0.5">{inc.location}</div>}
+                      <div className="font-medium text-foreground">{inc.incident_type}</div>
+                      <div className="text-foreground-muted">{inc.description}</div>
+                      {inc.location && <div className="text-foreground-muted mt-0.5">{inc.location}</div>}
+                      {coords && (
+                        <a
+                          href={`https://www.google.com/maps?q=${coords.latitude},${coords.longitude}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/25 rounded-lg px-2 py-1 mt-1.5 hover:bg-primary/15 hover:border-primary transition-colors"
+                          title="Open exact location in Google Maps to share with emergency services"
+                        >
+                          <MapPin className="w-3 h-3" />
+                          View on Google Maps
+                        </a>
+                      )}
                     </div>
                     <div className="text-right flex-shrink-0">
                       <StatusBadge severity={inc.severity === "Critical" ? "danger" : inc.severity === "Major" ? "warning" : "info"}>{inc.severity}</StatusBadge>
                       <div className="text-[11px] text-foreground-muted mt-1">{inc.incident_date ? formatDate(inc.incident_date) : "—"}</div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>

@@ -28,9 +28,11 @@ import {
   normalizeEmail,
   normalizePhone,
   normalizeLicense,
+  toProperCase,
+  toVehicleTitleCase,
 } from "./index";
 
-export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isUrl, isBase64DataUrl, isEmail, isPhonePH, isName, isId, isUuid, isPassword, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH }; 
+export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, toProperCase, toVehicleTitleCase, isUrl, isBase64DataUrl, isEmail, isPhonePH, isName, isId, isUuid, isPassword, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH };
 
 export const ERRORS = {
   required: (label) => `${label} is required.`,

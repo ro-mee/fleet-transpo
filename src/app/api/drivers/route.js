@@ -190,14 +190,14 @@ export async function GET(req) {
       const ctx = await loadDriverTravelContext(pickupAt);
       const scheduleCtx = await loadDriverScheduleContext(data.map((d) => d.driver_id));
       const pickup = new Date(pickupAt);
-      const returnAt = returnAt ? new Date(returnAt) : null;
+      const returnDate = returnAt ? new Date(returnAt) : null;
       return ok(
         data.filter((d) => {
           if (!driverCanTravel(d, ctx)) return false;
           const block = driverBlockReason({
             driverId: d.driver_id,
             pickup,
-            returnAt,
+            returnAt: returnDate,
             ctx: scheduleCtx,
           });
           if (block?.blocked) return false;

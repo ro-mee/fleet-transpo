@@ -24,12 +24,18 @@ export function toDateInput(value, fallback = "") {
  */
 export function toCalendarDay(value) {
   if (!value) return null;
-  if (value instanceof Date) {
-    if (Number.isNaN(value.getTime())) return null;
-    const y = value.getFullYear();
-    const m = String(value.getMonth() + 1).padStart(2, "0");
-    const d = String(value.getDate()).padStart(2, "0");
-    return `${y}-${m}-${d}`;
+  let d = value;
+  // If it's a string with a 'T', it's an ISO timestamp (e.g. from the DB or frontend).
+  // Parse it as a Date so we can extract the local day, not the UTC day.
+  if (typeof value === "string" && value.includes("T")) {
+    d = new Date(value);
+  }
+  if (d instanceof Date) {
+    if (Number.isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
   }
   const s = String(value).slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;

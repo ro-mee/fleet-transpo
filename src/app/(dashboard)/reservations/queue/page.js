@@ -13,7 +13,6 @@ import { AiAssignDialog } from "@/components/reservations/ai-assign-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequests,
-  assignResources,
   cancelRequest,
   pullTransportRequests,
   setRequestFlags,
@@ -70,7 +69,6 @@ export default function UnifiedQueuePage() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [assigning, setAssigning] = useState(null);
-  const [assignError, setAssignError] = useState(null);
   const [busyId, setBusyId] = useState(null);
 
   // Debounce the free-text search so we don't hit the server on every keystroke.
@@ -165,31 +163,6 @@ export default function UnifiedQueuePage() {
     },
     onError: (e) => toast.error(e.message || "Failed to cancel request"),
     onSettled: () => setBusyId(null),
-  });
-
-  const assignMutation = useMutation({
-    mutationFn: ({ request, vehicleId, driverId, force }) =>
-      assignResources(request.request_id, { vehicleId, driverId, force }),
-    onSuccess: (res) => {
-      const forced = res?.warnings?.length;
-      toast[forced ? "warning" : "success"](
-        forced
-          ? `Assigned with ${res.warnings.length} conflict override${res.warnings.length === 1 ? "" : "s"}`
-          : "Resources assigned"
-      );
-      setAssigning(null);
-      setAssignError(null);
-      invalidate();
-    },
-    onError: (e, variables) => {
-      // A blocking 409 (from the auto-assign path or the dialog) surfaces the
-      // server's findings in the dialog instead of a bare toast, so the override
-      // decision is made against the server's own reasons.
-      if (e?.status === 409 && e?.data?.conflicts?.length) {
-        setAssigning(variables?.request ?? null);
-        setAssignError(e);
-      } else toast.error(e.message || "Failed to assign resources");
-    },
   });
 
   const searching = debouncedSearch.trim().length > 0;
@@ -424,10 +397,7 @@ export default function UnifiedQueuePage() {
               permissions={permissions}
               isBusy={busyId === r.request_id}
               onCancel={(req) => cancelMutation.mutate(req)}
-              onAssign={(req) => {
-                setAssignError(null);
-                setAssigning(req);
-              }}
+              onAssign={(req) => setAssigning(req)}
             />
           ))}
         </div>
@@ -498,13 +468,13 @@ export default function UnifiedQueuePage() {
         key={assigning?.request_id || "assign-workspace"}
         request={assigning}
         isOpen={Boolean(assigning)}
-        onClose={() => {
+        onClose={() => setAssigning(null)}
+        canAssign={permissions.assign}
+        alreadyAssigned={Boolean(assigning?.vehicle_id && assigning?.driver_id)}
+        onAssigned={() => {
           setAssigning(null);
-          setAssignError(null);
+          invalidate();
         }}
-        onAssign={(payload) => assignMutation.mutate(payload)}
-        isPending={assignMutation.isPending}
-        conflictError={assignError}
       />
     </div>
   );

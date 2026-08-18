@@ -82,7 +82,7 @@ export async function GET(req) {
         .filter(Boolean);
       const scheduleCtx = await loadDriverScheduleContext(effectiveIds);
       const pickup = new Date(pickupAt);
-      const returnAt = returnAt ? new Date(returnAt) : null;
+      const returnDate = returnAt ? new Date(returnAt) : null;
       const pairByVehicle = new Map(
         (ctx.pairings || [])
           .filter((p) => p.vehicle_id != null && p.driver_id != null)
@@ -95,7 +95,7 @@ export async function GET(req) {
           filtered.push(v);
           continue;
         }
-        const block = driverBlockReason({ driverId, pickup, returnAt, ctx: scheduleCtx });
+        const block = driverBlockReason({ driverId, pickup, returnAt: returnDate, ctx: scheduleCtx });
         if (block?.blocked) continue;
         filtered.push(v);
       }

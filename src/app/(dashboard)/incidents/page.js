@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { getAllIncidents } from "@/services/driver.service";
+import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon } from "lucide-react";
@@ -101,25 +102,9 @@ export default function IncidentsPage() {
   });
 
   const incidents = useMemo(() => {
-    return (data || []).map(inc => {
-      let lat = inc.latitude;
-      let lng = inc.longitude;
-      
-      // Attempt to parse coordinates if they were saved in the generic 'location' text field
-      if (lat == null && lng == null && inc.location) {
-        const parts = inc.location.split(',');
-        if (parts.length === 2) {
-          const pLat = parseFloat(parts[0].trim());
-          const pLng = parseFloat(parts[1].trim());
-          // Basic bounds check to ensure it's a valid coordinate pair
-          if (!isNaN(pLat) && !isNaN(pLng) && pLat >= -90 && pLat <= 90 && pLng >= -180 && pLng <= 180) {
-            lat = pLat;
-            lng = pLng;
-          }
-        }
-      }
-      
-      return { ...inc, latitude: lat, longitude: lng };
+    return (data || []).map((inc) => {
+      const coords = resolveIncidentCoords(inc);
+      return { ...inc, latitude: coords?.latitude ?? null, longitude: coords?.longitude ?? null };
     });
   }, [data]);
 
@@ -141,17 +126,30 @@ export default function IncidentsPage() {
       key: "incident_type",
       label: "Incident Type",
       sortable: true,
+      meta: { className: "whitespace-normal min-w-[260px] align-top" },
       render: (val, row) => (
         <div>
           <p className="font-bold text-sm text-foreground">{val || "Incident"}</p>
           {row.location && (
-            <p className="flex items-center gap-1 text-xs text-foreground-muted font-medium mt-0.5">
-              <MapPin className="w-3 h-3 text-danger shrink-0" />
-              <span className="truncate max-w-[200px]">{row.location}</span>
+            <p className="flex items-start gap-1 text-xs text-foreground-muted font-medium mt-0.5">
+              <MapPin className="w-3 h-3 text-danger shrink-0 mt-0.5" />
+              <span className="min-w-0">{row.location}</span>
             </p>
           )}
+          {row.latitude != null && row.longitude != null && (
+            <a
+              href={`https://www.google.com/maps?q=${row.latitude},${row.longitude}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-[11px] font-bold text-primary bg-primary/10 border border-primary/25 rounded-lg px-2 py-1 mt-1.5 hover:bg-primary/15 hover:border-primary transition-colors"
+              title="Open exact location in Google Maps to share with emergency services"
+            >
+              <MapPin className="w-3 h-3" />
+              View on Google Maps
+            </a>
+          )}
           {row.description && (
-            <p className="text-xs text-foreground-secondary mt-1 line-clamp-2 max-w-[300px]">{row.description}</p>
+            <p className="text-xs text-foreground-secondary mt-1">{row.description}</p>
           )}
           {row.expense_amount && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-danger bg-danger/10 border border-danger/20 rounded px-1.5 py-0.5 mt-1.5 uppercase">

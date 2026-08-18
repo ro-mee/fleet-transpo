@@ -61,6 +61,9 @@ export async function executeLlmCompletion({
   image_url = null,
   system_instructions = null,
   user_email = null,
+  max_tokens = null,
+  defer_log = false,
+  prefer_fast_model = false,
 }) {
   const startTime = Date.now();
   const provider = await getActiveAiProvider();
@@ -79,6 +82,10 @@ export async function executeLlmCompletion({
   }
 
   const instructions = system_instructions || getSystemInstructions();
+  const selectedModel =
+    prefer_fast_model && provider.provider_name?.toLowerCase() === "deepseek"
+      ? "deepseek-chat"
+      : provider.model_name || "gpt-4o-mini";
 
   try {
     let endpointUrl = provider.base_url || "https://api.openai.com/v1";
@@ -101,13 +108,13 @@ export async function executeLlmCompletion({
       : user_prompt;
 
     const payload = {
-      model: provider.model_name || "gpt-4o-mini",
+      model: selectedModel,
       messages: [
         { role: "system", content: instructions },
         { role: "user", content: userMessageContent },
       ],
       temperature: Number(provider.temperature) || 0.7,
-      max_tokens: Number(provider.max_tokens) || 1500,
+      max_tokens: Number(max_tokens) || Number(provider.max_tokens) || 1500,
     };
 
     // Controller for timeout
@@ -137,10 +144,10 @@ export async function executeLlmCompletion({
     const completion_tokens = data.usage?.completion_tokens || 0;
     const total_tokens = data.usage?.total_tokens || 0;
 
-    await logAiRequest({
+    const logRequest = logAiRequest({
       feature_used,
       provider_name: provider.display_name || provider.provider_name,
-      model_name: provider.model_name,
+      model_name: selectedModel,
       prompt_tokens,
       completion_tokens,
       total_tokens,
@@ -148,6 +155,8 @@ export async function executeLlmCompletion({
       status: "Success",
       user_email,
     });
+    if (defer_log) void logRequest.catch(() => {});
+    else await logRequest;
 
     return {
       success: true,
@@ -157,15 +166,17 @@ export async function executeLlmCompletion({
     };
   } catch (err) {
     const duration_ms = Date.now() - startTime;
-    await logAiRequest({
+    const logRequest = logAiRequest({
       feature_used,
       provider_name: provider.display_name || provider.provider_name,
-      model_name: provider.model_name,
+      model_name: selectedModel,
       duration_ms,
       status: "Error",
       error_message: err.message,
       user_email,
     });
+    if (defer_log) void logRequest.catch(() => {});
+    else await logRequest;
 
     return {
       success: false,

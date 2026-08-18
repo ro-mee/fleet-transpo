@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { completionDateRule, validateField } from "@/lib/validation/helpers";
+import { completionDateRule, validateField, toProperCase, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
 
 /** Returns a YYYY-MM-DD string offset from today, staying in local calendar space. */
@@ -68,5 +68,70 @@ describe("mileage bounds via validateField", () => {
 
   it("rejects a negative reading", () => {
     expect(validateField(-1, spec, spec.label)).toBeTruthy();
+  });
+});
+
+describe("toProperCase — Standard Proper Case", () => {
+  it("title-cases all-caps names", () => {
+    expect(toProperCase("TEST DRIVER")).toBe("Test Driver");
+  });
+
+  it("title-cases lowercase names", () => {
+    expect(toProperCase("jack mors")).toBe("Jack Mors");
+  });
+
+  it("title-cases mixed/multi-word names", () => {
+    expect(toProperCase("KARLO RAFAEL SUNGA TORRES")).toBe("Karlo Rafael Sunga Torres");
+  });
+
+  it("preserves an existing proper-cased surname particle", () => {
+    expect(toProperCase("Dela Cruz")).toBe("Dela Cruz");
+  });
+
+  it("handles an apostrophe name", () => {
+    expect(toProperCase("O'NEILL")).toBe("O'Neill");
+  });
+
+  it("handles a hyphenated name", () => {
+    expect(toProperCase("juan-carlos")).toBe("Juan-Carlos");
+  });
+
+  it("collapses stray whitespace and trims", () => {
+    expect(toProperCase("  karlo   torres  ")).toBe("Karlo Torres");
+  });
+
+  it("is a no-op on null/empty", () => {
+    expect(toProperCase(null)).toBe("");
+    expect(toProperCase("")).toBe("");
+  });
+});
+
+describe("toVehicleTitleCase — vehicle names / models", () => {
+  it("title-cases all-caps vehicle names", () => {
+    expect(toVehicleTitleCase("SEDAN")).toBe("Sedan");
+    expect(toVehicleTitleCase("LAMBO")).toBe("Lambo");
+  });
+
+  it("turns a hyphen into a space", () => {
+    expect(toVehicleTitleCase("TEST-VEHICLE")).toBe("Test Vehicle");
+  });
+
+  it("keeps a known vehicle-type acronym uppercase", () => {
+    expect(toVehicleTitleCase("SUV")).toBe("SUV");
+    expect(toVehicleTitleCase("TOYOTA HIACE SUV")).toBe("Toyota Hiace SUV");
+  });
+
+  it("keeps a model identifier containing a digit verbatim", () => {
+    expect(toVehicleTitleCase("CiviC18S")).toBe("CiviC18S");
+  });
+
+  it("title-cases manufacturers", () => {
+    expect(toVehicleTitleCase("HONDA")).toBe("Honda");
+    expect(toVehicleTitleCase("TOYOTA")).toBe("Toyota");
+  });
+
+  it("is a no-op on null/empty", () => {
+    expect(toVehicleTitleCase(null)).toBe("");
+    expect(toVehicleTitleCase("")).toBe("");
   });
 });

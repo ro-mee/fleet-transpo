@@ -75,11 +75,11 @@ export default function ReservationsPage() {
   }, [searchInput]);
 
   // Map the register's filter chips to server-side params the API understands.
-  // "open" is a group -> comma-separated statuses; "review" = Pending;
+  // "open" is a group -> comma-separated statuses; "review" = incomplete assignment;
   // "today" = that date; "all" = no filter.
   const filterParams = useMemo(() => {
     if (activeFilter === "open") return { fleet_status: OPEN_STATUSES.join(",") };
-    if (activeFilter === "review") return { fleet_status: L.PENDING };
+    if (activeFilter === "review") return { needs_assignment: "true" };
     if (activeFilter === "today") return { pickup_date: new Date().toISOString().slice(0, 10) };
     return {};
   }, [activeFilter]);
