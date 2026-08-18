@@ -3,7 +3,7 @@ import {
   DAY_NAMES,
   localDayOfWeek,
   localTimeOfDay,
-  hasApprovedLeave,
+  hasLeaveConflict,
   scheduleBlockReason,
   driverBlockReason,
 } from "@/lib/scheduling/driver-schedule";
@@ -24,24 +24,25 @@ describe("localDayOfWeek / localTimeOfDay", () => {
   });
 });
 
-describe("hasApprovedLeave", () => {
-  const leave = [{ start_date: "2026-08-18", end_date: "2026-08-20" }];
+describe("hasLeaveConflict", () => {
+  // Leave rows carry a `status`; only Approved rows block (Pending are warnings).
+  const leave = [{ status: "Approved", start_date: "2026-08-18", end_date: "2026-08-20" }];
   it("covers an in-range calendar day", () => {
-    expect(hasApprovedLeave(leave, at(2026, 8, 19, 10))).toBe(true);
+    expect(hasLeaveConflict(leave, at(2026, 8, 19, 10))).toBe(true);
   });
   it("covers the inclusive endpoints", () => {
-    expect(hasApprovedLeave(leave, at(2026, 8, 18, 1))).toBe(true);
-    expect(hasApprovedLeave(leave, at(2026, 8, 20, 23))).toBe(true);
+    expect(hasLeaveConflict(leave, at(2026, 8, 18, 1))).toBe(true);
+    expect(hasLeaveConflict(leave, at(2026, 8, 20, 23))).toBe(true);
   });
   it("does not cover days outside the range", () => {
-    expect(hasApprovedLeave(leave, at(2026, 8, 17, 10))).toBe(false);
-    expect(hasApprovedLeave(leave, at(2026, 8, 21, 10))).toBe(false);
+    expect(hasLeaveConflict(leave, at(2026, 8, 17, 10))).toBe(false);
+    expect(hasLeaveConflict(leave, at(2026, 8, 21, 10))).toBe(false);
   });
   it("accepts camelCase date fields and pg local-midnight Date values", () => {
-    const camel = [{ startDate: "2026-08-18", endDate: "2026-08-20" }];
-    expect(hasApprovedLeave(camel, at(2026, 8, 19))).toBe(true);
-    const pgDate = [{ start_date: new Date(2026, 7, 18), end_date: new Date(2026, 7, 20) }];
-    expect(hasApprovedLeave(pgDate, at(2026, 8, 19))).toBe(true);
+    const camel = [{ status: "Approved", startDate: "2026-08-18", endDate: "2026-08-20" }];
+    expect(hasLeaveConflict(camel, at(2026, 8, 19))).toBe(true);
+    const pgDate = [{ status: "Approved", start_date: new Date(2026, 7, 18), end_date: new Date(2026, 7, 20) }];
+    expect(hasLeaveConflict(pgDate, at(2026, 8, 19))).toBe(true);
   });
 });
 
@@ -121,7 +122,7 @@ describe("driverBlockReason", () => {
       [1, new Map([[1, { shift_start: "08:00:00", shift_end: "17:00:00", is_rest_day: false }]])],
       [2, new Map([[1, { day_of_week: 1, is_rest_day: true }]])],
     ]),
-    leave: new Map([[3, [{ start_date: "2026-08-17", end_date: "2026-08-17" }]]]),
+    leave: new Map([[3, [{ status: "Approved", start_date: "2026-08-17", end_date: "2026-08-17" }]]]),
   };
 
   it("returns null when no pickup is provided (no window to test)", () => {
@@ -135,7 +136,7 @@ describe("driverBlockReason", () => {
       returnAt: at(2026, 8, 17, 11),
       ctx,
     });
-    expect(r).toEqual({ blocked: true, reason: "Driver is on approved leave for this date." });
+    expect(r).toEqual({ blocked: true, reason: "Driver is on approved leave during this time." });
   });
 
   it("blocks a driver with no schedule for that weekday (fail-closed)", () => {
