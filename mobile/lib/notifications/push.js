@@ -32,7 +32,7 @@ function ensureHandler() {
   });
 }
 
-/** Create the default Android channel once (Android 8+ needs one). */
+/** Create the Android channels once (Android 8+ needs one per delivery tier). */
 async function ensureChannel() {
   if (channelReady || Platform.OS !== "android") return;
   channelReady = true;
@@ -41,6 +41,11 @@ async function ensureChannel() {
       name: "FleetOps alerts",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 180, 250],
+      lightColor: "#285448",
+    });
+    await Notifications.setNotificationChannelAsync("heads-up", {
+      name: "FleetOps updates",
+      importance: Notifications.AndroidImportance.LOW,
       lightColor: "#285448",
     });
   } catch {

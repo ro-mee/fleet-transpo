@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
-import { shouldPush, sendPush } from "@/services/push.service";
+import { deliveryFor, sendPush } from "@/services/push.service";
 
 export async function GET(req) {
   try {
@@ -71,10 +71,12 @@ export async function POST(req) {
     const { rows } = await query(`INSERT INTO notifications (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
     const notif = rows[0];
 
-    // Best-effort real push for push-worthy rows — a delivery hiccup must never
-    // fail the notification write the caller just got a 201 for.
+    // Best-effort real push for rows that earn an OS surface (push or heads-up
+    // tier) — a delivery hiccup must never fail the notification write the
+    // caller just got a 201 for.
     try {
-      if (notif && shouldPush(notif)) {
+      const delivery = notif && deliveryFor(notif);
+      if (delivery) {
         let targets = [];
         if (notif.employee_id) {
           targets.push(notif.employee_id);
@@ -93,6 +95,8 @@ export async function POST(req) {
             title: notif.title,
             body: notif.message,
             data: { reference_type: notif.reference_type, reference_id: notif.reference_id },
+            channelId: delivery.channelId,
+            sound: delivery.sound,
           });
         }
       }

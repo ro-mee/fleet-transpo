@@ -11,19 +11,43 @@ import { query } from "@/lib/db";
 const EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send";
 const BATCH_SIZE = 100;
 
-// Mirrors the mobile tier rule (mobile/lib/notifications/tiers.js): only the
-// rows that would earn an OS-level surface get a real push. Kept here so the
-// server decides before sending rather than shipping every row.
+// Mirrors the mobile tier rule (mobile/lib/notifications/tiers.js). Every row
+// that earns an OS-level surface gets a real push — but push-tier rows are
+// loud (high-importance channel, sound) while heads-up-tier rows are quiet
+// (low-importance channel, no sound, still on the shade/lock screen). Kept on
+// the server so it decides before sending rather than shipping every row.
 const PUSH_TYPES = new Set(["Alert", "Emergency"]);
 const PUSH_SEVERITIES = new Set(["Critical", "Major"]);
+const HEADS_UP_TYPES = new Set(["Warning"]);
+const HEADS_UP_SEVERITIES = new Set(["Moderate"]);
 
-/** @param {object} row  a notifications row (type, severity, reference_type) */
-export function shouldPush(row = {}) {
+/** The Android channel + sound used for each tier. */
+export const CHANNEL = {
+  PUSH: { id: "default", sound: "default" },
+  HEADS_UP: { id: "heads-up", sound: false },
+};
+
+/**
+ * Decide how (if at all) a notifications row is pushed to the OS.
+ *
+ * @param {object} row  a notifications row (type, severity, reference_type)
+ * @returns {{kind:"push", channelId:string, sound:string|boolean}|{kind:"heads-up", channelId:string, sound:string|boolean}|null}
+ *   `null` means silent (no OS push).
+ */
+export function deliveryFor(row = {}) {
   const { type = "", severity, reference_type: ref = "" } = row;
-  if (PUSH_TYPES.has(type)) return true;
-  if (ref === "incident" && PUSH_SEVERITIES.has(severity)) return true;
-  if (PUSH_SEVERITIES.has(severity)) return true;
-  return false;
+  const isPush =
+    PUSH_TYPES.has(type) ||
+    PUSH_SEVERITIES.has(severity) ||
+    ref === "incident";
+  if (isPush) {
+    return { kind: "push", channelId: CHANNEL.PUSH.id, sound: CHANNEL.PUSH.sound };
+  }
+  const isHeadsUp = HEADS_UP_TYPES.has(type) || HEADS_UP_SEVERITIES.has(severity);
+  if (isHeadsUp) {
+    return { kind: "heads-up", channelId: CHANNEL.HEADS_UP.id, sound: CHANNEL.HEADS_UP.sound };
+  }
+  return null;
 }
 
 async function activeTokensFor(employeeIds) {
@@ -59,7 +83,7 @@ async function deactivateInvalid(messages, tickets) {
  *
  * @returns {Array<object>} one result object per Expo batch
  */
-export async function sendPush({ employeeIds, title, body, data = {} }) {
+export async function sendPush({ employeeIds, title, body, data = {}, channelId = CHANNEL.PUSH.id, sound = CHANNEL.PUSH.sound }) {
   try {
     const tokens = await activeTokensFor(employeeIds);
     if (!tokens.length) return [];
@@ -71,7 +95,8 @@ export async function sendPush({ employeeIds, title, body, data = {} }) {
         title,
         body,
         data,
-        sound: "default",
+        channelId,
+        sound,
       }));
 
       const res = await fetch(EXPO_PUSH_ENDPOINT, {
