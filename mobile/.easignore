@@ -1,0 +1,49 @@
+# EAS upload filter — used INSTEAD of .gitignore for what `eas build` uploads.
+#
+# This mirrors mobile/.gitignore EXCEPT for /services/google-services.json,
+# which EAS must receive so the cloud build can wire FCM. The file stays out of
+# git (contains Firebase config keys); only the build archive carries it.
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# generated native folders
+/ios
+/android
+
+# NOTE: /services/google-services.json is intentionally NOT ignored here —
+# EAS needs it in the build archive. It remains gitignored.

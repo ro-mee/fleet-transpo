@@ -17,6 +17,7 @@ import {
 // ^ Plus Jakarta Sans keeps the mobile interface warm, polished, and highly legible;
 //   IBM Plex Mono remains reserved for operational data.
 import { AuthProvider } from "../lib/auth";
+import { initPush } from "../lib/notifications/push";
 import { ErrorBoundary } from "../components/error-boundary";
 import { ThemeProvider, useTheme } from "../lib/theme-context";
 import { SettingsProvider } from "../lib/settings-context";
@@ -91,6 +92,12 @@ export default function RootLayout() {
   }, [ready]);
 
   const appState = useRef(AppState.currentState);
+
+  useEffect(() => {
+    // Create the Android notification channel before any push can arrive so
+    // remote FCM notifications have somewhere to display.
+    initPush().catch(() => {});
+  }, []);
 
   const handleLaunchDone = (reduceMotion) => {
     setShowLaunch(false);

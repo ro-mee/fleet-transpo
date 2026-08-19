@@ -62,6 +62,18 @@ export async function requestPushPermission() {
   }
 }
 
+/**
+ * Initialize push handling once at app startup: installs the foreground
+ * notification handler and ensures the Android default channel exists. A
+ * channel must exist BEFORE a remote FCM push arrives, or Android 8+ silently
+ * drops it even though Expo marks it "delivered". Safe to call multiple times.
+ */
+export async function initPush() {
+  if (Platform.OS === "web") return;
+  ensureHandler();
+  await ensureChannel();
+}
+
 /** Fire an immediate OS local notification. */
 export async function showLocalNotification({ title, body, data = {} }) {
   try {
