@@ -38,13 +38,13 @@ async function ensureChannel() {
   channelReady = true;
   try {
     await Notifications.setNotificationChannelAsync("default", {
-      name: "FleetOps alerts",
+      name: "FleetOps Alerts",
       importance: Notifications.AndroidImportance.HIGH,
       vibrationPattern: [0, 250, 180, 250],
       lightColor: "#285448",
     });
     await Notifications.setNotificationChannelAsync("heads-up", {
-      name: "FleetOps updates",
+      name: "FleetOps Updates",
       importance: Notifications.AndroidImportance.LOW,
       lightColor: "#285448",
     });

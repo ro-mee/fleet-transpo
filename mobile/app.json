@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "FleetOps",
     "slug": "mobile",
     "scheme": "fleetops",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/fleetops-icon.png",
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true
@@ -13,9 +13,9 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#F5F2EC",
-        "foregroundImage": "./assets/android-icon-foreground.png",
+        "foregroundImage": "./assets/fleetops-icon.png",
         "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "monochromeImage": "./assets/fleetops-icon.png"
       },
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
