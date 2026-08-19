@@ -37,10 +37,10 @@ export async function GET(req) {
     // Fetch Fuel Logs
     const { rows: fuelLogs } = await query(
       `SELECT f.fuel_record_id as id, 'Fuel Log' as type, f.fuel_date as date, 
-              f.status, f.amount, f.liters, f.station_name, f.created_at, v.plate_number
+              f.status, f.amount, f.liters, f.station_name, f.created_at, f.rejection_reason, v.plate_number
          FROM fuelrecords f
          LEFT JOIN vehicles v ON v.vehicle_id = f.vehicle_id
-        WHERE f.driver_id = $1
+        WHERE f.driver_id = $1 AND f.deleted_at IS NULL
         ORDER BY f.fuel_date DESC
         LIMIT 50`,
       [driverId]
@@ -61,16 +61,17 @@ export async function GET(req) {
         severity: i.severity
       })),
       ...fuelLogs.map(f => ({
-        id: `fuel_${f.id}`,
+        id: String(f.id),
         category: "Fuel",
         title: f.station_name || "Fuel Purchase",
         date: f.date,
         status: f.status || "Pending",
-        description: `${f.liters}L at ${f.station_name}`,
+        description: f.rejection_reason ? `Rejected: ${f.rejection_reason}` : `${f.liters}L at ${f.station_name}`,
         amount: f.amount,
         plate_number: f.plate_number,
         created_at: f.created_at,
-        severity: null
+        severity: null,
+        rejection_reason: f.rejection_reason
       }))
     ];
 

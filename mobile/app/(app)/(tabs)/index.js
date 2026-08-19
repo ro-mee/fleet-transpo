@@ -642,7 +642,7 @@ export default function Home() {
 
               {canReportFuel ? (
                 <Pressable
-                  onPress={() => router.push("/fuel-report")}
+                  onPress={() => router.push({ pathname: "/fuel-report", params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } })}
                   style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
                 >
                   <View style={[styles.quickIconWrapper, { backgroundColor: colors.secondaryContainer }]}>

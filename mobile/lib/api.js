@@ -102,7 +102,7 @@ async function refreshAccessToken() {
  * is bounded by fetchWithTimeout.
  */
 export async function apiFetch(path, options = {}) {
-  const { skipAuth = false, ...init } = options;
+  const { skipAuth = false, queueOnFailure = true, ...init } = options;
 
   let token = skipAuth ? null : await getAccessToken();
 
@@ -127,6 +127,12 @@ export async function apiFetch(path, options = {}) {
     // Network / timeout failure. Retry once — a transient Wi-Fi blip or a
     // slow cold start should not fail the whole request immediately.
     const handleNetworkFailure = async () => {
+      if (init.body instanceof FormData) {
+        throw new ApiError("Network request failed. Receipt upload was not queued; retry when online.", 0);
+      }
+      if (!queueOnFailure) {
+        throw new ApiError("Network request failed. The queued request will be retried later.", 0);
+      }
       const method = init.method || 'GET';
       if (['POST', 'PUT', 'DELETE'].includes(method.toUpperCase())) {
         let parsedBody = undefined;

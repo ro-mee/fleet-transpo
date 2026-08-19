@@ -1,8 +1,7 @@
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { extractTextFromImage } from "@/lib/ai/license-ocr";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
-import { v4 as uuidv4 } from "uuid";
+import { storeFuelReceipt } from "@/lib/fuel/receipt-storage";
 
 export async function POST(req) {
   try {
@@ -10,38 +9,13 @@ export async function POST(req) {
     const formData = await req.formData();
     const file = formData.get("receipt");
 
-    if (!file || typeof file === "string") {
-      return err("A valid receipt image file is required.", 400);
+    let storedReceipt;
+    try {
+      storedReceipt = await storeFuelReceipt(file, session.user.driverId);
+    } catch (error) {
+      return err(error.message || "Failed to upload receipt image.", 400);
     }
-
-    // 1. Upload to Supabase Storage
-    const supabase = createAdminClient();
-    const fileBuffer = await file.arrayBuffer();
-    const fileExt = file.name ? file.name.split(".").pop() : "jpg";
-    const fileName = `${session.user.driverId}/${uuidv4()}.${fileExt}`;
-
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("fuel-receipts")
-      .upload(fileName, fileBuffer, {
-        contentType: file.type || "image/jpeg",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      console.error("Supabase Storage Error:", uploadError);
-      return err("Failed to upload receipt image.", 500);
-    }
-
-    // Generate signed URL valid for 10 years (effectively permanent for the record, but private)
-    const { data: signedData } = await supabase.storage
-      .from("fuel-receipts")
-      .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 10);
-      
-    const receiptUrl = signedData?.signedUrl;
-
-    if (!receiptUrl) {
-      return err("Failed to generate secure URL for receipt.", 500);
-    }
+    const { fileBuffer, contentType, receiptUrl } = storedReceipt;
 
     // 2. Perform OCR
     let extractedData = {};
@@ -49,7 +23,7 @@ export async function POST(req) {
     
     // Pass binary to OCR as base64 data url
     const base64 = Buffer.from(fileBuffer).toString('base64');
-    const dataUrl = `data:${file.type || 'image/jpeg'};base64,${base64}`;
+    const dataUrl = `data:${contentType};base64,${base64}`;
     
     let ocrText = "";
     try {
@@ -72,6 +46,7 @@ Return JSON only with these identified fields:
         user_prompt: prompt,
         image_url: dataUrl,
         user_email: session.user?.email || "driver",
+        provider_name: "Gemini",
       });
 
       if (llmRes && llmRes.success && llmRes.content) {
