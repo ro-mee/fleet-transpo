@@ -5,6 +5,7 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
 import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
+import { flushOutbox } from "@/services/push.service";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
@@ -206,6 +207,10 @@ export async function POST(req) {
         console.warn("dispatch->request sync failed:", e?.message || e);
       }
     }
+
+    // Best-effort: the DB trigger enqueued a loud push for the assigned
+    // driver; deliver it without blocking the dispatch response.
+    try { await flushOutbox(); } catch (e) { console.warn("dispatch push failed:", e?.message || e); }
 
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }

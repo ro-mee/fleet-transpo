@@ -1,5 +1,6 @@
 import { query, withTransaction } from "@/lib/db";
 import { ensureTripForDispatch, syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
+import { flushOutbox } from "@/services/push.service";
 
 // Auto-create a dispatch (+ its trip) the moment a full vehicle+driver pair is
 // committed to a transportation request — GAP-FIX: previously the assign
@@ -158,6 +159,10 @@ export async function syncDispatchSideEffects(dispatchId) {
   const jobs = [
     ensureTripForDispatch(dispatchId).catch((e) =>
       console.warn("ensureTripForDispatch failed:", e?.message || e)
+    ),
+    // The DB trigger enqueued a loud push for the assigned driver; deliver it.
+    flushOutbox().catch((e) =>
+      console.warn("flushOutbox failed:", e?.message || e)
     ),
   ];
   const { rows } = await query(

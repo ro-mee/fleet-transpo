@@ -65,8 +65,12 @@ export function NotificationFeedProvider({ children }) {
         const target = mobileNotificationTarget(n);
         const onPress = target ? () => router.push(target) : undefined;
         // With a real push enabled, the OS banner already covers push-tier
-        // rows — showing the in-app heads-up too would double-notify.
+        // rows — showing the in-app heads-up too would double-notify. If the
+        // server already pushed this row (pushed_at set), skip entirely; the
+        // local fallback only covers rows the server could not push (e.g. no
+        // device token), where the OS banner never fired.
         if (tier === "push" && pushEnabled) {
+          if (n.pushed_at) return;
           notify.push({
             title: n.title,
             body: n.message,

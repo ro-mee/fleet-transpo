@@ -119,3 +119,70 @@ export async function sendPush({ employeeIds, title, body, data = {}, channelId 
     return [{ error: e?.message || "push send failed" }];
   }
 }
+
+/** True if any Expo ticket reports a delivered message. */
+function delivered(results) {
+  return (results || []).some((r) =>
+    Array.isArray(r?.data) && r.data.some((t) => t?.status === "ok")
+  );
+}
+
+/**
+ * Deliver every pending `push_outbox` row (e.g. trigger-created notifications
+ * that bypass the API routes). Sends each via `sendPush` on its own channel,
+ * then marks the row `sent` and stamps the matching `notifications.pushed_at`
+ * so the mobile feed knows the server already pushed. Best-effort: never
+ * throws. Fire this after the caller's DB write that enqueued the rows.
+ *
+ * @param {object} [opts]
+ * @param {number[]} [opts.employeeIds]  only flush pending rows for these employees
+ * @returns {Promise<Array<object>>}
+ */
+export async function flushOutbox({ employeeIds } = {}) {
+  try {
+    const ids = [...new Set((employeeIds || []).map(Number).filter(Boolean))];
+    let sql = `SELECT * FROM push_outbox WHERE status = 'pending' ORDER BY id`;
+    const params = [];
+    if (ids.length) {
+      sql = `SELECT * FROM push_outbox WHERE status = 'pending' AND employee_id = ANY($1) ORDER BY id`;
+      params.push(ids);
+    }
+    const { rows } = await query(sql, params);
+    if (!rows.length) return [];
+
+    const out = [];
+    for (const row of rows) {
+      const results = await sendPush({
+        employeeIds: [row.employee_id],
+        title: row.title,
+        body: row.body,
+        data: { reference_type: row.reference_type, reference_id: row.reference_id },
+        channelId: row.channel_id,
+      });
+      const ok = delivered(results);
+      try {
+        if (ok) {
+          await query(`UPDATE push_outbox SET status = 'sent', sent_at = now() WHERE id = $1`, [row.id]);
+          await query(
+            `UPDATE notifications SET pushed_at = now()
+              WHERE employee_id = $1 AND reference_type = $2 AND reference_id = $3
+                AND pushed_at IS NULL`,
+            [row.employee_id, row.reference_type, row.reference_id]
+          );
+        } else {
+          await query(
+            `UPDATE push_outbox SET status = 'error', error = $2 WHERE id = $1`,
+            [row.id, results[0]?.error || "no delivery"]
+          );
+        }
+      } catch (e) {
+        console.warn("push outbox update failed:", e?.message || e);
+      }
+      out.push({ id: row.id, delivered: ok, results });
+    }
+    return out;
+  } catch (e) {
+    console.warn("flushOutbox failed:", e?.message || e);
+    return [{ error: e?.message || "outbox flush failed" }];
+  }
+}

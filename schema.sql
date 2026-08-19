@@ -423,7 +423,24 @@ CREATE TABLE notifications (
   read_at timestamptz,
   sent_at timestamptz DEFAULT now(),
   created_at timestamptz DEFAULT now(),
+  pushed_at timestamptz,
   CONSTRAINT notifications_pkey PRIMARY KEY (notification_id)
+);
+
+CREATE TABLE push_outbox (
+  id bigint DEFAULT nextval('push_outbox_id_seq'::regclass) NOT NULL,
+  employee_id integer NOT NULL,
+  title text NOT NULL,
+  body text NOT NULL,
+  channel_id text DEFAULT 'default'::text NOT NULL,
+  reference_type text,
+  reference_id integer,
+  status text DEFAULT 'pending'::text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  sent_at timestamptz,
+  error text,
+  CONSTRAINT push_outbox_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'error'::text]))),
+  CONSTRAINT push_outbox_pkey PRIMARY KEY (id)
 );
 
 CREATE TABLE recommendation_snapshots (
@@ -899,6 +916,8 @@ CREATE INDEX idx_notification_preferences_employee ON public.notification_prefer
 CREATE INDEX idx_notifications_read ON public.notifications USING btree (is_read);
 CREATE INDEX idx_notifications_sent ON public.notifications USING btree (sent_at);
 CREATE INDEX idx_notifications_user ON public.notifications USING btree (employee_id);
+CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
+CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
 CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING btree (request_id, generated_at DESC);
 CREATE INDEX idx_rec_snapshots_validity ON public.recommendation_snapshots USING btree (valid_until) WHERE (is_consumed = false);
 CREATE INDEX idx_reservation_events_request_timeline ON public.reservation_events USING btree (request_id, occurred_at DESC);
@@ -978,6 +997,29 @@ BEGIN
   FROM trip_cost_analysis
   WHERE trip_cost_analysis.trip_id = calculate_trip_cost.trip_id;
   RETURN total;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.enqueue_dispatch_push()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  INSERT INTO push_outbox (employee_id, title, body, channel_id, reference_type, reference_id)
+  SELECT
+    d.employee_id,
+    'Dispatch Assigned',
+    'You have been assigned to dispatch ' || NEW.dispatch_number || '.',
+    'default',
+    'dispatch',
+    NEW.dispatch_id
+  FROM drivers dr
+  JOIN employees d ON dr.employee_id = d.employee_id
+  WHERE dr.driver_id = NEW.driver_id;
+
+  RETURN NEW;
 END;
 $function$
 ;
@@ -1146,7 +1188,7 @@ BEGIN
     d.employee_id,
     'Dispatch Assigned',
     'You have been assigned to dispatch ' || NEW.dispatch_number || '.',
-    'Info',
+    'Alert',
     'dispatch',
     NEW.dispatch_id
   FROM drivers dr
@@ -1287,6 +1329,7 @@ $function$
 
 CREATE TRIGGER trg_dispatch_number BEFORE INSERT ON public.dispatchschedules FOR EACH ROW WHEN ((new.dispatch_number IS NULL)) EXECUTE FUNCTION generate_dispatch_number();
 CREATE TRIGGER trg_dispatch_overlap BEFORE INSERT OR UPDATE OF vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION guard_dispatch_overlap();
+CREATE TRIGGER trigger_enqueue_dispatch_push AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION enqueue_dispatch_push();
 CREATE TRIGGER trigger_notify_dispatch_created AFTER INSERT ON public.dispatchschedules FOR EACH ROW EXECUTE FUNCTION notify_dispatch_created();
 CREATE TRIGGER trigger_notify_document_expiry AFTER INSERT OR UPDATE ON public.vehicledocuments FOR EACH ROW EXECUTE FUNCTION notify_document_expiry();
 CREATE TRIGGER trigger_notify_leave_requested AFTER INSERT ON public.driver_leave_requests FOR EACH ROW EXECUTE FUNCTION notify_leave_requested();
