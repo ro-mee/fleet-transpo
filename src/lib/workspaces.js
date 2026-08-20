@@ -30,6 +30,7 @@ import {
   Database,
   Navigation,
   AlertTriangle,
+  Fingerprint,
 } from "lucide-react";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
@@ -225,6 +226,7 @@ export const WORKS = {
           { href: "/driver/fuel", label: "Fuel Logs", icon: Fuel },
           { href: "/driver/incidents", label: "Incident Reporting", icon: AlertTriangle },
           { href: "/driver/schedule", label: "My Schedule & Leave", icon: CalendarCheck },
+          { href: "/driver/attendance", label: "My Attendance", icon: Fingerprint },
         ],
       },
       {

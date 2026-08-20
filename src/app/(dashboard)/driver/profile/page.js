@@ -219,36 +219,6 @@ export default function DriverProfilePage() {
             </Button>
           </CardContent>
         </Card>
-
-        <Card className="border-0 shadow-sm">
-          <CardHeader>
-            <CardTitle className="text-base font-semibold flex items-center gap-2">
-              <Fingerprint className="w-4 h-4 text-primary" /> My Attendance
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {profile.attendance.length === 0 ? (
-              <EmptyState
-                icon={Fingerprint}
-                title="No attendance records"
-                description="Your check-in / check-out records will appear here."
-                className="py-8"
-              />
-            ) : (
-              <div className="divide-y divide-border">
-                {profile.attendance.map((a) => (
-                  <div key={a.attendance_id} className="py-2 flex items-center justify-between text-xs">
-                    <span className="font-medium">{formatDate(a.date)}</span>
-                    <span className="text-foreground-secondary">
-                      In: {a.time_in ? new Date(a.time_in).toLocaleTimeString() : "—"} • Out: {a.time_out ? new Date(a.time_out).toLocaleTimeString() : "—"}
-                    </span>
-                    <StatusBadge severity="info">{a.status}</StatusBadge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </DriverConsentGate>
   );
