@@ -142,7 +142,7 @@ CREATE TABLE dispatchschedules (
   updated_by integer,
   request_id integer,
   cancel_reason text,
-  CONSTRAINT chk_dispatch_status CHECK (((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Pending Reassignment'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
+  CONSTRAINT chk_dispatch_status CHECK (((status)::text = ANY ((ARRAY['Scheduled'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying, 'Pending Reassignment'::character varying])::text[]))),
   CONSTRAINT dispatchschedules_pkey PRIMARY KEY (dispatch_id),
   CONSTRAINT dispatchschedules_dispatch_number_key UNIQUE (dispatch_number)
 );
@@ -342,6 +342,7 @@ CREATE TABLE fuelrecords (
   rejection_reason text,
   approved_by integer,
   approved_at timestamptz,
+  client_submission_id varchar(64),
   CONSTRAINT chk_fuel_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Completed'::character varying])::text[]))),
   CONSTRAINT fuelrecords_pkey PRIMARY KEY (fuel_record_id)
 );
@@ -712,6 +713,7 @@ CREATE TABLE vehicleinspection (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   trip_id integer,
+  client_submission_id varchar(64),
   CONSTRAINT vehicleinspection_pkey PRIMARY KEY (inspection_id)
 );
 
@@ -966,8 +968,10 @@ CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives US
 CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments USING btree (driver_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dva_active_vehicle ON public.driver_vehicle_assignments USING btree (vehicle_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dws_driver_day ON public.driver_work_schedules USING btree (driver_id, day_of_week);
+CREATE UNIQUE INDEX uq_fuelrecords_driver_submission ON public.fuelrecords USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots USING btree (request_id) WHERE (is_consumed = false);
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
+CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 
 -- ============================= VIEWS ============================
 

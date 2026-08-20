@@ -168,7 +168,7 @@ export default function FullMapTab() {
       : null);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* 100% Full-Screen Background Map */}
       <View style={StyleSheet.absoluteFillObject}>
         <TripMap
@@ -228,11 +228,11 @@ export default function FullMapTab() {
           <View style={styles.plateContainer}>
             <Plate plate={activeTrip.plate_number} size="lg" />
             <Pressable
-              style={({ pressed }) => [styles.navQuickBtn, pressed && styles.navQuickBtnPressed]}
+              style={({ pressed }) => [styles.navQuickBtn, { backgroundColor: colors.primary }, pressed && styles.navQuickBtnPressed]}
               onPress={() => handleOpenGoogleMaps(activeTrip.destination_latitude, activeTrip.destination_longitude)}
             >
               <Text style={styles.navQuickIcon}>🧭</Text>
-              <Text style={styles.navQuickText}>Directions</Text>
+              <Text style={[styles.navQuickText, { color: colors.onPrimary }]}>Directions</Text>
             </Pressable>
           </View>
 
@@ -305,11 +305,13 @@ export default function FullMapTab() {
                 <Text style={[styles.modalCancelText, { color: colors.onSurfaceVariant }]}>Not yet</Text>
               </Pressable>
               <Pressable
-                style={({ pressed }) => [styles.modalConfirmBtn, pressed && styles.controlBtnPressed]}
+                style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.primary }, pressed && styles.controlBtnPressed]}
                 onPress={confirmComplete}
                 disabled={actingOn === completingTrip?.trip_id}
+                accessibilityRole="button"
+                accessibilityLabel="Complete trip"
               >
-                <Text style={styles.modalConfirmText}>Complete trip</Text>
+                <Text style={[styles.modalConfirmText, { color: colors.onPrimary }]}>Complete trip</Text>
               </Pressable>
             </View>
           </View>
@@ -337,7 +339,6 @@ function useNextStatus(status) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#141415",
     position: "relative",
   },
   topFloatingBar: {
@@ -452,7 +453,6 @@ const styles = StyleSheet.create({
   navQuickBtn: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#2563EB",
     paddingHorizontal: moderateScale(14),
     paddingVertical: moderateScale(8),
     borderRadius: moderateScale(16),
@@ -465,7 +465,6 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(14),
   },
   navQuickText: {
-    color: "#FFFFFF",
     fontSize: moderateScale(12),
     fontWeight: "700",
   },
@@ -547,10 +546,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: moderateScale(12),
     borderRadius: moderateScale(14),
-    backgroundColor: "#2563EB",
   },
   modalConfirmText: {
-    color: "#FFFFFF",
     fontSize: moderateScale(13),
     fontWeight: "800",
   },

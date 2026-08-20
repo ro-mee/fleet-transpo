@@ -13,7 +13,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts } from "../../../lib/theme";
+import { fonts, statusColorForTone } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 
 // The trips list is a time-aware QUEUE, not a plain time sort.
@@ -60,22 +60,15 @@ const BUCKET_LABEL = {
 };
 
 function badgeColors(display, colors) {
-  switch (display) {
-    case "IN PROGRESS":
-      return { bg: "#dbeafe", fg: "#1e40af", dot: "#3b82f6" }; // Vibrant Blue
-    case "OVERDUE · ACTION REQUIRED":
-      return { bg: "#fee2e2", fg: "#b91c1c", dot: "#ef4444" }; // Alert Red
-    case "READY":
-      return { bg: "#d1fae5", fg: "#047857", dot: "#10b981" }; // Emerald Green
-    case "UPCOMING":
-      return { bg: "#ede9fe", fg: "#6d28d9", dot: "#8b5cf6" }; // Rich Violet/Purple
-    case "COMPLETED":
-      return { bg: "#dcfce7", fg: "#15803d", dot: "#22c55e" }; // Forest Mint Green
-    case "CANCELLED":
-      return { bg: "#f3f4f6", fg: "#4b5563", dot: "#9ca3af" }; // Slate Gray
-    default:
-      return { bg: "#f1f5f9", fg: "#475569", dot: "#94a3b8" };
-  }
+  const toneMap = {
+    "IN PROGRESS": "info",
+    "OVERDUE · ACTION REQUIRED": "danger",
+    "READY": "success",
+    "UPCOMING": "warning",
+    "COMPLETED": "success",
+    "CANCELLED": "neutral",
+  };
+  return statusColorForTone(colors, toneMap[display] || "neutral");
 }
 
 function TripItem({ trip, display, now, router, colors }) {
@@ -102,6 +95,8 @@ function TripItem({ trip, display, now, router, colors }) {
           opacity: pressed ? 0.92 : 1,
         },
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={`Trip ${trip.trip_id}: ${display}. Pickup ${trip?.origin || "TBD"}, destination ${trip?.destination || "TBD"}`}
     >
       <View style={[styles.tripCardInner, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '30' }]}>
         <View style={styles.cardHeader}>
@@ -176,6 +171,8 @@ function TripItem({ trip, display, now, router, colors }) {
               opacity: pressed ? 0.9 : 1,
             },
           ]}
+          accessibilityRole="button"
+          accessibilityLabel={isReady || isOverdue ? `Start trip ${trip.trip_id}` : `View details for trip ${trip.trip_id}`}
         >
           <Text
             style={[

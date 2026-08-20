@@ -1,6 +1,7 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, Linking, ActivityIndicator, Animated, Easing,  } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, Linking, ActivityIndicator, Animated, Easing, Image } from 'react-native';
+import LottieView from 'lottie-react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -368,6 +369,15 @@ export default function Home() {
                   : "You are ready for new assignments."}
             </Text>
 
+            {/* Trajectory Car Line embedded in Hero Greeting Card */}
+            <View style={styles.heroCarLineContainer} pointerEvents="none">
+              <Image
+                source={require('../../../assets/car line.png')}
+                style={styles.heroCarLineImage}
+                resizeMode="contain"
+              />
+            </View>
+
             {vehiclePlate ? (
               <View style={styles.heroVehicle}>
                 <View style={styles.heroVehicleIcon}>
@@ -552,6 +562,8 @@ export default function Home() {
                       { backgroundColor: colors.primary },
                       pressed && styles.ctaPressed,
                     ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={activeTrip ? "Continue trip" : "Start trip"}
                   >
                     {actingOn === nextTrip.trip_id ? (
                       <ActivityIndicator color="#FFFFFF" />
@@ -584,22 +596,66 @@ export default function Home() {
           )}
         </Animated.View>
 
-        {/* ─── Stats Strip ─── */}
+        {/* ─── Stats Strip (KPI Fleet Overview) ─── */}
         <Animated.View style={fade(statsAnim)}>
           <View style={styles.statsGrid}>
+            {/* Trips Today KPI Card with Bottom-Left Route / Car Line Art */}
             <View style={[styles.statCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh }]}>
-              <View style={[styles.statIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="list-outline" size={16} color={colors.onPrimaryContainer} />
+              <View style={styles.statTopRow}>
+                <View style={[styles.statIcon, { backgroundColor: colors.primaryContainer }]}>
+                  <Ionicons name="car-sport" size={16} color={colors.onPrimaryContainer} />
+                </View>
+                <View style={[styles.statLiveBadge, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '30' }]}>
+                  <View style={[styles.statLiveDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.statLiveText, { color: colors.primary }]}>DISPATCH</Text>
+                </View>
               </View>
-              <CountUpText value={trips.length} style={[type.displayLg, styles.statNumber, { color: colors.onSurface }]} />
-              <Text style={[type.label, styles.statLabel, { color: colors.onSurfaceVariant }]}>Trips Today</Text>
+
+              <View style={styles.statDataBlock}>
+                <CountUpText value={trips.length} style={[type.displayLg, styles.statNumber, { color: colors.onSurface }]} />
+                <Text style={[type.label, styles.statLabel, { color: colors.onSurfaceVariant }]}>Trips Today</Text>
+              </View>
+
+              {/* Bottom-left Car Line Illustration overlay inspired by live tracking trajectory */}
+              <View style={styles.carLineContainer} pointerEvents="none">
+                <Image
+                  source={require('../../../assets/car line.png')}
+                  style={[
+                    styles.carLineImage,
+                    { tintColor: colors.primary, opacity: 0.85 }
+                  ]}
+                  resizeMode="contain"
+                />
+              </View>
             </View>
+
+            {/* Completed KPI Card */}
             <View style={[styles.statCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh }]}>
-              <View style={[styles.statIcon, { backgroundColor: colors.secondaryContainer }]}>
-                <Ionicons name="checkmark-outline" size={16} color={colors.onSecondaryContainer} />
+              <View style={styles.statTopRow}>
+                <View style={[styles.statIcon, { backgroundColor: colors.secondaryContainer }]}>
+                  <Ionicons name="checkmark-done" size={16} color={colors.onSecondaryContainer} />
+                </View>
+                <View style={[styles.statLiveBadge, { backgroundColor: colors.secondary + '14', borderColor: colors.secondary + '30' }]}>
+                  <Text style={[styles.statLiveText, { color: colors.secondary }]}>ARCHIVED</Text>
+                </View>
               </View>
-              <CountUpText value={completedTrips.length} style={[type.displayLg, styles.statNumber, { color: colors.secondary }]} />
-              <Text style={[type.label, styles.statLabel, { color: colors.onSurfaceVariant }]}>Completed</Text>
+
+              <View style={styles.statDataBlock}>
+                <CountUpText value={completedTrips.length} style={[type.displayLg, styles.statNumber, { color: colors.secondary }]} />
+                <Text style={[type.label, styles.statLabel, { color: colors.onSurfaceVariant }]}>Completed</Text>
+              </View>
+
+              {/* Subtle accent corner track curve */}
+              <View style={[styles.carLineContainer, styles.carLineCompleted]} pointerEvents="none">
+                <Image
+                  source={require('../../../assets/car line.png')}
+                  style={[
+                    styles.carLineImage,
+                    { tintColor: colors.secondary, opacity: 0.35 }
+                  ]}
+                  resizeMode="contain"
+                />
+              </View>
             </View>
           </View>
         </Animated.View>
@@ -883,6 +939,20 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.78)",
     marginTop: moderateScale(4),
   },
+  heroCarLineContainer: {
+    position: "absolute",
+    right: moderateScale(-6),
+    top: moderateScale(16),
+    width: moderateScale(140),
+    height: moderateScale(76),
+    opacity: 0.32,
+    zIndex: 0,
+  },
+  heroCarLineImage: {
+    width: "100%",
+    height: "100%",
+    tintColor: "#FFFFFF",
+  },
   heroVehicle: {
     flexDirection: "row",
     alignItems: "center",
@@ -891,6 +961,7 @@ const styles = StyleSheet.create({
     paddingTop: moderateScale(14),
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(255,255,255,0.22)",
+    zIndex: 2,
   },
   heroVehicleIcon: {
     width: moderateScale(36),
@@ -1088,27 +1159,84 @@ const styles = StyleSheet.create({
   emptyTitle: { lineHeight: moderateScale(28), textAlign: "center", includeFontPadding: false },
   emptyBody: { textAlign: "center" },
 
-  // ── Stats ──
+  // ── Stats (KPI Cards with Trajectory Art) ──
   statsGrid: { flexDirection: "row", gap: moderateScale(14) },
   statCard: {
     flex: 1,
-    borderRadius: moderateScale(18),
+    borderRadius: moderateScale(20),
     borderWidth: 1,
     padding: moderateScale(16),
     flexDirection: "column",
     alignItems: "flex-start",
-    gap: moderateScale(4),
+    position: "relative",
+    overflow: "hidden",
+    minHeight: moderateScale(140),
+    justifyContent: "space-between",
+  },
+  statTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    zIndex: 2,
   },
   statIcon: {
-    width: moderateScale(30),
-    height: moderateScale(30),
+    width: moderateScale(32),
+    height: moderateScale(32),
     borderRadius: moderateScale(10),
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: moderateScale(6),
   },
-  statNumber: { letterSpacing: -1, fontSize: moderateScale(32) },
-  statLabel: { marginTop: moderateScale(2) },
+  statLiveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(4),
+    paddingHorizontal: moderateScale(7),
+    paddingVertical: moderateScale(3),
+    borderRadius: moderateScale(6),
+    borderWidth: 1,
+  },
+  statLiveDot: {
+    width: moderateScale(5),
+    height: moderateScale(5),
+    borderRadius: moderateScale(2.5),
+  },
+  statLiveText: {
+    fontFamily: fonts.dataSemiBold,
+    fontSize: moderateScale(9),
+    letterSpacing: 0.6,
+  },
+  statDataBlock: {
+    zIndex: 2,
+    marginTop: moderateScale(8),
+  },
+  statNumber: {
+    letterSpacing: -1,
+    fontSize: moderateScale(32),
+    lineHeight: moderateScale(36),
+  },
+  statLabel: {
+    marginTop: moderateScale(2),
+    fontFamily: fonts.bodyMedium,
+    fontSize: moderateScale(12),
+  },
+  carLineContainer: {
+    position: "absolute",
+    left: moderateScale(-8),
+    bottom: moderateScale(-6),
+    width: moderateScale(130),
+    height: moderateScale(65),
+    zIndex: 1,
+  },
+  carLineCompleted: {
+    right: moderateScale(-14),
+    left: undefined,
+    transform: [{ scaleX: -1 }],
+  },
+  carLineImage: {
+    width: "100%",
+    height: "100%",
+  },
 
   // ── Quick actions ──
   quickActions: { gap: moderateScale(12) },

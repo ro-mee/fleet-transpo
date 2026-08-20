@@ -182,7 +182,7 @@ export default function IncidentsScreen() {
                 s === "low"
                   ? colors.secondary
                   : s === "medium"
-                  ? colors.warning || "#D97706"
+                  ? colors.warning
                   : colors.error;
               return (
                 <Pressable

@@ -60,6 +60,8 @@ last_verified: 2026-08-20
 | **S3 — mobile login unthrottled** (`POST /api/mobile/auth/login` ran bcrypt compares with no rate limit — largest brute-force gap) | per-IP + per-account 5/min throttle mirroring the web login, 429 + `Retry-After` | eslint clean; **362/362 tests pass** |
 | **Forgot/reset wrote through the anon key** — `auth.service.js` used the browser anon client for `signUp`/`resetPassword`/`updatePassword` | functions removed; server routes `POST /api/auth/forgot-password` (rate-limited, generic response, no email enumeration) and `POST /api/auth/reset-password` (session-bound employee, revokes `mobile_refresh_tokens`) replace them; pages rewired | lint clean on 6 files; manual smoke next deploy |
 
+**Mobile UI/UX — 2026-08-20:** mobile driver app audited (`impeccable` native critique + audit): **10/20** pre-fix (Accessibility 1, Performance 1, Theming 2, Conformance 3, Adaptivity 3). P1 fixes applied — status colors now palette-aware (dark/high-contrast correct), foreign colors removed, core trip-loop + SOS controls labeled. Lists still unvirtualized (P2, deferred). → [[UI UX Audit - Mobile]]
+
 ## What is incomplete — CONFIRMED
 
 - ~~`/fleet/availability`, `/drivers/availability`~~ — added 2026-08-12 (Phase 4 item 15) with the shared `StatusBoard` component, **removed 2026-08-15**: availability is derived from schedule-overlap, not a board page → [[Fleet And Vehicles]] · [[Dispatch]]

@@ -12,7 +12,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../lib/theme";
+import { fonts, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
 
 const FILTERS = ["ALL", "FUEL", "INSPECTIONS", "INCIDENTS"];
@@ -26,17 +26,18 @@ function LogCard({ item, colors, onPress }) {
   const iconColor = isIncident ? colors.error : isFuel ? colors.secondary : colors.primary;
 
   const getStatusDisplay = () => {
+    const tone = (t) => statusColorForTone(colors, t);
     if (isIncident) return { text: "ALERT", bg: colors.errorContainer, textCol: colors.onErrorContainer };
     if (isFuel) {
       const s = item.status?.toLowerCase();
-      if (s === "pending") return { text: "PENDING", bg: "#fef3c7", textCol: "#b45309" };
-      if (s === "approved") return { text: "APPROVED", bg: "#d1fae5", textCol: "#047857" };
-      if (s === "rejected") return { text: "REJECTED", bg: "#fee2e2", textCol: "#b91c1c" };
+      if (s === "pending") return { text: "PENDING", bg: tone("warning").bg, textCol: tone("warning").fg };
+      if (s === "approved") return { text: "APPROVED", bg: tone("success").bg, textCol: tone("success").fg };
+      if (s === "rejected") return { text: "REJECTED", bg: tone("danger").bg, textCol: tone("danger").fg };
     }
     if (item.recordType === "INSPECTION") {
       const s = item.status?.toLowerCase();
-      if (s === "passed") return { text: "PASSED", bg: "#d1fae5", textCol: "#047857" };
-      if (s === "failed") return { text: "FAILED", bg: "#fee2e2", textCol: "#b91c1c" };
+      if (s === "passed") return { text: "PASSED", bg: tone("success").bg, textCol: tone("success").fg };
+      if (s === "failed") return { text: "FAILED", bg: tone("danger").bg, textCol: tone("danger").fg };
     }
     return { text: "LOGGED", bg: colors.secondaryContainer, textCol: colors.onSecondaryContainer };
   };

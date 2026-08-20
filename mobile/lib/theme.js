@@ -436,4 +436,21 @@ export function tripStatusTone(status) {
   }
 }
 
+/**
+ * Resolve the 3-colour { bg, fg, dot } palette for a status tone against the
+ * active palette. Theme-aware: light, dark, and high-contrast all resolve
+ * correctly instead of baking in light-mode-only hex. Mirrors StatusPill.
+ */
+export function statusColorForTone(c, tone) {
+  const s = statusSurfaces(c);
+  const bg = s[tone] || s.neutral;
+  const fg = tone === "neutral" ? c.onSurfaceVariant : (c[tone] || c.onSurfaceVariant);
+  return { bg, fg, dot: fg };
+}
+
+/** { bg, fg, dot } for a raw trip status string, via tripStatusTone. */
+export function statusColors(c, status) {
+  return statusColorForTone(c, tripStatusTone(status));
+}
+
 export const TOUCH_TARGET = moderateScale(48);

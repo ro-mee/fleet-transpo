@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 import { StatusPill } from "../../../components/ui";
 import { AppAlert } from '../../../components/AppAlert';
@@ -26,15 +26,13 @@ const STATUS_ORDER = [
 ];
 
 function statusColor(status, colors) {
-  const done = ["Completed"];
-  const active = ["Trip Started", "En Route", "Arrived", "Driver Accepted", "In Progress"];
-  const warn = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"];
-  const err = ["Cancelled"];
-
-  if (done.includes(status)) return { bg: colors.secondaryContainer, fg: colors.onSecondaryContainer };
-  if (active.includes(status)) return { bg: "#FEF3C7", fg: "#92400E" };
-  if (err.includes(status)) return { bg: colors.errorContainer, fg: colors.onErrorContainer };
-  return { bg: colors.primaryContainer ? "#E0E0FF" : "#E0E0FF", fg: colors.primary };
+  const tone =
+    ["Completed"].includes(status) ? "success"
+    : ["Cancelled"].includes(status) ? "danger"
+    : ["Trip Started", "En Route", "Arrived", "Driver Accepted", "In Progress"].includes(status) ? "warning"
+    : ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(status) ? "info"
+    : "neutral";
+  return statusColorForTone(colors, tone);
 }
 
 function TripItem({ trip, colors, onPress }) {
@@ -197,7 +195,7 @@ export default function TripsTab() {
                   styles.filterTab,
                   {
                     backgroundColor: active ? colors.primaryContainer : "transparent",
-                    borderColor: active ? "#8690EE" : colors.outlineVariant,
+                    borderColor: active ? colors.primary : colors.outlineVariant,
                   },
                 ]}
               >

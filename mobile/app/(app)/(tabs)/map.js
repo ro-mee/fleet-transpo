@@ -7,7 +7,7 @@ import TomTomMap from "../../../components/TomTomMap";
 import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
@@ -22,30 +22,8 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const BOTTOM_SHEET_MIN_HEIGHT = 220; // Height of the collapsed view
 const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
 
-function getTripStatusStyle(status) {
-  switch (status) {
-    case "Completed":
-      return { bg: "#dcfce7", fg: "#15803d", dot: "#22c55e" };
-    case "Trip Started":
-    case "At Pickup":
-    case "Passenger Onboard":
-    case "En Route":
-    case "Drop-off":
-    case "Arrived":
-    case "In Progress":
-      return { bg: "#dbeafe", fg: "#1e40af", dot: "#3b82f6" };
-    case "Driver Accepted":
-    case "Assigned":
-    case "Scheduled":
-    case "Pending":
-    case "Approved":
-    case "Dispatched":
-      return { bg: "#ede9fe", fg: "#6d28d9", dot: "#8b5cf6" };
-    case "Cancelled":
-      return { bg: "#fee2e2", fg: "#b91c1c", dot: "#ef4444" };
-    default:
-      return { bg: "#f1f5f9", fg: "#475569", dot: "#94a3b8" };
-  }
+function getTripStatusStyle(status, colors) {
+  return statusColors(colors, status);
 }
 
 // Statuses where the driver is still travelling to the pickup. Everything else
@@ -795,7 +773,7 @@ export default function MapTab() {
                 <View style={[styles.detailRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant + '20', paddingTop: 12 }]}>
                   <Text style={[styles.detailLabel, { color: colors.outline }]}>STATUS</Text>
                   {(() => {
-                    const sc = getTripStatusStyle(activeTrip.trip_status);
+                    const sc = getTripStatusStyle(activeTrip.trip_status, colors);
                     return (
                       <View style={[styles.statusBadge, { backgroundColor: sc.bg, flexDirection: 'row', alignItems: 'center', gap: 5 }]}>
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: sc.dot }} />

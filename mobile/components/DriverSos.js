@@ -177,6 +177,8 @@ export function DriverSos() {
             <Pressable
               onPress={() => Linking.openURL("tel:911")}
               style={({ pressed }) => [styles.primary, { backgroundColor: colors.error }, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Call emergency services"
             >
               <Ionicons name="call" size={21} color={colors.onError} />
               <Text style={[type.labelLg, { color: colors.onError }]}>Call emergency services (911)</Text>
@@ -185,6 +187,8 @@ export function DriverSos() {
               onPress={sendEmergencyLocation}
               disabled={sending}
               style={({ pressed }) => [styles.secondary, { borderColor: colors.outlineVariant }, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={sending ? "Sending emergency location" : "Share current location"}
             >
               {sending
                 ? <ActivityIndicator size="small" color={colors.error} />
@@ -193,7 +197,7 @@ export function DriverSos() {
                 {sending ? "Sending emergency..." : "Share current location"}
               </Text>
             </Pressable>
-            <Pressable onPress={() => setOpen(false)} style={styles.cancel}>
+            <Pressable onPress={() => setOpen(false)} style={styles.cancel} accessibilityRole="button" accessibilityLabel="Close emergency actions">
               <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>Cancel</Text>
             </Pressable>
           </View>

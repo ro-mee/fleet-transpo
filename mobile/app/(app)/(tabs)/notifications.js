@@ -31,14 +31,14 @@ function NotifCard({ notif, colors, onPress }) {
       : typeInfo.color === "secondary"
       ? colors.secondary
       : typeInfo.color === "warning"
-      ? colors.warning || "#D97706"
+      ? colors.warning
       : colors.primary;
   const bgColor =
     typeInfo.color === "error"
       ? colors.errorContainer
       : typeInfo.color === "secondary"
       ? colors.secondaryContainer
-      : "#E0E0FF";
+      : colors.primaryContainer;
 
   const timeStr = notif.created_at
     ? new Date(notif.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })

@@ -5,34 +5,12 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import TomTomMap from "../../../components/TomTomMap";
 import { api } from "../../../lib/api";
-import { fonts } from "../../../lib/theme";
+import { fonts, statusColors } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 
-function getTripStatusStyle(status) {
-  switch (status) {
-    case "Completed":
-      return { bg: "#dcfce7", fg: "#15803d", dot: "#22c55e" };
-    case "Trip Started":
-    case "At Pickup":
-    case "Passenger Onboard":
-    case "En Route":
-    case "Drop-off":
-    case "Arrived":
-    case "In Progress":
-      return { bg: "#dbeafe", fg: "#1e40af", dot: "#3b82f6" };
-    case "Driver Accepted":
-    case "Assigned":
-    case "Scheduled":
-    case "Pending":
-    case "Approved":
-    case "Dispatched":
-      return { bg: "#ede9fe", fg: "#6d28d9", dot: "#8b5cf6" };
-    case "Cancelled":
-      return { bg: "#fee2e2", fg: "#b91c1c", dot: "#ef4444" };
-    default:
-      return { bg: "#f1f5f9", fg: "#475569", dot: "#94a3b8" };
-  }
+function getTripStatusStyle(status, colors) {
+  return statusColors(colors, status);
 }
 
 export default function TripDetailsScreen() {
@@ -69,15 +47,15 @@ export default function TripDetailsScreen() {
     load();
   }, [load]);
 
-  // Any status before "Trip Started" is a pre-start trip. The START control is
-  // gated on: departure window reached + pre-trip inspection passed. A trip that
-  // is NOT yet Driver Accepted (e.g. Assigned) is auto-accepted first — the
-  // start endpoint requires the one-hop Driver Accepted → Trip Started chain.
   const PRE_START = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"];
   const isPreStart = PRE_START.includes(trip?.trip_status);
   const isAccepted = trip?.trip_status === "Driver Accepted";
+  const isCompleted = trip?.trip_status === "Completed";
+  const isCancelled = trip?.trip_status === "Cancelled";
+  const isFinished = isCompleted || isCancelled;
 
   const handleAction = async () => {
+    if (isFinished) return;
     setAccepting(true);
     try {
       if (!isAccepted) {
@@ -93,7 +71,7 @@ export default function TripDetailsScreen() {
             { text: "Cancel", style: "cancel" },
           ]
         : [{ text: "OK" }];
-      AppAlert.alert("Cannot Start Trip", msg, buttons);
+      AppAlert.alert("Cannot Start Trip", msg, buttons, { type: 'error' });
       setAccepting(false);
     }
   };
@@ -141,7 +119,7 @@ export default function TripDetailsScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {/* Status Card */}
         {(() => {
-          const sc = getTripStatusStyle(trip?.trip_status);
+          const sc = getTripStatusStyle(trip?.trip_status, colors);
           return (
             <View style={[styles.statusCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
               <View>
@@ -239,7 +217,7 @@ export default function TripDetailsScreen() {
                 <Ionicons name="people-outline" size={14} color={colors.onSurfaceVariant} />
                 <Text style={[styles.statText, { color: colors.onSurfaceVariant }]}>{trip?.passenger_count || 1} Pax</Text>
                 <Text style={[styles.statDivider, { color: colors.outlineVariant }]}>•</Text>
-                <Ionicons name="star" size={13} color="#f59e0b" />
+                <Ionicons name="star" size={13} color={colors.warning} />
                 <Text style={[styles.statText, { color: colors.onSurfaceVariant }]}>VIP Guest</Text>
               </View>
             </View>
@@ -303,67 +281,101 @@ export default function TripDetailsScreen() {
       </ScrollView>
 
       {/* Bottom Bar */}
-      <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + '30', paddingBottom: Math.max(insets.bottom, 16) }]}>
-        {isPreStart ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.acceptBtn,
+      {isFinished ? (
+        <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + '30', paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View
+            style={[
+              styles.finishedBanner,
               {
-                backgroundColor: startReady ? colors.primary : colors.surfaceContainerHigh,
-                width: '100%',
-                transform: [{ scale: pressed ? 0.97 : 1 }],
-                opacity: pressed ? 0.9 : 1,
+                backgroundColor: isCompleted ? colors.primaryContainer + '35' : colors.surfaceContainerHigh,
+                borderColor: isCompleted ? colors.primary + '40' : colors.outlineVariant + '50',
               },
             ]}
-            onPress={handleAction}
-            disabled={accepting || !startReady}
           >
-            {accepting ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <React.Fragment>
-                <Text style={[styles.acceptText, { color: startReady ? colors.onPrimary : colors.onSurfaceVariant }]}>
-                  {startReady
-                    ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
-                    : !preTripPassed
-                      ? "PRE-TRIP CHECK REQUIRED"
-                      : minsToStart != null
-                        ? `START ROUTE IN ${minsToStart} MIN`
-                        : "START ROUTE"}
-                </Text>
-                <View style={[styles.btnIconCapsule, { backgroundColor: startReady ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }]}>
-                  <Ionicons name={startReady ? "car-outline" : "lock-closed-outline"} size={17} color={startReady ? colors.onPrimary : colors.onSurfaceVariant} />
-                </View>
-              </React.Fragment>
-            )}
-          </Pressable>
-        ) : (
-          <Pressable 
-            style={({ pressed }) => [
-              styles.acceptBtn, 
-              { 
-                backgroundColor: colors.primary, 
-                width: '100%', 
-                transform: [{ scale: pressed ? 0.97 : 1 }],
-                opacity: pressed ? 0.9 : 1 
-              }
-            ]} 
-            onPress={handleAction} 
-            disabled={accepting}
-          >
-            {accepting ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <React.Fragment>
-                <Text style={[styles.acceptText, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
-                <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                  <Ionicons name="navigate-outline" size={17} color={colors.onPrimary} />
-                </View>
-              </React.Fragment>
-            )}
-          </Pressable>
-        )}
-      </View>
+            <Ionicons
+              name={isCompleted ? "checkmark-circle" : "close-circle"}
+              size={20}
+              color={isCompleted ? colors.primary : colors.onSurfaceVariant}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.finishedBannerTitle, { color: colors.onSurface }]}>
+                {isCompleted ? "Trip Completed" : "Trip Cancelled"}
+              </Text>
+              <Text style={[styles.finishedBannerSub, { color: colors.onSurfaceVariant }]}>
+                {isCompleted
+                  ? "Telemetry and route logs are archived."
+                  : "This trip was cancelled and is closed for dispatch."}
+              </Text>
+            </View>
+          </View>
+        </View>
+      ) : (
+        <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + '30', paddingBottom: Math.max(insets.bottom, 16) }]}>
+          {isPreStart ? (
+            <Pressable
+              style={({ pressed }) => [
+                styles.acceptBtn,
+                {
+                  backgroundColor: startReady ? colors.primary : colors.surfaceContainerHigh,
+                  width: '100%',
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              onPress={handleAction}
+              disabled={accepting || !startReady}
+              accessibilityRole="button"
+              accessibilityLabel={startReady ? (isAccepted ? "Start route" : "Accept and start trip") : "Start route not yet available"}
+            >
+              {accepting ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <React.Fragment>
+                  <Text style={[styles.acceptText, { color: startReady ? colors.onPrimary : colors.onSurfaceVariant }]}>
+                    {startReady
+                      ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
+                      : !preTripPassed
+                        ? "PRE-TRIP CHECK REQUIRED"
+                        : minsToStart != null
+                          ? `START ROUTE IN ${minsToStart} MIN`
+                          : "START ROUTE"}
+                  </Text>
+                  <View style={[styles.btnIconCapsule, { backgroundColor: startReady ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }]}>
+                    <Ionicons name={startReady ? "car-outline" : "lock-closed-outline"} size={17} color={startReady ? colors.onPrimary : colors.onSurfaceVariant} />
+                  </View>
+                </React.Fragment>
+              )}
+            </Pressable>
+          ) : (
+            <Pressable 
+              style={({ pressed }) => [
+                styles.acceptBtn, 
+                { 
+                  backgroundColor: colors.primary, 
+                  width: '100%', 
+                  transform: [{ scale: pressed ? 0.97 : 1 }],
+                  opacity: pressed ? 0.9 : 1 
+                }
+              ]} 
+              onPress={handleAction} 
+              disabled={accepting}
+              accessibilityRole="button"
+              accessibilityLabel="Continue to map"
+            >
+              {accepting ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <React.Fragment>
+                  <Text style={[styles.acceptText, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
+                  <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                    <Ionicons name="navigate-outline" size={17} color={colors.onPrimary} />
+                  </View>
+                </React.Fragment>
+              )}
+            </Pressable>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -465,5 +477,24 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  finishedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  finishedBannerTitle: {
+    fontFamily: fonts.displayBold || fonts.bodySemiBold,
+    fontSize: 14,
+    marginBottom: 2,
+  },
+  finishedBannerSub: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
   },
 });

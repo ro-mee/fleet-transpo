@@ -5,7 +5,7 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
-import { fonts, radius, TOUCH_TARGET } from "../../lib/theme";
+import { fonts, radius, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
 import * as ImagePicker from "expo-image-picker";
 import { AppAlert } from '../../components/AppAlert';
@@ -237,9 +237,9 @@ export default function FuelReport() {
             <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.5 }} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Status</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#a7f3d0', paddingHorizontal: moderateScale(12), paddingVertical: moderateScale(6), borderRadius: moderateScale(8), gap: moderateScale(6) }}>
-                <Ionicons name="time-outline" size={16} color="#065f46" />
-                <Text style={{ fontSize: moderateScale(14), fontWeight: '700', color: "#065f46" }}>{submittedRecord.queued ? "Waiting for Sync" : "Pending Review"}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: statusColorForTone(colors, "success").bg, paddingHorizontal: moderateScale(12), paddingVertical: moderateScale(6), borderRadius: moderateScale(8), gap: moderateScale(6) }}>
+                <Ionicons name="time-outline" size={16} color={statusColorForTone(colors, "success").fg} />
+                <Text style={{ fontSize: moderateScale(14), fontWeight: '700', color: statusColorForTone(colors, "success").fg }}>{submittedRecord.queued ? "Waiting for Sync" : "Pending Review"}</Text>
               </View>
             </View>
           </View>
