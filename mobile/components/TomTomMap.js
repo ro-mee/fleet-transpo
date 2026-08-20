@@ -44,9 +44,9 @@ const TomTomMap = forwardRef(({
               body, html { margin: 0; padding: 0; height: 100%; width: 100%; overflow: hidden; background: ${colors.background}; }
               #map { height: 100vh; width: 100vw; }
               
-              .tt-popup-content { padding: 9px 12px; border-radius: 12px; box-shadow: 0 8px 24px rgba(22,37,31,0.16); border: none; background: ${colors.surface}; }
+              .tt-popup-content { padding: 5px 9px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,0.18); border: 1px solid ${colors.outlineVariant}50; background: ${colors.surface}; }
               .tt-popup-panel { background: ${colors.surface}; }
-              .popup-title { font-family: system-ui, sans-serif; font-size: 13px; font-weight: 700; color: ${colors.onSurface}; margin: 0; }
+              .popup-title { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: 700; color: ${colors.onSurface}; margin: 0; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
               
               .origin-marker-car { 
                   width: 36px; 
@@ -571,7 +571,7 @@ const TomTomMap = forwardRef(({
 
                   if (originLat === null && originAddr) {
                       try {
-                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: originAddr });
+                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: originAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
                               originLng = res.results[0].position.lng;
                               originLat = res.results[0].position.lat;
@@ -581,7 +581,7 @@ const TomTomMap = forwardRef(({
 
                   if (destLat === null && destAddr) {
                       try {
-                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: destAddr });
+                          const res = await tt.services.fuzzySearch({ key: '${tomtomKey}', query: destAddr, countrySet: 'PH' });
                           if (res.results && res.results.length > 0) {
                               destLng = res.results[0].position.lng;
                               destLat = res.results[0].position.lat;
@@ -589,10 +589,10 @@ const TomTomMap = forwardRef(({
                       } catch(e) {}
                   }
 
-                  originLat = originLat || 14.5995;
-                  originLng = originLng || 120.9842;
-                  destLat = destLat || 14.5995;
-                  destLng = destLng || 120.9842;
+                  originLat = originLat || 14.5086;
+                  originLng = originLng || 121.0194;
+                  destLat = destLat || 14.5547;
+                  destLng = destLng || 121.0244;
                   
                   // Store globally for rerouting
                   window.currentDestLat = destLat;
@@ -694,32 +694,47 @@ const TomTomMap = forwardRef(({
                           originEl.appendChild(carInner);
                           window.updateCarIcon();
                       } else {
-                          originEl.className = 'origin-marker-dot';
-                          originEl.innerHTML = '<div class="origin-dot-outer"><div class="origin-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${colors.primary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+                          originEl.className = 'origin-pin-container';
+                          originEl.style.width = '28px';
+                          originEl.style.height = '34px';
+                          originEl.style.display = 'flex';
+                          originEl.style.alignItems = 'center';
+                          originEl.style.justifyContent = 'center';
+                          originEl.style.cursor = 'pointer';
+                          originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                       }
 
-                      const originPopup = new tt.Popup({ offset: 35, closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
-                      window.originMarker = new tt.Marker({ element: originEl, anchor: 'center' })
+                      const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
+                      window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon ? "'center'" : "'bottom'"} })
                           .setLngLat([originLng, originLat])
                           ${!showCarIcon ? '.setPopup(originPopup)' : ''}
                           .addTo(map);
-                          
-                      ${!showCarIcon ? 'originPopup.addTo(map);' : ''}
-
-                      // If no destination is provided, just stop here (Idle mode)
-                      if (!${destination ? 'true' : 'false'} || (originLat === destLat && originLng === destLng)) return;
 
                       // Destination Marker
+                      const hasValidDest = (destLat && destLng) && (originLat !== destLat || originLng !== destLng);
+                      if (!hasValidDest) return;
+
                       const destEl = document.createElement('div');
-                      destEl.className = 'dest-marker';
-                      destEl.innerHTML = '<div class="dest-dot-outer"><div class="dest-dot-inner"></div></div><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${colors.secondary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-top: 10px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>';
+                      destEl.className = 'dest-pin-container';
+                      destEl.style.width = '28px';
+                      destEl.style.height = '34px';
+                      destEl.style.display = 'flex';
+                      destEl.style.alignItems = 'center';
+                      destEl.style.justifyContent = 'center';
+                      destEl.style.cursor = 'pointer';
+                      destEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.secondary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                       
-                      const destPopup = new tt.Popup({ offset: 35, closeButton: false }).setHTML('<h4 class="popup-title">${dropoffLabel}</h4>');
-                      window.destMarker = new tt.Marker({ element: destEl })
+                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${dropoffLabel}</h4>');
+                      window.destMarker = new tt.Marker({ element: destEl, anchor: 'bottom' })
                           .setLngLat([destLng, destLat])
                           .setPopup(destPopup)
                           .addTo(map);
-                      destPopup.addTo(map);
+
+                      // Fit map to show both markers even before route resolves
+                      const initialBounds = new tt.LngLatBounds();
+                      initialBounds.extend([originLng, originLat]);
+                      initialBounds.extend([destLng, destLat]);
+                      map.fitBounds(initialBounds, { padding: 40, duration: 400 });
 
                       // Request traffic-sectioned routing
                       tt.services.calculateRoute({
@@ -846,7 +861,7 @@ const TomTomMap = forwardRef(({
                           }
 
                           const bounds = new tt.LngLatBounds();
-                          coords.forEach(coord => {
+                          mainCoords.forEach(coord => {
                               bounds.extend(tt.LngLat.convert(coord));
                           });
                           

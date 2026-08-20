@@ -130,7 +130,7 @@ export default function TripsTab() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const data = await api.get("/api/mobile/driver/trips");
+      const data = await api.get("/api/mobile/driver/trips?status=all");
       setTrips(Array.isArray(data) ? data : []);
     } catch (e) {
       setError(e.message || "Could not load trips.");
@@ -153,11 +153,7 @@ export default function TripsTab() {
   });
 
   const handleTripPress = (trip) => {
-    AppAlert.alert(
-      `Trip #${trip.trip_id}`,
-      `Status: ${trip.trip_status}\n\nFrom: ${trip.origin || "—"}\nTo: ${trip.destination || "—"}`,
-      [{ text: "OK" }]
-    );
+    router.push(`/trip/${trip.trip_id}`);
   };
 
   return (

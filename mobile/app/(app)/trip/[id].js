@@ -33,11 +33,17 @@ export default function TripDetailsScreen() {
 
   const load = useCallback(async () => {
     try {
-      const data = await api.get("/api/mobile/driver/trips");
-      const found = data.find((t) => String(t.trip_id) === String(id));
-      setTrip(found || { trip_id: id, trip_status: "Scheduled" });
+      const data = await api.get("/api/mobile/driver/trips?status=all");
+      const found = Array.isArray(data) ? data.find((t) => String(t.trip_id) === String(id)) : null;
+      if (found) {
+        setTrip(found);
+      } else {
+        // Fallback fetch specific trip if not in driver active/completed batch
+        const single = await api.get(`/api/trips/${id}`).catch(() => null);
+        setTrip(single || { trip_id: id, trip_status: "Completed" });
+      }
     } catch (e) {
-      setTrip({ trip_id: id, trip_status: "Scheduled" });
+      setTrip({ trip_id: id, trip_status: "Completed" });
     } finally {
       setLoading(false);
     }
@@ -137,67 +143,114 @@ export default function TripDetailsScreen() {
           );
         })()}
 
-        {/* Start Timing Card */}
-        <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-          <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
-            <Ionicons name="time-outline" size={16} color={colors.primary} />
-            <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>START TIMING</Text>
-          </View>
-          {earliestStart != null ? (
-            <>
-              <View style={styles.timingRow}>
-                <View>
-                  <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>EARLIEST START</Text>
-                  <Text style={[styles.timingBig, { color: windowOpen ? colors.secondary : colors.onSurface }]}>
-                    {fmt(earliestStart)}
-                  </Text>
-                </View>
-                {recommended != null ? (
-                  <View style={{ alignItems: "flex-end" }}>
-                    <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>RECOMMENDED</Text>
-                    <Text style={[styles.timingBig, { color: colors.onSurface }]}>{fmt(recommended)}</Text>
-                  </View>
-                ) : null}
-              </View>
-              <View
-                style={[
-                  styles.timingBanner,
-                  {
-                    backgroundColor: windowOpen
-                      ? colors.secondaryContainer
-                      : colors.surfaceContainerHighest,
-                    borderColor: windowOpen ? colors.secondary : colors.outlineVariant + '40',
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={windowOpen ? "checkmark-circle" : "hourglass-outline"}
-                  size={18}
-                  color={windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
-                />
-                <Text style={[styles.timingBannerText, { color: windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
-                  {windowOpen
-                    ? "Departure window is open. Ready to start."
-                    : minsToStart != null
-                      ? `Window opens in ${minsToStart} min (${fmt(earliestStart)}).`
-                      : `Earliest departure ${fmt(earliestStart)}.`}
+        {/* Start Timing Card for Pre-Start / In-Progress OR Completion Telemetry Summary for Finished Trips */}
+        {isFinished ? (
+          <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+            <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
+              <Ionicons name="flag-outline" size={16} color={isCompleted ? colors.primary : colors.error} />
+              <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>
+                {isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLATION LOG"}
+              </Text>
+            </View>
+
+            <View style={styles.timingRow}>
+              <View>
+                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>SCHEDULED DEPARTURE</Text>
+                <Text style={[styles.timingBig, { color: colors.onSurface }]}>
+                  {depTime}
                 </Text>
               </View>
-              {!preTripPassed ? (
-                <View style={styles.hintRow}>
-                  <Ionicons name="information-circle-outline" size={14} color={colors.error} />
-                  <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
-                    Pre-trip inspection must be completed before starting.
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>
+                  {isCompleted ? "ARRIVAL / COMPLETED" : "STATUS"}
+                </Text>
+                <Text style={[styles.timingBig, { color: isCompleted ? colors.primary : colors.error }]}>
+                  {isCompleted
+                    ? (trip?.updated_at || trip?.completed_at ? new Date(trip.updated_at || trip.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Completed")
+                    : "Cancelled"}
+                </Text>
+              </View>
+            </View>
+
+            {/* Bento metric row for mileage & odometer */}
+            <View style={[styles.timingBanner, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '30' }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>START ODOMETER</Text>
+                <Text style={[styles.statText, { color: colors.onSurface, fontFamily: fonts.dataSemiBold, fontSize: 13 }]}>
+                  {trip?.start_mileage ? `${trip.start_mileage} km` : "Logged"}
+                </Text>
+              </View>
+              <View style={{ width: 1, height: 24, backgroundColor: colors.outlineVariant + '40', marginHorizontal: 8 }} />
+              <View style={{ flex: 1, alignItems: "flex-end" }}>
+                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>END ODOMETER</Text>
+                <Text style={[styles.statText, { color: colors.onSurface, fontFamily: fonts.dataSemiBold, fontSize: 13 }]}>
+                  {trip?.current_mileage ? `${trip.current_mileage} km` : "Recorded"}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : (
+          <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+            <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
+              <Ionicons name="time-outline" size={16} color={colors.primary} />
+              <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>START TIMING</Text>
+            </View>
+            {earliestStart != null ? (
+              <>
+                <View style={styles.timingRow}>
+                  <View>
+                    <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>EARLIEST START</Text>
+                    <Text style={[styles.timingBig, { color: windowOpen ? colors.secondary : colors.onSurface }]}>
+                      {fmt(earliestStart)}
+                    </Text>
+                  </View>
+                  {recommended != null ? (
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>RECOMMENDED</Text>
+                      <Text style={[styles.timingBig, { color: colors.onSurface }]}>{fmt(recommended)}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View
+                  style={[
+                    styles.timingBanner,
+                    {
+                      backgroundColor: windowOpen
+                        ? colors.secondaryContainer
+                        : colors.surfaceContainerHighest,
+                      borderColor: windowOpen ? colors.secondary : colors.outlineVariant + '40',
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={windowOpen ? "checkmark-circle" : "hourglass-outline"}
+                    size={18}
+                    color={windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                  />
+                  <Text style={[styles.timingBannerText, { color: windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
+                    {windowOpen
+                      ? "Departure window is open. Ready to start."
+                      : minsToStart != null
+                        ? `Window opens in ${minsToStart} min (${fmt(earliestStart)}).`
+                        : `Earliest departure ${fmt(earliestStart)}.`}
                   </Text>
                 </View>
-              ) : null}
-            </>
-          ) : (
-            <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
-              Schedule window will appear once departure time is confirmed.
-            </Text>
-          )}
-        </View>
+                {!preTripPassed ? (
+                  <View style={styles.hintRow}>
+                    <Ionicons name="information-circle-outline" size={14} color={colors.error} />
+                    <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
+                      Pre-trip inspection must be completed before starting.
+                    </Text>
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
+                Schedule window will appear once departure time is confirmed.
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Passenger Information */}
         <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
@@ -252,18 +305,43 @@ export default function TripDetailsScreen() {
           </View>
         </View>
 
-        {/* Map Preview */}
-        <View style={[styles.mapPreview, { borderColor: colors.outlineVariant + '40' }]}>
-          <TomTomMap 
-            origin={{ lat: trip?.origin_latitude, lng: trip?.origin_longitude }}
-            destination={{ lat: trip?.destination_latitude, lng: trip?.destination_longitude }}
-            originAddress={trip?.origin}
-            destAddress={trip?.destination}
-            pickupLabel={trip?.origin ? String(trip.origin) : "Pickup"}
-            dropoffLabel={trip?.destination ? String(trip.destination) : "Destination"}
-            style={styles.mapImage}
-            scrollEnabled={false}
-          />
+        {/* Map Preview Card with Pickup & Drop-Off Waypoints */}
+        <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40', padding: 0, overflow: 'hidden' }]}>
+          <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 }]}>
+            <Ionicons name="map-outline" size={16} color={colors.primary} />
+            <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>ROUTE MAP OVERVIEW</Text>
+          </View>
+          
+          <View style={styles.mapPreview}>
+            <TomTomMap 
+              key={`${trip?.trip_id}-${trip?.origin}-${trip?.destination}`}
+              origin={trip?.origin_latitude ? { lat: Number(trip.origin_latitude), lng: Number(trip.origin_longitude) } : undefined}
+              destination={trip?.destination_latitude ? { lat: Number(trip.destination_latitude), lng: Number(trip.destination_longitude) } : undefined}
+              originAddress={trip?.origin || "Manila, Philippines"}
+              destAddress={trip?.destination || "Pasay, Metro Manila"}
+              pickupLabel={trip?.origin ? `Pickup: ${trip.origin}` : "Pickup Location"}
+              dropoffLabel={trip?.destination ? `Drop-off: ${trip.destination}` : "Drop-off Location"}
+              style={styles.mapImage}
+              scrollEnabled={true}
+            />
+          </View>
+
+          {/* Quick Route Leg Summary Footer */}
+          <View style={styles.mapFooterSummary}>
+            <View style={styles.mapFooterCol}>
+              <View style={[styles.dotIndicator, { backgroundColor: colors.primary }]} />
+              <Text style={[styles.mapFooterText, { color: colors.onSurface }]} numberOfLines={1}>
+                {trip?.origin || "Pickup Location"}
+              </Text>
+            </View>
+            <Ionicons name="arrow-forward" size={14} color={colors.outline} style={{ marginHorizontal: 8 }} />
+            <View style={styles.mapFooterCol}>
+              <View style={[styles.dotIndicator, { backgroundColor: colors.secondary }]} />
+              <Text style={[styles.mapFooterText, { color: colors.onSurface }]} numberOfLines={1}>
+                {trip?.destination || "Drop-off Location"}
+              </Text>
+            </View>
+          </View>
         </View>
 
         {/* Notes */}
@@ -448,7 +526,31 @@ const styles = StyleSheet.create({
   stopLabel: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6 },
   stopName: { fontSize: 15, fontFamily: fonts.bodyMedium },
 
-  mapPreview: { height: 140, borderRadius: 16, overflow: "hidden", borderWidth: 1 },
+  mapPreview: { height: 220, overflow: "hidden" },
+  mapFooterSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+  },
+  mapFooterCol: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dotIndicator: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  mapFooterText: {
+    fontSize: 12,
+    fontFamily: fonts.bodyMedium,
+    flex: 1,
+  },
   notesText: { fontSize: 13, fontFamily: fonts.body, lineHeight: 20 },
 
   bottomBar: {

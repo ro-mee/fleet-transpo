@@ -1,10 +1,11 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { useState, useEffect, useCallback } from "react";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
+import { useAuth } from "../../lib/auth";
 import { fonts, radius, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
 import * as ImagePicker from "expo-image-picker";
@@ -13,9 +14,12 @@ import { AppAlert } from '../../components/AppAlert';
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId, id, odometer: pOdometer, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
+  const { user } = useAuth();
+  const { tripId: paramTripId, id, odometer: pOdometer, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
 
+  const [assignedTrip, setAssignedTrip] = useState(null);
+  const [loadingTrip, setLoadingTrip] = useState(true);
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
   const [odometer, setOdometer] = useState(pOdometer || "");
@@ -29,6 +33,32 @@ export default function FuelReport() {
   const [submittedRecord, setSubmittedRecord] = useState(null);
   const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
   const [submissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await api.get("/api/mobile/driver/trips?status=all");
+        if (Array.isArray(data) && data.length > 0) {
+          if (paramTripId) {
+            const found = data.find((t) => String(t.trip_id) === String(paramTripId));
+            if (found) {
+              setAssignedTrip(found);
+              return;
+            }
+          }
+          // Prioritize active or pending assigned trips
+          const activeOrPending = data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || data[0];
+          setAssignedTrip(activeOrPending);
+        }
+      } catch (e) {
+        // Fallback gracefully
+      } finally {
+        setLoadingTrip(false);
+      }
+    })();
+  }, [paramTripId]);
+
+  const activeTripId = paramTripId || (assignedTrip?.trip_id ? String(assignedTrip.trip_id) : null);
 
   const closeFuelReport = () => {
     if (router.canGoBack()) {
@@ -191,7 +221,7 @@ export default function FuelReport() {
       if (id) {
         res = await api.put(`/api/mobile/fuel/${id}`, payload);
       } else {
-        payload.trip_id = tripId && tripId !== "undefined" ? parseInt(tripId, 10) : null;
+        payload.trip_id = activeTripId && activeTripId !== "undefined" ? parseInt(activeTripId, 10) : null;
         res = await api.post("/api/mobile/fuel", payload);
       }
       setSubmittedRecord({ ...res, amount: res?.amount ?? payload.amount });
@@ -294,53 +324,76 @@ export default function FuelReport() {
           </Text>
         </View>
 
-        {/* Info Cards Grid */}
+        {/* Premium Double-Bezel Info Cards Grid */}
         <View style={styles.infoGrid}>
-          {/* Vehicle & Trip Info */}
-          <View
-            style={[
-              styles.infoCard,
-              { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHighest },
-            ]}
-          >
-            <View style={styles.infoCardHeader}>
-              <View>
-                <Text style={[styles.infoCardLabel, { color: colors.onSurfaceVariant }]}>VEHICLE</Text>
-                <Text style={[styles.infoCardValue, { color: colors.onSurface }]}>Assigned Vehicle</Text>
-                <Text style={[styles.infoCardSub, { color: colors.onSurfaceVariant }]}>
-                  {tripId ? `Trip #${tripId}` : "No active trip"}
-                </Text>
+          {/* Assigned Vehicle Double-Bezel Card */}
+          <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
+            <View style={styles.topGleam} />
+            <View style={[styles.cardInnerCore, { backgroundColor: colors.surfaceContainerLow }]}>
+              <View style={styles.cardHeaderRow}>
+                <View style={[styles.microBadge, { backgroundColor: colors.primaryContainer + '60', borderColor: colors.primary + '30' }]}>
+                  <View style={[styles.microDot, { backgroundColor: colors.primary }]} />
+                  <Text style={[styles.microBadgeText, { color: colors.primary }]}>ASSIGNED VEHICLE</Text>
+                </View>
+                <View style={[styles.iconPill, { backgroundColor: colors.primaryContainer }]}>
+                  <Ionicons name="car" size={16} color={colors.primary} />
+                </View>
               </View>
-              <View style={[styles.infoCardIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="car" size={24} color={colors.onPrimaryContainer} />
+
+              <Text style={[styles.vehicleModelTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                {assignedTrip?.vehicle_model || assignedTrip?.model || (assignedTrip?.vehicle_plate || assignedTrip?.plate_number ? `Plate ${assignedTrip?.vehicle_plate || assignedTrip?.plate_number}` : "Assigned Fleet Vehicle")}
+              </Text>
+              
+              <View style={styles.vehicleMetaRow}>
+                <View style={[styles.platePill, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant + '40' }]}>
+                  <Ionicons name="barcode-outline" size={12} color={colors.onSurfaceVariant} />
+                  <Text style={[styles.plateText, { color: colors.onSurface }]}>
+                    {assignedTrip?.vehicle_plate || assignedTrip?.plate_number || "Active Vehicle"}
+                  </Text>
+                </View>
+                <Text style={[styles.driverTagText, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                  {user?.name ? `Driver: ${user.name}` : "Assigned to You"}
+                </Text>
               </View>
             </View>
           </View>
 
-          {/* Fuel Level Card */}
-          <View
-            style={[
-              styles.infoCard,
-              { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHighest },
-            ]}
-          >
-            <Text style={[styles.infoCardLabel, { color: colors.onSurfaceVariant }]}>CURRENT FUEL LEVEL</Text>
-            <View style={styles.fuelLevelRow}>
-              <Text style={[styles.fuelPercentage, { color: colors.error }]}>
-                {liters ? `${((parseFloat(liters) / 70) * 100).toFixed(0)}%` : "--"}
-              </Text>
-              <Ionicons name="water" size={24} color={colors.error} />
-            </View>
-            <View style={[styles.fuelBar, { backgroundColor: colors.surfaceContainerHighest }]}>
-              <View
-                style={[
-                  styles.fuelBarFill,
-                  {
-                    backgroundColor: colors.secondary,
-                    width: liters ? `${Math.min((parseFloat(liters) / 70) * 100, 100)}%` : "15%",
-                  },
-                ]}
-              />
+          {/* Current Fuel Level Double-Bezel Card */}
+          <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
+            <View style={styles.topGleam} />
+            <View style={[styles.cardInnerCore, { backgroundColor: colors.surfaceContainerLow }]}>
+              <View style={styles.cardHeaderRow}>
+                <View style={[styles.microBadge, { backgroundColor: (liters ? colors.secondaryContainer : colors.surfaceContainerHigh), borderColor: (liters ? colors.secondary + '40' : colors.outlineVariant + '30') }]}>
+                  <View style={[styles.microDot, { backgroundColor: (liters ? colors.secondary : colors.onSurfaceVariant) }]} />
+                  <Text style={[styles.microBadgeText, { color: (liters ? colors.onSecondaryContainer : colors.onSurfaceVariant) }]}>FUEL GAUGE</Text>
+                </View>
+                <View style={[styles.iconPill, { backgroundColor: colors.secondaryContainer }]}>
+                  <Ionicons name="water" size={15} color={colors.secondary} />
+                </View>
+              </View>
+
+              <View style={styles.fuelValueRow}>
+                <Text style={[styles.fuelLargeNumber, { color: colors.onSurface }]}>
+                  {liters ? `${((parseFloat(liters) / 70) * 100).toFixed(0)}` : "--"}
+                </Text>
+                <Text style={[styles.fuelPercentSign, { color: colors.secondary }]}>%</Text>
+                <Text style={[styles.fuelCapacityLabel, { color: colors.onSurfaceVariant }]}>
+                  {liters ? `${parseFloat(liters).toFixed(1)} L` : "70L cap"}
+                </Text>
+              </View>
+
+              {/* Tactical Progress Bar */}
+              <View style={[styles.fuelTrack, { backgroundColor: colors.surfaceContainerHighest }]}>
+                <View
+                  style={[
+                    styles.fuelProgress,
+                    {
+                      backgroundColor: colors.secondary,
+                      width: liters ? `${Math.min((parseFloat(liters) / 70) * 100, 100)}%` : "20%",
+                    },
+                  ]}
+                />
+              </View>
             </View>
           </View>
         </View>
@@ -584,29 +637,122 @@ const styles = StyleSheet.create({
   heading: { gap: 4 },
   headingTitle: { fontSize: 24, fontFamily: fonts.displayBold, letterSpacing: -0.5 },
   headingSub: { fontSize: 14, fontFamily: fonts.body },
-  infoGrid: { flexDirection: "row", gap: 12 },
-  infoCard: {
+  infoGrid: { flexDirection: "row", gap: 10 },
+  cardOuterShell: {
     flex: 1,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    gap: 8,
-  },
-  infoCardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  infoCardLabel: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 2 },
-  infoCardValue: { fontSize: 16, fontFamily: fonts.bodySemiBold },
-  infoCardSub: { fontSize: 13, fontFamily: fonts.body },
-  infoCardIcon: {
-    width: 40,
-    height: 40,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1,
+    padding: 3,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  fuelLevelRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  fuelPercentage: { fontSize: 28, fontFamily: fonts.displayBold, letterSpacing: -0.5 },
-  fuelBar: { height: 6, borderRadius: 3, overflow: "hidden", marginTop: 4 },
-  fuelBarFill: { height: "100%", borderRadius: 3 },
+  topGleam: {
+    position: 'absolute',
+    top: 0,
+    left: 12,
+    right: 12,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.45)',
+    zIndex: 10,
+  },
+  cardInnerCore: {
+    borderRadius: 17,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    gap: 6,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  microBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  microDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  microBadgeText: {
+    fontSize: 9,
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  iconPill: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleModelTitle: {
+    fontSize: 14,
+    fontFamily: fonts.displayBold || fonts.bodySemiBold,
+    letterSpacing: -0.2,
+    marginTop: 2,
+  },
+  vehicleMetaRow: {
+    gap: 4,
+    marginTop: 2,
+  },
+  platePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  plateText: {
+    fontSize: 11,
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    letterSpacing: 0.4,
+  },
+  driverTagText: {
+    fontSize: 11,
+    fontFamily: fonts.bodyMedium || fonts.body,
+  },
+  fuelValueRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+    marginTop: 2,
+  },
+  fuelLargeNumber: {
+    fontSize: 26,
+    fontFamily: fonts.displayBold,
+    letterSpacing: -1,
+    lineHeight: 30,
+  },
+  fuelPercentSign: {
+    fontSize: 14,
+    fontFamily: fonts.displayBold,
+  },
+  fuelCapacityLabel: {
+    fontSize: 11,
+    fontFamily: fonts.bodyMedium || fonts.body,
+    marginLeft: 6,
+  },
+  fuelTrack: {
+    height: 5,
+    borderRadius: 2.5,
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  fuelProgress: {
+    height: '100%',
+    borderRadius: 2.5,
+  },
   formCard: {
     borderRadius: 16,
     borderWidth: 1,
