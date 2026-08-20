@@ -61,12 +61,16 @@ export async function PUT(req, { params }) {
     // checklist before this endpoint is reachable, and the block is the
     // enforcement that makes the UI hint honest.
     const { rows: pretrips } = await query(
-      `SELECT inspection_id FROM vehicleinspection
-        WHERE trip_id = $1 AND status = 'Passed'
-        ORDER BY created_at DESC LIMIT 1`,
+      `SELECT i.inspection_id, i.status
+         FROM vehicleinspection i
+         JOIN trips t ON t.trip_id = i.trip_id
+        WHERE i.trip_id = $1
+          AND i.driver_id = t.driver_id
+          AND i.vehicle_id = t.vehicle_id
+        ORDER BY i.created_at DESC, i.inspection_id DESC LIMIT 1`,
       [id]
     );
-    if (!pretrips[0]) {
+    if (!pretrips[0] || pretrips[0].status !== "Passed") {
       return err("Pre-trip inspection is required before starting this trip. Complete the checklist in the app first.", 400);
     }
 

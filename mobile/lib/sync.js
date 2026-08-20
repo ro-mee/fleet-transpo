@@ -73,10 +73,11 @@ export async function syncQueue() {
     for (const req of queue) {
       try {
         if (!_apiFetch) throw new Error('apiFetch not injected');
-        await _apiFetch(req.path, {
-          method: req.method,
-          body: req.body ? JSON.stringify(req.body) : undefined,
-        });
+          await _apiFetch(req.path, {
+            method: req.method,
+            body: req.body ? JSON.stringify(req.body) : undefined,
+            queueOnFailure: false,
+          });
         console.log(`[Sync] Successfully synced ${req.method} ${req.path}`);
       } catch (err) {
         // If it fails due to network again, keep it in the queue

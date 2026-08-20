@@ -629,7 +629,17 @@ export default function Home() {
             </Pressable>
             <View style={styles.quickGrid}>
               <Pressable
-                onPress={() => router.push("/inspection")}
+                  onPress={() => {
+                    if (!nextTrip?.trip_id) {
+                      AppAlert.alert("No Assigned Trip", "There is no assigned trip available for a pre-trip inspection.");
+                      return;
+                    }
+                    if (!nextTrip.vehicle_id) {
+                      AppAlert.alert("Vehicle Not Assigned", "A vehicle must be assigned to this trip before the pre-trip inspection.");
+                      return;
+                    }
+                    router.push({ pathname: "/inspection", params: { tripId: String(nextTrip.trip_id) } });
+                  }}
                 style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
               >
                 <View style={[styles.quickIconWrapper, { backgroundColor: colors.primaryContainer }]}>
@@ -642,7 +652,7 @@ export default function Home() {
 
               {canReportFuel ? (
                 <Pressable
-                  onPress={() => router.push("/fuel-report")}
+                  onPress={() => router.push({ pathname: "/fuel-report", params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } })}
                   style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
                 >
                   <View style={[styles.quickIconWrapper, { backgroundColor: colors.secondaryContainer }]}>

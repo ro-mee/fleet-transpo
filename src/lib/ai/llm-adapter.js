@@ -9,11 +9,16 @@ import { logAiRequest } from "./logger";
  * to run CREATE TABLE IF NOT EXISTS on every call — a DDL round-trip on the AI
  * hot path. Migration 031 made that per-request DDL unnecessary.
  */
-export async function getActiveAiProvider() {
+export async function getActiveAiProvider(providerName = null) {
   try {
-    const { rows } = await query(
-      `SELECT * FROM aiproviders WHERE is_enabled = true AND is_default = true LIMIT 1`
-    );
+    const { rows } = providerName
+      ? await query(
+          `SELECT * FROM aiproviders WHERE is_enabled = true AND LOWER(provider_name) = LOWER($1) LIMIT 1`,
+          [providerName]
+        )
+      : await query(
+          `SELECT * FROM aiproviders WHERE is_enabled = true AND is_default = true LIMIT 1`
+        );
 
     if (rows && rows.length > 0) {
       return rows[0];
@@ -23,7 +28,7 @@ export async function getActiveAiProvider() {
   }
 
   // Environment variable fallback
-  if (process.env.OPENAI_API_KEY) {
+  if (!providerName && process.env.OPENAI_API_KEY) {
     return {
       provider_name: "OpenAI",
       display_name: "OpenAI API",
@@ -36,7 +41,7 @@ export async function getActiveAiProvider() {
     };
   }
 
-  if (process.env.GEMINI_API_KEY) {
+  if ((!providerName || providerName.toLowerCase() === "gemini") && process.env.GEMINI_API_KEY) {
     return {
       provider_name: "Gemini",
       display_name: "Google Gemini",
@@ -64,9 +69,10 @@ export async function executeLlmCompletion({
   max_tokens = null,
   defer_log = false,
   prefer_fast_model = false,
+  provider_name = null,
 }) {
   const startTime = Date.now();
-  const provider = await getActiveAiProvider();
+  const provider = await getActiveAiProvider(provider_name);
 
   // If no LLM provider configured, return fallback signal
   if (!provider || !provider.api_key) {

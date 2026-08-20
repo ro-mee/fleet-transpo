@@ -1,6 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform,  } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,10 +13,11 @@ import { AppAlert } from '../../components/AppAlert';
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { tripId, id, odometer: pOdometer, liters: pLiters, cost: pCost, station: pStation } = useLocalSearchParams();
+  const { tripId, id, odometer: pOdometer, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
 
-  const [mode, setMode] = useState("overview"); // overview | manual
+  const [mode, setMode] = useState("overview"); // overview | details
+  const [entryMethod, setEntryMethod] = useState(null); // scan | manual
   const [odometer, setOdometer] = useState(pOdometer || "");
   const [liters, setLiters] = useState(pLiters || "");
   const [cost, setCost] = useState(pCost || "");
@@ -24,9 +25,30 @@ export default function FuelReport() {
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState(null);
+  const [receiptAsset, setReceiptAsset] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
+  const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
+  const [submissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
-  const handleScan = async (useCamera = true) => {
+  const closeFuelReport = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(app)/(tabs)");
+    }
+  };
+
+  const canSubmit = Boolean(odometer && liters && cost && receiptUrl) && !scanning && !submitting;
+
+  const resetDetails = () => {
+    setOdometer(pOdometer || "");
+    setLiters(pLiters || "");
+    setCost(pCost || "");
+    setStation(pStation || "");
+    setFuelDate(pFuelDate || new Date().toISOString());
+  };
+
+  const pickReceipt = async ({ useCamera = true, scanWithAi = false } = {}) => {
     try {
       let result;
       if (useCamera) {
@@ -53,42 +75,52 @@ export default function FuelReport() {
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
-        await processReceipt(asset);
+        setReceiptUrl(null);
+        setReceiptAsset(asset);
+        if (scanWithAi) {
+          await processScannedReceipt(asset);
+        } else {
+          await uploadRawReceipt(asset);
+        }
       }
     } catch (e) {
       AppAlert.alert("Error", "Could not capture receipt image.");
     }
   };
 
-  const processReceipt = async (asset) => {
+  const createReceiptFormData = (asset) => {
+    const formData = new FormData();
+    formData.append('receipt', {
+      uri: asset.uri,
+      name: asset.fileName || 'receipt.jpg',
+      type: asset.mimeType || 'image/jpeg',
+    });
+    return formData;
+  };
+
+  const processScannedReceipt = async (asset) => {
     try {
       setScanning(true);
-      
-      const formData = new FormData();
-      formData.append('receipt', {
-        uri: asset.uri,
-        name: asset.fileName || 'receipt.jpg',
-        type: asset.mimeType || 'image/jpeg',
-      });
 
-      const res = await api.post("/api/mobile/fuel/scan", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const res = await api.post("/api/mobile/fuel/scan", createReceiptFormData(asset));
 
       if (res.receipt_url) {
         setReceiptUrl(res.receipt_url);
       }
 
-      if (res.extracted_data) {
+      if (res.extracted_data && Object.keys(res.extracted_data).length > 0) {
         const d = res.extracted_data;
         if (d.liters) setLiters(String(d.liters));
         if (d.amount) setCost(String(d.amount));
         if (d.station_name) setStation(d.station_name);
-        setMode("manual"); // Open the form so they can verify the extracted data
+        if (d.fuel_date) setFuelDate(d.fuel_date);
+        setEntryMethod("scan");
+        setMode("details");
         AppAlert.alert("Receipt Scanned", "Please verify the extracted details.");
       } else {
-         AppAlert.alert("Scan Complete", "Could not automatically read details. Please enter them manually.");
-         setMode("manual");
+        setEntryMethod("scan");
+        setMode("details");
+        AppAlert.alert("Scan Complete", "Gemini could not read every detail. Review the receipt and complete the missing fields.");
       }
     } catch (e) {
       AppAlert.alert("Scan Error", e.message || "Failed to process receipt.");
@@ -97,21 +129,62 @@ export default function FuelReport() {
     }
   };
 
+  const uploadRawReceipt = async (asset) => {
+    try {
+      setScanning(true);
+      const res = await api.post("/api/mobile/fuel/upload", createReceiptFormData(asset));
+      setReceiptUrl(res.receipt_url || null);
+      if (!res.receipt_url) throw new Error("Receipt upload did not complete.");
+    } catch (e) {
+      setReceiptUrl(null);
+      AppAlert.alert("Upload Error", e.message || "Failed to upload receipt photo.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const startManualEntry = () => {
+    resetDetails();
+    setEntryMethod("manual");
+    setMode("details");
+    setReceiptUrl(null);
+    setReceiptAsset(null);
+  };
+
+  const returnToOptions = () => {
+    resetDetails();
+    setMode("overview");
+    setEntryMethod(null);
+    setReceiptUrl(null);
+    setReceiptAsset(null);
+  };
+
   const handleSubmit = async () => {
     if (!odometer || !liters || !cost) {
       AppAlert.alert("Missing Fields", "Enter Odometer, Volume, and Total Cost.");
       return;
     }
+    if (!receiptUrl) {
+      AppAlert.alert("Receipt Photo Required", "Add a receipt photo from your camera or gallery so the entered details can be verified.");
+      return;
+    }
+    const parsedOdometer = Number(odometer.replace(/,/g, ""));
+    const parsedLiters = Number(liters.replace(/,/g, ""));
+    const parsedCost = Number(cost.replace(/,/g, ""));
+    if (![parsedOdometer, parsedLiters, parsedCost].every(Number.isFinite) || parsedOdometer < 0 || parsedLiters <= 0 || parsedCost <= 0) {
+      AppAlert.alert("Invalid Values", "Enter valid positive numbers for odometer, volume, and total cost.");
+      return;
+    }
     try {
+      setSubmitting(true);
       const payload = {
-        odometer: parseFloat(odometer.replace(/,/g, "")),
-        liters: parseFloat(liters.replace(/,/g, "")),
-        amount: parseFloat(cost.replace(/,/g, "")),
-        total_cost: parseFloat(cost.replace(/,/g, "")),
+        odometer: parsedOdometer,
+        liters: parsedLiters,
+        amount: parsedCost,
         station_name: station || "Unspecified",
-        fuel_date: new Date().toISOString(),
-        fuel_type: "Diesel",
+        fuel_date: fuelDate,
         receipt_url: receiptUrl,
+        client_submission_id: submissionId,
       };
 
       let res;
@@ -121,7 +194,7 @@ export default function FuelReport() {
         payload.trip_id = tripId && tripId !== "undefined" ? parseInt(tripId, 10) : null;
         res = await api.post("/api/mobile/fuel", payload);
       }
-      setSubmittedRecord(res);
+      setSubmittedRecord({ ...res, amount: res?.amount ?? payload.amount });
     } catch (e) {
       AppAlert.alert("Error", e.message || "Could not save fuel entry.");
     } finally {
@@ -139,17 +212,19 @@ export default function FuelReport() {
           </View>
 
           <Text style={{ fontSize: moderateScale(24), fontWeight: '700', color: colors.onSurface, marginBottom: moderateScale(12), textAlign: 'center' }}>
-            Fuel Report Submitted
+            {submittedRecord.queued ? "Fuel Report Queued" : "Fuel Report Submitted"}
           </Text>
           <Text style={{ fontSize: moderateScale(16), color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: moderateScale(32), lineHeight: moderateScale(24) }}>
-            Your fuel expense report has been successfully recorded.
+            {submittedRecord.queued
+              ? "Your report is saved on this device and will sync when the connection returns."
+              : "Your fuel expense report has been successfully recorded."}
           </Text>
 
           <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: moderateScale(16), padding: moderateScale(20), gap: moderateScale(16) }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Report ID</Text>
               <Text style={{ fontSize: moderateScale(18), fontWeight: '700', color: colors.onSurface }}>
-                FR-{String(submittedRecord.fuel_record_id || submittedRecord.id || "0000").padStart(5, '0')}
+                {submittedRecord.queued ? "Waiting for sync" : `FR-${String(submittedRecord.fuel_record_id || submittedRecord.id || "0000").padStart(5, '0')}`}
               </Text>
             </View>
             <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.5 }} />
@@ -164,7 +239,7 @@ export default function FuelReport() {
               <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Status</Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#a7f3d0', paddingHorizontal: moderateScale(12), paddingVertical: moderateScale(6), borderRadius: moderateScale(8), gap: moderateScale(6) }}>
                 <Ionicons name="time-outline" size={16} color="#065f46" />
-                <Text style={{ fontSize: moderateScale(14), fontWeight: '700', color: "#065f46" }}>Pending Review</Text>
+                <Text style={{ fontSize: moderateScale(14), fontWeight: '700', color: "#065f46" }}>{submittedRecord.queued ? "Waiting for Sync" : "Pending Review"}</Text>
               </View>
             </View>
           </View>
@@ -194,9 +269,11 @@ export default function FuelReport() {
       >
         <View style={styles.topBarLeft}>
           <Pressable
-            onPress={() => router.back()}
+            onPress={closeFuelReport}
             hitSlop={8}
             style={styles.closeBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Close fuel report"
           >
             <Ionicons name="close" size={24} color={colors.onSurfaceVariant} />
           </Pressable>
@@ -268,15 +345,66 @@ export default function FuelReport() {
           </View>
         </View>
 
-        {/* Manual Entry Form */}
-        {mode === "manual" ? (
+        {mode === "overview" ? (
+          <View style={styles.methodSection}>
+            <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
+            <Pressable
+              onPress={() => pickReceipt({ useCamera: true, scanWithAi: true })}
+              disabled={scanning}
+              style={({ pressed }) => [
+                styles.methodCard,
+                { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.85 : 1 },
+              ]}
+            >
+              <View style={[styles.methodIcon, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
+                <Ionicons name="scan-outline" size={26} color={colors.onPrimary} />
+              </View>
+              <View style={styles.methodCopy}>
+                <Text style={[styles.methodCardTitle, { color: colors.onPrimary }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
+                <Text style={[styles.methodCardText, { color: colors.onPrimary }]}>Gemini reads the receipt and fills in the fuel details for you.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={21} color={colors.onPrimary} />
+            </Pressable>
+
+            <Pressable
+              onPress={startManualEntry}
+              disabled={scanning}
+              style={({ pressed }) => [
+                styles.methodCard,
+                { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <View style={[styles.methodIcon, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons name="create-outline" size={24} color={colors.onPrimaryContainer} />
+              </View>
+              <View style={styles.methodCopy}>
+                <Text style={[styles.methodCardTitle, { color: colors.onSurface }]}>Enter details manually</Text>
+                <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Type the values yourself and attach the original receipt photo.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={21} color={colors.onSurfaceVariant} />
+            </Pressable>
+          </View>
+        ) : null}
+
+        {mode === "details" ? (
           <View
             style={[
               styles.formCard,
               { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant },
             ]}
           >
-            <Text style={[styles.formTitle, { color: colors.onSurface }]}>Refuel Details</Text>
+            <View style={styles.formHeading}>
+              <View>
+                <Text style={[styles.formTitle, { color: colors.onSurface }]}>Refuel Details</Text>
+                <Text style={[styles.formSubtitle, { color: colors.onSurfaceVariant }]}>
+                  {entryMethod === "scan" ? "Gemini-filled details. Review before saving." : "Enter the receipt values exactly as shown."}
+                </Text>
+              </View>
+              <View style={[styles.methodBadge, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons name={entryMethod === "scan" ? "sparkles" : "create-outline"} size={14} color={colors.onPrimaryContainer} />
+                <Text style={[styles.methodBadgeText, { color: colors.onPrimaryContainer }]}>{entryMethod === "scan" ? "AI scan" : "Manual"}</Text>
+              </View>
+            </View>
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>ODOMETER (KM)</Text>
@@ -326,20 +454,82 @@ export default function FuelReport() {
               />
             </View>
 
+            <View style={styles.evidenceBlock}>
+              <View style={styles.evidenceHeader}>
+                <View style={styles.evidenceCopy}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>RECEIPT PHOTO *</Text>
+                  <Text style={[styles.evidenceHint, { color: colors.onSurfaceVariant }]}>Attach proof for the details you entered.</Text>
+                </View>
+                {receiptAsset ? (
+                  <Image source={{ uri: receiptAsset.uri }} style={styles.receiptThumb} />
+                ) : (
+                  <View style={[styles.receiptThumbPlaceholder, { backgroundColor: colors.surfaceContainerHighest }]}>
+                    <Ionicons name="receipt-outline" size={22} color={colors.onSurfaceVariant} />
+                  </View>
+                )}
+              </View>
+              {entryMethod === "manual" ? <View style={styles.evidenceButtons}>
+                <Pressable
+                  onPress={() => pickReceipt({ useCamera: true, scanWithAi: false })}
+                  disabled={scanning}
+                  style={({ pressed }) => [
+                    styles.evidenceBtn,
+                    { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.8 : 1 },
+                  ]}
+                >
+                  <Ionicons name="camera-outline" size={18} color={colors.onPrimary} />
+                  <Text style={[styles.evidenceBtnText, { color: colors.onPrimary }]}>{scanning ? "Uploading..." : "Take photo"}</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => pickReceipt({ useCamera: false, scanWithAi: false })}
+                  disabled={scanning}
+                  style={({ pressed }) => [
+                    styles.evidenceBtn,
+                    styles.evidenceBtnSecondary,
+                    { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant, opacity: pressed || scanning ? 0.8 : 1 },
+                  ]}
+                >
+                  <Ionicons name="images-outline" size={18} color={colors.primary} />
+                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>Gallery</Text>
+                </Pressable>
+              </View> : (
+                <Pressable
+                  onPress={() => pickReceipt({ useCamera: true, scanWithAi: true })}
+                  disabled={scanning}
+                  style={({ pressed }) => [
+                    styles.rescanBtn,
+                    { borderColor: colors.outlineVariant, opacity: pressed || scanning ? 0.75 : 1 },
+                  ]}
+                >
+                  <Ionicons name="scan-outline" size={18} color={colors.primary} />
+                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>{scanning ? "Scanning..." : "Scan receipt again"}</Text>
+                </Pressable>
+              )}
+              {scanning ? (
+                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>{entryMethod === "scan" ? "Gemini is reading the receipt..." : "Uploading receipt photo..."}</Text>
+              ) : receiptUrl ? (
+                <Text style={[styles.evidenceReady, { color: colors.success || colors.primary }]}>Receipt attached and ready for review</Text>
+              ) : receiptAsset ? (
+                <Text style={[styles.evidenceError, { color: colors.error }]}>Photo has not uploaded. Try again before saving.</Text>
+              ) : null}
+            </View>
+
             <Pressable
               onPress={handleSubmit}
-              disabled={submitting}
+              disabled={!canSubmit}
               style={({ pressed }) => [
                 styles.submitBtn,
                 { 
                   backgroundColor: colors.primary, 
                   transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: pressed ? 0.9 : 1 
+                  opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1
                 },
               ]}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canSubmit }}
             >
               <Text style={[styles.submitBtnText, { color: colors.onPrimary }]}>
-                {submitting ? "Saving Entry..." : "Save Fuel Entry"}
+                {submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
               </Text>
               <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
                 <Ionicons name="checkmark" size={17} color={colors.onPrimary} />
@@ -348,66 +538,9 @@ export default function FuelReport() {
           </View>
         ) : null}
 
-        {/* Receipt Documentation Section */}
-        <View style={styles.receiptSection}>
-          <Text style={[styles.receiptTitle, { color: colors.onBackground }]}>
-            Receipt Documentation
-          </Text>
-
-          <View style={styles.receiptButtons}>
-            <Pressable
-              onPress={() => handleScan(true)}
-              disabled={scanning}
-              style={({ pressed }) => [
-                styles.receiptBtn,
-                styles.receiptBtnPrimary,
-                { 
-                  backgroundColor: colors.primary, 
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: pressed || scanning ? 0.9 : 1 
-                },
-              ]}
-            >
-              <Text style={[styles.receiptBtnText, { color: colors.onPrimary }]}>
-                {scanning ? "Processing..." : "Scan Receipt (Camera)"}
-              </Text>
-              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="scan" size={17} color={colors.onPrimary} />
-              </View>
-            </Pressable>
-
-            <Pressable
-              onPress={() => handleScan(false)}
-              disabled={scanning}
-              style={({ pressed }) => [
-                styles.receiptBtn,
-                {
-                  backgroundColor: colors.surfaceContainerLow,
-                  borderColor: colors.outlineVariant + '50',
-                  borderWidth: 1,
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: pressed || scanning ? 0.8 : 1,
-                },
-              ]}
-            >
-              <Text style={[styles.receiptBtnText, { color: colors.onSurface }]}>
-                Upload from Gallery
-              </Text>
-              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-                <Ionicons name="cloud-upload-outline" size={17} color={colors.onSurface} />
-              </View>
-            </Pressable>
-          </View>
-
-          {/* OR Divider */}
-          <View style={styles.orRow}>
-            <View style={[styles.orLine, { backgroundColor: colors.outlineVariant + '40' }]} />
-            <Text style={[styles.orText, { color: colors.onSurfaceVariant }]}>OR</Text>
-            <View style={[styles.orLine, { backgroundColor: colors.outlineVariant + '40' }]} />
-          </View>
-
+        {mode === "details" ? <View style={styles.receiptSection}>
           <Pressable
-            onPress={() => setMode(mode === "manual" ? "overview" : "manual")}
+            onPress={returnToOptions}
             style={({ pressed }) => [
               styles.manualBtn,
               {
@@ -418,12 +551,12 @@ export default function FuelReport() {
               },
             ]}
           >
-            <Ionicons name={mode === "manual" ? "eye-off-outline" : "create-outline"} size={18} color={colors.primary} />
+            <Ionicons name="swap-horizontal-outline" size={18} color={colors.primary} />
             <Text style={[styles.manualBtnText, { color: colors.primary }]}>
-              {mode === "manual" ? "Hide Manual Entry" : "Enter Details Manually"}
+              Choose another method
             </Text>
           </Pressable>
-        </View>
+        </View> : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -480,7 +613,18 @@ const styles = StyleSheet.create({
     padding: 18,
     gap: 14,
   },
+  methodSection: { gap: 12 },
+  methodTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
+  methodCard: { minHeight: 94, borderRadius: 16, borderWidth: 1, borderColor: "transparent", padding: 16, flexDirection: "row", alignItems: "center", gap: 13 },
+  methodIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  methodCopy: { flex: 1, gap: 4 },
+  methodCardTitle: { fontSize: 15, fontFamily: fonts.bodySemiBold },
+  methodCardText: { fontSize: 12, lineHeight: 17, fontFamily: fonts.body },
+  formHeading: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   formTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
+  formSubtitle: { fontSize: 12, lineHeight: 17, fontFamily: fonts.body, marginTop: 3 },
+  methodBadge: { minHeight: 28, borderRadius: 8, paddingHorizontal: 9, flexDirection: "row", alignItems: "center", gap: 5 },
+  methodBadgeText: { fontSize: 11, fontFamily: fonts.bodySemiBold },
   fieldGroup: { gap: 6 },
   fieldRow: { flexDirection: "row", gap: 12 },
   fieldLabel: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase" },
@@ -508,23 +652,20 @@ const styles = StyleSheet.create({
   },
   submitBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
   receiptSection: { gap: 12, marginTop: 4 },
-  receiptTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
-  receiptButtons: { gap: 10 },
-  receiptBtn: {
-    height: 52,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  receiptBtnPrimary: {},
-  receiptBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
+  evidenceBlock: { gap: 10, marginTop: 2 },
+  evidenceHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  evidenceCopy: { flex: 1, gap: 4 },
+  evidenceHint: { fontSize: 12, fontFamily: fonts.body, lineHeight: 17 },
+  receiptThumb: { width: 56, height: 56, borderRadius: 10, backgroundColor: "#ddd" },
+  receiptThumbPlaceholder: { width: 56, height: 56, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  evidenceButtons: { flexDirection: "row", gap: 10 },
+  evidenceBtn: { flex: 1, minHeight: 46, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  evidenceBtnSecondary: { borderWidth: 1 },
+  evidenceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
+  rescanBtn: { minHeight: 46, borderWidth: 1, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  evidencePending: { fontSize: 12, fontFamily: fonts.bodyMedium || fonts.body },
+  evidenceReady: { fontSize: 12, fontFamily: fonts.bodySemiBold },
+  evidenceError: { fontSize: 12, fontFamily: fonts.bodySemiBold },
   btnIconCapsule: {
     width: 28,
     height: 28,

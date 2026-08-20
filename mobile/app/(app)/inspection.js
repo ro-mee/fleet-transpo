@@ -1,5 +1,5 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, TextInput,  } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -30,6 +30,20 @@ export default function PreShiftInspection() {
   );
   const [remarks, setRemarks] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [clientSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const [tripContext, setTripContext] = useState(null);
+
+  useEffect(() => {
+    if (!tripId) return;
+    let cancelled = false;
+    api.get("/api/mobile/driver/trips?status=all")
+      .then((trips) => {
+        if (cancelled || !Array.isArray(trips)) return;
+        setTripContext(trips.find((trip) => String(trip.trip_id) === String(tripId)) || null);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [tripId]);
 
   const allAnswered = CHECKLIST.every((item) => statuses[item.id] !== null);
   const passCount = Object.values(statuses).filter((s) => s === "PASS").length;
@@ -43,10 +57,18 @@ export default function PreShiftInspection() {
       AppAlert.alert("Incomplete", "Please answer all checklist items before proceeding.");
       return;
     }
+    const missingRemarks = CHECKLIST.find(
+      (item) => statuses[item.id] === "FAIL" && !String(remarks[item.id] || "").trim()
+    );
+    if (missingRemarks) {
+      AppAlert.alert("Describe the Issue", `Add remarks for ${missingRemarks.label} before submitting.`);
+      return;
+    }
     try {
       setSubmitting(true);
-      await api.post("/api/mobile/driver/inspections", {
+      const result = await api.post("/api/mobile/driver/inspections", {
         trip_id: tripId ? parseInt(tripId, 10) : null,
+        client_submission_id: clientSubmissionId,
         items: CHECKLIST.map((item) => ({
           item_id: item.id,
           label: item.label,
@@ -55,7 +77,13 @@ export default function PreShiftInspection() {
         })),
         inspected_at: new Date().toISOString(),
       });
-      AppAlert.alert("Shift Started", "Pre-shift check complete. Drive safely!", [
+      if (result?.queued) {
+        AppAlert.alert("Inspection Saved Offline", "The inspection will sync when the connection returns.", [
+          { text: "OK", onPress: () => router.back() },
+        ]);
+        return;
+      }
+      AppAlert.alert("Inspection Submitted", "Pre-trip check complete. The trip can start after the departure checks pass.", [
         { text: "OK", onPress: () => router.back() },
       ]);
     } catch (e) {
@@ -109,13 +137,13 @@ export default function PreShiftInspection() {
           </View>
           <View>
             <Text style={[type.labelLg, styles.vehicleCardLabel, { color: colors.onSurfaceVariant }]}>
-              Vehicle & Driver
+              Vehicle & Trip
             </Text>
             <Text style={[type.titleLg, styles.vehicleCardName, { color: colors.onSurface }]}>
-              Assigned Vehicle
+              {tripContext?.plate_number || (tripId ? `Trip #${tripId}` : "Assigned Trip")}
             </Text>
             <Text style={[type.bodyLg, styles.vehicleCardDriver, { color: colors.onSurface }]}>
-              Current Driver
+              {tripContext?.model ? `${tripContext.model} - Trip #${tripId}` : `Trip #${tripId}`}
             </Text>
           </View>
         </View>
@@ -206,6 +234,7 @@ export default function PreShiftInspection() {
                     placeholder="Describe issue (e.g. Low tire pressure, broken bulb)..."
                     placeholderTextColor={colors.outline}
                     value={remarks[item.id] || ""}
+                    maxLength={1000}
                     onChangeText={(text) =>
                       setRemarks((prev) => ({ ...prev, [item.id]: text }))
                     }

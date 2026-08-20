@@ -261,6 +261,7 @@ export default function SubmissionsScreen() {
                       liters: String(item.liters || ""),
                       cost: String(item.amount || item.total_cost || ""),
                       station: String(item.station_name || ""),
+                      fuelDate: String(item.date || ""),
                     },
                   });
                 }
