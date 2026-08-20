@@ -8,6 +8,7 @@ import { Fingerprint } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
 import { AttendanceCard } from "@/components/drivers/attendance-card";
+import { HeroHeader } from "@/components/ui/hero-header";
 
 export default function DriverAttendancePage() {
   useRequireRole(["driver"]);
@@ -37,7 +38,13 @@ export default function DriverAttendancePage() {
 
   return (
     <DriverConsentGate>
-      <div className="space-y-6">
+      <div className="space-y-8 w-full">
+        <HeroHeader
+          icon={Fingerprint}
+          title="My Attendance"
+          badge="Driver Workspace"
+          description="Track your attendance, working hours, and review your daily logs."
+        />
         <AttendanceCard attendance={profile.attendance || []} />
       </div>
     </DriverConsentGate>

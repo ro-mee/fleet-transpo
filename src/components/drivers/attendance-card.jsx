@@ -4,10 +4,11 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatDate, cn } from "@/lib/utils";
-import { Fingerprint, Calendar, List, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Fingerprint, Calendar, List, CheckCircle2, Clock, AlertTriangle, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
+import { StatGrid, StatCard } from "@/components/ui/stat-card";
 import { 
   isSameWeek, 
   isSameMonth, 
@@ -51,6 +52,7 @@ function calculateTotalMinutes(timeIn, timeOut) {
 export function AttendanceCard({ attendance = [] }) {
   const [view, setView] = useState("list"); // "list" | "calendar"
   const [timeFilter, setTimeFilter] = useState("month"); // default to month for better UX
+  const [statusFilter, setStatusFilter] = useState("all");
   const [viewDate, setViewDate] = useState(new Date());
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -59,8 +61,8 @@ export function AttendanceCard({ attendance = [] }) {
   // Sorting
   const sortedAttendance = [...attendance].sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  // Filter
-  const filteredAttendance = sortedAttendance.filter((a) => {
+  // 1. Time Filter
+  const timeFilteredAttendance = sortedAttendance.filter((a) => {
     if (timeFilter === "all") return true;
     const d = new Date(a.date);
     const now = new Date();
@@ -70,8 +72,27 @@ export function AttendanceCard({ attendance = [] }) {
     return true;
   });
 
-  const totalPages = Math.ceil(filteredAttendance.length / rowsPerPage);
-  const paginatedAttendance = filteredAttendance.slice(
+  // 2. Summary Calcs (based on time filter only)
+  let countPresent = 0;
+  let countLate = 0;
+  let countAbsent = 0;
+  let totalMins = 0;
+
+  timeFilteredAttendance.forEach(a => {
+    if (a.status === "Present") countPresent++;
+    else if (a.status === "Late") countLate++;
+    else if (a.status === "Absent") countAbsent++;
+    totalMins += calculateTotalMinutes(a.time_in, a.time_out);
+  });
+
+  const totalHrsDisplay = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+
+  // 3. Status Filter (for list/calendar views)
+  const displayAttendance = timeFilteredAttendance.filter(a => statusFilter === "all" || a.status === statusFilter);
+
+  // Pagination
+  const totalPages = Math.ceil(displayAttendance.length / rowsPerPage);
+  const paginatedAttendance = displayAttendance.slice(
     (currentPage - 1) * rowsPerPage,
     currentPage * rowsPerPage
   );
@@ -81,20 +102,10 @@ export function AttendanceCard({ attendance = [] }) {
     setCurrentPage(1);
   };
 
-  // Summary Calcs
-  let countPresent = 0;
-  let countLate = 0;
-  let countAbsent = 0;
-  let totalMins = 0;
-
-  filteredAttendance.forEach(a => {
-    if (a.status === "Present") countPresent++;
-    else if (a.status === "Late") countLate++;
-    else if (a.status === "Absent") countAbsent++;
-    totalMins += calculateTotalMinutes(a.time_in, a.time_out);
-  });
-
-  const totalHrsDisplay = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+  const toggleStatusFilter = (status) => {
+    setStatusFilter(prev => prev === status ? "all" : status);
+    setCurrentPage(1);
+  };
 
   // Calendar Helpers
   const handlePrevMonth = () => setViewDate((prev) => subMonths(prev, 1));
@@ -123,14 +134,11 @@ export function AttendanceCard({ attendance = [] }) {
   };
 
   return (
-    <Card className="border-0 shadow-sm flex flex-col min-h-[300px]">
-      <CardHeader className="flex flex-col sm:flex-row justify-between gap-4 pb-4">
-        <div>
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Fingerprint className="w-4 h-4 text-primary" /> My Attendance
-          </CardTitle>
-          <p className="text-xs text-foreground-muted mt-1">Track your attendance and working hours</p>
-        </div>
+    <Card className="border-0 shadow-xs rounded-3xl overflow-hidden min-h-[300px]">
+      <CardHeader className="flex flex-col sm:flex-row justify-between items-center gap-4 pb-5 border-b border-border/60 bg-muted/20 px-8 pt-7">
+        <CardTitle className="text-base font-bold flex items-center gap-2 text-foreground">
+          <Fingerprint className="w-5 h-5 text-primary" /> Attendance Records
+        </CardTitle>
         <div className="flex items-center gap-2 self-start sm:self-auto">
           {view === "list" && (
             <Select value={timeFilter} onValueChange={handleFilterChange}>
@@ -160,26 +168,43 @@ export function AttendanceCard({ attendance = [] }) {
         </div>
       </CardHeader>
       
-      <CardContent className="flex-1 flex flex-col pt-0">
+      <CardContent className="flex-1 flex flex-col pt-6 px-8 pb-8">
         {/* Summary Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-muted/30 p-3 rounded-xl border border-border/50">
-            <p className="text-[11px] text-foreground-muted mb-1">Present</p>
-            <p className="text-lg font-bold text-foreground">{countPresent}</p>
-          </div>
-          <div className="bg-muted/30 p-3 rounded-xl border border-border/50">
-            <p className="text-[11px] text-foreground-muted mb-1">Late</p>
-            <p className="text-lg font-bold text-foreground">{countLate}</p>
-          </div>
-          <div className="bg-muted/30 p-3 rounded-xl border border-border/50">
-            <p className="text-[11px] text-foreground-muted mb-1">Absent</p>
-            <p className="text-lg font-bold text-foreground">{countAbsent}</p>
-          </div>
-          <div className="bg-muted/30 p-3 rounded-xl border border-border/50">
-            <p className="text-[11px] text-foreground-muted mb-1">Total Hours</p>
-            <p className="text-lg font-bold text-foreground">{totalHrsDisplay}</p>
-          </div>
-        </div>
+        <StatGrid cols={4} className="mb-8">
+          <StatCard
+            icon={CheckCircle2}
+            label="Present"
+            value={countPresent.toString()}
+            tone="success"
+            interactive
+            active={statusFilter === "Present"}
+            onClick={() => toggleStatusFilter("Present")}
+          />
+          <StatCard
+            icon={Clock}
+            label="Late"
+            value={countLate.toString()}
+            tone="warning"
+            interactive
+            active={statusFilter === "Late"}
+            onClick={() => toggleStatusFilter("Late")}
+          />
+          <StatCard
+            icon={AlertTriangle}
+            label="Absent"
+            value={countAbsent.toString()}
+            tone="danger"
+            interactive
+            active={statusFilter === "Absent"}
+            onClick={() => toggleStatusFilter("Absent")}
+          />
+          <StatCard
+            icon={Timer}
+            label="Total Hours"
+            value={totalHrsDisplay}
+            tone="primary"
+          />
+        </StatGrid>
 
         {attendance.length === 0 ? (
           <div className="flex-1 flex flex-col justify-center">
@@ -200,8 +225,14 @@ export function AttendanceCard({ attendance = [] }) {
                 
                 {/* Table Body */}
                 <div className="divide-y divide-border/50">
-                  {filteredAttendance.length === 0 ? (
-                    <div className="py-12 text-center text-sm text-foreground-muted">No attendance records for this period.</div>
+                  {paginatedAttendance.length === 0 ? (
+                    <div className="w-full flex flex-col items-center justify-center py-10 text-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+                      <div className="w-12 h-12 rounded-full bg-muted/30 flex items-center justify-center mb-3 text-foreground-muted">
+                        <Fingerprint className="w-5 h-5" />
+                      </div>
+                      <h3 className="font-semibold text-foreground mb-1">No Records Found</h3>
+                      <p className="text-sm text-foreground-muted">No attendance records match the selected filters.</p>
+                    </div>
                   ) : (
                     paginatedAttendance.map((a) => {
                       const statusInfo = getStatusInfo(a.status);
@@ -294,7 +325,7 @@ export function AttendanceCard({ attendance = [] }) {
                 ))}
                 {currentMonthDays.map((d) => {
                   const currentDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
-                  const record = attendance.find(a => isSameDay(new Date(a.date), currentDate));
+                  const record = displayAttendance.find(a => isSameDay(new Date(a.date), currentDate));
                   const isToday = isSameDay(currentDate, new Date());
                   
                   let dotColor = "bg-transparent";
