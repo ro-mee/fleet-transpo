@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,10 +11,10 @@ import {
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ConflictChips, ReadinessChip } from "@/components/reservations/conflict-chips";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
+import { TripEstimateCard } from "@/components/reservations/trip-summary";
 import { formatDateTime } from "@/lib/utils";
 import {
   MapPin,
-  Clock,
   Users,
   CarFront,
   CheckCircle2,
@@ -45,6 +46,7 @@ export function AiAssignDialog({
   alreadyAssigned = false,
 }) {
   const requestId = request?.request_id;
+  const [trip, setTrip] = useState(null);
   if (!request) return null;
 
   const r = request;
@@ -54,15 +56,22 @@ export function AiAssignDialog({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-xl p-4 sm:p-6 w-[95vw] sm:max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
-        <DialogHeader className="pb-3 border-b border-border">
+        <DialogHeader className="pb-4 border-b border-border/60">
           <div className="flex items-center justify-between gap-3">
-            <div>
-              <DialogTitle className="text-lg font-bold flex items-center gap-2 text-foreground">
-                <Sparkles className="w-5 h-5 text-primary shrink-0" /> AI-Assisted Assignment
-              </DialogTitle>
-              <DialogDescription className="text-xs text-foreground-secondary mt-0.5">
-                Assign resources to <span className="font-mono font-semibold">{r.reservation_number || `REQ-#${r.request_id}`}</span> with the Smart Dispatch recommendation
-              </DialogDescription>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-info/10 text-info ring-1 ring-info/15 flex items-center justify-center shrink-0">
+                <Sparkles className="w-5 h-5" strokeWidth={1.75} />
+              </div>
+              <div className="min-w-0">
+                <DialogTitle className="text-lg font-bold text-foreground">AI-Assisted Assignment</DialogTitle>
+                <DialogDescription className="text-xs text-foreground-secondary mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  Assign resources to
+                  <span className="inline-flex items-center rounded-md bg-hover border border-border/70 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
+                    {r.reservation_number || `REQ-#${r.request_id}`}
+                  </span>
+                  via the Smart Dispatch recommendation
+                </DialogDescription>
+              </div>
             </div>
             <StatusBadge status={r.priority} entity="priority" />
           </div>
@@ -72,12 +81,12 @@ export function AiAssignDialog({
           {/* Left Column: Request Details */}
           <div className="space-y-3.5 flex flex-col">
             {/* Guest & Source Header */}
-            <div className="p-3.5 rounded-xl bg-hover/50 border border-border/80 flex items-center justify-between gap-3">
-              <div>
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border/80 bg-surface shadow-xs px-3.5 py-3">
+              <div className="min-w-0">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">Guest &amp; Reference</p>
-                <p className="text-sm font-bold text-foreground mt-0.5">{r.guest_name || "Walk-in Guest"}</p>
+                <p className="text-sm font-bold text-foreground mt-0.5 truncate">{r.guest_name || "Walk-in Guest"}</p>
                 {r.booking_reference && (
-                  <p className="text-xs font-mono text-foreground-secondary mt-0.5">Ref: {r.booking_reference}</p>
+                  <p className="text-xs font-mono text-foreground-secondary mt-0.5 truncate">Ref: {r.booking_reference}</p>
                 )}
               </div>
               <div className="text-right shrink-0">
@@ -88,25 +97,32 @@ export function AiAssignDialog({
               </div>
             </div>
 
+            {/* Pickup countdown + scored trip estimate */}
+            <TripEstimateCard pickupAt={r.pickup_datetime} trip={trip} />
+
             {/* Route & Timing Box */}
-            <div className="p-3.5 rounded-xl bg-surface border border-border space-y-2.5 text-sm shadow-xs">
+            <div className="rounded-xl border border-border/80 bg-surface shadow-xs p-3.5 space-y-2.5 text-sm">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="flex items-center gap-2 min-w-0">
-                  <MapPin className="w-4 h-4 text-danger shrink-0" />
-                  <span className="text-xs font-semibold text-foreground-muted uppercase w-16 shrink-0">Pickup:</span>
-                  <span className="font-medium text-foreground truncate">{r.pickup_location || "—"}</span>
+                  <div className="w-7 h-7 rounded-lg bg-danger/10 text-danger flex items-center justify-center shrink-0">
+                    <MapPin className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-muted">Pickup</p>
+                    <p className="font-medium text-foreground text-xs truncate">{r.pickup_location || "—"}</p>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
-                  <MapPin className="w-4 h-4 text-success shrink-0" />
-                  <span className="text-xs font-semibold text-foreground-muted uppercase w-16 shrink-0">Dropoff:</span>
-                  <span className="font-medium text-foreground truncate">{r.dropoff_location || "—"}</span>
+                  <div className="w-7 h-7 rounded-lg bg-success/10 text-success flex items-center justify-center shrink-0">
+                    <MapPin className="w-3.5 h-3.5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-foreground-muted">Dropoff</p>
+                    <p className="font-medium text-foreground text-xs truncate">{r.dropoff_location || "—"}</p>
+                  </div>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-4 pt-2 border-t border-border/60 text-xs">
-                <div className="flex items-center gap-1.5 text-foreground font-medium">
-                  <Clock className="w-3.5 h-3.5 text-primary" />
-                  <span>{r.pickup_datetime ? formatDateTime(r.pickup_datetime) : "—"}</span>
-                </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 pt-2 border-t border-border/60 text-xs">
                 <div className="flex items-center gap-1 text-foreground font-medium">
                   <Users className="w-3.5 h-3.5 text-foreground-muted" />
                   <span>{r.passenger_count || 1} Passengers</span>
@@ -154,10 +170,10 @@ export function AiAssignDialog({
           <div className="flex flex-col h-full pl-0 lg:pl-6 lg:border-l lg:border-border/60">
             <AiRecommendationPanel
               requestId={requestId}
-              pickupAt={r.pickup_datetime}
               canAssign={canAssign}
               alreadyAssigned={alreadyAssigned}
               onAssigned={onAssigned}
+              onTrip={setTrip}
               hideHeader={true}
               compact={true}
               className="h-full flex flex-col"

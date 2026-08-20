@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 
 const ACTIVE_STATUSES = [
@@ -25,6 +25,44 @@ const SORTABLE = {
   driver: "de.last_name",
   route: "r.route_name",
 };
+
+// Only these columns may be written by the client. Column names are never
+// interpolated from the request body — that would allow SQL injection via
+// crafted keys (e.g. `trip_status = 'Completed' --`).
+export const TRIP_WRITABLE = [
+  "vehicle_id",
+  "driver_id",
+  "dispatch_id",
+  "route_id",
+  "start_time",
+  "end_time",
+  "distance",
+  "actual_duration",
+  "trip_status",
+  "start_odometer",
+  "end_odometer",
+  "fuel_consumed",
+  "avg_speed",
+  "max_speed",
+  "idle_time",
+  "notes",
+  "created_by",
+  "updated_by",
+  "fuel_cost",
+  "toll_fees",
+  "parking_fees",
+  "driver_cost",
+  "maintenance_cost",
+  "miscellaneous_cost",
+  "total_cost",
+  "cost_per_km",
+  "on_time_completion",
+  "time_variance",
+  "fuel_efficiency",
+  "smooth_driving_score",
+  "customer_rating",
+  "performance_notes",
+];
 
 export async function GET(req) {
   try {
@@ -120,8 +158,17 @@ export async function POST(req) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
     const body = await parseBody(req);
-    const k = Object.keys(body), v = Object.values(body);
-    const { rows } = await query(`INSERT INTO trips (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    const columns = [];
+    const values = [];
+    for (const key of TRIP_WRITABLE) {
+      if (body[key] !== undefined) {
+        columns.push(key);
+        values.push(body[key]);
+      }
+    }
+    if (columns.length === 0) return err("No valid fields provided", 400);
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
+    const { rows } = await query(`INSERT INTO trips (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
 }

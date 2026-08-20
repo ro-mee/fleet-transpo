@@ -3,6 +3,16 @@ import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/l
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
 
+// Strips the raw api_key before a row leaves the server. Matches the masking
+// the GET handler applies so POST/PUT responses never expose the secret.
+function maskProvider(row) {
+  return {
+    ...row,
+    api_key_masked: row.api_key ? `••••••••••••${row.api_key.slice(-4)}` : null,
+    api_key: undefined,
+  };
+}
+
 export async function GET(req) {
   try {
     await requireAuth(req);
@@ -10,15 +20,7 @@ export async function GET(req) {
     // aiproviders is created by migration 031, not per request. The DDL that
     // used to run here had already drifted — it omitted target_feature.
     const { rows } = await query(`SELECT * FROM aiproviders ORDER BY is_default DESC, provider_id ASC`);
-    
-    // Mask API keys before sending to frontend
-    const maskedRows = rows.map((r) => ({
-      ...r,
-      api_key_masked: r.api_key ? `••••••••••••${r.api_key.slice(-4)}` : null,
-      api_key: undefined, // Never expose raw secret
-    }));
-
-    return ok(maskedRows);
+    return ok(rows.map(maskProvider));
   } catch (e) { return handleError(e); }
 }
 
@@ -75,6 +77,6 @@ export async function POST(req) {
       await query(`UPDATE aiproviders SET is_default = false WHERE provider_id != $1`, [newProvider.provider_id]);
     }
 
-    return ok(newProvider, 201);
+    return ok(maskProvider(newProvider), 201);
   } catch (e) { return handleError(e); }
 }

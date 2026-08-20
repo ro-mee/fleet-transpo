@@ -170,6 +170,22 @@ Tables                  uvvrp_exemptions, uvvrp_violations
 
 Notes: [[UVVRP Number Coding]]
 
+## General settings (admin/system_admin)
+
+```
+Settings UI             src/app/(dashboard)/settings/general/page.js
+Connector status        GET /api/settings/connectors   (env presence + aiproviders)
+Hotel base location     GET|PUT /api/settings/hotel    → system_settings.hotel_location
+NAIA route seed         POST /api/routes/seed-naia
+Theme store             src/hooks/use-theme.js         (light/dark/system, fleetops-theme)
+```
+
+The Integrations & Connectors card is **not** hardcoded — status is verified
+server-side. AI status also consults `aiproviders` (a configured provider with
+no env key still shows Connected).
+
+Notes: [[Environment Setup]]
+
 ---
 
 ## Related

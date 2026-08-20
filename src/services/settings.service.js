@@ -17,6 +17,10 @@ export async function seedNaiaRoutes() {
   });
 }
 
+export async function getConnectors() {
+  return apiFetch("/api/settings/connectors");
+}
+
 export async function getUvvrpPolicy() {
   return apiFetch("/api/settings/uvvrp");
 }

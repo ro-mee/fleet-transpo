@@ -1,5 +1,3 @@
-import bcrypt from "bcryptjs";
-import { createClient } from "@/lib/supabase/client";
 import { signIn as nextAuthSignIn } from "next-auth/react";
 import { apiFetch } from "@/lib/api/client";
 
@@ -20,64 +18,20 @@ export async function signIn(email, password) {
   return result;
 }
 
-export async function signUp(email, password, userData) {
-  const lowerEmail = email.toLowerCase();
-  const hash = await bcrypt.hash(password, 10);
-  const supabase = createClient();
+// Password reset flows go through server routes — never the browser-side
+// Supabase anon client. The anon role has no privileges on `employees`.
 
-  const { data: existingEmp } = await supabase
-    .from("employees")
-    .select("employee_id")
-    .eq("email", lowerEmail)
-    .single();
+export async function requestPasswordReset(email) {
+  return apiFetch("/api/auth/forgot-password", { method: "POST", body: { email } });
+}
 
-  if (existingEmp) {
-    await supabase
-      .from("employees")
-      .update({ password_hash: hash, first_name: userData.first_name, last_name: userData.last_name })
-      .eq("employee_id", existingEmp.employee_id);
-  } else {
-    const { error: profileError } = await supabase.from("employees").insert({
-      email: lowerEmail,
-      password_hash: hash,
-      first_name: userData.first_name,
-      last_name: userData.last_name,
-      role_id: userData.role_id || 8,
-    });
-    if (profileError) throw profileError;
-  }
-
-  return { user: { email: lowerEmail } };
+export async function resetSessionPassword(newPassword) {
+  return apiFetch("/api/auth/reset-password", { method: "POST", body: { newPassword } });
 }
 
 export async function signOut() {
   const { signOut: nextSignOut } = await import("next-auth/react");
   await nextSignOut({ callbackUrl: "/login" });
-}
-
-export async function resetPassword(email) {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("employees")
-    .select("employee_id")
-    .eq("email", email.toLowerCase())
-    .is("deleted_at", null)
-    .single();
-  if (error || !data) throw new Error("No account found with that email");
-  return { message: "Password reset link sent" };
-}
-
-export async function updatePassword(newPassword, email) {
-  if (!email) throw new Error("Email is required");
-
-  const hash = await bcrypt.hash(newPassword, 10);
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("employees")
-    .update({ password_hash: hash })
-    .eq("email", email)
-    .is("deleted_at", null);
-  if (error) throw error;
 }
 
 export function getNotificationIcon(type) {

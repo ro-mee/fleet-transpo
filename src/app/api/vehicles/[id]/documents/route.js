@@ -1,5 +1,15 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+
+// Client-writable columns for vehicledocuments. Column names are never taken
+// from the request body — that would allow SQL injection via crafted keys.
+const DOC_WRITABLE = [
+  "document_type",
+  "document_number",
+  "file_url",
+  "expiry_date",
+  "status",
+];
 
 export async function GET(req, { params }) {
   try {
@@ -18,11 +28,19 @@ export async function POST(req, { params }) {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const { id } = await params;
     const body = await parseBody(req);
-    const doc = { ...body, vehicle_id: +id };
-    const keys = Object.keys(doc);
-    const values = Object.values(doc);
-    const cols = keys.join(", ");
-    const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
+    const columns = [];
+    const values = [];
+    for (const key of DOC_WRITABLE) {
+      if (body[key] !== undefined) {
+        columns.push(key);
+        values.push(body[key]);
+      }
+    }
+    if (columns.length === 0) return err("No valid fields provided", 400);
+    columns.push("vehicle_id");
+    values.push(+id);
+    const cols = columns.join(", ");
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(
       `INSERT INTO vehicledocuments (${cols}) VALUES (${placeholders}) RETURNING *`,
       values

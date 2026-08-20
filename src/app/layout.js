@@ -23,7 +23,10 @@ export const metadata = {
 const themeScript = `
   (function() {
     try {
-      var theme = localStorage.getItem('fleetops-theme');
+      var theme = localStorage.getItem('fleetops-theme') || 'light';
+      if (theme === 'system') {
+        theme = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+      }
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
       }

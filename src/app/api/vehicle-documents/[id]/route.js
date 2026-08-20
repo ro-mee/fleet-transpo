@@ -1,17 +1,35 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
+// Client-writable columns for vehicledocuments. Column names are never taken
+// from the request body — that would allow SQL injection via crafted keys.
+const DOC_WRITABLE = [
+  "vehicle_id",
+  "document_type",
+  "document_number",
+  "file_url",
+  "expiry_date",
+  "status",
+];
+
 export async function PUT(req, { params }) {
   try {
     await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const id = (await params).id;
     const body = await parseBody(req);
-    const keys = Object.keys(body);
-    const values = Object.values(body);
-    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
+    const setClause = [];
+    const values = [];
+    for (const key of DOC_WRITABLE) {
+      if (body[key] !== undefined) {
+        setClause.push(`${key} = $${setClause.length + 1}`);
+        values.push(body[key]);
+      }
+    }
+    if (setClause.length === 0) return err("No valid fields provided", 400);
+    values.push(id);
     const { rows } = await query(
-      `UPDATE vehicledocuments SET ${setClause} WHERE document_id = $${keys.length + 1} RETURNING *`,
-      [...values, id]
+      `UPDATE vehicledocuments SET ${setClause.join(", ")} WHERE document_id = $${values.length} RETURNING *`,
+      values
     );
     if (!rows[0]) return err("Document not found", 404);
     return ok(rows[0]);

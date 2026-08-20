@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { resetPassword } from "@/services/auth.service";
+import { requestPasswordReset } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,7 +30,7 @@ export default function ForgotPasswordPage() {
       onSuccess: async () => {
         setLoading(true);
         try {
-          await resetPassword(email);
+          await requestPasswordReset(email);
           setSent(true);
         } catch (err) {
           setError(err.message);

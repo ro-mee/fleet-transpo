@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 const DEFAULT_HOTEL_CATEGORIES = [
@@ -7,6 +7,19 @@ const DEFAULT_HOTEL_CATEGORIES = [
   { category_name: "Guest Shuttle & Airport Transfer", description: "Passenger Vans & Minibuses for Group Transfers", seating_capacity: 14 },
   { category_name: "Hotel Operations & Logistics", description: "Cargo Pickups & Vans for Housekeeping & Kitchen Supplies", seating_capacity: 3 },
   { category_name: "Staff & Employee Transport", description: "Shuttle Buses & Vans for Hotel Employee Shift Transport", seating_capacity: 18 },
+];
+
+// Client-writable columns for vehiclecategories. Column names are never taken
+// from the request body — that would allow SQL injection via crafted keys.
+const CATEGORY_WRITABLE = [
+  "category_name",
+  "description",
+  "base_rate",
+  "per_km_rate",
+  "per_hour_rate",
+  "seating_capacity",
+  "image_url",
+  "status",
 ];
 
 export async function GET(req) {
@@ -54,8 +67,15 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    const keys = Object.keys(body);
-    const values = Object.values(body);
+    const keys = [];
+    const values = [];
+    for (const key of CATEGORY_WRITABLE) {
+      if (body[key] !== undefined) {
+        keys.push(key);
+        values.push(body[key]);
+      }
+    }
+    if (keys.length === 0) return err("No valid fields provided", 400);
     const cols = keys.join(", ");
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(

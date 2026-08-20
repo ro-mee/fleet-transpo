@@ -5,7 +5,7 @@ tags: [status, dashboard]
 source:
   - "(whole repository)"
   - "live DB dnxuphhxlzidvwtdqqkq"
-last_verified: 2026-08-11
+last_verified: 2026-08-20
 ---
 
 # Current State
@@ -20,8 +20,8 @@ last_verified: 2026-08-11
 - **AI advisory:** deterministic rule engine + predictive maintenance. See [[AI Advisory]].
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
-- **Test suite:** **197 tests across 16 files, all passing** (vitest 3.2.7, run 2026-08-11). Caveat worth keeping in view: the suite passes even when a deleted symbol is still imported — it is not a link check. → [[Things I Should Not Forget]]
-- **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. See [[Migrations]].
+- **Test suite:** **362 tests across 27 files, all passing** (run 2026-08-20). Caveat worth keeping in view: the suite passes even when a deleted symbol is still imported — it is not a link check. → [[Things I Should Not Forget]]
+- **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
 
@@ -49,13 +49,23 @@ last_verified: 2026-08-11
 | 4 live tables + 1 column declared by no migration | migrations 034, 035 | applied, row counts unchanged |
 | Every verification script silently loaded **no** env — `load-env.mjs` defaulted to a nonexistent `.env.local`, then choked on the BOM and CRLF | fallback list, BOM strip, `/\r?\n/` split | 10 keys load |
 | No record of which migrations had been applied | `scripts/migrate.mjs` + `schema_migrations` ledger | tamper test refuses, exits 1 |
+| **sev-1 API sweep 2026-08-20** — SQL-injection columns (9 routes), raw `api_key` leaked by `ai/providers` POST/PUT, driver fuel self-approval, mobile fuel resubmit 500 | allowlisted columns, shared `maskProvider()`, forced `Pending`, fixed `WHERE` placeholders | eslint clean on 13 files; **362/362 tests pass** → [[Bugs]] |
+
+**Security Tier 1 — 2026-08-20:**
+
+| Was broken | Fix | Verified |
+|---|---|---|
+| **S1 — anon-key privilege escalation on `employees`** (migration 009): the public Supabase anon key could `INSERT` an account at any `role_id` (including `system_admin`) and `SELECT` emails; `anon` also held full table grants (UPDATE/DELETE/…) | migration 060 drops both 009 policies + `REVOKE ALL ON employees FROM anon` | live `pg_policies` + `information_schema.role_table_grants` empty for `anon`; `db:dump` no drift |
+| **S2 — seeded admin credential** (`admin123` hash shipped in migration 008) | migration 061 NULLs the known hash where it still matches; live admin password rotated to a fresh strong random hash (cost 10) | live `password_hash` no longer the seeded value; bcrypt verify `true` after rotation |
+| **S3 — mobile login unthrottled** (`POST /api/mobile/auth/login` ran bcrypt compares with no rate limit — largest brute-force gap) | per-IP + per-account 5/min throttle mirroring the web login, 429 + `Retry-After` | eslint clean; **362/362 tests pass** |
+| **Forgot/reset wrote through the anon key** — `auth.service.js` used the browser anon client for `signUp`/`resetPassword`/`updatePassword` | functions removed; server routes `POST /api/auth/forgot-password` (rate-limited, generic response, no email enumeration) and `POST /api/auth/reset-password` (session-bound employee, revokes `mobile_refresh_tokens`) replace them; pages rewired | lint clean on 6 files; manual smoke next deploy |
 
 ## What is incomplete — CONFIRMED
 
 - ~~`/fleet/availability`, `/drivers/availability`~~ — added 2026-08-12 (Phase 4 item 15) with the shared `StatusBoard` component, **removed 2026-08-15**: availability is derived from schedule-overlap, not a board page → [[Fleet And Vehicles]] · [[Dispatch]]
 - `src/app/(dashboard)/fleet/maintenance/` — **removed 2026-08-12**; maintenance CRUD lives at `/maintenance` (relocated there by `9c69f08`), the dir was an empty leftover
 - **10 tables have zero rows** — `fuelrecords`, `vehicleinspection`, `notification_preferences`, `recommendation_snapshots`, `ai_insights`, `ai_recommendations`, `uvvrp_violations`, `driverattendance`, `service_types`, `booking_channels`. INFERRED: built, never exercised end-to-end. (Was 11; `vehiclereservations` was dropped rather than filled.)
-- ~~Mobile: no push notifications~~ — added 2026-08-19: in-app 3-tier delivery layer (heads-up banners + toasts) upgraded to **real server-sent push** (Expo Push Service + FCM, `device_tokens` migration 058) — push-worthy notifications now arrive on a locked/killed device. Still missing: offline sync, background location (built; needs device rebuild), guest experience (per `mobile/README.md`)
+- ~~Mobile: no push notifications~~ — added 2026-08-19: in-app 3-tier delivery layer (heads-up banners + toasts) upgraded to **real server-sent push** (Expo Push Service + FCM, `device_tokens` migration 058). **VERIFIED:** test push returned Expo ticket+receipt `ok` and delivered as a real OS notification. FCM V1 service account added to Expo; Android channel now created at startup (commit 175075b) so backgrounded/killed delivery displays. **Trigger-created notifications push via an outbox** (migration 059 + `flushOutbox`): dispatch assignments now send the assigned driver a loud OS push, verified end-to-end. Still missing: offline sync, background location (built; needs device rebuild), guest experience (per `mobile/README.md`)
 - `HttpBookingGateway` throws `"not connected yet"` — only the mock gateway works
 
 ## Environment gaps — CONFIRMED
@@ -72,6 +82,7 @@ Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (
 4. ~~Replace `README.md`~~ → **done 2026-08-11** → [[DOC README Is Boilerplate]]
 5. ~~`SYSTEM.md` still describes the grounding bug as live~~ → **done 2026-08-11**; that passage and the second stub claim are gone. → [[Documentation Rot]]
 6. Add an `engines` field to `package.json`. The README states Node 20.9+, which is **Next 16's** requirement — this repo declares none of its own.
+7. **Security Tiers 2–3 (S4–S13)** from the 2026-08-20 gap analysis: CORS `"*"` in `next.config.mjs` + `src/proxy.js`, missing security headers, web+mobile sharing one JWT secret, no session revocation on role demote, admin→system_admin escalation, `GET /api/drivers` readable by `driver` role, unconstrained uploads, OCR SSRF, `clientIp()` trusting `x-forwarded-for`, forgot-password response differences (mitigated, not eliminated). → [[Security Audit]]
 
 ## Pending decisions
 
@@ -98,8 +109,8 @@ Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (
 | Indexes (standalone) / functions / triggers | 84 / 11 / 16 |
 | API route files | 113 |
 | Pages | 61 |
-| Migrations | 43 files (39 pre-existing + 033, 034, 035, 036) |
-| Test files | 16 — **197 tests, all passing** |
+| Migrations | 63 files (43 at 2026-08-11; through 061 `invalidate_seeded_admin_hash`) |
+| Test files | 27 — **362 tests, all passing** |
 
 Counted from the checked-in `schema.sql`, regenerated with `npm run db:dump`.
 One of the 38 tables is `schema_migrations`, the ledger created 2026-08-11.

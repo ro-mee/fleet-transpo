@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
@@ -21,10 +22,26 @@ import {
  */
 export async function POST(req) {
   try {
-    const { email, password } = await req.json();
+    const body = await req.json().catch(() => null);
+    const email = (body?.email || "").toString().toLowerCase().trim();
+    const password = body?.password || "";
 
     if (!email || !password) {
       return err("Email and password are required", 400);
+    }
+
+    // Mirror the web login's 5/min throttle (src/lib/auth.js). Per-IP and
+    // per-account, so neither a spoofed client nor a single account can drive
+    // unlimited bcrypt compares. The mobile credential endpoint was previously
+    // unthrottled — the largest brute-force gap in the system.
+    const ipBucket = rateLimit(`mobile-login:${clientIp(req)}`, { limit: 5, windowMs: 60_000 });
+    const accountBucket = rateLimit(`mobile-login:${email}`, { limit: 5, windowMs: 60_000 });
+    if (!ipBucket.allowed || !accountBucket.allowed) {
+      const retryAfter = Math.max(ipBucket.retryAfter, accountBucket.retryAfter);
+      return new Response(
+        JSON.stringify({ error: `Too many attempts. Try again in ${retryAfter} seconds.` }),
+        { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(retryAfter) } }
+      );
     }
 
     const { rows } = await query(
@@ -45,7 +62,7 @@ export async function POST(req) {
         WHERE e.email = $1
           AND e.deleted_at IS NULL
         LIMIT 1`,
-      [email.toLowerCase()]
+      [email]
     );
 
     const employee = rows[0];

@@ -4,6 +4,16 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
 import { writeAudit } from "@/lib/audit";
 
+// Strips the raw api_key before a row leaves the server so update responses
+// never expose the secret.
+function maskProvider(row) {
+  return {
+    ...row,
+    api_key_masked: row.api_key ? `••••••••••••${row.api_key.slice(-4)}` : null,
+    api_key: undefined,
+  };
+}
+
 export async function PUT(req, { params }) {
   try {
     await requireAuth(req, ["system_admin", "admin"]);
@@ -62,7 +72,7 @@ export async function PUT(req, { params }) {
     const { rows: [updated] } = await query(
       `SELECT * FROM aiproviders WHERE provider_id = $1`, [+id]
     );
-    return ok(updated);
+    return ok(maskProvider(updated));
   } catch (e) { return handleError(e); }
 }
 

@@ -17,6 +17,21 @@ const routeWriteSchema = {
   is_active: { label: "Active" },
 };
 
+// Allowed client field -> real routes column. Column names are never taken
+// from the request body — that would allow SQL injection via crafted keys.
+const ROUTE_WRITABLE = {
+  route_name: "route_name",
+  origin: "origin",
+  destination: "destination",
+  origin_location_id: "origin_location_id",
+  destination_location_id: "destination_location_id",
+  distance_km: "estimated_distance",
+  estimated_distance: "estimated_distance",
+  estimated_duration_minutes: "estimated_duration",
+  estimated_duration: "estimated_duration",
+  status: "status",
+};
+
 export async function GET(req, { params }) {
   try {
     await requireAuth(req);
@@ -38,8 +53,17 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
-    const k = Object.keys(body), v = Object.values(body);
-    const { rows } = await query(`UPDATE routes SET ${k.map((k,i)=>`${k} = $${i+1}`).join(", ")} WHERE route_id = $${k.length+1} RETURNING *`, [...v, id]);
+    const columns = [];
+    const values = [];
+    for (const [field, column] of Object.entries(ROUTE_WRITABLE)) {
+      if (body[field] !== undefined) {
+        columns.push(`${column} = $${columns.length + 1}`);
+        values.push(body[field]);
+      }
+    }
+    if (columns.length === 0) return err("No valid fields provided", 400);
+    values.push(id);
+    const { rows } = await query(`UPDATE routes SET ${columns.join(", ")} WHERE route_id = $${values.length} RETURNING *`, values);
     if (!rows[0]) return err("Route not found", 404);
     return ok(rows[0]);
   } catch (e) { return handleError(e); }

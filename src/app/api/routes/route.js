@@ -1,6 +1,21 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+
+// Allowed client field -> real routes column. Column names are never taken
+// from the request body — that would allow SQL injection via crafted keys.
+const ROUTE_WRITABLE = {
+  route_name: "route_name",
+  origin: "origin",
+  destination: "destination",
+  origin_location_id: "origin_location_id",
+  destination_location_id: "destination_location_id",
+  distance_km: "estimated_distance",
+  estimated_distance: "estimated_distance",
+  estimated_duration_minutes: "estimated_duration",
+  estimated_duration: "estimated_duration",
+  status: "status",
+};
 
 export async function GET(req) {
   try {
@@ -38,8 +53,17 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    const k = Object.keys(body), v = Object.values(body);
-    const { rows } = await query(`INSERT INTO routes (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    const columns = [];
+    const values = [];
+    for (const [field, column] of Object.entries(ROUTE_WRITABLE)) {
+      if (body[field] !== undefined) {
+        columns.push(column);
+        values.push(body[field]);
+      }
+    }
+    if (columns.length === 0) return err("No valid fields provided", 400);
+    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
+    const { rows } = await query(`INSERT INTO routes (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }
 }

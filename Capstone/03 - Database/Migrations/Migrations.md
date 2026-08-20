@@ -5,7 +5,7 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-08-11
+last_verified: 2026-08-20
 ---
 
 # Migrations
@@ -22,9 +22,10 @@ last_verified: 2026-08-11
 ## How to apply one — CONFIRMED PROCEDURE
 
 ```bash
-npm run db:status   # applied / pending / changed-since-applied
-npm run db:up       # apply pending, in filename order, each in a transaction
-npm run db:dump     # regenerate schema.sql from live
+npm run db:status       # applied / pending / changed-since-applied
+npm run db:up           # apply pending, in filename order, each in a transaction
+npm run db:rebaseline   # (rare) re-record applied-but-edited files after an audit
+npm run db:dump         # regenerate schema.sql from live
 ```
 
 `scripts/migrate.mjs` connects with `pg` + the real `DATABASE_URL` — the
@@ -98,7 +99,7 @@ rewriting applied history for cosmetic gain, so it stays. → [[ADR-008 Manual M
 | `024_driverincidents.sql` | Recreates a table `005` dropped: *"The driver portal and /api/driver/incidents still reference it, so it was missing at runtime and incident reporting was broken."* |
 | **`049_driver_work_schedule_and_leave.sql`** (2026-08-15) | Weekly schedules + leave. RLS write policies are `system_admin`+`fleet_manager` only (admin excluded). Applied **directly via pg**, see below. → [[Driver Management]] |
 
-## 2026-08-15 — `db:up` is blocked; 049 was applied directly
+## 2026-08-15 — `db:up` is blocked; 049 was applied directly — RESOLVED 2026-08-20
 
 `npm run db:status` reports **51** files: 33 applied, 3 pending
 (`036_trip_lifecycle_status.sql`, `037_remove_review_statuses.sql`, `049`), and
@@ -113,8 +114,25 @@ reflects them).
 `895dfea7f81ed725`), followed by `npm run db:dump` (40 tables, 1 view, 83 FKs,
 89 indexes, 11 functions, 16 triggers). **Do not** "reconcile" the 15 changed
 files by editing them — that is risk on top of unknown drift. It is the pre-existing
-blocker documented in [[DEBT Schema Drift From Migrations]]; a real fix is a
-baseline/rename exercise the user has not asked for.
+blocker documented in [[DEBT Schema Drift From Migrations]].
+
+**RESOLVED 2026-08-20.** Root cause was **line-ending churn, not SQL drift**:
+of the 26 "changed" files, 25 were proven to differ from the applied checksum only
+by LF↔CRLF (each applied checksum matched the LF or CRLF form of the identical
+content); the 26th (`057`) predates the current blob, but its file replays against
+live as a clean no-op. `db:dump` showed no drift throughout. Two fixes landed in
+`scripts/migrate.mjs`:
+
+1. `sha()` now hashes **LF-normalized** content, so EOL flapping can never trip
+   the runner again (verified: forcing a file to CRLF leaves `db:status` at
+   0 changed).
+2. `rebaseline` command (`npm run db:rebaseline`) re-records applied-but-edited
+   files to their current checksum — the sanctioned "re-baseline deliberately"
+   path, now safe to use precisely because of (1).
+
+Ledger now: **63 applied, 0 changed, 0 pending**; `db:up` runs again.
+`060` and `061` (anon-`employees` removal + seeded-hash invalidation) are in the
+ledger. → [[DEBT Schema Drift From Migrations]]
 
 ## What `024` teaches
 

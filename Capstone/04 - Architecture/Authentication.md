@@ -5,9 +5,13 @@ tags: [architecture, auth, security]
 source:
   - src/lib/auth.js
   - src/lib/api/utils.js
-  - src/lib/mobile-auth.js
-  - src/proxy.js
-last_verified: 2026-08-11
+  - src/lib/auth/mobile-token.js
+  - src/services/auth.service.js
+  - src/app/api/auth/forgot-password/route.js
+  - src/app/api/auth/reset-password/route.js
+  - src/app/api/auth/change-password/route.js
+  - src/app/api/mobile/auth/login/route.js
+last_verified: 2026-08-20
 ---
 
 # Authentication
@@ -77,6 +81,18 @@ requireDriver(req)     // requireAuth(req, ["driver"]) + guarantees driverId
 **Every one of the 113 route handlers calls `requireAuth()` itself.** There is no central chokepoint. That is the single most important fact about this system's security posture: the guarantee is *per-route discipline*, and a route that forgets is unprotected with nothing to catch it.
 
 **TODO:** an audit that asserts every `src/app/api/**/route.js` contains a `requireAuth`/`requireDriver` call. Cheap to write, high value.
+
+## Password recovery & reset — CONFIRMED (2026-08-20)
+
+All credential-change paths are **server-side**; nothing writes `employees` from the browser anymore. The old anon-key escalation is gone.
+
+- `auth.service.js` previously called Supabase `signUp`/`resetPassword`/`updatePassword` through the **browser anon client**. Migration 009 let that anon key `INSERT`/`SELECT` on `employees`, and the default grants went further (`UPDATE`/`DELETE`) — **anyone with the public anon key could insert a `system_admin` or overwrite a password hash**. Migration 060 dropped the 009 policies and `REVOKE ALL`d `anon`; verified live (`pg_policies` + `role_table_grants` both empty for `anon` on `employees`).
+- `signUp`/`resetPassword`/`updatePassword` were **deleted** from `auth.service.js`; it no longer imports the anon `createClient`. Credential mutation lives in three routes:
+  - `POST /api/auth/change-password` — session-bound, pre-existing.
+  - `POST /api/auth/forgot-password` — **public** but rate-limited (per-IP + per-email, 5/60s), identical generic response whether or not the email exists (no enumeration), no email is actually sent yet.
+  - `POST /api/auth/reset-password` — `requireAuth`, employee derived from the session (never the body), rate-limited, wipes the employee's `mobile_refresh_tokens` so a leaked mobile session dies too.
+- `POST /api/mobile/auth/login` is now throttled **per-IP and per-account** (5/60s, 429 + `Retry-After`), mirroring the web Credentials provider — previously it ran unlimited bcrypt compares.
+- Seeded `admin123` credential from migration 008 was a **real account takeover**: migration 061 NULLs the known hash where it still matches, and the live `admin@fleetops.com` password was **rotated** to a fresh strong hash (cost 10). Decision: keep the account, rotate the credential.
 
 ## Related
 

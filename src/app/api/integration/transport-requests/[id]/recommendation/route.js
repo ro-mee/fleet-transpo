@@ -648,6 +648,7 @@ export async function POST(req, { params }) {
       trip: recommendation.trip,
       recommended: recommendation.pair?.recommended ?? null,
       alternate: recommendation.pair?.alternate ?? null,
+      candidates: recommendation.pair?.candidates ?? [],
     };
     const snapshot = await saveRecommendationSnapshot({
       request,

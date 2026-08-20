@@ -296,7 +296,8 @@ export function shapePinnedPair({ vehicle, driver, request, score = null }) {
  * @returns {{
  *   generated_at: string,
  *   trip: object,
- *   pair: { recommended: object|null, alternate: object|null, considered: number,
+ *   pair: { recommended: object|null, alternate: object|null,
+ *           candidates: object[], considered: number,
  *           none_reasons: Array<{vehicle_id:number, plate:string, reason:string}> },
  *   vehicle: object, driver: object, narration: null
  * }}
@@ -315,7 +316,7 @@ export function buildDispatchRecommendation({
   const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
 
   // Pair engine ranks complete vehicle+driver pairs; designated match dominates.
-  const { recommended, alternate, skipped = [] } = buildFleetPairRecommendations({
+  const { pairs = [], recommended, alternate, skipped = [] } = buildFleetPairRecommendations({
     request,
     vehicles,
     drivers,
@@ -342,6 +343,11 @@ export function buildDispatchRecommendation({
   const vehicleCandidates = scoredVehicles.map((s) => toVehicleCandidate(s, request, trip));
   const driverCandidates = scoredDrivers.map(toDriverCandidate);
 
+  // Every eligible pair the engine formed, top-ranked first. The top two are
+  // `recommended`/`alternate`; the rest let a dispatcher choose any valid
+  // vehicle+driver for the window instead of being pinned to the runner-up.
+  const candidatePairs = pairs.map((p) => toPairCandidate(p, request, trip));
+
   return {
     generated_at: new Date().toISOString(),
     trip: {
@@ -354,6 +360,7 @@ export function buildDispatchRecommendation({
     pair: {
       recommended: recommended ? toPairCandidate(recommended, request, trip) : null,
       alternate: alternate ? toPairCandidate(alternate, request, trip) : null,
+      candidates: candidatePairs,
       considered: vehicles.length,
       // "Why no candidates" — distinct vehicle-level reasons the pairing engine
       // skipped when it could not form a pair. Empty when a pair exists.

@@ -64,7 +64,7 @@ export async function PUT(req, { params }) {
     const { rows } = await query(
       `UPDATE fuelrecords 
        SET ${updates.join(", ")}
-       WHERE fuel_record_id = $${idx - 2} AND driver_id = $${idx - 1}
+       WHERE fuel_record_id = $${idx} AND driver_id = $${idx + 1}
        RETURNING *`,
       values
     );

@@ -3,7 +3,7 @@
 import { Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { updatePassword } from "@/services/auth.service";
+import { resetSessionPassword } from "@/services/auth.service";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -44,7 +44,7 @@ function ResetPasswordForm() {
       onSuccess: async () => {
         setLoading(true);
         try {
-          await updatePassword(password, session.user.email);
+          await resetSessionPassword(password);
           setSuccess(true);
           setTimeout(() => router.push("/login"), 2000);
         } catch (err) {

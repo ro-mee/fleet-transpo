@@ -176,7 +176,6 @@ const WRITABLE_COLUMNS = [
   "fuel_type",
   "fuel_date",
   "receipt_url",
-  "status",
 ];
 
 export async function POST(req) {
@@ -225,10 +224,11 @@ export async function POST(req) {
     columns.push("created_by");
     values.push(session.user.employeeId);
 
-    if (body.status === undefined) {
-      columns.push("status");
-      values.push("Pending");
-    }
+    // Fuel records always start as Pending. status is intentionally NOT a
+    // writable column here — letting callers set it would let a driver
+    // self-approve their own claim. Review happens via PUT /api/fuel/[id].
+    columns.push("status");
+    values.push("Pending");
 
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const { rows } = await query(

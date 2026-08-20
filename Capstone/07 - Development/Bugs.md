@@ -4,7 +4,7 @@ title: Bugs
 tags: [development, bugs]
 source:
   - (see individual notes)
-last_verified: 2026-08-17
+last_verified: 2026-08-20
 ---
 
 # Bugs
@@ -41,6 +41,39 @@ Open, verified defects. Each links to a full note with root cause and fix.
 - **No gate resolves imports.** After a symbol was deleted in Phase 3, `npm run test:run` **and** eslint both passed while three modules still imported it across five call sites. Vitest loads only what its tests reach; the flat eslint config doesn't run `import/no-unresolved`. This is a hole in the gates, not a bug in a file — worth filing as its own note if a CI job is ever set up. → [[Things I Should Not Forget]]
 - **Reports compute over empty tables — CONFIRMED, and it is not a code bug.** `/api/reports/financial`, `/fuel-consumption` and `/fleet-cost` all read `fuelrecords`, which has **0 rows**. The code is honest about it: `financial/route.js:15` guards the division (`totalDist ? … : 0`) and `fuel-consumption/route.js:22-30` returns an explicit zeroed shape when there are no records. So the endpoints return real zeros, not fabricated figures. The hazard is one of *presentation*, not correctness — a dashboard of zeros looks like a working system with a quiet month. Phase 4 item 14 (seed realistic data) is the fix. → [[Reports]]
 - **Checked and dismissed:** the `Math.random()` calls in `reservations/new/page.js:126-150` are a **labelled** demo-fill button (`handleRandomFill`, toast: *"Filled mock transport request data!"*). Recorded here so the next person doesn't re-flag it.
+
+## Fixed — 2026-08-20
+
+A sev-1 sweep of the API module (`src/app/api/**/route.js`) closed four defect classes:
+
+| Bug | Was | Verified by |
+|---|---|---|
+| **SQL injection via column names (9 routes)** | `Object.keys(body)` interpolated into `INSERT`/`UPDATE` column lists with no allowlist — crafted keys like `"trip_status = 'Completed' --"` executed | all 9 routes rewritten to iterate a fixed `*_WRITABLE` allowlist; `vehicle-maintenance` was the reference pattern |
+| **Raw `api_key` leaked to clients** | `POST /api/ai/providers` and `PUT /api/ai/providers/[id]` returned `SELECT *` rows including the secret (GET already masked) | shared `maskProvider()` applied on POST/PUT return rows; GET refactored to reuse it |
+| **Driver can self-approve fuel claims** | `status` was a writable column in `POST /api/fuel`, and the `driver` role is admitted — a claim could arrive already `Approved` | `status` removed from `WRITABLE_COLUMNS`; every create now forces `Pending` explicitly (the DB default is `'Completed'`, so it must be explicit) |
+| **Mobile fuel resubmit 500s every time** | `PUT /api/mobile/fuel/[id]` used `$${idx-2}`/`$${idx-1}` in `WHERE` but `id`/`driverId` landed at `$N+3`/`$N+4` → `invalid input syntax for type integer: "Pending"` on every rejected-report resubmit | `WHERE` now uses `$${idx}`/`$${idx+1}` |
+
+Routes fixed for the injection class: `trips` (POST + `[id]` PUT), `integration/logs` (POST),
+`vehicle-documents/[id]` (PUT), `vehicles/[id]/documents` (POST), `routes` (POST + `[id]` PUT,
+with `distance_km`/`estimated_duration_minutes` aliases mapped to the real
+`estimated_distance`/`estimated_duration` columns), `vehicle-categories` (POST + `[id]` PUT).
+
+Verified: eslint clean on all 13 touched files; **362/362 tests pass**.
+
+## Fixed — 2026-08-20 (Security Tier 1)
+
+The Tier 1 slice of the security gap analysis (S1–S3). The other findings (S4–S13) remain open → [[Security Audit]].
+
+| Bug | Was | Verified by |
+|---|---|---|
+| **Anon-key privilege escalation on `employees`** (S1) | migration 009 granted `anon` `INSERT`/`SELECT`, and the default Supabase grant gave `anon` full table privileges (UPDATE/DELETE/…). Anyone with the public anon key could `INSERT` an account at `role_id = 1` (`system_admin`) or, with UPDATE, overwrite a known email's `password_hash` — **account takeover, live** | migration 060 (drop both policies + `REVOKE ALL`); live `pg_policies`/`role_table_grants` show no anon access |
+| **Seeded admin credential** (S2) | migration 008 shipped the `admin123` bcrypt hash for `admin@fleetops.com`; the plaintext is public | migration 061 NULLs the known hash where it still matches; live admin password **rotated** to a fresh strong hash (cost 10); decision: keep the account, rotate the credential |
+| **Mobile login unthrottled** (S3) | `POST /api/mobile/auth/login` ran bcrypt compares with no rate limit — the largest brute-force gap | per-IP + per-account 5/min throttle (mirrors web login), 429 + `Retry-After` |
+| **Password recovery via anon key** | `auth.service.js` called Supabase `signUp`/`resetPassword`/`updatePassword` through the browser anon client; `resetPassword` emails the reset link to any email, enabling account-takeover-by-email | anon functions removed; server routes `POST /api/auth/forgot-password` (rate-limited, identical generic response) + `POST /api/auth/reset-password` (session-bound employee, wipes `mobile_refresh_tokens`); forgot-password + reset-password pages rewired |
+
+Verified: eslint clean on 6 touched files; **362/362 tests pass**; live DB checks above.
+
+Related pipeline fix: `db:up` was blocked by 26 pre-existing checksum-changed files. Root cause: **LF↔CRLF line-ending churn**, not SQL drift — 25/26 were proven to be the LF/CRLF form of identical content (the 26th replays as a no-op). Fixed in `scripts/migrate.mjs`: `sha()` now hashes LF-normalized content (EOL-immune, verified), and a `rebaseline` command (`npm run db:rebaseline`) records the deliberate re-record. Ledger clean: **63 applied, 0 changed, 0 pending**; `db:up` runs again. → [[Migrations]]
 
 ## Fixed — 2026-08-11
 

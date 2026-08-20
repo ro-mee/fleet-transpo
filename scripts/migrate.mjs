@@ -14,6 +14,7 @@
 // Commands:
 //   node scripts/migrate.mjs status     what is applied, pending, or changed
 //   node scripts/migrate.mjs baseline   record every file as applied, run none
+//   node scripts/migrate.mjs rebaseline re-record applied-but-edited files
 //   node scripts/migrate.mjs up         apply pending files in filename order
 //
 // Run `baseline` first on this project. The live database already contains the
@@ -42,7 +43,10 @@ const LEDGER_DDL = `
   );
 `;
 
-const sha = (s) => createHash("sha256").update(s).digest("hex").slice(0, 16);
+// sha256[0:16] over LF-normalized content: Windows checkouts/edits flip files
+// between CRLF and LF, and an EOL-only change is not a migration change. This
+// makes the checksum immune to that churn (the applied SQL is identical).
+const sha = (s) => createHash("sha256").update(s.replace(/\r\n/g, "\n")).digest("hex").slice(0, 16);
 
 function discover() {
   return readdirSync(DIR)
@@ -175,7 +179,40 @@ async function cmdUp(pool) {
   console.log("\nDone. Re-run scripts/dump-schema.mjs to refresh schema.sql.\n");
 }
 
-const COMMANDS = { status: cmdStatus, baseline: cmdBaseline, up: cmdUp };
+async function cmdRebaseline(pool) {
+  const files = discover();
+  const ledger = await readLedger(pool);
+  const { changed, pending } = classify(files, ledger);
+
+  if (pending.length) {
+    console.log(
+      `Note: ${pending.length} pending migration(s) are untouched by rebaseline — run "up" to apply them.`
+    );
+  }
+  if (!changed.length) {
+    console.log("\nNo changed files — nothing to rebaseline.\n");
+    return;
+  }
+
+  // `up` refuses to run while applied files differ on disk, so the pipeline can
+  // stall. This command is the deliberate acknowledgement that the live DB has
+  // evolved past these files: it re-records the current on-disk checksum as the
+  // declared state. Use it only after verifying the live DB reflects the files'
+  // intent (e.g. `db:dump` shows no drift).
+  console.log(`\nRe-recording ${changed.length} applied migration(s) to their current checksums:`);
+  for (const f of changed) {
+    await pool.query(
+      `UPDATE schema_migrations
+          SET checksum = $1, applied_by = 'rebaseline', applied_at = NOW()
+        WHERE filename = $2`,
+      [f.checksum, f.filename]
+    );
+    console.log(`  ~ ${f.filename}  ${f.was} -> ${f.checksum}`);
+  }
+  console.log("\nOn-disk files are now the declared state.\n");
+}
+
+const COMMANDS = { status: cmdStatus, baseline: cmdBaseline, rebaseline: cmdRebaseline, up: cmdUp };
 
 const cmd = process.argv[2] ?? "status";
 if (!COMMANDS[cmd]) {
