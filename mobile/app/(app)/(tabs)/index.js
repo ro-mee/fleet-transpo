@@ -340,54 +340,62 @@ export default function Home() {
           />
         }
       >
-        {/* ─── Hero Greeting Panel ─── */}
+        {/* ─── Hero Greeting Panel (Double-Bezel Hardware Architecture) ─── */}
         <Animated.View style={fade(heroAnim)}>
-          <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-            <View style={styles.heroTopRow}>
-              <Text style={styles.heroDate}>{todayLabel}</Text>
-              <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.18)" : "rgba(255,255,255,0.10)" }]}>
-                {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
-                <Text style={styles.statusChipText}>
-                        {activeTrip ? "On trip" : "Ready"}
+          <View style={[styles.heroShell, { borderColor: colors.primary + '35' }]}>
+            <View style={[styles.hero, { backgroundColor: colors.primary }]}>
+              {/* Top Specular Inner Gleam */}
+              <View style={styles.heroSpecularGleam} pointerEvents="none" />
+
+              {/* Large Ambient Trajectory Vector Art (Enlarged & Multi-Layered) */}
+              <View style={styles.heroCarLineContainer} pointerEvents="none">
+                <View style={styles.heroAuraGlow} />
+                <Image
+                  source={require('../../../assets/tsts.png')}
+                  style={styles.heroCarLineImage}
+                  resizeMode="contain"
+                />
+              </View>
+
+              <View style={styles.heroContentLayer}>
+                <View style={styles.heroTopRow}>
+                  <Text style={styles.heroDate}>{todayLabel}</Text>
+                  <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.14)" }]}>
+                    {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
+                    <Text style={styles.statusChipText}>
+                      {activeTrip ? "On trip" : "Ready"}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.heroGreeting}>{greeting}, {driverName}</Text>
+                <Text style={styles.heroSupport}>
+                  {activeTrip
+                    ? "Your active trip is ready below."
+                    : nextTrip
+                      ? "Your next assignment is ready below."
+                      : "You are ready for new assignments."}
                 </Text>
+
+                {vehiclePlate ? (
+                  <View style={styles.heroVehicle}>
+                    <View style={styles.heroVehicleIcon}>
+                      <Ionicons name="car-sport-outline" size={20} color="#FFFFFF" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.heroVehicleLabel}>Assigned Vehicle</Text>
+                      <Text style={styles.heroVehicleModel} numberOfLines={1}>{vehicleModel}</Text>
+                    </View>
+                    <Plate plate={vehiclePlate} />
+                  </View>
+                ) : null}
               </View>
             </View>
-
-            <Text style={styles.heroGreeting}>{greeting}, {driverName}</Text>
-            <Text style={styles.heroSupport}>
-              {activeTrip
-                ? "Your active trip is ready below."
-                : nextTrip
-                  ? "Your next assignment is ready below."
-                  : "You are ready for new assignments."}
-            </Text>
-
-            {/* Trajectory Car Line embedded in Hero Greeting Card */}
-            <View style={styles.heroCarLineContainer} pointerEvents="none">
-              <Image
-                source={require('../../../assets/car line.png')}
-                style={styles.heroCarLineImage}
-                resizeMode="contain"
-              />
-            </View>
-
-            {vehiclePlate ? (
-              <View style={styles.heroVehicle}>
-                <View style={styles.heroVehicleIcon}>
-                  <Ionicons name="car-sport-outline" size={20} color="#FFFFFF" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.heroVehicleLabel}>Assigned Vehicle</Text>
-                  <Text style={styles.heroVehicleModel} numberOfLines={1}>{vehicleModel}</Text>
-                </View>
-                <Plate plate={vehiclePlate} />
-              </View>
-            ) : null}
           </View>
         </Animated.View>
 
         <Animated.View style={fade(heroAnim)}>
-            <View style={[styles.quickCard, { backgroundColor: colors.surface, borderColor: colors.surfaceContainerHigh }]}>
+            <View style={[styles.quickCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh }]}>
               <View style={styles.quickGrid}>
                 <Pressable
                   onPress={() => router.push("/work-schedule")}
@@ -850,15 +858,57 @@ const styles = StyleSheet.create({
     gap: moderateScale(18),
   },
 
-  // ── Hero ──
+  // ── Hero (Double-Bezel Hardware Architecture) ──
+  heroShell: {
+    borderRadius: moderateScale(26),
+    padding: moderateScale(2),
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.16,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
+  },
   hero: {
     borderRadius: moderateScale(24),
     padding: moderateScale(22),
     overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
+    position: "relative",
+  },
+  heroSpecularGleam: {
+    position: "absolute",
+    top: 0,
+    left: moderateScale(20),
+    right: moderateScale(20),
+    height: 1,
+    backgroundColor: "rgba(255,255,255,0.35)",
+    zIndex: 3,
+  },
+  heroAuraGlow: {
+    position: "absolute",
+    right: moderateScale(25),
+    top: moderateScale(10),
+    width: moderateScale(150),
+    height: moderateScale(140),
+    borderRadius: moderateScale(75),
+    backgroundColor: "rgba(255,255,255,0.08)",
+  },
+  heroCarLineContainer: {
+    position: "absolute",
+    right: moderateScale(8),
+    top: moderateScale(8),
+    width: moderateScale(185),
+    height: moderateScale(120),
+    opacity: 0.48,
+    zIndex: 0,
+  },
+  heroCarLineImage: {
+    width: "100%",
+    height: "100%",
+    tintColor: "#FFFFFF",
+  },
+  heroContentLayer: {
+    zIndex: 2,
   },
   heroTopRow: {
     flexDirection: "row",
@@ -904,20 +954,6 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(21),
     color: "rgba(255,255,255,0.78)",
     marginTop: moderateScale(4),
-  },
-  heroCarLineContainer: {
-    position: "absolute",
-    right: moderateScale(-6),
-    top: moderateScale(16),
-    width: moderateScale(140),
-    height: moderateScale(76),
-    opacity: 0.32,
-    zIndex: 0,
-  },
-  heroCarLineImage: {
-    width: "100%",
-    height: "100%",
-    tintColor: "#FFFFFF",
   },
   heroVehicle: {
     flexDirection: "row",
