@@ -291,22 +291,7 @@ export default function Home() {
           },
         ]}
       >
-        <View style={{ flex: 1 }} />
-        <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(14) }}>
-          <Pressable
-            onPress={() => router.push("/notifications")}
-            style={({ pressed }) => [styles.iconBtn, { backgroundColor: colors.surfaceContainer }, pressed && styles.pressed]}
-            accessibilityLabel="Notifications"
-          >
-            <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
-            {unreadCount > 0 && (
-              <View style={[styles.bellBadge, { backgroundColor: colors.error, borderColor: colors.surfaceContainer }]}>
-                <Text style={[styles.bellBadgeText, { color: colors.onError }]}>
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </Text>
-              </View>
-            )}
-          </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(10) }}>
           <Pressable
             onPress={() => router.push("/profile")}
             style={({ pressed }) => [
@@ -321,6 +306,26 @@ export default function Home() {
             <Text style={[type.labelLg, styles.avatarText, { color: "#FFFFFF" }]}>
               {(user?.firstName?.[0] || user?.name?.[0] || "D").toUpperCase()}
             </Text>
+          </Pressable>
+          <View>
+            <Text style={[type.titleLg, { color: colors.onSurface, fontSize: 16, lineHeight: 22 }]}>Hi, {driverName}</Text>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(14) }}>
+          <Pressable
+            onPress={() => router.push("/notifications")}
+            style={({ pressed }) => [styles.iconBtn, { backgroundColor: colors.surfaceContainer }, pressed && styles.pressed]}
+            accessibilityLabel="Notifications"
+          >
+            <Ionicons name="notifications-outline" size={20} color={colors.onSurfaceVariant} />
+            {unreadCount > 0 && (
+              <View style={[styles.bellBadge, { backgroundColor: colors.error, borderColor: colors.surfaceContainer }]}>
+                <Text style={[styles.bellBadgeText, { color: colors.onError }]}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </Text>
+              </View>
+            )}
           </Pressable>
         </View>
       </View>
@@ -340,14 +345,11 @@ export default function Home() {
           />
         }
       >
-        {/* ─── Hero Greeting Panel (Double-Bezel Hardware Architecture) ─── */}
+        {/* ─── Hero / Trip Detail Panel ─── */}
         <Animated.View style={fade(heroAnim)}>
           <View style={[styles.heroShell, { borderColor: colors.primary + '35' }]}>
             <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-              {/* Top Specular Inner Gleam */}
               <View style={styles.heroSpecularGleam} pointerEvents="none" />
-
-              {/* Large Ambient Trajectory Vector Art (Enlarged & Multi-Layered) */}
               <View style={styles.heroCarLineContainer} pointerEvents="none">
                 <View style={styles.heroAuraGlow} />
                 <Image
@@ -358,44 +360,122 @@ export default function Home() {
               </View>
 
               <View style={styles.heroContentLayer}>
-                <View style={styles.heroTopRow}>
-                  <Text style={styles.heroDate}>{todayLabel}</Text>
-                  <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.14)" }]}>
-                    {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
-                    <Text style={styles.statusChipText}>
-                      {activeTrip ? "On trip" : "Ready"}
+                {loading ? (
+                  <>
+                    <SkeletonCard lines={4} />
+                    <SkeletonCard lines={2} />
+                  </>
+                ) : nextTrip ? (
+                  <>
+                    <View style={styles.heroTopRow}>
+                      <Text style={styles.heroDate}>{todayLabel}</Text>
+                      <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.14)" }]}>
+                        {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
+                        <Text style={styles.statusChipText}>
+                          {activeTrip ? "On trip" : "Ready"}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: moderateScale(4) }}>
+                      <Text style={[styles.heroGreeting, { fontSize: moderateScale(26) }]} numberOfLines={2}>
+                        {activeTrip ? "Trip in progress" : (tripDayLabel ? tripDayLabel + "'s trip" : "Next trip")}
+                      </Text>
+                      {nextTrip.departure_time ? (
+                        <Text style={[styles.heroSupport, { color: "rgba(255,255,255,0.9)" }]}>
+                          {new Date(nextTrip.departure_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <View style={[styles.routeViz, { marginTop: moderateScale(22) }]}>
+                      <View style={[styles.routeLine, { borderColor: "rgba(255,255,255,0.3)" }]} />
+                      <View style={styles.routeStop}>
+                        <View style={[styles.routeDot, { borderColor: "rgba(255,255,255,0.6)", backgroundColor: "rgba(255,255,255,0.1)" }]}>
+                          <View style={[styles.routeDotInner, { backgroundColor: "rgba(255,255,255,0.6)" }]} />
+                        </View>
+                        <View style={styles.routeStopInfo}>
+                          <Text style={[type.label, styles.stopType, { color: "rgba(255,255,255,0.7)" }]}>Pickup</Text>
+                          <Text style={[type.titleMd, styles.stopName, { color: "#FFFFFF" }]} numberOfLines={2}>
+                            {nextTrip.origin || "Origin"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.routeStop}>
+                        <View style={[styles.routeDot, styles.routeDotDest, { borderColor: "#FFFFFF", backgroundColor: "#FFFFFF" }]}>
+                          <Ionicons name="flag" size={10} color={colors.primary} />
+                        </View>
+                        <View style={styles.routeStopInfo}>
+                          <Text style={[type.label, styles.stopType, { color: "rgba(255,255,255,0.7)" }]}>Drop-off</Text>
+                          <Text style={[type.titleMd, styles.stopName, { color: "#FFFFFF" }]} numberOfLines={2}>
+                            {nextTrip.destination || "Destination"}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+
+                    {vehiclePlate ? (
+                      <View style={styles.heroVehicle}>
+                        <View style={styles.heroVehicleIcon}>
+                          <Ionicons name="car-sport-outline" size={20} color="#FFFFFF" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.heroVehicleLabel}>Assigned Vehicle</Text>
+                          <Text style={styles.heroVehicleModel} numberOfLines={1}>{vehicleModel}</Text>
+                        </View>
+                        <Plate plate={vehiclePlate} />
+                      </View>
+                    ) : null}
+
+                    {canManageTrip ? (
+                      <Pressable
+                        onPress={() => isPreStart && !startReady ? router.push(`/trip/${nextTrip.trip_id}`) : handleTripAction(nextTrip)}
+                        disabled={!!actingOn}
+                        style={({ pressed }) => [
+                          styles.tripCta,
+                          { backgroundColor: isPreStart && !startReady ? "rgba(255,255,255,0.15)" : "#FFFFFF", marginTop: moderateScale(20) },
+                          pressed && styles.ctaPressed,
+                        ]}
+                        accessibilityRole="button"
+                        accessibilityLabel={activeTrip ? "Continue trip" : "Start trip"}
+                      >
+                        {actingOn === nextTrip.trip_id ? (
+                          <ActivityIndicator color={colors.primary} />
+                        ) : (
+                          <>
+                            <Text style={[type.labelLg, styles.tripCtaText, { color: isPreStart && !startReady ? "#FFFFFF" : colors.primary }]}>
+                              {isPreStart && !startReady ? "View Details" : (activeTrip ? "Continue Trip" : "Start Trip")}
+                            </Text>
+                            <View style={[styles.ctaIcon, { backgroundColor: isPreStart && !startReady ? "rgba(255,255,255,0.1)" : colors.primary + "1A" }]}>
+                              <Ionicons name={isPreStart && !startReady ? "chevron-forward" : (activeTrip ? "navigate" : "play")} size={18} color={isPreStart && !startReady ? "#FFFFFF" : colors.primary} />
+                            </View>
+                          </>
+                        )}
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.heroTopRow}>
+                      <Text style={styles.heroDate}>{todayLabel}</Text>
+                      <View style={[styles.statusChip, { backgroundColor: "rgba(255,255,255,0.14)" }]}>
+                        <View style={styles.statusDotIdle} />
+                        <Text style={styles.statusChipText}>Ready</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.heroGreeting}>All clear</Text>
+                    <Text style={styles.heroSupport}>
+                      You are ready for new assignments.
                     </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.heroGreeting}>{greeting}, {driverName}</Text>
-                <Text style={styles.heroSupport}>
-                  {activeTrip
-                    ? "Your active trip is ready below."
-                    : nextTrip
-                      ? "Your next assignment is ready below."
-                      : "You are ready for new assignments."}
-                </Text>
-
-                {vehiclePlate ? (
-                  <View style={styles.heroVehicle}>
-                    <View style={styles.heroVehicleIcon}>
-                      <Ionicons name="car-sport-outline" size={20} color="#FFFFFF" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.heroVehicleLabel}>Assigned Vehicle</Text>
-                      <Text style={styles.heroVehicleModel} numberOfLines={1}>{vehicleModel}</Text>
-                    </View>
-                    <Plate plate={vehiclePlate} />
-                  </View>
-                ) : null}
+                  </>
+                )}
               </View>
             </View>
           </View>
         </Animated.View>
 
         <Animated.View style={fade(heroAnim)}>
-            <View style={[styles.quickCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh }]}>
+            <View style={[styles.quickCard, { backgroundColor: colors.surface, borderColor: colors.surfaceContainerHigh }]}>
               <View style={styles.quickGrid}>
                 <Pressable
                   onPress={() => router.push("/work-schedule")}
@@ -453,207 +533,6 @@ export default function Home() {
         </Animated.View>
 
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
-
-        {/* ─── Trip Card / Empty ─── */}
-        <Animated.View style={fade(tripAnim)}>
-          {loading ? (
-            <>
-              <SkeletonCard lines={4} />
-              <SkeletonCard lines={2} />
-            </>
-          ) : nextTrip ? (
-            <View
-              style={[
-                styles.tripCard,
-                {
-                  backgroundColor: colors.surfaceContainerLow,
-                  borderColor: colors.surfaceContainerHigh,
-                },
-              ]}
-            >
-              {/* Day strip — prominent, directly above the trip badge */}
-              {tripDayLabel ? (
-                <View style={[styles.dayStrip, { backgroundColor: colors.primary }]}>
-                  <View style={styles.dayStripIcon}>
-                    <Ionicons name="calendar-outline" size={16} color="#FFFFFF" />
-                  </View>
-                  <Text style={[type.labelLg, styles.dayStripText, { color: "#FFFFFF" }]}>
-                    {activeTrip
-                      ? "Trip in progress"
-                      : tripDayLabel === "Today"
-                        ? "Today's trip"
-                        : tripDayLabel === "Tomorrow"
-                          ? "Tomorrow's trip"
-                          : tripDayLabel}
-                  </Text>
-                  {tripsToday > 0 ? (
-                    <View style={styles.dayStripCount}>
-                      <Ionicons name="car-outline" size={13} color="#FFFFFF" />
-                      <Text style={[styles.dayStripCountText, { color: "#FFFFFF" }]}>
-                        {tripsToday} {tripsToday === 1 ? "trip" : "trips"} today
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {/* Header */}
-              <View style={styles.tripHeader}>
-                <View style={styles.tripHeaderLeft}>
-                  <View
-                    style={[
-                      styles.tripBadge,
-                      { backgroundColor: activeTrip ? colors.secondaryContainer : colors.surfaceContainerHigh },
-                    ]}
-                  >
-                    {activeTrip ? (
-                      <PulsingDot color={colors.onSecondaryContainer} size={6} />
-                    ) : (
-                      <View style={[styles.tripBadgeDot, { backgroundColor: colors.outline }]} />
-                    )}
-                    <Text
-                      style={[
-                        type.labelLg,
-                        styles.tripBadgeText,
-                        { color: activeTrip ? colors.onSecondaryContainer : colors.onSurfaceVariant },
-                      ]}
-                    >
-                      {activeTrip ? "Active Trip" : "Next Trip"}
-                    </Text>
-                  </View>
-                </View>
-                {nextTrip.departure_time ? (
-                  <View style={[styles.timePill, { backgroundColor: colors.surfaceContainerHigh }]}>
-                    <Ionicons name="time-outline" size={14} color={colors.primary} />
-                    <Text style={[styles.timePillText, { color: colors.onSurface }]}>
-                      {new Date(nextTrip.departure_time).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-
-              {/* Route */}
-              <View style={styles.routeViz}>
-                <View style={[styles.routeLine, { borderColor: colors.outlineVariant }]} />
-
-                <View style={styles.routeStop}>
-                  <View style={[styles.routeDot, { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest }]}>
-                    <View style={[styles.routeDotInner, { backgroundColor: colors.outline }]} />
-                  </View>
-                  <View style={styles.routeStopInfo}>
-                    <Text style={[type.label, styles.stopType, { color: colors.onSurfaceVariant }]}>Pickup</Text>
-                    <Text style={[type.titleMd, styles.stopName, { color: colors.onSurface }]} numberOfLines={2}>
-                      {nextTrip.origin || "Origin"}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.routeStop}>
-                  <View style={[styles.routeDot, styles.routeDotDest, { borderColor: colors.primary, backgroundColor: colors.primary }]}>
-                    <Ionicons name="flag" size={10} color="#FFFFFF" />
-                  </View>
-                  <View style={styles.routeStopInfo}>
-                    <Text style={[type.label, styles.stopType, { color: colors.onSurfaceVariant }]}>Drop-off</Text>
-                    <Text style={[type.titleMd, styles.stopName, { color: colors.onSurface }]} numberOfLines={2}>
-                      {nextTrip.destination || "Destination"}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              <View style={[styles.divider, { backgroundColor: colors.surfaceContainerHigh }]} />
-
-              {/* Guest */}
-              {nextTrip.passenger_name ? (
-                <View style={styles.guestRow}>
-                  <View style={[styles.guestAvatar, { backgroundColor: colors.surfaceVariant }]}>
-                    <Ionicons name="person" size={18} color={colors.onSurfaceVariant} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[type.label, styles.guestLabel, { color: colors.onSurfaceVariant }]}>Guest</Text>
-                    <Text style={[type.bodyMd, styles.guestName, { color: colors.onSurface }]}>
-                      {nextTrip.passenger_name}
-                    </Text>
-                  </View>
-                  {nextTrip.destination_latitude != null && nextTrip.destination_longitude != null ? (
-                    <Pressable
-                      onPress={() => openMap(nextTrip)}
-                      style={({ pressed }) => [
-                        styles.mapBtn,
-                        { backgroundColor: colors.surfaceContainerHigh },
-                        pressed && styles.pressed,
-                      ]}
-                      accessibilityLabel="Open in maps"
-                    >
-                      <Ionicons name="navigate-outline" size={18} color={colors.primary} />
-                    </Pressable>
-                  ) : null}
-                </View>
-              ) : null}
-
-              {/* CTA */}
-              {canManageTrip ? (
-                isPreStart && !startReady ? (
-                  <Pressable
-                    onPress={() => router.push(`/trip/${nextTrip.trip_id}`)}
-                    style={({ pressed }) => [
-                      styles.tripCta,
-                      { backgroundColor: colors.secondaryContainer },
-                      pressed && styles.ctaPressed,
-                    ]}
-                  >
-                    <Text style={[type.labelLg, styles.tripCtaText, { color: colors.onSecondaryContainer }]}>
-                      View Details
-                    </Text>
-                    <View style={[styles.ctaIcon, { backgroundColor: "rgba(0,0,0,0.08)" }]}>
-                      <Ionicons name="chevron-forward" size={18} color={colors.onSecondaryContainer} />
-                    </View>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    onPress={() => handleTripAction(nextTrip)}
-                    disabled={!!actingOn}
-                    style={({ pressed }) => [
-                      styles.tripCta,
-                      { backgroundColor: colors.primary },
-                      pressed && styles.ctaPressed,
-                    ]}
-                    accessibilityRole="button"
-                    accessibilityLabel={activeTrip ? "Continue trip" : "Start trip"}
-                  >
-                    {actingOn === nextTrip.trip_id ? (
-                      <ActivityIndicator color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Text style={[type.labelLg, styles.tripCtaText, { color: "#FFFFFF" }]}>
-                          {activeTrip ? "Continue Trip" : "Start Trip"}
-                        </Text>
-                        <View style={[styles.ctaIcon, { backgroundColor: "rgba(255,255,255,0.18)" }]}>
-                          <Ionicons name={activeTrip ? "navigate" : "play"} size={18} color="#FFFFFF" />
-                        </View>
-                      </>
-                    )}
-                  </Pressable>
-                )
-              ) : null}
-
-              <StatusPill status={nextTrip.trip_status} />
-            </View>
-          ) : (
-            <View style={[styles.emptyCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.surfaceContainerHigh }]}>
-              <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainerHigh }]}>
-                <Ionicons name="checkmark-done" size={30} color={colors.onSurfaceVariant} />
-              </View>
-              <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All clear</Text>
-              <Text style={[type.bodyMd, styles.emptyBody, { color: colors.onSurfaceVariant }]}>
-                No trips assigned right now. Pull to refresh, or check back soon.
-              </Text>
-            </View>
-          )}
-        </Animated.View>
 
         {/* ─── Stats Strip (KPI Fleet Overview) ─── */}
         <Animated.View style={fade(statsAnim)}>
