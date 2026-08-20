@@ -33,11 +33,11 @@ export default function IncidentsScreen() {
 
   const handleSubmit = async () => {
     if (!type) {
-      AppAlert.alert("Missing Type", "Please select an incident type.");
+      AppAlert.alert("Incident Type Required", "Please select the category of the incident before submitting.");
       return;
     }
     if (!description.trim()) {
-      AppAlert.alert("Required", "Please describe the incident.");
+      AppAlert.alert("Description Required", "Please provide a brief explanation of what occurred.");
       return;
     }
     try {
@@ -84,7 +84,7 @@ export default function IncidentsScreen() {
       });
       setShowSuccess(true);
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Could not submit report.");
+      AppAlert.alert("Unable to Submit Incident Report", e.message || "Please check your network connection and try submitting again.");
     } finally {
       setSubmitting(false);
     }

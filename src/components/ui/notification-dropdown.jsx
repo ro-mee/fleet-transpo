@@ -175,80 +175,109 @@ export function NotificationDropdown() {
           </motion.span>
         </button>
       </DropdownMenuTrigger>
-
-      <DropdownMenuContent side="bottom" align="end" className="w-80 sm:w-96 p-0 overflow-hidden shadow-xl border-border">
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/20">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-bold text-foreground">Notifications</span>
+      <DropdownMenuContent side="bottom" align="end" className="w-84 sm:w-[410px] p-0 overflow-hidden rounded-[26px] shadow-2xl border border-border/80 bg-surface/95 backdrop-blur-xl">
+        {/* Header with Glass Gradient */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border/60 bg-gradient-to-r from-muted/30 via-surface to-muted/20">
+          <div className="flex items-center gap-2.5">
+            <span className="text-[15px] font-extrabold text-foreground tracking-tight">Notifications</span>
             {unreadCount > 0 && (
-              <Badge variant="primary" className="text-[11px] py-0 px-1.5 font-bold">
+              <span className="bg-primary/10 text-primary border border-primary/20 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
                 {unreadCount} new
-              </Badge>
+              </span>
             )}
           </div>
           {unreadCount > 0 && (
             <button
               onClick={() => markAllMut.mutate()}
-              className="text-[11px] font-medium text-primary hover:underline flex items-center gap-1 cursor-pointer"
+              className="text-[11px] font-bold text-primary hover:text-primary/80 flex items-center gap-1.5 cursor-pointer transition-colors"
             >
-              <CheckCheck className="w-3 h-3" />
+              <CheckCheck className="w-3.5 h-3.5" />
               Mark all read
             </button>
           )}
         </div>
 
-        {/* List of recent notifications */}
-        <div className="max-h-80 overflow-y-auto divide-y divide-border/60">
+        {/* List of recent notifications with Luxury Ethereal Floating Cards */}
+        <div className="max-h-[380px] overflow-y-auto p-3 space-y-2.5">
           {recent.length === 0 ? (
-            <div className="p-6 text-center text-foreground-muted space-y-1">
-              <Bell className="w-6 h-6 mx-auto text-foreground-muted opacity-40 mb-2" />
-              <p className="text-xs font-semibold text-foreground">No notifications</p>
-              <p className="text-[11px]">You're all caught up!</p>
+            <div className="p-8 text-center text-foreground-muted space-y-1.5">
+              <div className="w-12 h-12 rounded-2xl bg-muted/40 flex items-center justify-center mx-auto mb-3 text-foreground-muted/60">
+                <Bell className="w-6 h-6" />
+              </div>
+              <p className="text-sm font-bold text-foreground">No notifications</p>
+              <p className="text-xs text-foreground-secondary">You're all caught up!</p>
             </div>
           ) : (
             recent.map((notif) => {
-              const Icon = typeIcons[notif.type] || Info;
               const category = notificationCategory(notif.reference_type);
               const severity = severityBadge(notif.severity);
               const isUnread = !notif.is_read;
+              const type = notif.type === 'Alert' ? 'error' : (notif.type?.toLowerCase() || 'info');
+
+              const cardStyle = {
+                info: "from-sky-500/10 via-sky-500/5 to-surface/80 border-sky-500/25",
+                success: "from-emerald-500/10 via-emerald-500/5 to-surface/80 border-emerald-500/25",
+                warning: "from-amber-500/10 via-amber-500/5 to-surface/80 border-amber-500/25",
+                error: "from-rose-500/10 via-rose-500/5 to-surface/80 border-rose-500/25",
+              }[type] || "from-sky-500/10 via-sky-500/5 to-surface/80 border-sky-500/25";
+
+              const iconBoxStyle = {
+                info: "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400",
+                success: "bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+                warning: "bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400",
+                error: "bg-rose-500/15 border-rose-500/30 text-rose-600 dark:text-rose-400",
+              }[type] || "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400";
 
               return (
                 <div
                   key={notif.notification_id}
                   onClick={() => openNotification(notif)}
                   className={cn(
-                    "flex items-start gap-3 p-3 text-left transition-colors cursor-pointer hover:bg-hover",
-                    isUnread && "bg-primary/[0.03]"
+                    "group relative flex items-start gap-3.5 p-3.5 rounded-[18px] bg-gradient-to-r border transition-all duration-300 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5",
+                    cardStyle,
+                    isUnread && "ring-1 ring-primary/40 shadow-sm"
                   )}
                 >
-                  <div className={cn("p-1.5 rounded-lg shrink-0 mt-0.5", typeBg[notif.type] || "bg-muted")}>
-                    <Icon className="w-3.5 h-3.5" />
+                  {/* Glowing Squircle Icon Container */}
+                  <div className={cn("w-10 h-10 rounded-[12px] border flex items-center justify-center flex-shrink-0 shadow-xs", iconBoxStyle)}>
+                    {type === 'success' ? (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="9 12 11 14 15 10" /></svg>
+                    ) : type === 'warning' ? (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                    ) : type === 'error' ? (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                    ) : (
+                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <div className="flex items-center justify-between gap-1">
-                      <p className={cn("text-xs truncate", isUnread ? "font-bold text-foreground" : "font-medium text-foreground-secondary")}>
+
+                  {/* Body Content */}
+                  <div className="flex-1 min-w-0 pt-0.5">
+                    <div className="flex items-center justify-between gap-1 mb-0.5">
+                      <p className={cn("text-[13px] font-extrabold tracking-tight truncate", isUnread ? "text-foreground" : "text-foreground-secondary")}>
                         {notif.title}
                       </p>
-                      {isUnread && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                      {isUnread && <span className="w-2 h-2 rounded-full bg-primary shrink-0 animate-pulse" />}
                     </div>
                     {notif.message && (
-                      <p className="text-[11px] text-foreground-muted line-clamp-2 leading-snug">
+                      <p className="text-[12px] text-foreground-secondary/90 line-clamp-2 leading-relaxed">
                         {notif.message}
                       </p>
                     )}
-                    <span className="text-[11px] text-foreground-muted block pt-0.5">
+                    
+                    <span className="text-[10px] font-medium text-foreground-muted/70 block pt-1">
                       {notif.sent_at ? formatDate(notif.sent_at) : ""}
                     </span>
+
                     {(category || severity) && (
-                      <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                      <div className="flex flex-wrap items-center gap-1.5 pt-1.5">
                         {category?.label && (
-                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", category.chipClass)}>
+                          <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider", category.chipClass)}>
                             {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
                           </span>
                         )}
                         {severity && (
-                          <span className={cn("px-1.5 py-0.5 rounded-full text-[9px] font-bold", severity.chipClass)}>
+                          <span className={cn("px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider", severity.chipClass)}>
                             {severity.label}
                           </span>
                         )}
@@ -262,11 +291,11 @@ export function NotificationDropdown() {
         </div>
 
         {/* Footer Link to View All */}
-        <div className="border-t border-border p-2.5 bg-muted/10 text-center">
+        <div className="border-t border-border/60 p-3 bg-muted/20 text-center">
           <Link
             href="/notifications"
             onClick={() => setOpen(false)}
-            className="flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+            className="flex items-center justify-center gap-1.5 text-xs font-bold text-primary hover:text-primary/80 transition-colors"
           >
             View All Notifications
             <ChevronRight className="w-3.5 h-3.5" />

@@ -226,7 +226,7 @@ export default function FuelReport() {
       }
       setSubmittedRecord({ ...res, amount: res?.amount ?? payload.amount });
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Could not save fuel entry.");
+      AppAlert.alert("Unable to Save Fuel Log", e.message || "Please check your network connection and verify your receipt upload.");
     } finally {
       setSubmitting(false);
     }

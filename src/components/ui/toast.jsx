@@ -37,29 +37,67 @@ export const toast = {
 // Same motion language as the rest of the app.
 const EASE = [0.32, 0.72, 0, 1];
 
-const iconMap = {
-  success: CheckCircle,
-  error: XCircle,
-  warning: AlertTriangle,
-  info: Info,
-};
-
-const accentClass = {
-  success: "border-l-success",
-  error: "border-l-danger",
-  warning: "border-l-warning",
-  info: "border-l-info",
-};
-
-const iconColor = {
-  success: "text-success",
-  error: "text-danger",
-  warning: "text-warning",
-  info: "text-info",
+const themeConfig = {
+  info: {
+    gradient: "from-sky-500/15 via-sky-500/5 to-white/90 dark:to-zinc-900/95",
+    border: "border-sky-500/30",
+    glow: "shadow-[0_8px_30px_rgb(14,165,233,0.12)]",
+    iconBg: "bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400",
+    defaultTitle: "Information",
+    icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="16" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12.01" y2="8" />
+      </svg>
+    ),
+  },
+  success: {
+    gradient: "from-emerald-500/15 via-emerald-500/5 to-white/90 dark:to-zinc-900/95",
+    border: "border-emerald-500/30",
+    glow: "shadow-[0_8px_30px_rgb(16,185,129,0.12)]",
+    iconBg: "bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+    defaultTitle: "Success",
+    icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <polyline points="9 12 11 14 15 10" />
+      </svg>
+    ),
+  },
+  warning: {
+    gradient: "from-amber-500/15 via-amber-500/5 to-white/90 dark:to-zinc-900/95",
+    border: "border-amber-500/30",
+    glow: "shadow-[0_8px_30px_rgb(245,158,11,0.12)]",
+    iconBg: "bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400",
+    defaultTitle: "Warning",
+    icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+    ),
+  },
+  error: {
+    gradient: "from-rose-500/15 via-rose-500/5 to-white/90 dark:to-zinc-900/95",
+    border: "border-rose-500/30",
+    glow: "shadow-[0_8px_30px_rgb(244,63,94,0.12)]",
+    iconBg: "bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400",
+    defaultTitle: "Error",
+    icon: (
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+    ),
+  },
 };
 
 function ToastItem({ t, onClose }) {
-  const Icon = iconMap[t.type];
+  const type = t.type in themeConfig ? t.type : "info";
+  const config = themeConfig[type];
   const isBellToast = t.position === "top-right";
 
   useEffect(() => {
@@ -69,34 +107,46 @@ function ToastItem({ t, onClose }) {
 
   return (
     <motion.div
-      // Bell toasts emanate from the bell icon (top-right origin): they grow
-      // out of the bell on entry and collapse back into it on exit. Other
-      // toasts keep the classic bottom-right slide.
-      initial={isBellToast ? { opacity: 0, y: -16, x: 18, scale: 0.82 } : { opacity: 0, x: 48 }}
-      animate={isBellToast ? { opacity: 1, y: 0, x: 0, scale: 1 } : { opacity: 1, x: 0 }}
-      exit={isBellToast ? { opacity: 0, y: -12, x: 14, scale: 0.82 } : { opacity: 0, x: 48 }}
-      transition={{ duration: 0.32, ease: EASE }}
+      initial={isBellToast ? { opacity: 0, y: -16, x: 18, scale: 0.88 } : { opacity: 0, x: 40, scale: 0.95 }}
+      animate={isBellToast ? { opacity: 1, y: 0, x: 0, scale: 1 } : { opacity: 1, x: 0, scale: 1 }}
+      exit={isBellToast ? { opacity: 0, y: -12, x: 14, scale: 0.88 } : { opacity: 0, x: 30, scale: 0.95 }}
+      transition={{ duration: 0.35, ease: EASE }}
       style={isBellToast ? { transformOrigin: "top right" } : undefined}
       className={cn(
-        "pointer-events-auto flex items-start gap-3 rounded-xl border border-border bg-surface p-4 shadow-lg",
-        "border-l-[3px]",
-        accentClass[t.type]
+        "pointer-events-auto relative flex items-start gap-3.5 rounded-[22px] p-4 backdrop-blur-xl border transition-all",
+        "bg-gradient-to-r",
+        config.gradient,
+        config.border,
+        config.glow
       )}
     >
-      <Icon className={cn("mt-0.5 h-5 w-5 flex-shrink-0", iconColor[t.type])} />
-      <div className="min-w-0 flex-1">
-        {t.title && <p className="text-sm font-bold text-foreground">{t.title}</p>}
+      {/* Top Specular Reflection Gleam */}
+      <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/60 dark:via-white/20 to-transparent pointer-events-none" />
+
+      {/* Modern Soft Square / Pill Icon Container */}
+      <div className={cn("flex-shrink-0 w-11 h-11 rounded-[14px] flex items-center justify-center shadow-xs", config.iconBg)}>
+        {config.icon}
+      </div>
+
+      {/* Text Copy */}
+      <div className="min-w-0 flex-1 pt-0.5">
+        <h4 className="text-[14px] font-extrabold text-foreground tracking-tight leading-tight">
+          {t.title || config.defaultTitle}
+        </h4>
         {t.message && (
-          <p className={cn(t.title ? "mt-0.5 text-xs text-foreground-secondary" : "text-sm text-foreground")}>
+          <p className="mt-1 text-[13px] font-normal leading-relaxed text-foreground-secondary/90">
             {t.message}
           </p>
         )}
       </div>
+
+      {/* Close Button */}
       <button
         onClick={onClose}
-        className="flex-shrink-0 cursor-pointer text-foreground-muted transition-colors hover:text-foreground"
+        aria-label="Dismiss notification"
+        className="flex-shrink-0 -mr-1 -mt-1 w-7 h-7 rounded-full flex items-center justify-center text-foreground-muted hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
       >
-        <X className="h-4 w-4" />
+        <X className="h-4 w-4 stroke-[1.75]" />
       </button>
     </motion.div>
   );
@@ -108,7 +158,7 @@ function ToastItemWrapper({ t, remove }) {
 }
 
 const toastStackClass =
-  "fixed z-[100] flex flex-col gap-2 w-[360px] max-w-[calc(100vw-2rem)] pointer-events-none";
+  "fixed z-[100] flex flex-col gap-3 w-[380px] max-w-[calc(100vw-2rem)] pointer-events-none";
 
 export function Toaster() {
   const toasts = useToastStore((s) => s.toasts);

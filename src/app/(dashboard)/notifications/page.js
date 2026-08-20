@@ -150,12 +150,26 @@ export default function NotificationsPage() {
               description="You're all caught up. Alerts and trip updates will appear here."
             />
           ) : (
-            <div className="divide-y divide-border">
+            <div className="p-3 space-y-3 bg-muted/10">
               {uniqueNotifications.map((notif) => {
-                const Icon = typeIcons[notif.type] || Info;
                 const category = notificationCategory(notif.reference_type);
                 const severity = severityBadge(notif.severity);
                 const isUnread = !notif.is_read;
+                const type = notif.type === 'Alert' ? 'error' : (notif.type?.toLowerCase() || 'info');
+                
+                const cardStyle = {
+                  info: "from-sky-500/10 via-sky-500/5 to-surface border-sky-500/25",
+                  success: "from-emerald-500/10 via-emerald-500/5 to-surface border-emerald-500/25",
+                  warning: "from-amber-500/10 via-amber-500/5 to-surface border-amber-500/25",
+                  error: "from-rose-500/10 via-rose-500/5 to-surface border-rose-500/25",
+                }[type] || "from-sky-500/10 via-sky-500/5 to-surface border-sky-500/25";
+
+                const iconBoxStyle = {
+                  info: "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400",
+                  success: "bg-emerald-500/15 border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+                  warning: "bg-amber-500/15 border-amber-500/30 text-amber-600 dark:text-amber-400",
+                  error: "bg-rose-500/15 border-rose-500/30 text-rose-600 dark:text-rose-400",
+                }[type] || "bg-sky-500/15 border-sky-500/30 text-sky-600 dark:text-sky-400";
 
                 return (
                   <div
@@ -164,40 +178,73 @@ export default function NotificationsPage() {
                     role="button"
                     tabIndex={0}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNotification(notif); } }}
-                    className={`flex items-start gap-4 px-5 py-4 transition-colors cursor-pointer hover:bg-hover ${isUnread ? "bg-primary/[0.02]" : ""}`}
+                    className={cn(
+                      "relative group flex items-start gap-4 p-4 rounded-[20px] bg-gradient-to-r border transition-all duration-300 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5",
+                      cardStyle,
+                      isUnread && "ring-1 ring-primary/40 shadow-sm"
+                    )}
                   >
-                    <div className={`p-2 rounded-xl ${typeBg[notif.type] || "bg-muted"} mt-0.5`}>
-                      <Icon className="w-4 h-4" />
+                    {/* Glowing Squircle Icon Container */}
+                    <div className={cn("w-11 h-11 rounded-[14px] border flex items-center justify-center flex-shrink-0 shadow-xs", iconBoxStyle)}>
+                      {type === 'success' ? (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="9 12 11 14 15 10" /></svg>
+                      ) : type === 'warning' ? (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+                      ) : type === 'error' ? (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>
+                      ) : (
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                      )}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <p className={`text-sm font-bold ${isUnread ? "text-foreground" : "text-foreground"}`}>
+
+                    {/* Content Column */}
+                    <div className="flex-1 min-w-0 pt-0.5">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="text-[14px] font-extrabold text-foreground tracking-tight">
                           {notif.title}
-                        </p>
-                        {isUnread && <span className="w-2 h-2 rounded-full bg-primary flex-shrink-0" />}
+                        </h4>
+                        {isUnread && (
+                          <span className="flex h-2 w-2 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                          </span>
+                        )}
                       </div>
                       {notif.message && (
-                        <p className="text-xs text-foreground-secondary">{notif.message}</p>
+                        <p className="text-[13px] text-foreground-secondary/90 leading-relaxed">{notif.message}</p>
                       )}
-                      <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px] text-foreground-muted">
+                      <div className="flex flex-wrap items-center gap-2 mt-2.5 text-[11px] text-foreground-muted">
                         {category?.label && (
-                          <Badge className={cn("text-[11px]", category.chipClass)}>
+                          <Badge className={cn("text-[10px] uppercase font-bold tracking-wider rounded-full px-2.5 py-0.5", category.chipClass)}>
                             {category.label}{notif.reference_id ? ` #${notif.reference_id}` : ""}
                           </Badge>
                         )}
-                        {severity && <Badge className={cn("text-[11px]", severity.chipClass)}>{severity.label}</Badge>}
-                        <Badge variant={typeVariant[notif.type] || "secondary"} className="text-[11px]">{notif.type}</Badge>
-                        <span>{notif.sent_at ? formatDate(notif.sent_at) : ""}</span>
+                        {severity && <Badge className={cn("text-[10px] uppercase font-bold tracking-wider rounded-full px-2.5 py-0.5", severity.chipClass)}>{severity.label}</Badge>}
+                        <span className="font-medium text-foreground-muted/70">{notif.sent_at ? formatDate(notif.sent_at) : ""}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
+
+                    {/* Action Controls */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                       {isUnread && (
-                        <Button variant="ghost" size="icon" className="w-7 h-7" onClick={(e) => { e.stopPropagation(); markReadMutation.mutate(notif.notification_id); }}>
-                          <CheckCheck className="w-3.5 h-3.5 text-foreground-muted" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="w-8 h-8 rounded-full hover:bg-black/5 dark:hover:bg-white/10" 
+                          title="Mark as read"
+                          onClick={(e) => { e.stopPropagation(); markReadMutation.mutate(notif.notification_id); }}
+                        >
+                          <CheckCheck className="w-4 h-4 text-foreground-muted" />
                         </Button>
                       )}
-                      <Button variant="ghost" size="icon" className="w-7 h-7 text-danger/60 hover:text-danger" onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(notif.notification_id); }}>
-                        <Trash2 className="w-3.5 h-3.5" />
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="w-8 h-8 rounded-full text-danger/60 hover:text-danger hover:bg-danger/10" 
+                        title="Delete notification"
+                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(notif.notification_id); }}
+                      >
+                        <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>

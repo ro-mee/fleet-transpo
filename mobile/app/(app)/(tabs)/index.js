@@ -110,7 +110,7 @@ export default function Home() {
       await api.put(path, body);
       await load();
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Action failed.");
+      AppAlert.alert("Unable to Update Status", e.message || "Please check your network connection and try again.");
     } finally {
       setActingOn(null);
     }
@@ -120,7 +120,7 @@ export default function Home() {
     if (!canManageTrip) return;
     const nextObj = await getNextStatus(trip.trip_status);
     if (!nextObj || !nextObj.status) {
-      AppAlert.alert("No action available", "This trip cannot be progressed further.");
+      AppAlert.alert("Trip Completed or Paused", "No further action is required for this trip at this time.");
       return;
     }
     if (nextObj.status === "Completed") {
@@ -146,7 +146,7 @@ export default function Home() {
         await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined });
         await load();
       } catch (e) {
-        AppAlert.alert("Error", e.message || "Could not start trip.");
+        AppAlert.alert("Unable to Start Trip", e.message || "Please confirm your pre-trip inspection and try again.");
       } finally {
         setActingOn(null);
       }

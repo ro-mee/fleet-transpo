@@ -30,20 +30,52 @@ const AppAlertEmitter = {
   },
 };
 
-// ─── Preset icon maps ──────────────────────────────────────────────────────
+// ─── Preset icon maps (Luxury Tone Profiles & Vector SVGs) ─────────────────
 const ICON_MAP = {
-  error:   { name: 'shield-half-outline', color: '#E05349', bg: 'rgba(224, 83, 73, 0.12)' },
-  success: { name: 'checkmark-circle-outline', color: '#2E7D5E', bg: 'rgba(46, 125, 94, 0.14)' },
-  warning: { name: 'alert-triangle-outline', color: '#D28522', bg: 'rgba(210, 133, 34, 0.14)' },
-  info:    { name: 'information-circle-outline', color: '#327494', bg: 'rgba(50, 116, 148, 0.14)' },
+  error: {
+    color: '#F43F5E',
+    bg: 'rgba(244, 63, 94, 0.12)',
+    border: 'rgba(244, 63, 94, 0.28)',
+    outerGlow: 'rgba(244, 63, 94, 0.08)',
+    render: (color) => (
+      <Ionicons name="close-circle" size={32} color={color} />
+    ),
+  },
+  success: {
+    color: '#10B981',
+    bg: 'rgba(16, 185, 129, 0.12)',
+    border: 'rgba(16, 185, 129, 0.28)',
+    outerGlow: 'rgba(16, 185, 129, 0.08)',
+    render: (color) => (
+      <Ionicons name="checkmark-circle" size={32} color={color} />
+    ),
+  },
+  warning: {
+    color: '#F59E0B',
+    bg: 'rgba(245, 158, 11, 0.12)',
+    border: 'rgba(245, 158, 11, 0.28)',
+    outerGlow: 'rgba(245, 158, 11, 0.08)',
+    render: (color) => (
+      <Ionicons name="alert-circle" size={32} color={color} />
+    ),
+  },
+  info: {
+    color: '#0EA5E9',
+    bg: 'rgba(14, 165, 233, 0.12)',
+    border: 'rgba(14, 165, 233, 0.28)',
+    outerGlow: 'rgba(14, 165, 233, 0.08)',
+    render: (color) => (
+      <Ionicons name="information-circle" size={32} color={color} />
+    ),
+  },
 };
 
 function deriveIcon(title = '', options = {}) {
   if (options?.type && ICON_MAP[options.type]) return ICON_MAP[options.type];
   const t = title.toLowerCase();
-  if (/error|fail|cannot|denied|blocked|invalid|unauthorized/.test(t)) return ICON_MAP.error;
+  if (/error|fail|cannot|denied|blocked|invalid|unauthorized|unable/.test(t)) return ICON_MAP.error;
   if (/success|complete|saved|done|updated|passed/.test(t)) return ICON_MAP.success;
-  if (/warn|missing|required|incomplete|attention|alert/.test(t)) return ICON_MAP.warning;
+  if (/warn|missing|required|incomplete|attention|alert|check/.test(t)) return ICON_MAP.warning;
   return ICON_MAP.info;
 }
 
@@ -137,10 +169,12 @@ export function AppAlertHost() {
           {/* ── Inner Core ────────────────────────────────────────── */}
           <View style={[styles.inner, { backgroundColor: colors.surfaceContainerLow }]}>
 
-            {/* Icon Double-Bezel Badge */}
-            <View style={[styles.iconShell, { borderColor: icon.color + '30', backgroundColor: colors.surfaceContainerLowest }]}>
-              <View style={[styles.iconCore, { backgroundColor: isDark ? icon.color + '22' : icon.bg }]}>
-                <Ionicons name={icon.name} size={28} color={icon.color} />
+            {/* Glowing Icon Double-Bezel Badge */}
+            <View style={[styles.iconOuterAura, { backgroundColor: icon.outerGlow }]}>
+              <View style={[styles.iconShell, { borderColor: icon.border, backgroundColor: isDark ? colors.surfaceContainerLowest : '#FFFFFF' }]}>
+                <View style={[styles.iconCore, { backgroundColor: icon.bg }]}>
+                  {icon.render(icon.color)}
+                </View>
               </View>
             </View>
 
@@ -156,7 +190,7 @@ export function AppAlertHost() {
               </Text>
             )}
 
-            {/* ── Button Bar (Floating Pill Action Affordances) ─────── */}
+            {/* ── Button Bar (Floating Tactile Island Action Affordances) ─────── */}
             <View style={[styles.btnGroup, buttons.length === 1 ? styles.btnGroupSingle : styles.btnGroupMultiple]}>
               {buttons.map((btn, i) => {
                 const isDanger  = btn.style === 'destructive' || btn.destructive;
@@ -184,10 +218,10 @@ export function AppAlertHost() {
                         backgroundColor: bgBtn,
                         borderColor: isCancel ? colors.outlineVariant + '60' : 'transparent',
                         borderWidth: isCancel ? 1 : 0,
-                        transform: [{ scale: pressed ? 0.97 : 1 }],
+                        transform: [{ scale: pressed ? 0.96 : 1 }],
                         opacity: pressed ? 0.9 : 1,
                         flex: buttons.length > 1 ? 1 : undefined,
-                        minWidth: buttons.length === 1 ? 140 : undefined,
+                        width: buttons.length === 1 ? '100%' : undefined,
                       },
                     ]}
                     onPress={() => dismiss(btn.onPress)}
@@ -265,43 +299,60 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     overflow: 'hidden',
     alignItems: 'center',
-    paddingTop: 28,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
+    paddingTop: 32,
+    paddingHorizontal: 22,
+    paddingBottom: 22,
+  },
+  iconOuterAura: {
+    padding: 6,
+    borderRadius: 40,
+    marginBottom: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconShell: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    borderWidth: 1,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1.5,
     padding: 3,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
   },
   iconCore: {
     width: '100%',
     height: '100%',
-    borderRadius: 28,
+    borderRadius: 26,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontFamily: fonts.displayBold,
-    fontSize: 18,
-    lineHeight: 24,
-    letterSpacing: -0.2,
+    fontSize: 20,
+    lineHeight: 26,
+    letterSpacing: -0.3,
     textAlign: 'center',
     marginBottom: 8,
   },
   message: {
     fontFamily: fonts.body,
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
     textAlign: 'center',
-    marginBottom: 24,
-    maxWidth: 280,
-    opacity: 0.85,
+    marginBottom: 26,
+    maxWidth: 290,
+    opacity: 0.9,
   },
   btnGroup: {
     width: '100%',
@@ -317,11 +368,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   actionBtn: {
-    height: 48,
-    borderRadius: 24,
+    height: 50,
+    borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
   btnText: {
     fontFamily: fonts.bodySemiBold,
@@ -330,8 +386,8 @@ const styles = StyleSheet.create({
   },
   btnTextPrimary: {
     fontFamily: fonts.displayBold,
-    fontSize: 14,
-    letterSpacing: 0.4,
+    fontSize: 15,
+    letterSpacing: 0.3,
   },
 });
 

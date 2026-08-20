@@ -54,14 +54,14 @@ export default function PreShiftInspection() {
 
   const handleSubmit = async () => {
     if (!allAnswered) {
-      AppAlert.alert("Incomplete", "Please answer all checklist items before proceeding.");
+      AppAlert.alert("Checklist Incomplete", "Please complete all pre-trip inspection items before submitting.");
       return;
     }
     const missingRemarks = CHECKLIST.find(
       (item) => statuses[item.id] === "FAIL" && !String(remarks[item.id] || "").trim()
     );
     if (missingRemarks) {
-      AppAlert.alert("Describe the Issue", `Add remarks for ${missingRemarks.label} before submitting.`);
+      AppAlert.alert("Remarks Required", `Please add details describing the issue found in ${missingRemarks.label}.`);
       return;
     }
     try {
@@ -78,16 +78,16 @@ export default function PreShiftInspection() {
         inspected_at: new Date().toISOString(),
       });
       if (result?.queued) {
-        AppAlert.alert("Inspection Saved Offline", "The inspection will sync when the connection returns.", [
-          { text: "OK", onPress: () => router.back() },
+        AppAlert.alert("Saved Offline", "Your pre-trip inspection is saved and will automatically sync once your connection is restored.", [
+          { text: "Done", onPress: () => router.back() },
         ]);
         return;
       }
-      AppAlert.alert("Inspection Submitted", "Pre-trip check complete. The trip can start after the departure checks pass.", [
-        { text: "OK", onPress: () => router.back() },
+      AppAlert.alert("Inspection Completed", "Pre-trip vehicle check passed. Your trip is ready for departure when the schedule opens.", [
+        { text: "Done", onPress: () => router.back() },
       ]);
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Could not submit inspection.");
+      AppAlert.alert("Unable to Submit Inspection", e.message || "Please check your network connection and try submitting again.");
     } finally {
       setSubmitting(false);
     }

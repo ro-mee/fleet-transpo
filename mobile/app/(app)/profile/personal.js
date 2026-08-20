@@ -35,7 +35,7 @@ export default function PersonalInformation() {
       setProfile(me);
       setPhone(me?.phone ?? "");
     } catch {
-      AppAlert.alert("Error", "Could not load profile.");
+      AppAlert.alert("Unable to Load Profile", "Please check your network connection and pull down to retry.");
     } finally {
       setLoading(false);
     }
@@ -52,9 +52,9 @@ export default function PersonalInformation() {
         body: JSON.stringify({ phone: phone.trim() }),
       });
       setEditingPhone(false);
-      notify.toast({ message: "Phone number updated.", tone: "success" });
+      notify.toast({ message: "Phone number updated successfully.", tone: "success" });
     } catch (e) {
-      AppAlert.alert("Error", e.message || "Could not save phone.");
+      AppAlert.alert("Unable to Save Phone Number", e.message || "Please check your input and try again.");
     } finally {
       setSaving(false);
     }
