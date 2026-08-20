@@ -1,13 +1,15 @@
-import { Tabs } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { useTheme } from "../../../lib/theme-context";
 import { useAuth } from "../../../lib/auth";
 import { fonts } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import { DriverSos } from "../../../components/DriverSos";
+import { Pressable, View } from "react-native";
 
 export default function TabsLayout() {
   const { colors } = useTheme();
   const { user } = useAuth();
+  const router = useRouter();
 
   return (
     <>
@@ -73,6 +75,39 @@ export default function TabsLayout() {
           ),
         }}
       />
+
+      {/* Central Scan Action for Fuel Report */}
+      <Tabs.Screen
+        name="fuel_action"
+        options={{
+          title: "",
+          tabBarButton: (props) => (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+              <Pressable 
+                onPress={() => router.push("/fuel-report")}
+                style={({ pressed }) => ({
+                  top: -15,
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: "#000000",
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: "#000",
+                  shadowOpacity: 0.15,
+                  shadowRadius: 10,
+                  shadowOffset: { width: 0, height: 4 },
+                  elevation: 5,
+                  opacity: pressed ? 0.8 : 1,
+                })}
+              >
+                <Ionicons name="scan-outline" size={26} color="#FFFFFF" />
+              </Pressable>
+            </View>
+          ),
+        }}
+      />
+
       <Tabs.Screen
         name="trips"
         options={{

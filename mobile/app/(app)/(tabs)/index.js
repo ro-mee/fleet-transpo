@@ -291,14 +291,7 @@ export default function Home() {
           },
         ]}
       >
-        <View style={styles.brandRow}>
-          <View style={[styles.brandMark, { backgroundColor: colors.primary }]}>
-            <View style={styles.brandMarkInner} />
-          </View>
-          <Text style={[type.headlineMd, styles.topBarTitle, { color: colors.onBackground }]}>
-            FleetOps
-          </Text>
-        </View>
+        <View style={{ flex: 1 }} />
         <View style={{ flexDirection: "row", alignItems: "center", gap: moderateScale(14) }}>
           <Pressable
             onPress={() => router.push("/notifications")}
@@ -391,6 +384,64 @@ export default function Home() {
               </View>
             ) : null}
           </View>
+        </Animated.View>
+
+        <Animated.View style={fade(heroAnim)}>
+            <View style={[styles.quickCard, { backgroundColor: colors.surface, borderColor: colors.surfaceContainerHigh }]}>
+              <View style={styles.quickGrid}>
+                <Pressable
+                  onPress={() => router.push("/work-schedule")}
+                  style={({ pressed }) => [styles.quickBtn, pressed && styles.quickPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Open work schedule and leave requests"
+                >
+                  <View style={styles.quickIconWrapper}>
+                    <Ionicons name="calendar" size={24} color={colors.primary} />
+                  </View>
+                  <Text style={[type.label, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                    Schedule
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => router.push("/incidents")}
+                  style={({ pressed }) => [styles.quickBtn, pressed && styles.quickPressed]}
+                >
+                  <View style={styles.quickIconWrapper}>
+                    <Ionicons name="warning" size={24} color={colors.primary} />
+                  </View>
+                  <Text style={[type.label, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                    Report
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => router.push("/submissions")}
+                  style={({ pressed }) => [styles.quickBtn, pressed && styles.quickPressed]}
+                >
+                  <View style={styles.quickIconWrapper}>
+                    <Ionicons name="document-text" size={24} color={colors.primary} />
+                  </View>
+                  <Text style={[type.label, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                    Forms
+                  </Text>
+                </Pressable>
+
+                {canReportFuel ? (
+                  <Pressable
+                    onPress={() => router.push({ pathname: "/fuel-report", params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } })}
+                    style={({ pressed }) => [styles.quickBtn, pressed && styles.quickPressed]}
+                  >
+                    <View style={styles.quickIconWrapper}>
+                      <Ionicons name="water" size={24} color={colors.primary} />
+                    </View>
+                    <Text style={[type.label, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
+                      Fuel
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
         </Animated.View>
 
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
@@ -660,92 +711,7 @@ export default function Home() {
           </View>
         </Animated.View>
 
-        {/* ─── Quick Actions ─── */}
-        <Animated.View style={fade(quickAnim)}>
-          <View style={styles.quickActions}>
-            <Text style={[type.titleLg, styles.sectionTitle, { color: colors.onSurface }]}>
-              Quick actions
-            </Text>
-            <Pressable
-              onPress={() => router.push("/work-schedule")}
-              style={({ pressed }) => [styles.scheduleAction, { backgroundColor: colors.primaryContainer }, pressed && styles.quickPressed]}
-              accessibilityRole="button"
-              accessibilityLabel="Open work schedule and leave requests"
-            >
-              <View style={[styles.scheduleIcon, { backgroundColor: colors.primary }]}>
-                <Ionicons name="calendar-outline" size={22} color={colors.onPrimary} />
-              </View>
-              <View style={styles.scheduleCopy}>
-                <Text style={[styles.scheduleTitle, { color: colors.onPrimaryContainer }]}>Work schedule</Text>
-                <Text style={[styles.scheduleMeta, { color: colors.onPrimaryContainer + "B8" }]}>View shifts and request leave</Text>
-              </View>
-              <View style={[styles.scheduleArrow, { backgroundColor: colors.surfaceContainerLowest }]}>
-                <Ionicons name="arrow-forward" size={17} color={colors.primary} />
-              </View>
-            </Pressable>
-            <View style={styles.quickGrid}>
-              <Pressable
-                  onPress={() => {
-                    if (!nextTrip?.trip_id) {
-                      AppAlert.alert("No Assigned Trip", "There is no assigned trip available for a pre-trip inspection.");
-                      return;
-                    }
-                    if (!nextTrip.vehicle_id) {
-                      AppAlert.alert("Vehicle Not Assigned", "A vehicle must be assigned to this trip before the pre-trip inspection.");
-                      return;
-                    }
-                    router.push({ pathname: "/inspection", params: { tripId: String(nextTrip.trip_id) } });
-                  }}
-                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
-              >
-                <View style={[styles.quickIconWrapper, { backgroundColor: colors.primaryContainer }]}>
-                  <Ionicons name="clipboard-outline" size={22} color={colors.onPrimaryContainer} />
-                </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
-                  Inspection
-                </Text>
-              </Pressable>
 
-              {canReportFuel ? (
-                <Pressable
-                  onPress={() => router.push({ pathname: "/fuel-report", params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } })}
-                  style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
-                >
-                  <View style={[styles.quickIconWrapper, { backgroundColor: colors.secondaryContainer }]}>
-                    <Ionicons name="water-outline" size={22} color={colors.onSecondaryContainer} />
-                  </View>
-                  <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
-                    Fuel report
-                  </Text>
-                </Pressable>
-              ) : null}
-
-              <Pressable
-                onPress={() => router.push("/incidents")}
-                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
-              >
-                <View style={[styles.quickIconWrapper, { backgroundColor: colors.errorContainer }]}>
-                  <Ionicons name="warning-outline" size={22} color={colors.onErrorContainer} />
-                </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
-                  Report issue
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => router.push("/submissions")}
-                style={({ pressed }) => [styles.quickBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.quickPressed]}
-              >
-                <View style={[styles.quickIconWrapper, { backgroundColor: colors.surfaceContainerHigh }]}>
-                  <Ionicons name="document-text-outline" size={22} color={colors.info} />
-                </View>
-                <Text style={[type.labelLg, styles.quickBtnText, { color: colors.onSurface }]} numberOfLines={1}>
-                  Submissions
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </Animated.View>
       </ScrollView>
 
       {/* ─── SOS FAB ─── */}
@@ -1266,32 +1232,38 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sectionTitle: {},
+  quickCard: {
+    borderRadius: moderateScale(20),
+    borderWidth: 1,
+    paddingVertical: moderateScale(12),
+    paddingHorizontal: moderateScale(8),
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
+  },
   quickGrid: {
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: moderateScale(12),
+    justifyContent: "space-around",
+    alignItems: "center",
   },
   quickBtn: {
-    width: "48%",
-    minHeight: moderateScale(72),
-    flexDirection: "row",
+    flex: 1,
+    flexDirection: "column",
     alignItems: "center",
-    gap: moderateScale(10),
-    padding: moderateScale(12),
-    borderRadius: moderateScale(16),
+    gap: moderateScale(6),
   },
   quickPressed: { transform: [{ scale: 0.97 }], opacity: 0.88 },
   quickIconWrapper: {
-    width: moderateScale(42),
-    height: moderateScale(42),
-    borderRadius: moderateScale(13),
+    width: moderateScale(40),
+    height: moderateScale(40),
     alignItems: "center",
     justifyContent: "center",
   },
   quickBtnText: {
-    flex: 1,
-    fontSize: moderateScale(13),
-    lineHeight: moderateScale(18),
+    fontSize: moderateScale(11),
+    textAlign: "center",
   },
 
   // ── SOS FAB ──
