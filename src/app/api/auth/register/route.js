@@ -7,6 +7,10 @@ import { ROLE_IDS } from "@/lib/constants";
 
 const VALID_ROLE_IDS = new Set(Object.values(ROLE_IDS));
 
+export function canAssignRole(actorRole, roleId) {
+  return roleId !== ROLE_IDS.system_admin || actorRole === "system_admin";
+}
+
 // Account creation is admin-only. There is no public self-signup: only an
 // authenticated system_admin/admin may create employee accounts, and the
 // new account's role is taken from an explicit, validated role_id.
@@ -32,6 +36,9 @@ export async function POST(req) {
 
     if (!VALID_ROLE_IDS.has(roleId)) {
       return err("Invalid role.", 400);
+    }
+    if (!canAssignRole(session.user.role, roleId)) {
+      return err("Only a system administrator can create another system administrator.", 403);
     }
 
     const lowerEmail = normalizeEmail(email);

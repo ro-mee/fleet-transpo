@@ -117,5 +117,5 @@ export function handleError(error) {
   if (error instanceof AuthError) {
     return Response.json({ error: error.message }, { status: error.status });
   }
-  return Response.json({ error: error.message || "Internal server error" }, { status: 500 });
+  return Response.json({ error: "Internal server error" }, { status: 500 });
 }

@@ -1,33 +1,24 @@
 /** @type {import('next').NextConfig} */
 
-// CORS is locked to the app's own origin (Roadmap Phase 5, item 20).
-// The web client talks to /api/* same-origin; the mobile app is native (no
-// browser CORS applies); Booking integration is server-to-server. No legitimate
-// cross-origin browser caller exists, so ANY Origin other than
-// NEXT_PUBLIC_APP_URL is refused. Fail-closed: with the env var unset, no
-// Allow-Origin header is emitted at all.
-function appOrigin() {
-  const raw = process.env.NEXT_PUBLIC_APP_URL || "";
-  return raw.replace(/\/+$/, "");
-}
-
-const ALLOWED_ORIGIN = appOrigin();
+const securityHeaders = [
+  { key: "Content-Security-Policy", value: "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; manifest-src 'self'; upgrade-insecure-requests" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+];
 
 const nextConfig = {
+  poweredByHeader: false,
   turbopack: {
     root: process.cwd(),
   },
   async headers() {
     return [
       {
-        source: "/api/:path*",
-        headers: [
-          { key: "Access-Control-Allow-Origin", value: "*" },
-          { key: "Access-Control-Allow-Methods", value: "GET, POST, PUT, PATCH, DELETE, OPTIONS" },
-          { key: "Access-Control-Allow-Headers", value: "Content-Type, Authorization" },
-          { key: "Access-Control-Max-Age", value: "86400" },
-          { key: "Vary", value: "Origin" },
-        ],
+        source: "/:path*",
+        headers: securityHeaders,
       },
     ];
   },

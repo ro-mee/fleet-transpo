@@ -11,28 +11,41 @@ import { NextResponse } from "next/server";
 // matching how the browser treats them.
 
 function allowedOrigin() {
-  return (process.env.NEXT_PUBLIC_APP_URL || "").replace(/\/+$/, "");
+  try {
+    return new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
+  } catch {
+    return "";
+  }
 }
 
 export function proxy(request) {
   const origin = request.headers.get("origin");
+  const allowed = allowedOrigin();
+
+  if (origin && origin !== allowed) {
+    return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
+  }
 
   if (request.method === "OPTIONS") {
     // A preflight without an Origin header is malformed — refuse it.
-    if (!origin) return new NextResponse(null, { status: 204 });
+    if (!origin) return new NextResponse(null, { status: 400 });
 
-    const allowed = allowedOrigin();
     const headers = {
       "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
-      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Origin": allowed,
     };
     return new NextResponse(null, { status: 204, headers });
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  if (origin) {
+    response.headers.set("Access-Control-Allow-Origin", allowed);
+    response.headers.set("Vary", "Origin");
+  }
+  return response;
 }
 
 export const config = {

@@ -44,6 +44,14 @@ const eslintConfig = defineConfig([
     },
     rules: {
       "no-undef": "error",
+      // React Compiler diagnostics currently reject established animation and
+      // synchronization patterns in both Next and React Native. Keep them
+      // visible while making correctness errors the CI-blocking baseline.
+      "react-hooks/immutability": "warn",
+      "react-hooks/purity": "warn",
+      "react-hooks/refs": "warn",
+      "react-hooks/set-state-in-effect": "warn",
+      "react/no-unescaped-entities": "warn",
     },
   },
 

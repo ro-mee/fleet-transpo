@@ -982,6 +982,8 @@ const TomTomMap = forwardRef(({
   );
 });
 
+TomTomMap.displayName = "TomTomMap";
+
 export default TomTomMap;
 
 const styles = StyleSheet.create({

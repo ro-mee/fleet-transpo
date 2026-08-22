@@ -6,12 +6,11 @@
 // answerable by inspecting the schema by hand.
 //
 // The ledger is keyed on FILENAME, not version number, because the version
-// numbers in this repo are not unique: 011, 013, 014, 017, 018 and 030 each
-// appear twice and 019 appears three times, while 008 is missing entirely.
-// A numeric key would silently treat 019_admin_role.sql and
-// 019_service_interval_guards.sql as the same migration.
+// numbers in this repo are not unique: 036, 037, 059, and 060 each appear
+// twice. A numeric key would silently treat two distinct files as one apply.
 //
 // Commands:
+//   node scripts/migrate.mjs check      validate filenames without a DB
 //   node scripts/migrate.mjs status     what is applied, pending, or changed
 //   node scripts/migrate.mjs baseline   record every file as applied, run none
 //   node scripts/migrate.mjs rebaseline re-record applied-but-edited files
@@ -29,6 +28,12 @@ import { Pool } from "pg";
 loadEnvLocal();
 
 const DIR = "supabase/migrations";
+const LEGACY_DUPLICATES = new Map([
+  ["036", ["036_dispatch_cancel_reason.sql", "036_trip_lifecycle_status.sql"]],
+  ["037", ["037_notification_preferences.sql", "037_remove_review_statuses.sql"]],
+  ["059", ["059_dispatch_push_outbox.sql", "059_fuel_submission_idempotency.sql"]],
+  ["060", ["060_inspection_submission_idempotency.sql", "060_remove_anon_employee_access.sql"]],
+]);
 
 // 4-byte key for pg_advisory_lock, so two runners cannot interleave. Same
 // mechanism migration 023 uses to close its TOCTOU window.
@@ -49,13 +54,36 @@ const LEDGER_DDL = `
 const sha = (s) => createHash("sha256").update(s.replace(/\r\n/g, "\n")).digest("hex").slice(0, 16);
 
 function discover() {
-  return readdirSync(DIR)
+  const files = readdirSync(DIR)
     .filter((f) => f.endsWith(".sql"))
-    .sort()
+    .sort();
+
+  const malformed = files.filter((filename) => !/^\d{3}_[a-z0-9_]+\.sql$/.test(filename));
+  if (malformed.length) throw new Error(`Invalid migration filename(s): ${malformed.join(", ")}`);
+
+  const versions = new Map();
+  for (const filename of files) {
+    const version = filename.slice(0, 3);
+    versions.set(version, [...(versions.get(version) || []), filename]);
+  }
+  for (const [version, names] of versions) {
+    if (names.length < 2) continue;
+    const expected = LEGACY_DUPLICATES.get(version);
+    if (!expected || names.join("|") !== expected.join("|")) {
+      throw new Error(`Duplicate migration version ${version}: ${names.join(", ")}`);
+    }
+  }
+
+  return files
     .map((filename) => {
       const sql = readFileSync(join(DIR, filename), "utf8");
       return { filename, sql, checksum: sha(sql) };
     });
+}
+
+function cmdCheck() {
+  const files = discover();
+  console.log(`${files.length} migration files valid; historical duplicate versions are frozen.`);
 }
 
 async function readLedger(pool) {
@@ -212,12 +240,16 @@ async function cmdRebaseline(pool) {
   console.log("\nOn-disk files are now the declared state.\n");
 }
 
-const COMMANDS = { status: cmdStatus, baseline: cmdBaseline, rebaseline: cmdRebaseline, up: cmdUp };
+const COMMANDS = { check: cmdCheck, status: cmdStatus, baseline: cmdBaseline, rebaseline: cmdRebaseline, up: cmdUp };
 
 const cmd = process.argv[2] ?? "status";
 if (!COMMANDS[cmd]) {
-  console.error(`Unknown command "${cmd}". Use: status | baseline | up`);
+  console.error(`Unknown command "${cmd}". Use: check | status | baseline | rebaseline | up`);
   process.exit(1);
+}
+if (cmd === "check") {
+  COMMANDS[cmd]();
+  process.exit(0);
 }
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set (.env.local or .env).");

@@ -117,6 +117,7 @@ function TripItem({ trip, colors, onPress }) {
 
 export default function TripsTab() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { colors } = useTheme();
 
   const [trips, setTrips] = useState([]);
