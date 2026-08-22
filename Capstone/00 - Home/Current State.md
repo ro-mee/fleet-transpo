@@ -5,7 +5,7 @@ tags: [status, dashboard]
 source:
   - "(whole repository)"
   - "live DB dnxuphhxlzidvwtdqqkq"
-last_verified: 2026-08-20
+last_verified: 2026-08-22
 ---
 
 # Current State
@@ -17,10 +17,12 @@ last_verified: 2026-08-20
 - **Full request pipeline:** Booking ingest → queue → review → approve → assign → dispatch → trip start → complete → outbound notify. See [[Request Lifecycle]].
 - **RBAC:** 6 roles, enforced on all **113** API routes via `requireAuth` (was 119; the 6-route `/api/reservations/*` tree was deleted 2026-08-11). `scripts/verify-rbac.mjs` pins the UI matrix to the per-route role lists — **78 checks pass**. See [[RBAC]].
 - **Mobile driver app:** login, trips, accept, GPS, fuel, incidents. See [[Mobile Architecture]].
+- **Mobile fuel scanner:** center-nav shortcut opens an embedded receipt camera; the server validates the driver's uploaded receipt and uses Gemini structured extraction for brand/date/liters/unit price/final amount. Odometer is assigned from vehicle mileage, not OCR or manual entry. See [[Fuel]].
 - **AI advisory:** deterministic rule engine + predictive maintenance. See [[AI Advisory]].
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
-- **Test suite:** **362 tests across 27 files, all passing** (run 2026-08-20). Caveat worth keeping in view: the suite passes even when a deleted symbol is still imported — it is not a link check. → [[Things I Should Not Forget]]
+- **CI/security baseline:** GitHub Actions now runs install, lint, all tests, migration filename validation, and the production build. CORS, account role assignment, unexpected API errors, and vehicle-image uploads have explicit guards and tests.
+- **Test suite:** **368 tests across 30 files, all passing** (run 2026-08-22). Caveat worth keeping in view: the suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
 - **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
@@ -28,7 +30,7 @@ last_verified: 2026-08-20
 | Issue | Severity | Note |
 |---|---|---|
 | ~~A live DB password sits in git history~~ | ~~**1**~~ | **CLOSED 2026-08-11 — rotated.** The leaked value is now rejected by the server. History still holds it; it is worthless. → [[SEC Database Password In Git History]] |
-| `npm run lint` reports 38 errors / 33 warnings (pre-existing, all in UI code) | — | [[Bugs]] |
+| CI lint currently uses a warning ceiling while React Compiler/UI warnings are paid down | — | [[Bugs]] |
 
 **Fixed in this session — 2026-08-11:**
 
@@ -60,6 +62,19 @@ last_verified: 2026-08-20
 | **S3 — mobile login unthrottled** (`POST /api/mobile/auth/login` ran bcrypt compares with no rate limit — largest brute-force gap) | per-IP + per-account 5/min throttle mirroring the web login, 429 + `Retry-After` | eslint clean; **362/362 tests pass** |
 | **Forgot/reset wrote through the anon key** — `auth.service.js` used the browser anon client for `signUp`/`resetPassword`/`updatePassword` | functions removed; server routes `POST /api/auth/forgot-password` (rate-limited, generic response, no email enumeration) and `POST /api/auth/reset-password` (session-bound employee, revokes `mobile_refresh_tokens`) replace them; pages rewired | lint clean on 6 files; manual smoke next deploy |
 
+**Security and quality hardening — 2026-08-22 (commit `1fae72c`):**
+
+| Was weak | Fix | Verified |
+|---|---|---|
+| No CI gate | GitHub Actions runs install, lint, tests, migration check, and build | workflow committed |
+| Admin could request `system_admin` for a new account | only an existing system administrator may assign that role | security-boundary test |
+| Unexpected API errors exposed `error.message` | generic `Internal server error` response | security-boundary test |
+| API CORS allowed arbitrary browser origins | exact configured origin only; denied origins return `403` | security-boundary test |
+| Vehicle image upload trusted MIME/name and broad authenticated roles | fleet-role allowlist, 5 MB/type/signature checks, vehicle existence check, and cleanup on DB failure | upload-validation test |
+| Migration duplicates could silently grow | `db:check` validates filenames and freezes the known historical duplicate versions | included in CI |
+
+**Mobile fuel scanner — 2026-08-22 (commit `3b5dd94`):** Gemini-only server extraction, Petron/Shell brand normalization, camera crop/review, retry-safe upload, automatic vehicle-mileage odometer, direct nav-to-camera shortcut, and fuel-gauge removal. Targeted tests, Next build, and Android bundle export passed. See [[Fuel]] · [[2026-08-22]].
+
 **Mobile UI/UX — 2026-08-20:** mobile driver app audited (`impeccable` native critique + audit): **10/20** pre-fix (Accessibility 1, Performance 1, Theming 2, Conformance 3, Adaptivity 3). P1 fixes applied — status colors now palette-aware (dark/high-contrast correct), foreign colors removed, core trip-loop + SOS controls labeled. Lists still unvirtualized (P2, deferred). → [[UI UX Audit - Mobile]]
 
 ## What is incomplete — CONFIRMED
@@ -72,27 +87,27 @@ last_verified: 2026-08-20
 
 ## Environment gaps — CONFIRMED
 
-`.env` has 10 keys. **Missing:** `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, any LLM key.
+The local server environment now has Gemini configured for receipt scanning; the key remains ignored and server-only. **Still missing or intentionally unset:** `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and a live `BOOKING_GATEWAY` configuration.
 
 Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (fail-closed). Scheduled compliance sync never runs. See [[Environment Setup]].
 
 ## Suggested next priorities
 
 1. ~~Rotate the exposed database password~~ → **done 2026-08-11**, old value confirmed rejected. → [[SEC Database Password In Git History]]
-2. Renumber or freeze the migrations — the ledger makes duplicate numbers survivable, not correct. `008` is still missing and `019` still appears ×3.
-3. Fix the 38 pre-existing UI lint errors — [[Bugs]]. Largest group is 15 set-state-in-effect.
+2. Historical duplicate migration versions are now frozen by `db:check`; decide whether renumbering old files is worth the checksum/history disruption.
+3. Reduce the remaining UI/React Compiler warnings until CI no longer needs a warning ceiling.
 4. ~~Replace `README.md`~~ → **done 2026-08-11** → [[DOC README Is Boilerplate]]
 5. ~~`SYSTEM.md` still describes the grounding bug as live~~ → **done 2026-08-11**; that passage and the second stub claim are gone. → [[Documentation Rot]]
 6. Add an `engines` field to `package.json`. The README states Node 20.9+, which is **Next 16's** requirement — this repo declares none of its own.
-7. **Security Tiers 2–3 (S4–S13)** from the 2026-08-20 gap analysis: CORS `"*"` in `next.config.mjs` + `src/proxy.js`, missing security headers, web+mobile sharing one JWT secret, no session revocation on role demote, admin→system_admin escalation, `GET /api/drivers` readable by `driver` role, unconstrained uploads, OCR SSRF, `clientIp()` trusting `x-forwarded-for`, forgot-password response differences (mitigated, not eliminated). → [[Security Audit]]
+7. Continue the remaining Security Tiers 2–3 items: separate web/mobile secrets, session revocation after role demotion, driver-list authorization review, OCR URL/SSRF hardening, trusted-proxy handling for `clientIp()`, and residual password-recovery review. CORS, admin→system-admin escalation, generic 500 responses, security headers, and vehicle-image validation were addressed 2026-08-22. → [[Security Audit]]
 
 ## Pending decisions
 
 - ~~whether `vehiclereservations` should be dropped or revived~~ — **DECIDED 2026-08-11: dropped**, migration 036. It had 0 rows, no writer, and its only consequence was a sync branch that never fired. → [[vehiclereservations]]
 - **UNKNOWN:** whether to keep `substitute_vehicle_schedules`. It has **1 live row** (this vault previously recorded 0) and no references in `src/`. Migration 034 declares it rather than dropping it, because dropping destroys the row and that is a product call, not a cleanup call.
-- ~~whether this vault should be committed to git~~ — **DECIDED 2026-08-11:** it stays untracked, OneDrive is the backup. Consequence: no version history, and `git add -A` would sweep it in → [[Things I Should Not Forget]]
-- **UNKNOWN:** whether the single row in `aiproviders` holds a working LLM key
-- **UNKNOWN:** whether to renumber or freeze the migrations. `008` is missing, `019` appears ×3. The `schema_migrations` ledger keys on **filename**, which makes the duplicates survivable — it does not make them correct.
+- ~~whether this vault should be committed to git~~ — **CURRENT REALITY 2026-08-22:** the `Capstone/` vault files are tracked by Git, so documentation changes have repository history in addition to OneDrive backup. Do not rely on the older “untracked vault” warning.
+- ~~whether Gemini is usable for receipt scans~~ — **CONFIRMED 2026-08-22:** the configured API key and `gemini-3.1-flash-lite` produced structured image extraction. Consumer subscription and API quota remain separate concerns.
+- **UNKNOWN:** whether to renumber historical duplicate migrations. `db:check` now freezes the known set and rejects new duplicates; the ledger continues to key by full filename.
 
 ## What to learn next
 
@@ -112,7 +127,7 @@ Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (
 | API route files | 113 |
 | Pages | 61 |
 | Migrations | 63 files (43 at 2026-08-11; through 061 `invalidate_seeded_admin_hash`) |
-| Test files | 27 — **362 tests, all passing** |
+| Test files | 30 — **368 tests, all passing** |
 
 Counted from the checked-in `schema.sql`, regenerated with `npm run db:dump`.
 One of the 38 tables is `schema_migrations`, the ledger created 2026-08-11.

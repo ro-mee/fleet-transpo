@@ -5,20 +5,35 @@ tags: [feature, reports, analytics]
 source:
   - src/app/api/reports
   - src/app/(dashboard)/reports
-last_verified: 2026-08-11
+  - src/app/(dashboard)/analytics
+last_verified: 2026-08-22
 ---
 
 # Feature: Reports
 
 ## What it does
 
-Analytics for management: 6 API routes under `/api/reports/`, dashboard pages, charts via `recharts`.
+Two separate role-guarded workspaces consume the report APIs and `recharts`:
+
+- `/analytics` is the at-a-glance operational dashboard.
+- `/reports` is the export/review workspace with Fleet, Fuel, Maintenance, Drivers, and Financial report modes.
+
+Both routes support `admin`, `system_admin`, `fleet_manager`, and `management`; the wider dashboard shell adapts navigation and home content to the signed-in role.
+
+## Current UX — VERIFIED 2026-08-22
+
+- Reports has date presets, custom date ranges, report-type switching, CSV export, loading/error/empty states, and a number-grounded AI analyst card.
+- Analytics keeps KPI, calendar, fuel, maintenance-risk, cost, and driver-performance views as a separate page rather than duplicating the report explorer.
+- Hardcoded fallback values for fuel categories, monthly cost, maintenance risk, and driver rankings were removed today. Missing live data now renders an honest empty state.
+- AI narrative generation treats empty or explicitly marked demo payloads as non-production input and does not invent operational findings.
+
+The current report/analytics cleanup is **work in progress and uncommitted** as of 2026-08-22.
 
 ## Who it's for
 
 The `management` role (id 7) — read + analytics, **explicitly denied lifecycle verbs**. This feature is essentially the whole reason that role exists. → [[RBAC]]
 
-## The data problem — CONFIRMED
+## The data problem — LAST LIVE CHECK 2026-08-11
 
 Reports are only as good as the data underneath, and the underlying tables are nearly empty:
 

@@ -6,7 +6,7 @@ source:
   - mobile/lib/tracking.js
   - mobile/lib/background-tracking.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-08-19
+last_verified: 2026-08-22
 related: ["[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
@@ -33,6 +33,10 @@ POST `/api/mobile/driver/trips/${tripId}/gps`
 
 `distanceInterval: 10` (metres) plus `accuracy: Balanced` further reduces sensor wake-ups — a stationary vehicle produces almost no updates.
 
+## Location unavailable — hardened 2026-08-22 (WIP)
+
+Both the map watcher and `useTripTracking()` now catch failures from permission/location initialization. If location services are disabled or the current fix is unavailable, the app stops the posting state, shows a recoverable message, logs a warning, and continues running instead of producing an unhandled promise rejection/red error screen. These changes are currently uncommitted.
+
 ## Background — added 2026-08-19 (`mobile/lib/background-tracking.js`)
 
 Foreground-only was a deliberate scope decision (see [[ADR-010 Foreground Only GPS]]); the app has since moved to a dev build, so background tracking is now implemented. See [[ADR-011 Background GPS Tracking]] for the full decision and trade-offs.
@@ -45,7 +49,7 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 
 ## Database
 
-GPS columns on [[trips]]. There is no separate positions table — INFERRED: only the latest fix is retained, not a track history. **TODO:** confirm whether the GPS endpoint overwrites or appends. If it overwrites, route replay is impossible.
+Every accepted fix is appended to `gpstracking` with `vehicle_id`, `trip_id`, coordinates, motion metadata, accuracy, and `recorded_at`. The same request also updates the driver's latest latitude/longitude for the live map. Route history is therefore retained per trip; the driver row is only the latest-position cache.
 
 ## Related
 

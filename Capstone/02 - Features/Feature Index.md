@@ -5,7 +5,7 @@ tags: [moc, features]
 source:
   - src/app/api
   - src/app/(dashboard)
-last_verified: 2026-08-11
+last_verified: 2026-08-22
 ---
 
 # Feature Index
@@ -19,7 +19,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Reservations / request intake | ✅ working (15 rows) | [[Reservations]] |
 | Dispatch & assignment | ✅ working (2 rows) | [[Dispatch]] |
 | Trip execution | ✅ working (2 rows) — sev-1 fixed 2026-08-11 | [[Trips]] |
-| GPS tracking | ✅ foreground only | [[Tracking]] |
+| GPS tracking | ✅ foreground + background; unavailable-location recovery WIP | [[Tracking]] |
 
 ## Resources
 
@@ -28,7 +28,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Fleet & vehicles | ✅ working (20) | [[Fleet And Vehicles]] |
 | Driver management | ✅ working — grounding stub fixed 2026-08-11 | [[Driver Management]] |
 | Maintenance | ⚠ empty route dir | [[Maintenance]] |
-| Fuel | ⚪ 0 rows — never exercised | [[Fuel]] |
+| Fuel | ⚠ Gemini scanner user-confirmed; post-change DB save pending | [[Fuel]] |
 
 ## Cross-cutting
 
@@ -39,7 +39,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Notifications | ✅ DB-trigger driven (164 rows) | [[Notifications]] |
 | Booking integration | ⚠ contract built, far end mocked | [[System Boundaries]] |
 | Driver consent & visibility | ✅ | [[Driver Consent]] |
-| Reports & analytics | ✅ 6 routes | [[Reports]] |
+| Reports & analytics | ✅ separate role-guarded pages; honest empty-state cleanup WIP | [[Reports]] |
 
 Legend: ✅ exercised · ⚠ works with a known problem · ⚪ built but zero rows
 
