@@ -429,21 +429,11 @@ export default function AnalyticsPage() {
   }, [reservations, dateRange]);
 
   const fuelByCategory = useMemo(() => {
-    const raw = (fu.byCategory || []).map((c) => ({
+    return (fu.byCategory || []).map((c) => ({
       category: c.category || "General Fleet",
       liters: Math.round(c.liters || 0),
       cost: Math.round(c.cost || 0),
     }));
-    if (raw.length <= 1) {
-      const baseItem = raw[0] || { category: "Airport Shuttle & Guest Transfer", liters: 650, cost: 35000 };
-      return [
-        { category: baseItem.category, liters: baseItem.liters, cost: baseItem.cost },
-        { category: "Executive SUV Fleet", liters: 420, cost: 27300 },
-        { category: "Passenger Van Fleet", liters: 580, cost: 37700 },
-        { category: "Sedan Fleet", liters: 310, cost: 20150 },
-      ];
-    }
-    return raw;
   }, [fu.byCategory]);
 
   const maintenanceRiskPie = useMemo(() => {
@@ -462,12 +452,7 @@ export default function AnalyticsPage() {
         .map(([name, value]) => ({ name, value }));
       if (result.length > 0) return result;
     }
-    return [
-      { name: "Healthy", value: 18 },
-      { name: "Medium Risk", value: 4 },
-      { name: "High Risk", value: 2 },
-      { name: "Critical", value: 1 },
-    ];
+    return [];
   }, [predictionData]);
 
   const totalRiskCount = useMemo(() => {
@@ -475,20 +460,11 @@ export default function AnalyticsPage() {
   }, [maintenanceRiskPie]);
 
   const monthlyCostData = useMemo(() => {
-    const raw = (fu.monthlyData || []).map((m) => ({
+    return (fu.monthlyData || []).map((m) => ({
       month: m.month,
       fuelCost: Math.round(m.cost || 0),
       liters: Math.round(m.liters || 0),
     }));
-    if (raw.length <= 1) {
-      return [
-        { month: "May", fuelCost: 32000, liters: 520 },
-        { month: "Jun", fuelCost: 38000, liters: 580 },
-        { month: "Jul", fuelCost: 46500, liters: 710 },
-        { month: "Aug", fuelCost: 41200, liters: 630 },
-      ];
-    }
-    return raw;
   }, [fu.monthlyData]);
 
   const driverRoster = useMemo(() => {
@@ -501,13 +477,7 @@ export default function AnalyticsPage() {
         score: Math.round(Number(d.score) || 0),
       }));
     }
-    return [
-      { name: "Juan Dela Cruz", trips: 42, score: 96 },
-      { name: "Maria Santos", trips: 38, score: 94 },
-      { name: "Ramon Reyes", trips: 35, score: 91 },
-      { name: "Carlos Mendoza", trips: 31, score: 88 },
-      { name: "Elena Torres", trips: 29, score: 95 },
-    ];
+    return [];
   }, [driversPerformance]);
 
   const [volumeView, setVolumeView] = useState("chart"); // "chart" | "calendar"
@@ -938,12 +908,12 @@ export default function AnalyticsPage() {
                             isPeak
                               ? "border-info/60 bg-gradient-to-br from-info/25 via-info/15 to-primary/10 text-foreground ring-1 ring-info/35 shadow-xs hover:border-info"
                               : isHigh
-                              ? "border-info/40 bg-info/15 text-foreground hover:bg-info/25 hover:border-info/60"
-                              : isMed
-                              ? "border-info/25 bg-info/10 text-foreground hover:bg-info/20 hover:border-info/40"
-                              : isLow
-                              ? "border-info/15 bg-info/5 text-foreground hover:bg-info/15 hover:border-info/30"
-                              : "border-border/60 bg-surface hover:bg-hover hover:border-border text-foreground-muted"
+                                ? "border-info/40 bg-info/15 text-foreground hover:bg-info/25 hover:border-info/60"
+                                : isMed
+                                  ? "border-info/25 bg-info/10 text-foreground hover:bg-info/20 hover:border-info/40"
+                                  : isLow
+                                    ? "border-info/15 bg-info/5 text-foreground hover:bg-info/15 hover:border-info/30"
+                                    : "border-border/60 bg-surface hover:bg-hover hover:border-border text-foreground-muted"
                           )}
                         >
                           {/* Top Row: Day number + Today / Peak indicators */}
@@ -954,8 +924,8 @@ export default function AnalyticsPage() {
                                 d.isToday
                                   ? "rounded-md bg-primary px-1.5 py-0.2 text-[10px] font-black text-surface"
                                   : isZero
-                                  ? "text-foreground-muted/70 font-medium"
-                                  : "text-foreground font-extrabold"
+                                    ? "text-foreground-muted/70 font-medium"
+                                    : "text-foreground font-extrabold"
                               )}
                             >
                               {d.dayNumber}
@@ -978,10 +948,10 @@ export default function AnalyticsPage() {
                                   isPeak
                                     ? "bg-info font-black text-white shadow-xs"
                                     : isHigh
-                                    ? "bg-info/25 text-info font-bold ring-1 ring-info/30"
-                                    : isMed
-                                    ? "bg-info/20 text-info font-bold"
-                                    : "bg-info/10 text-info font-semibold"
+                                      ? "bg-info/25 text-info font-bold ring-1 ring-info/30"
+                                      : isMed
+                                        ? "bg-info/20 text-info font-bold"
+                                        : "bg-info/10 text-info font-semibold"
                                 )}
                               >
                                 {d.count} <span className="text-[8.5px] opacity-80">req</span>
@@ -1404,8 +1374,8 @@ export default function AnalyticsPage() {
                       index === 0
                         ? "border-warning/40 bg-gradient-to-br from-warning/25 to-warning/5 text-warning"
                         : index === 1
-                        ? "border-border/70 bg-hover text-foreground"
-                        : "border-primary/25 bg-primary/10 text-primary"
+                          ? "border-border/70 bg-hover text-foreground"
+                          : "border-primary/25 bg-primary/10 text-primary"
                     )}
                   >
                     {index + 1}

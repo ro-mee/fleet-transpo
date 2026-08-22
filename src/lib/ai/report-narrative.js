@@ -19,9 +19,8 @@ export const FLAG = {
 };
 
 /**
- * Detect a demo/empty payload. The report pages fall back to hardcoded demo
- * numbers when the report API returns nothing; we must never synthesize a story
- * from fake data. A `demo: true` flag short-circuits generation up-front.
+ * Detect a demo/empty payload so the analyst never synthesizes a story from
+ * missing or explicitly marked non-production data.
  */
 export function isDemoPayload(data) {
   if (!data) return true;
