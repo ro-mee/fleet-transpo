@@ -1,13 +1,11 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
-import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
 
 const WRITABLE_COLUMNS = [
   "station_name",
   "liters",
   "amount",
-  "odometer",
   "fuel_date",
   "receipt_url",
 ];
@@ -24,7 +22,7 @@ export async function PUT(req, { params }) {
 
     // Verify ownership and status
     const { rows: existing } = await query(
-      `SELECT fr.fuel_record_id, fr.status, fr.liters, fr.amount, v.mileage
+      `SELECT fr.fuel_record_id, fr.status, fr.liters, fr.amount
          FROM fuelrecords fr
          JOIN vehicles v ON v.vehicle_id = fr.vehicle_id AND v.deleted_at IS NULL
         WHERE fr.fuel_record_id = $1 AND fr.driver_id = $2 AND fr.deleted_at IS NULL`,
@@ -49,11 +47,6 @@ export async function PUT(req, { params }) {
     if (Number(body.amount) > 1000000) return err("amount exceeds the maximum allowed per fuel report", 400);
     if (body.fuel_date !== undefined && Number.isNaN(new Date(body.fuel_date).getTime())) return err("fuel_date must be a valid date", 400);
     if (body.station_name !== undefined && String(body.station_name).length > 255) return err("station_name is too long", 400);
-    if (body.odometer !== undefined) {
-      const odo = validateOdometerReading({ reading: body.odometer, currentMileage: existing[0]?.mileage });
-      if (!odo.ok) return err(odo.error, 400);
-    }
-
     const updates = [];
     const values = [];
     let idx = 1;

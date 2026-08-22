@@ -81,10 +81,12 @@ export default function TabsLayout() {
         name="fuel_action"
         options={{
           title: "",
-          tabBarButton: (props) => (
+          tabBarButton: () => (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
               <Pressable 
-                onPress={() => router.push("/fuel-report")}
+                onPress={() => router.push({ pathname: "/fuel-report", params: { scan: "1" } })}
+                accessibilityRole="button"
+                accessibilityLabel="Scan fuel receipt"
                 style={({ pressed }) => ({
                   top: -15,
                   width: 56,

@@ -1,5 +1,5 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -9,22 +9,25 @@ import { useAuth } from "../../lib/auth";
 import { fonts, radius, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
 import * as ImagePicker from "expo-image-picker";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
+import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { tripId: paramTripId, id, odometer: pOdometer, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
+  const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const [loadingTrip, setLoadingTrip] = useState(true);
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
-  const [odometer, setOdometer] = useState(pOdometer || "");
   const [liters, setLiters] = useState(pLiters || "");
   const [cost, setCost] = useState(pCost || "");
+  const [pricePerLiter, setPricePerLiter] = useState("");
   const [station, setStation] = useState(pStation || "");
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -32,7 +35,17 @@ export default function FuelReport() {
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
   const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraPurpose, setCameraPurpose] = useState("scan");
+  const [cameraReady, setCameraReady] = useState(false);
+  const [capturedReceipt, setCapturedReceipt] = useState(null);
+  const [cameraLayout, setCameraLayout] = useState(null);
+  const [capturing, setCapturing] = useState(false);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [submissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const cameraRef = useRef(null);
+  const scanInFlight = useRef(false);
+  const autoScanStarted = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -68,50 +81,33 @@ export default function FuelReport() {
     }
   };
 
-  const canSubmit = Boolean(odometer && liters && cost && receiptUrl) && !scanning && !submitting;
+  const canSubmit = Boolean(liters && cost && receiptUrl) && !scanning && !submitting;
 
   const resetDetails = () => {
-    setOdometer(pOdometer || "");
     setLiters(pLiters || "");
     setCost(pCost || "");
+    setPricePerLiter("");
     setStation(pStation || "");
     setFuelDate(pFuelDate || new Date().toISOString());
   };
 
-  const pickReceipt = async ({ useCamera = true, scanWithAi = false } = {}) => {
+  const pickReceipt = async () => {
     try {
-      let result;
-      if (useCamera) {
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== 'granted') {
-          AppAlert.alert("Permission Required", "Camera permission is required to scan receipts.");
-          return;
-        }
-        result = await ImagePicker.launchCameraAsync({
-          mediaTypes: ["images"],
-          quality: 0.5,
-        });
-      } else {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== 'granted') {
-          AppAlert.alert("Permission Required", "Photo library permission is required to upload receipts.");
-          return;
-        }
-        result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images"],
-          quality: 0.5,
-        });
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        AppAlert.alert("Permission Required", "Photo library permission is required to upload receipts.");
+        return;
       }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        quality: 0.5,
+      });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         const asset = result.assets[0];
         setReceiptUrl(null);
         setReceiptAsset(asset);
-        if (scanWithAi) {
-          await processScannedReceipt(asset);
-        } else {
-          await uploadRawReceipt(asset);
-        }
+        await uploadRawReceipt(asset);
       }
     } catch (e) {
       AppAlert.alert("Error", "Could not capture receipt image.");
@@ -128,36 +124,174 @@ export default function FuelReport() {
     return formData;
   };
 
-  const processScannedReceipt = async (asset) => {
+  const startManualEntry = () => {
+    resetDetails();
+    setEntryMethod("manual");
+    setMode("details");
+    setReceiptUrl(null);
+    setReceiptAsset(null);
+  };
+
+  const openReceiptCamera = async (purpose = "scan") => {
+    if (Platform.OS === "web") {
+      AppAlert.alert("Scanner Unavailable", "Use a mobile development build to scan receipts.");
+      return;
+    }
+    const permission = cameraPermission?.granted ? cameraPermission : await requestCameraPermission();
+    if (!permission?.granted) {
+      AppAlert.alert("Permission Required", "Camera permission is required to scan receipts.");
+      return;
+    }
+    setCameraPurpose(purpose);
+    setCapturedReceipt(null);
+    setCameraLayout(null);
+    setCameraReady(false);
+    setCameraOpen(true);
+  };
+
+  useEffect(() => {
+    if (autoScan !== "1" || autoScanStarted.current || cameraPermission === null) return;
+    autoScanStarted.current = true;
+    openReceiptCamera("scan");
+    // The shortcut should launch once per screen mount, after camera permissions load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScan, cameraPermission]);
+
+  const closeReceiptCamera = () => {
+    setCameraOpen(false);
+    setCapturedReceipt(null);
+    setCameraReady(false);
+    setCapturing(false);
+  };
+
+  const captureReceipt = async () => {
+    if (!cameraRef.current || !cameraReady || capturing) return;
+    try {
+      setCapturing(true);
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.65 });
+      if (photo?.uri) {
+        const crop = receiptCropRect(photo, cameraLayout);
+        if (!crop) throw new Error("Camera frame dimensions are unavailable.");
+        const context = ImageManipulator.manipulate(photo.uri).crop(crop);
+        if (crop.width > 1600) context.resize({ width: 1600, height: null });
+        const rendered = await context.renderAsync();
+        const cropped = await rendered.saveAsync({ compress: 0.72, format: SaveFormat.JPEG });
+        setCapturedReceipt({ ...cropped, fileName: "receipt.jpg", mimeType: "image/jpeg" });
+      }
+    } catch (error) {
+      console.warn("Receipt capture failed:", error);
+      AppAlert.alert("Camera Error", "Could not capture the receipt. Please try again.");
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  const scanReceipt = async ({ asset: existingAsset = null } = {}) => {
+    if (scanInFlight.current) return;
+    scanInFlight.current = true;
+    let retainedAsset = existingAsset || receiptAsset;
     try {
       setScanning(true);
-
-      const res = await api.post("/api/mobile/fuel/scan", createReceiptFormData(asset));
-
-      if (res.receipt_url) {
-        setReceiptUrl(res.receipt_url);
+      if (Platform.OS === "web") {
+        startManualEntry();
+        AppAlert.alert("Scanner Unavailable", "Use a mobile development build to scan receipts.");
+        return;
       }
+      let asset = existingAsset;
+      if (!asset) {
+        await openReceiptCamera("scan");
+        return;
+      }
+      retainedAsset = asset;
+      setReceiptUrl(null);
+      setReceiptAsset(asset);
+      setEntryMethod("scan");
+      setMode("details");
 
-      if (res.extracted_data && Object.keys(res.extracted_data).length > 0) {
-        const d = res.extracted_data;
-        if (d.liters) setLiters(String(d.liters));
-        if (d.amount) setCost(String(d.amount));
-        if (d.station_name) setStation(d.station_name);
-        if (d.fuel_date) setFuelDate(d.fuel_date);
-        setEntryMethod("scan");
-        setMode("details");
-        AppAlert.alert("Receipt Scanned", "Please verify the extracted details.");
+      let d = {};
+      let receiptUploaded = false;
+      try {
+        const uploadResult = await api.post("/api/mobile/fuel/upload", createReceiptFormData(asset));
+        receiptUploaded = uploadResult?.receipt_url || false;
+        setReceiptUrl(receiptUploaded || null);
+        if (receiptUploaded) {
+          try {
+            const geminiResult = await api.post(
+              "/api/mobile/fuel/scan",
+              { receipt_url: receiptUploaded },
+              { queueOnFailure: false }
+            );
+            const geminiData = Object.fromEntries(
+              Object.entries(geminiResult?.extracted_data || {}).filter(([, value]) => value !== null && value !== "")
+            );
+            if (Object.keys(geminiData).length) {
+              d = geminiData;
+            }
+          } catch (error) {
+            console.warn("Gemini receipt scan skipped:", error.message);
+          }
+        }
+      } catch (error) {
+        console.warn("Receipt upload failed:", error);
+      }
+      if (d.liters) setLiters(String(d.liters));
+      if (d.amount) setCost(String(d.amount));
+      if (d.price_per_liter) setPricePerLiter(String(d.price_per_liter));
+      if (d.station_name) setStation(d.station_name);
+      if (d.fuel_date) setFuelDate(d.fuel_date);
+      if (Object.values(d).some(Boolean)) {
+        AppAlert.alert(
+          receiptUploaded ? "Receipt Scanned" : "Scan Incomplete",
+          receiptUploaded
+            ? "Gemini filled the details. Review them before saving."
+            : "The photo was kept, but upload did not complete. Retry the scan before saving."
+        );
       } else {
-        setEntryMethod("scan");
-        setMode("details");
-        AppAlert.alert("Scan Complete", "Gemini could not read every detail. Review the receipt and complete the missing fields.");
+        AppAlert.alert(
+          "Scan Incomplete",
+          receiptUploaded
+            ? "We couldn't read the receipt details. The photo is attached; enter the missing values manually."
+            : "The photo was kept, but upload did not complete. Retry or enter the details manually."
+        );
       }
     } catch (e) {
-      AppAlert.alert("Scan Error", e.message || "Failed to process receipt.");
+      if (retainedAsset) {
+        setEntryMethod("scan");
+        setMode("details");
+      }
+      AppAlert.alert("Scan Error", "The receipt could not be read. Your photo and entered details were kept; retry or continue manually.");
     } finally {
+      scanInFlight.current = false;
       setScanning(false);
     }
   };
+
+  const confirmCapturedReceipt = async () => {
+    if (!capturedReceipt || scanning) return;
+    const asset = capturedReceipt;
+    const purpose = cameraPurpose;
+    closeReceiptCamera();
+    setReceiptUrl(null);
+    setReceiptAsset(asset);
+    if (purpose === "upload") {
+      await uploadRawReceipt(asset);
+    } else {
+      await scanReceipt({ asset });
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    ImagePicker.getPendingResultAsync()
+      .then((result) => {
+        const asset = result?.assets?.[0];
+        if (active && asset) scanReceipt({ asset });
+      })
+      .catch((error) => console.warn("Could not recover captured receipt:", error));
+    return () => { active = false; };
+    // Recovery must run once on remount; scanReceipt intentionally uses the initial screen state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const uploadRawReceipt = async (asset) => {
     try {
@@ -173,14 +307,6 @@ export default function FuelReport() {
     }
   };
 
-  const startManualEntry = () => {
-    resetDetails();
-    setEntryMethod("manual");
-    setMode("details");
-    setReceiptUrl(null);
-    setReceiptAsset(null);
-  };
-
   const returnToOptions = () => {
     resetDetails();
     setMode("overview");
@@ -190,25 +316,23 @@ export default function FuelReport() {
   };
 
   const handleSubmit = async () => {
-    if (!odometer || !liters || !cost) {
-      AppAlert.alert("Missing Fields", "Enter Odometer, Volume, and Total Cost.");
+    if (!liters || !cost) {
+      AppAlert.alert("Missing Fields", "Enter Volume and Total Cost.");
       return;
     }
     if (!receiptUrl) {
       AppAlert.alert("Receipt Photo Required", "Add a receipt photo from your camera or gallery so the entered details can be verified.");
       return;
     }
-    const parsedOdometer = Number(odometer.replace(/,/g, ""));
     const parsedLiters = Number(liters.replace(/,/g, ""));
     const parsedCost = Number(cost.replace(/,/g, ""));
-    if (![parsedOdometer, parsedLiters, parsedCost].every(Number.isFinite) || parsedOdometer < 0 || parsedLiters <= 0 || parsedCost <= 0) {
-      AppAlert.alert("Invalid Values", "Enter valid positive numbers for odometer, volume, and total cost.");
+    if (![parsedLiters, parsedCost].every(Number.isFinite) || parsedLiters <= 0 || parsedCost <= 0) {
+      AppAlert.alert("Invalid Values", "Enter valid positive numbers for volume and total cost.");
       return;
     }
     try {
       setSubmitting(true);
       const payload = {
-        odometer: parsedOdometer,
         liters: parsedLiters,
         amount: parsedCost,
         station_name: station || "Unspecified",
@@ -231,6 +355,76 @@ export default function FuelReport() {
       setSubmitting(false);
     }
   };
+
+  if (cameraOpen) {
+    return (
+      <View style={styles.cameraScreen}>
+        {capturedReceipt ? (
+          <Image source={{ uri: capturedReceipt.uri }} style={styles.cameraPreview} resizeMode="contain" />
+        ) : (
+          <CameraView
+            ref={cameraRef}
+            style={styles.cameraView}
+            facing="back"
+            mode="picture"
+            onLayout={({ nativeEvent }) => setCameraLayout(nativeEvent.layout)}
+            onCameraReady={() => setCameraReady(true)}
+            onMountError={({ message }) => {
+              closeReceiptCamera();
+              AppAlert.alert("Camera Error", message || "Could not start the camera.");
+            }}
+          />
+        )}
+
+        <View style={[styles.cameraTopBar, { paddingTop: insets.top + 8 }]}>
+          <Pressable onPress={closeReceiptCamera} style={styles.cameraClose} accessibilityRole="button" accessibilityLabel="Close camera">
+            <Ionicons name="close" size={26} color="#fff" />
+          </Pressable>
+          <Text style={styles.cameraTitle}>{capturedReceipt ? "Review receipt" : "Capture receipt"}</Text>
+          <View style={styles.cameraClose} />
+        </View>
+
+        {!capturedReceipt ? (
+          <>
+            <View pointerEvents="none" style={styles.receiptGuide}>
+              <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
+            </View>
+            <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 20 }]}>
+              <Pressable
+                onPress={captureReceipt}
+                disabled={!cameraReady || capturing}
+                style={[styles.shutterButton, { opacity: !cameraReady || capturing ? 0.5 : 1 }]}
+                accessibilityRole="button"
+                accessibilityLabel="Capture receipt"
+              >
+                {capturing ? <ActivityIndicator color="#111" /> : <View style={styles.shutterInner} />}
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <View style={[styles.previewActions, { paddingBottom: insets.bottom + 20 }]}>
+            <Pressable
+              onPress={() => { setCapturedReceipt(null); setCameraReady(false); }}
+              style={styles.previewSecondaryButton}
+              accessibilityRole="button"
+            >
+              <Ionicons name="camera-reverse-outline" size={20} color="#fff" />
+              <Text style={styles.previewSecondaryText}>Retake</Text>
+            </Pressable>
+            <Pressable
+              onPress={confirmCapturedReceipt}
+              disabled={scanning}
+              style={styles.previewNextButton}
+              accessibilityRole="button"
+            >
+              <Text style={styles.previewNextText}>Next</Text>
+              <Ionicons name="arrow-forward" size={20} color="#111" />
+            </Pressable>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   if (submittedRecord) {
     return (
@@ -324,9 +518,8 @@ export default function FuelReport() {
           </Text>
         </View>
 
-        {/* Premium Double-Bezel Info Cards Grid */}
+        {/* Assigned vehicle */}
         <View style={styles.infoGrid}>
-          {/* Assigned Vehicle Double-Bezel Card */}
           <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
             <View style={styles.topGleam} />
             <View style={[styles.cardInnerCore, { backgroundColor: colors.surfaceContainerLow }]}>
@@ -357,52 +550,13 @@ export default function FuelReport() {
               </View>
             </View>
           </View>
-
-          {/* Current Fuel Level Double-Bezel Card */}
-          <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
-            <View style={styles.topGleam} />
-            <View style={[styles.cardInnerCore, { backgroundColor: colors.surfaceContainerLow }]}>
-              <View style={styles.cardHeaderRow}>
-                <View style={[styles.microBadge, { backgroundColor: (liters ? colors.secondaryContainer : colors.surfaceContainerHigh), borderColor: (liters ? colors.secondary + '40' : colors.outlineVariant + '30') }]}>
-                  <View style={[styles.microDot, { backgroundColor: (liters ? colors.secondary : colors.onSurfaceVariant) }]} />
-                  <Text style={[styles.microBadgeText, { color: (liters ? colors.onSecondaryContainer : colors.onSurfaceVariant) }]}>FUEL GAUGE</Text>
-                </View>
-                <View style={[styles.iconPill, { backgroundColor: colors.secondaryContainer }]}>
-                  <Ionicons name="water" size={15} color={colors.secondary} />
-                </View>
-              </View>
-
-              <View style={styles.fuelValueRow}>
-                <Text style={[styles.fuelLargeNumber, { color: colors.onSurface }]}>
-                  {liters ? `${((parseFloat(liters) / 70) * 100).toFixed(0)}` : "--"}
-                </Text>
-                <Text style={[styles.fuelPercentSign, { color: colors.secondary }]}>%</Text>
-                <Text style={[styles.fuelCapacityLabel, { color: colors.onSurfaceVariant }]}>
-                  {liters ? `${parseFloat(liters).toFixed(1)} L` : "70L cap"}
-                </Text>
-              </View>
-
-              {/* Tactical Progress Bar */}
-              <View style={[styles.fuelTrack, { backgroundColor: colors.surfaceContainerHighest }]}>
-                <View
-                  style={[
-                    styles.fuelProgress,
-                    {
-                      backgroundColor: colors.secondary,
-                      width: liters ? `${Math.min((parseFloat(liters) / 70) * 100, 100)}%` : "20%",
-                    },
-                  ]}
-                />
-              </View>
-            </View>
-          </View>
         </View>
 
         {mode === "overview" ? (
           <View style={styles.methodSection}>
             <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
             <Pressable
-              onPress={() => pickReceipt({ useCamera: true, scanWithAi: true })}
+              onPress={() => openReceiptCamera("scan")}
               disabled={scanning}
               style={({ pressed }) => [
                 styles.methodCard,
@@ -414,7 +568,7 @@ export default function FuelReport() {
               </View>
               <View style={styles.methodCopy}>
                 <Text style={[styles.methodCardTitle, { color: colors.onPrimary }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
-                <Text style={[styles.methodCardText, { color: colors.onPrimary }]}>Gemini reads the receipt and fills in the fuel details for you.</Text>
+                <Text style={[styles.methodCardText, { color: colors.onPrimary }]}>Crop the receipt and automatically fill the details.</Text>
               </View>
               <Ionicons name="chevron-forward" size={21} color={colors.onPrimary} />
             </Pressable>
@@ -450,25 +604,13 @@ export default function FuelReport() {
               <View>
                 <Text style={[styles.formTitle, { color: colors.onSurface }]}>Refuel Details</Text>
                 <Text style={[styles.formSubtitle, { color: colors.onSurfaceVariant }]}>
-                  {entryMethod === "scan" ? "Gemini-filled details. Review before saving." : "Enter the receipt values exactly as shown."}
+                  {entryMethod === "scan" ? "Scanned details. Review before saving." : "Enter the receipt values exactly as shown."}
                 </Text>
               </View>
               <View style={[styles.methodBadge, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name={entryMethod === "scan" ? "sparkles" : "create-outline"} size={14} color={colors.onPrimaryContainer} />
-                <Text style={[styles.methodBadgeText, { color: colors.onPrimaryContainer }]}>{entryMethod === "scan" ? "AI scan" : "Manual"}</Text>
+                <Ionicons name={entryMethod === "scan" ? "scan-outline" : "create-outline"} size={14} color={colors.onPrimaryContainer} />
+                <Text style={[styles.methodBadgeText, { color: colors.onPrimaryContainer }]}>{entryMethod === "scan" ? "Receipt scan" : "Manual"}</Text>
               </View>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>ODOMETER (KM)</Text>
-              <TextInput
-                style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                placeholder="e.g. 45250"
-                placeholderTextColor={colors.outline}
-                keyboardType="numeric"
-                value={odometer}
-                onChangeText={setOdometer}
-              />
             </View>
 
             <View style={styles.fieldRow}>
@@ -480,7 +622,7 @@ export default function FuelReport() {
                   placeholderTextColor={colors.outline}
                   keyboardType="decimal-pad"
                   value={liters}
-                  onChangeText={setLiters}
+                  onChangeText={(value) => { setLiters(value); setPricePerLiter(""); }}
                 />
               </View>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
@@ -491,7 +633,7 @@ export default function FuelReport() {
                   placeholderTextColor={colors.outline}
                   keyboardType="decimal-pad"
                   value={cost}
-                  onChangeText={setCost}
+                  onChangeText={(value) => { setCost(value); setPricePerLiter(""); }}
                 />
               </View>
             </View>
@@ -505,6 +647,31 @@ export default function FuelReport() {
                 value={station}
                 onChangeText={setStation}
               />
+            </View>
+
+            <View style={styles.fieldRow}>
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>REFUEL DATE</Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.outline}
+                  value={String(fuelDate).slice(0, 10)}
+                  onChangeText={setFuelDate}
+                />
+              </View>
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>PRICE / LITER</Text>
+                <View style={[styles.input, styles.readOnlyInput, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerHighest }]}>
+                  <Text style={{ color: colors.onSurface }}>
+                    {Number(pricePerLiter) > 0
+                      ? `₱${Number(pricePerLiter).toFixed(2)}`
+                      : Number(liters) > 0 && Number(cost) > 0
+                        ? `₱${(Number(cost) / Number(liters)).toFixed(2)}`
+                        : "—"}
+                  </Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.evidenceBlock}>
@@ -523,7 +690,7 @@ export default function FuelReport() {
               </View>
               {entryMethod === "manual" ? <View style={styles.evidenceButtons}>
                 <Pressable
-                  onPress={() => pickReceipt({ useCamera: true, scanWithAi: false })}
+                  onPress={() => openReceiptCamera("upload")}
                   disabled={scanning}
                   style={({ pressed }) => [
                     styles.evidenceBtn,
@@ -534,7 +701,7 @@ export default function FuelReport() {
                   <Text style={[styles.evidenceBtnText, { color: colors.onPrimary }]}>{scanning ? "Uploading..." : "Take photo"}</Text>
                 </Pressable>
                 <Pressable
-                  onPress={() => pickReceipt({ useCamera: false, scanWithAi: false })}
+                  onPress={pickReceipt}
                   disabled={scanning}
                   style={({ pressed }) => [
                     styles.evidenceBtn,
@@ -547,7 +714,7 @@ export default function FuelReport() {
                 </Pressable>
               </View> : (
                 <Pressable
-                  onPress={() => pickReceipt({ useCamera: true, scanWithAi: true })}
+                  onPress={() => receiptAsset && !receiptUrl ? scanReceipt({ asset: receiptAsset }) : openReceiptCamera("scan")}
                   disabled={scanning}
                   style={({ pressed }) => [
                     styles.rescanBtn,
@@ -555,11 +722,13 @@ export default function FuelReport() {
                   ]}
                 >
                   <Ionicons name="scan-outline" size={18} color={colors.primary} />
-                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>{scanning ? "Scanning..." : "Scan receipt again"}</Text>
+                  <Text style={[styles.evidenceBtnText, { color: colors.primary }]}>
+                    {scanning ? "Scanning..." : receiptAsset && !receiptUrl ? "Retry scan" : "Scan receipt again"}
+                  </Text>
                 </Pressable>
               )}
               {scanning ? (
-                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>{entryMethod === "scan" ? "Gemini is reading the receipt..." : "Uploading receipt photo..."}</Text>
+                <Text style={[styles.evidencePending, { color: colors.onSurfaceVariant }]}>{entryMethod === "scan" ? "Reading and uploading the receipt..." : "Uploading receipt photo..."}</Text>
               ) : receiptUrl ? (
                 <Text style={[styles.evidenceReady, { color: colors.success || colors.primary }]}>Receipt attached and ready for review</Text>
               ) : receiptAsset ? (
@@ -617,6 +786,100 @@ export default function FuelReport() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  cameraScreen: { flex: 1, backgroundColor: "#000" },
+  cameraView: { flex: 1 },
+  cameraPreview: { flex: 1, backgroundColor: "#000" },
+  cameraTopBar: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(0,0,0,0.58)",
+  },
+  cameraClose: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  cameraTitle: { color: "#fff", fontSize: 17, fontFamily: fonts.displayBold },
+  receiptGuide: {
+    position: "absolute",
+    top: `${RECEIPT_FRAME.top * 100}%`,
+    bottom: `${RECEIPT_FRAME.bottom * 100}%`,
+    left: RECEIPT_FRAME.left,
+    right: RECEIPT_FRAME.right,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.9)",
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "flex-end",
+    padding: 14,
+  },
+  receiptGuideText: {
+    color: "#fff",
+    fontSize: 13,
+    fontFamily: fonts.bodySemiBold,
+    backgroundColor: "rgba(0,0,0,0.62)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  cameraBottomBar: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    minHeight: 128,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.58)",
+  },
+  shutterButton: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    backgroundColor: "#fff",
+    borderWidth: 5,
+    borderColor: "rgba(255,255,255,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: "#fff", borderWidth: 2, borderColor: "#111" },
+  previewActions: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+    flexDirection: "row",
+    gap: 12,
+    backgroundColor: "rgba(0,0,0,0.72)",
+  },
+  previewSecondaryButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.45)",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  previewSecondaryText: { color: "#fff", fontSize: 15, fontFamily: fonts.bodySemiBold },
+  previewNextButton: {
+    flex: 1,
+    minHeight: 52,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  previewNextText: { color: "#111", fontSize: 15, fontFamily: fonts.bodySemiBold },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
@@ -722,37 +985,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.bodyMedium || fonts.body,
   },
-  fuelValueRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 2,
-    marginTop: 2,
-  },
-  fuelLargeNumber: {
-    fontSize: 26,
-    fontFamily: fonts.displayBold,
-    letterSpacing: -1,
-    lineHeight: 30,
-  },
-  fuelPercentSign: {
-    fontSize: 14,
-    fontFamily: fonts.displayBold,
-  },
-  fuelCapacityLabel: {
-    fontSize: 11,
-    fontFamily: fonts.bodyMedium || fonts.body,
-    marginLeft: 6,
-  },
-  fuelTrack: {
-    height: 5,
-    borderRadius: 2.5,
-    overflow: 'hidden',
-    marginTop: 6,
-  },
-  fuelProgress: {
-    height: '100%',
-    borderRadius: 2.5,
-  },
   formCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -782,6 +1014,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: fonts.body,
   },
+  readOnlyInput: { justifyContent: "center" },
   submitBtn: {
     height: 52,
     borderRadius: 16,

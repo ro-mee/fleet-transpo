@@ -1,6 +1,5 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
-import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
 
 /**
@@ -20,7 +19,6 @@ const WRITABLE_COLUMNS = [
   "station_name",
   "liters",
   "amount",
-  "odometer",
   "fuel_date",
   "receipt_url",
   "client_submission_id",
@@ -75,7 +73,7 @@ export async function POST(req) {
       if (!Number.isInteger(tripId)) return err("Invalid trip id", 400);
 
       const { rows } = await query(
-        `SELECT t.trip_id, t.vehicle_id, v.fuel_type
+        `SELECT t.trip_id, t.vehicle_id, v.fuel_type, v.mileage
            FROM trips t
            JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
           WHERE t.trip_id = $1 AND t.driver_id = $2 AND t.deleted_at IS NULL
@@ -89,7 +87,7 @@ export async function POST(req) {
     } else {
       // No trip named: fall back to the driver's most recent usable trip.
       const { rows } = await query(
-        `SELECT t.trip_id, t.vehicle_id, v.fuel_type
+        `SELECT t.trip_id, t.vehicle_id, v.fuel_type, v.mileage
            FROM trips t
            JOIN vehicles v ON v.vehicle_id = t.vehicle_id AND v.deleted_at IS NULL
           WHERE t.driver_id = $1
@@ -116,18 +114,6 @@ export async function POST(req) {
       return err("Fuel can only be reported for the vehicle on your trip", 403);
     }
 
-    if (body.odometer !== undefined) {
-      const { rows: vehicleRows } = await query(
-        `SELECT mileage FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
-        [trip.vehicle_id]
-      );
-      const odo = validateOdometerReading({
-        reading: body.odometer,
-        currentMileage: vehicleRows[0]?.mileage,
-      });
-      if (!odo.ok) return err(odo.error, 400);
-    }
-
     const columns = [];
     const values = [];
     const { rows: duplicate } = await query(
@@ -142,9 +128,10 @@ export async function POST(req) {
       }
     }
 
-    columns.push("price_per_liter", "fuel_type", "vehicle_id", "trip_id", "driver_id", "created_by", "status");
+    columns.push("price_per_liter", "odometer", "fuel_type", "vehicle_id", "trip_id", "driver_id", "created_by", "status");
     values.push(
       Number((amount / liters).toFixed(2)),
+      trip.mileage,
       trip.fuel_type || "Unspecified",
       trip.vehicle_id,
       trip.trip_id,

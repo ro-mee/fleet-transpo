@@ -59,8 +59,6 @@ Trip status grouping, tones, and the next-available driver action come from
 ## Not implemented
 
 - Guest experience
-- Receipt camera and OCR (`docs/mobile-mvp.md` requires driver review of
-  extracted values before submission)
 - Push notifications and offline sync
 - Background location — foreground only, so position stops updating when the
   driver leaves the app

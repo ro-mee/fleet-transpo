@@ -39,6 +39,21 @@
       "expo-router",
       "expo-secure-store",
       [
+        "expo-image-picker",
+        {
+          "cameraPermission": "FleetOps uses the camera to scan fuel receipts.",
+          "photosPermission": "FleetOps uses your photo library to attach fuel receipts.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FleetOps uses the camera to scan fuel receipts.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-location",
         {
           "locationWhenInUsePermission": "FleetOps shares your location with dispatch while you are on an active trip.",
@@ -52,8 +67,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "6c79b4f9-0061-4eb5-a07f-b7b0be559f43"
+        "projectId": "a3c14c6f-3fcd-41f4-acf8-36d37747fc5e"
       }
-    }
+    },
+    "owner": "fleet23s-team"
   }
 }
