@@ -25,8 +25,6 @@ import { join } from "node:path";
 import { loadEnvLocal } from "./load-env.mjs";
 import { Pool } from "pg";
 
-loadEnvLocal();
-
 const DIR = "supabase/migrations";
 const LEGACY_DUPLICATES = new Map([
   ["036", ["036_dispatch_cancel_reason.sql", "036_trip_lifecycle_status.sql"]],
@@ -251,6 +249,7 @@ if (cmd === "check") {
   COMMANDS[cmd]();
   process.exit(0);
 }
+if (!process.env.DATABASE_URL) loadEnvLocal();
 if (!process.env.DATABASE_URL) {
   console.error("DATABASE_URL is not set (.env.local or .env).");
   process.exit(1);
