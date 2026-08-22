@@ -93,7 +93,13 @@ export function useTripTracking(tripId) {
           if (!cancelled) setError("Location not sent. Retrying.");
         }
       }, POST_INTERVAL_MS);
-    })();
+    })().catch((e) => {
+      if (!cancelled) {
+        setPosting(false);
+        setError("Current location is unavailable. Turn on Location services to resume tracking.");
+      }
+      console.warn("Location tracking unavailable:", e.message);
+    });
 
     return () => {
       cancelled = true;

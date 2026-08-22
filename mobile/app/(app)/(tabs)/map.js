@@ -313,7 +313,9 @@ export default function MapTab() {
           console.warn("Compass not available on this device", e);
       }
 
-    })();
+    })().catch((error) => {
+      console.warn("Location unavailable:", error.message);
+    });
     return () => {
       if (subscription) subscription.remove();
       if (headingSubscription) headingSubscription.remove();
