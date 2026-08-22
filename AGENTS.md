@@ -16,7 +16,7 @@ npm run db:up       # apply pending, each in its own transaction
 npm run db:dump     # refresh schema.sql from the live DB
 ```
 
-`scripts/migrate.mjs` records every apply in the `schema_migrations` ledger, keyed by **full filename** (version numbers are duplicated in this repo — 019 appears three times). It refuses to run if an already-applied file's checksum changed, and it applies in filename order inside `BEGIN; ... COMMIT;`.
+`scripts/migrate.mjs` records every apply in the `schema_migrations` ledger, keyed by **full filename** (version numbers 036, 037, 059 and 060 are duplicated historically — this exact set is frozen by `npm run db:check`, which also validates filenames and runs without a DB). It refuses to run if an already-applied file's checksum changed, and it applies in filename order inside `BEGIN; ... COMMIT;`.
 
 Rules when adding a migration:
 
