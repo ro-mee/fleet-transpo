@@ -15,6 +15,6 @@ export async function GET(req) {
     // Number(): pg returns `distance` (numeric) as a string. Without this the
     // per-vehicle distance concatenated ("05.204.80") and totalDistance with it.
     const byVehicle = (trips || []).reduce((acc, t) => { const p = t.vehicles?.plate_number || "Unknown"; const d = Number(t.distance) || 0; const e = acc.find(a => a.plate === p); if (e) { e.trips++; e.distance += d; } else acc.push({ plate: p, trips: 1, distance: d }); return acc; }, []);
-    return ok({ utilization: total ? Math.round((active/total)*100) : 0, totalTrips: (trips||[]).length, totalDistance: (trips||[]).reduce((s,t)=>s+(Number(t.distance)||0),0), byVehicle });
+    return ok({ utilization: total ? Math.round((active / total) * 100) : 0, totalTrips: (trips || []).length, totalDistance: (trips || []).reduce((s, t) => s + (Number(t.distance) || 0), 0), byVehicle });
   } catch (e) { return handleError(e); }
 }

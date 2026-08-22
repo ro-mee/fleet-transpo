@@ -130,10 +130,10 @@ function PremiumTooltip({ active, payload, label }) {
             key.includes("share") || key.includes("cumulative")
               ? `${Number(entry.value || 0)}%`
               : key.includes("cost") || key.includes("expense") || key.includes("spend")
-              ? money(entry.value)
-              : key.includes("liters") || key.includes("volume")
-              ? `${Number(entry.value || 0).toLocaleString()} L`
-              : Number(entry.value || 0).toLocaleString();
+                ? money(entry.value)
+                : key.includes("liters") || key.includes("volume")
+                  ? `${Number(entry.value || 0).toLocaleString()} L`
+                  : Number(entry.value || 0).toLocaleString();
           return (
             <div key={`${entry.name}-${entry.dataKey}`} className="flex items-center justify-between gap-6">
               <span className="flex items-center gap-2 text-xs font-medium opacity-85">
@@ -223,44 +223,44 @@ export default function ReportsPage() {
 
   return (
     <MotionConfig reducedMotion="user">
-    <motion.main initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, ease: EASE }} className="w-full space-y-6 pb-14">
-      <HeroHeader icon={FileSpreadsheet} title="Fleet Reports & Operational Intelligence" badge="Reports Engine" description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost." actions={<Button onClick={handleExport} disabled={!activeQuery?.data} className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs", heroButtonPrimaryClass)}><ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />Export Report CSV<span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white"><Zap className="h-4 w-4" strokeWidth={1.75} /></span></Button>}>
-        <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-black/70"><span className="h-2 w-2 rounded-full bg-emerald-400" />Live reporting window</span>
-      </HeroHeader>
+      <motion.main initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, ease: EASE }} className="w-full space-y-6 pb-14">
+        <HeroHeader icon={FileSpreadsheet} title="Fleet Reports & Operational Intelligence" badge="Reports Engine" description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost." actions={<Button onClick={handleExport} disabled={!activeQuery?.data} className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs", heroButtonPrimaryClass)}><ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />Export Report CSV<span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white"><Zap className="h-4 w-4" strokeWidth={1.75} /></span></Button>}>
+          <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-black/70"><span className="h-2 w-2 rounded-full bg-emerald-400" />Live reporting window</span>
+        </HeroHeader>
 
-      <section className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2.5">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary"><Calendar className="h-4 w-4" strokeWidth={1.75} /></span>
-            <div><p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Timeframe Period</p><p className="mt-0.5 text-[11px] font-medium text-foreground-muted">{dateBounds.from} to {dateBounds.to}</p></div>
+        <section className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 text-primary"><Calendar className="h-4 w-4" strokeWidth={1.75} /></span>
+              <div><p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Timeframe Period</p><p className="mt-0.5 text-[11px] font-medium text-foreground-muted">{dateBounds.from} to {dateBounds.to}</p></div>
+            </div>
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{presets.map((item) => <button key={item.id} type="button" onClick={() => setPreset(item.id)} aria-pressed={preset === item.id} className={cn("relative shrink-0 rounded-full px-4 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", preset === item.id ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{preset === item.id && <motion.span layoutId="reports-timeframe-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10">{item.label}</span></button>)}</div>
           </div>
-          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{presets.map((item) => <button key={item.id} type="button" onClick={() => setPreset(item.id)} aria-pressed={preset === item.id} className={cn("relative shrink-0 rounded-full px-4 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", preset === item.id ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{preset === item.id && <motion.span layoutId="reports-timeframe-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10">{item.label}</span></button>)}</div>
-        </div>
-        {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" /></div>}
-      </section>
+          {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" /></div>}
+        </section>
 
-      <nav aria-label="Report categories" className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><BarChart3 className="h-4 w-4" strokeWidth={1.75} /></span><div><p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Report Type</p><p className="mt-0.5 text-[11px] font-medium text-foreground-muted">{selectedMeta?.description}</p></div></div>
-          <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{REPORT_TYPES.map((item) => { const Icon = item.icon; const active = selectedReport === item.id; return <button key={item.id} type="button" onClick={() => setSelectedReport(item.id)} aria-pressed={active} className={cn("relative shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", active ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{active && <motion.span layoutId="reports-type-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10 flex items-center gap-1.5"><Icon className="h-3.5 w-3.5" strokeWidth={1.75} />{item.short}</span></button>; })}</div>
-        </div>
-      </nav>
+        <nav aria-label="Report categories" className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-center gap-2.5"><span className="flex h-8 w-8 items-center justify-center rounded-xl border border-info/20 bg-info/10 text-info"><BarChart3 className="h-4 w-4" strokeWidth={1.75} /></span><div><p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Report Type</p><p className="mt-0.5 text-[11px] font-medium text-foreground-muted">{selectedMeta?.description}</p></div></div>
+            <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{REPORT_TYPES.map((item) => { const Icon = item.icon; const active = selectedReport === item.id; return <button key={item.id} type="button" onClick={() => setSelectedReport(item.id)} aria-pressed={active} className={cn("relative shrink-0 rounded-full px-3.5 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", active ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{active && <motion.span layoutId="reports-type-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10 flex items-center gap-1.5"><Icon className="h-3.5 w-3.5" strokeWidth={1.75} />{item.short}</span></button>; })}</div>
+          </div>
+        </nav>
 
-      <motion.div key={`analyst-${selectedReport}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
-        <AiAnalystCard title={`AI analyst - ${reportLabel}`} reportLabel="Number-grounded analysis for the selected window" data={narrative.data} loading={narrative.isLoading || narrative.isFetching} onRegenerate={() => setNarrativeForce((v) => v + 1)} isRegenerating={narrative.isFetching} />
-      </motion.div>
+        <motion.div key={`analyst-${selectedReport}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
+          <AiAnalystCard title={`AI analyst - ${reportLabel}`} reportLabel="Number-grounded analysis for the selected window" data={narrative.data} loading={narrative.isLoading || narrative.isFetching} onRegenerate={() => setNarrativeForce((v) => v + 1)} isRegenerating={narrative.isFetching} />
+        </motion.div>
 
-      <motion.div key={selectedReport} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: [0.32, 0.72, 0, 1] }} className="space-y-5">
-        <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{selectedMeta?.short} report</p><h2 className="mt-1 text-2xl font-semibold tracking-[-0.025em] text-foreground">{selectedMeta?.label}</h2></div><p className="text-xs text-foreground-muted">{selectedMeta?.description}</p></div>
+        <motion.div key={selectedReport} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: [0.32, 0.72, 0, 1] }} className="space-y-5">
+          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{selectedMeta?.short} report</p><h2 className="mt-1 text-2xl font-semibold tracking-[-0.025em] text-foreground">{selectedMeta?.label}</h2></div><p className="text-xs text-foreground-muted">{selectedMeta?.description}</p></div>
 
-        {selectedReport === "fleet" && <FleetReport query={fleet} data={fleetData} />}
-        {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} />}
-        {selectedReport === "maintenance" && <MaintenanceReport query={maintenance} data={maintenanceData} due={maintDue} />}
-        {selectedReport === "drivers" && <DriversReport query={drivers} data={driverData} />}
-        {selectedReport === "financial" && <FinancialReport query={financial} data={costData} total={totalCost} />}
+          {selectedReport === "fleet" && <FleetReport query={fleet} data={fleetData} />}
+          {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} />}
+          {selectedReport === "maintenance" && <MaintenanceReport query={maintenance} data={maintenanceData} due={maintDue} />}
+          {selectedReport === "drivers" && <DriversReport query={drivers} data={driverData} />}
+          {selectedReport === "financial" && <FinancialReport query={financial} data={costData} total={totalCost} />}
 
-      </motion.div>
-    </motion.main>
+        </motion.div>
+      </motion.main>
     </MotionConfig>
   );
 }
