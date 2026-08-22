@@ -606,32 +606,28 @@ export default function AnalyticsPage() {
   const kpis = [
     {
       label: "Total Operational Cost",
-      value: formatCurrency(fi.totalCost || 148500),
+      value: formatCurrency(fi.totalCost || 0),
       tone: "success",
-      delta: "+4.2%",
-      deltaIcon: true,
       context: "Fuel & maintenance total",
     },
     {
       label: "Cost Per Kilometer",
-      value: formatCurrency(fi.costPerKm || 14.85),
+      value: formatCurrency(fi.costPerKm || 0),
       tone: "primary",
-      delta: "Optimal",
-      context: `${formatDistance(f.totalDistance || 10000)} total distance`,
+      context: `${formatDistance(f.totalDistance || 0)} total distance`,
     },
     {
       label: "Fleet Utilization",
-      value: `${f.utilization || 78}%`,
+      value: `${f.utilization || 0}%`,
       tone: "info",
-      delta: "High Capacity",
-      context: `${f.totalTrips || 142} total trips completed`,
+      context: `${f.totalTrips || 0} total trips completed`,
     },
     {
       label: "Maintenance Risk Due",
-      value: maintDue || 3,
-      tone: "danger",
-      delta: "Action Needed",
-      context: `${maintDue || 3} vehicles need service`,
+      value: maintDue || 0,
+      tone: maintDue > 0 ? "danger" : "success",
+      delta: maintDue > 0 ? "Action Needed" : null,
+      context: `${maintDue || 0} vehicles need service`,
     },
   ];
 
