@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api/client";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
@@ -15,11 +16,16 @@ import {
   CarFront, CheckCircle2, Navigation, Wrench, AlertTriangle, RefreshCw, Eye, Calendar, Hash, MapPin
 } from "lucide-react";
 
+// Tabs mirror the canonical vehicle_status CHECK values exactly, so every
+// vehicle is reachable from this board (Reserved / Registration Expired used to
+// be silently dropped from all tab counts).
 const TABS = [
   { id: "Available", label: "Available", icon: CheckCircle2 },
-  { id: "On Trip", label: "On Trip", icon: Navigation },
-  { id: "Maintenance", label: "Maintenance", icon: Wrench },
-  { id: "Out of Service", label: "Out of Service", icon: AlertTriangle },
+  { id: "In Use", label: "In Use", icon: Navigation },
+  { id: "Under Maintenance", label: "Under Maintenance", icon: Wrench },
+  { id: "Reserved", label: "Reserved", icon: Calendar },
+  { id: "Registration Expired", label: "Registration Expired", icon: AlertTriangle },
+  { id: "Decommissioned", label: "Out of Service", icon: AlertTriangle },
 ];
 
 export default function FleetAvailabilityBoard() {
@@ -208,15 +214,8 @@ export default function FleetAvailabilityBoard() {
           })}
         </div>
 
-        <div className="relative flex-1 sm:max-w-xs">
-          <input
-            className="w-full h-9 px-3 rounded-xl bg-surface border border-border/80 text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 transition-colors"
-            placeholder="Search plate or model..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            aria-label="Search vehicles"
-          />
-        </div>
+        {/* The DataTable below owns search — a second input bound to the same
+            state here only duplicated the field. */}
       </div>
 
       {isLoading ? (
@@ -316,7 +315,13 @@ export default function FleetAvailabilityBoard() {
                   </div>
                 </div>
               </div>
-              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end">
+              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end gap-2">
+                <Link
+                  href={`/fleet/vehicles/${selectedVehicle.vehicle_id}`}
+                  className="inline-flex items-center h-9 px-4 rounded-xl bg-primary text-white dark:text-slate-950 text-xs font-semibold hover:bg-primary/90 transition-colors"
+                >
+                  Open vehicle record
+                </Link>
                 <Button variant="outline" className="rounded-xl shadow-xs h-9 px-4 text-xs font-semibold" onClick={() => setSelectedVehicle(null)}>Close</Button>
               </div>
             </>
