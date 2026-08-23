@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -90,11 +90,7 @@ export default function RoutesPage() {
       }),
       columnHelper.accessor("status", {
         header: "Status",
-        cell: (info) => (
-          <Badge variant={info.getValue() === "Active" ? "success" : "secondary"}>
-            {info.getValue()}
-          </Badge>
-        ),
+        cell: (info) => <StatusBadge status={info.getValue()} entity="route" />,
       }),
     ],
     []

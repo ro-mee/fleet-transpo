@@ -458,10 +458,12 @@ export default function NewDriverPage() {
                     <DatePicker
                       id="license_expiry"
                       label="License Expiration Date"
-                      disablePast={true}
                       value={form.watch("license_expiry")}
                       onChange={(val) => form.setValue("license_expiry", val)}
                     />
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      Expired documents are allowed — status will reflect compliance risk.
+                    </p>
                   </div>
 
                   <FloatingSelect label="Vehicle License Class" icon={IdCard} required id="license_class" {...form.register("license_class")}>
@@ -498,9 +500,9 @@ export default function NewDriverPage() {
                     />
                   </FloatingField>
 
-                  <FloatingSelect label="Initial Duty Status" icon={UserCheck} className="md:col-span-2" id="driver_status" {...form.register("driver_status")}>
+                    <FloatingSelect label="Initial Duty Status" icon={UserCheck} className="md:col-span-2" id="driver_status" {...form.register("driver_status")}>
                       <option value="Available">Available (Ready for Dispatch)</option>
-                      <option value="On Duty">On Duty (Assigned)</option>
+                      <option value="On Trip">On Trip</option>
                       <option value="Off Duty">Off Duty (Resting)</option>
                       <option value="On Leave">On Leave</option>
                       <option value="Suspended">Suspended</option>
@@ -620,7 +622,7 @@ export default function NewDriverPage() {
                     <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
-                        accept="image/*,.pdf"
+                        accept="image/*"
                         onChange={handleFrontUpload}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
@@ -733,7 +735,7 @@ export default function NewDriverPage() {
                     <div className="relative border-2 border-dashed border-border hover:border-primary/50 rounded-2xl p-4 text-center transition-all bg-muted/20 cursor-pointer group hover:bg-hover hover:shadow-[0_0_0_4px_color-mix(in_srgb,var(--primary)_8%,transparent)]">
                       <input
                         type="file"
-                        accept="image/*,.pdf"
+                        accept="image/*"
                         onChange={handleBackUpload}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />

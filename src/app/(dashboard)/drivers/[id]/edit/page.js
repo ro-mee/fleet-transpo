@@ -466,10 +466,12 @@ export default function EditDriverPage() {
                     <DatePicker
                       id="license_expiry"
                       label="License Expiration Date"
-                      disablePast={true}
                       value={form.watch("license_expiry")}
                       onChange={(val) => form.setValue("license_expiry", val)}
                     />
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      Expired documents are allowed — status will reflect compliance risk.
+                    </p>
                   </div>
 
                   <FloatingField label="Vehicle License Class" icon={IdCard} required>
@@ -502,6 +504,7 @@ export default function EditDriverPage() {
                       className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
                     >
                       <option value="Available">Available</option>
+                      <option value="On Trip">On Trip</option>
                       <option value="Off Duty">Off Duty</option>
                       <option value="On Leave">On Leave</option>
                       <option value="Suspended">Suspended</option>
@@ -583,7 +586,7 @@ export default function EditDriverPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/*,.pdf" onChange={handleFrontUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      <input type="file" accept="image/*" onChange={handleFrontUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                       <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
                         <Upload className="w-4 h-4 text-primary" /> Upload Front Scan
                       </div>
@@ -650,7 +653,7 @@ export default function EditDriverPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/*,.pdf" onChange={handleBackUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      <input type="file" accept="image/*" onChange={handleBackUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                       <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
                         <Upload className="w-4 h-4 text-primary" /> Upload Back Scan
                       </div>

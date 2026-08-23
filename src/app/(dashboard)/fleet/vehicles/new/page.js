@@ -505,10 +505,12 @@ export default function VehicleFormPage({ params }) {
                     <DatePicker
                       id="insurance_expiry"
                       label="Insurance Policy Expiry"
-                      disablePast={true}
                       value={form.watch("insurance_expiry")}
                       onChange={(val) => form.setValue("insurance_expiry", val)}
                     />
+                    <p className="text-[11px] text-foreground-muted mt-1.5">
+                      Expired documents are allowed — status will reflect compliance risk.
+                    </p>
                   </div>
 
                   <FloatingField label="Service Interval (km)" icon={Wrench}>

@@ -4,20 +4,45 @@ import { useQuery } from "@tanstack/react-query";
 import { getDriverPerformanceReport } from "@/services/report.service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
-import { Users, TrendingUp, AlertTriangle, Star, Award, Eye } from "lucide-react";
+import { Users, TrendingUp, AlertTriangle, Star, Award, Eye, RefreshCw } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { cn } from "@/lib/utils";
+
+// Mirrors QueryBoundary's error state — a failed report must never read as an
+// empty roster or all-zero KPIs.
+function DriverPerfErrorPanel({ onRetry, busy }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40"
+      role="alert"
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 mb-4">
+        <AlertTriangle className="w-5 h-5 text-danger" />
+      </div>
+      <p className="text-sm font-medium text-foreground">Couldn&apos;t load driver performance data</p>
+      <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">
+        The rankings and scores below are unavailable because the report failed to load.
+      </p>
+      <Button variant="outline" size="sm" className="mt-4 cursor-pointer" onClick={onRetry} disabled={busy}>
+        <RefreshCw className={cn("mr-2 h-3.5 w-3.5", busy && "animate-spin")} />
+        Try again
+      </Button>
+    </div>
+  );
+}
 
 export default function DriverPerformancePage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
   const router = useRouter();
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["driver-performance"],
     queryFn: () => getDriverPerformanceReport(),
   });
@@ -53,11 +78,12 @@ export default function DriverPerformancePage() {
     {
       key: "driver_status",
       label: "Status",
-      render: (val) => (
-        <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs font-bold">
-          {val || "—"}
-        </Badge>
-      ),
+      render: (val) =>
+        val ? (
+          <StatusBadge status={val} entity="driver" className="rounded-full px-3 py-1 text-xs font-bold capitalize" />
+        ) : (
+          <span className="text-xs text-foreground-muted">—</span>
+        ),
     },
     {
       key: "total_trips",
@@ -98,7 +124,13 @@ export default function DriverPerformancePage() {
     },
     {
       key: "performance_score",
-      label: "Score",
+      // Provenance for the number: the API computes AVG(smooth_driving_score)
+      // across the driver's completed trips (api/reports/driver-performance).
+      label: (
+        <span title="Average smooth-driving score reported per completed trip" className="cursor-help">
+          Score
+        </span>
+      ),
       sortable: true,
       render: (val) => {
         const score = Number(val || 0);
@@ -140,32 +172,51 @@ export default function DriverPerformancePage() {
         title="Driver Performance Center"
         badge="Analytics"
         description="On-time rate, completed trips, incidents and performance scores per driver."
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => refetch()}
+            disabled={isRefetching}
+            title="Refresh performance data"
+            aria-label="Refresh performance data"
+            className="rounded-full cursor-pointer text-foreground-secondary hover:text-foreground"
+          >
+            <RefreshCw className={cn("w-4 h-4", isRefetching && "animate-spin")} />
+          </Button>
+        }
       />
 
-      {/* ── KPI Stat Cards Grid ── */}
-      <StatGrid cols={4}>
-        {kpis.map((k) => (
-          <StatCard key={k.label} icon={k.icon} label={k.label} value={isLoading ? "..." : k.value} trend={k.trend} tone={k.tone} />
-        ))}
-      </StatGrid>
+      {isError ? (
+        <DriverPerfErrorPanel onRetry={() => refetch()} busy={isRefetching} />
+      ) : (
+        <>
+          {/* ── KPI Stat Cards Grid ── */}
+          <StatGrid cols={4}>
+            {kpis.map((k) => (
+              <StatCard key={k.label} icon={k.icon} label={k.label} value={isLoading ? "—" : k.value} trend={k.trend} tone={k.tone} />
+            ))}
+          </StatGrid>
 
-      {/* ── Driver Rankings DataTable Card ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-        <CardContent className="p-0">
-          <DataTable
-            columns={columns}
-            data={details}
-            pageSize={10}
-            title="Driver Rankings & Scorecard"
-            description={`${details.length} drivers evaluated in current performance period.`}
-            icon={Award}
-            context="Scorecard"
-            searchPlaceholder="Search drivers by name..."
-            isLoading={isLoading}
-            onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
-          />
-        </CardContent>
-      </Card>
+          {/* ── Driver Rankings DataTable Card ── */}
+          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+            <CardContent className="p-0">
+              <DataTable
+                columns={columns}
+                data={details}
+                pageSize={10}
+                title="Driver Rankings & Scorecard"
+                description={`${details.length} drivers evaluated in current performance period.`}
+                icon={Award}
+                context="Scorecard"
+                searchPlaceholder="Search drivers by name..."
+                isLoading={isLoading}
+                onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
+              />
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }

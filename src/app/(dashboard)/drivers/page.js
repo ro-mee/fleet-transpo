@@ -42,6 +42,7 @@ export default function DriversPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [licenseClassFilter, setLicenseClassFilter] = useState("all");
   const [deletingId, setDeletingId] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const {
     data: drivers = [],
@@ -91,6 +92,28 @@ export default function DriversPage() {
   });
 
   const s = stats || { total: 0, available: 0, onTrip: 0, offDuty: 0, onLeave: 0, suspended: 0 };
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      exportToCSV(drivers, "drivers", [
+        { label: "Driver ID", key: "driver_id" },
+        { label: "Name", accessor: (d) => (d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "") },
+        { label: "Email", accessor: (d) => d.employees?.email || "" },
+        { label: "Phone", accessor: (d) => d.employees?.phone || "" },
+        { label: "License #", key: "license_number" },
+        { label: "License Expiry", key: "license_expiry" },
+        { label: "License Class", key: "license_class" },
+        { label: "Experience (yrs)", key: "years_of_experience" },
+        { label: "Status", key: "driver_status" },
+      ]);
+      toast.success(`Exported ${drivers.length} driver${drivers.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err?.message || "Failed to export drivers");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const statCards = [
     { label: "Total Drivers", value: s.total, icon: Users, tone: "primary", status: "all" },
@@ -254,22 +277,11 @@ export default function DriversPage() {
             <Button
               variant="outline"
               className={cn(heroButtonOutlineClass)}
-              onClick={() =>
-                exportToCSV(drivers, "drivers", [
-                  { label: "Driver ID", key: "driver_id" },
-                  { label: "Name", accessor: (d) => (d.employees ? `${d.employees.first_name} ${d.employees.last_name}` : "") },
-                  { label: "Email", accessor: (d) => d.employees?.email || "" },
-                  { label: "Phone", accessor: (d) => d.employees?.phone || "" },
-                  { label: "License #", key: "license_number" },
-                  { label: "License Expiry", key: "license_expiry" },
-                  { label: "License Class", key: "license_class" },
-                  { label: "Experience (yrs)", key: "years_of_experience" },
-                  { label: "Status", key: "driver_status" },
-                ])
-              }
+              onClick={handleExport}
+              disabled={exporting || !drivers.length}
             >
               <Download className="w-4 h-4 mr-2" />
-              Export CSV
+              {exporting ? "Exporting..." : "Export CSV"}
             </Button>
             <Button onClick={() => router.push("/drivers/new")} className={cn(heroButtonPrimaryClass)}>
               <Plus className="w-4 h-4 mr-2" />
@@ -326,7 +338,14 @@ export default function DriversPage() {
             icon={Users}
             context={statusFilter === "all" ? "All Drivers" : statusFilter}
             searchPlaceholder="Search drivers by name or email..."
-            onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
+            onRowClick={(row) => {
+              // Requires-completion rows are employee shells without a driver
+              // record yet — there is no detail page to open for them.
+              if (row.driver_id) router.push(`/drivers/${row.driver_id}`);
+            }}
+            getRowLabel={(row) =>
+              row.employees ? `${row.employees.first_name} ${row.employees.last_name}` : `Driver #${row.driver_id ?? ""}`
+            }
           />
         </CardContent>
       </Card>

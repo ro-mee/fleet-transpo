@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { StatusBadge, TONE_CHIP, riskTone } from "@/components/ui/status-badge";
@@ -8,6 +9,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { getPredictiveMaintenance } from "@/services/ai.service";
 import { isUnscheduled } from "@/lib/ai/predictive-maintenance";
 import { formatCalendarDate } from "@/lib/dates";
@@ -23,6 +25,7 @@ import {
   Bot,
   ShieldAlert,
   ChevronRight,
+  RefreshCw,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn } from "@/lib/utils";
@@ -34,11 +37,34 @@ function predictionTone(prediction) {
   return riskTone(prediction.risk);
 }
 
+// Mirrors QueryBoundary's error state — a telemetry failure must not render as
+// an all-zero fleet or a "no predictions match" empty state.
+function PredictionErrorPanel({ onRetry, busy }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40"
+      role="alert"
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 mb-4">
+        <AlertTriangle className="w-5 h-5 text-danger" />
+      </div>
+      <p className="text-sm font-medium text-foreground">Couldn&apos;t load predictive maintenance data</p>
+      <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">
+        Health summaries and predictions are unavailable because the request failed — not because your fleet is fully healthy.
+      </p>
+      <Button variant="outline" size="sm" className="mt-4 cursor-pointer" onClick={onRetry} disabled={busy}>
+        <RefreshCw className={cn("mr-2 h-3.5 w-3.5", busy && "animate-spin")} />
+        Try again
+      </Button>
+    </div>
+  );
+}
+
 export default function PredictiveMaintenancePage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const [riskFilter, setRiskFilter] = useState("all");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
   });
@@ -68,6 +94,10 @@ export default function PredictiveMaintenancePage() {
       />
 
       {/* ── KPI STAT FILTER CARDS ── */}
+      {isError ? (
+        <PredictionErrorPanel onRetry={() => refetch()} busy={isRefetching} />
+      ) : (
+      <>
       <StatGrid cols={5} className="gap-3">
         <StatCard icon={AlertTriangle} label="Overdue" value={summary.overdue} trend="Service window passed" tone="danger" active={riskFilter === "overdue"} onClick={() => setRiskFilter((r) => (r === "overdue" ? "all" : "overdue"))} />
         <StatCard icon={CalendarDays} label="Critical (7d)" value={summary.critical} trend="Due within a week" tone="danger" active={riskFilter === "critical"} onClick={() => setRiskFilter((r) => (r === "critical" ? "all" : "critical"))} />
@@ -172,7 +202,7 @@ export default function PredictiveMaintenancePage() {
                       </div>
                     </div>
 
-                    <div className="w-32 shrink-0 pt-0.5">
+                    <div className="w-32 shrink-0 pt-0.5 flex flex-col items-stretch gap-2">
                       {unscheduled ? (
                         <div className="text-right">
                           <span className="font-data text-sm font-bold text-foreground-muted">—</span>
@@ -187,6 +217,14 @@ export default function PredictiveMaintenancePage() {
                           <ProgressBar value={p.score} tone={tone === "danger" ? "danger" : tone === "warning" ? "warning" : tone === "info" ? "info" : "success"} />
                         </div>
                       )}
+                      {p.vehicle_id && (
+                        <Button asChild variant="outline" size="sm" className="h-7 rounded-xl px-2.5 text-[11px] font-semibold">
+                          <Link href={`/fleet/vehicles/${p.vehicle_id}`} title="Open this vehicle's detail page">
+                            Open vehicle
+                            <ChevronRight className="ml-1 w-3 h-3" />
+                          </Link>
+                        </Button>
+                      )}
                     </div>
                   </div>
                 );
@@ -195,6 +233,8 @@ export default function PredictiveMaintenancePage() {
           )}
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

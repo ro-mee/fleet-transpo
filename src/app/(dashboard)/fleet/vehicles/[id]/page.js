@@ -455,8 +455,9 @@ export default function VehicleDetailPage() {
         open={archiveOpen}
         onOpenChange={setArchiveOpen}
         title="Archive Vehicle Record"
-        description={`Are you sure you want to archive ${vehicle.plate_number}? This vehicle will be hidden from active lists.`}
-        confirmText="Archive Vehicle"
+        message={`Are you sure you want to archive ${vehicle.plate_number}? This vehicle will be hidden from active lists.`}
+        confirmLabel="Archive vehicle"
+        variant="archive"
         onConfirm={() => archiveMutation.mutate()}
         loading={archiveMutation.isPending}
       />

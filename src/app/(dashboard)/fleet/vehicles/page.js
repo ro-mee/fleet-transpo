@@ -16,6 +16,7 @@ import { isRestricted } from "@/lib/uvvrp/policy";
 import { exportToCSV } from "@/lib/export";
 import { useVehicleStatusSync } from "@/hooks/use-vehicle-status-sync";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { toast } from "@/components/ui/toast";
 
 export default function FleetVehiclesPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -23,6 +24,7 @@ export default function FleetVehiclesPage() {
   const router = useRouter();
   const [filters, setFilters] = useState({});
   const [viewMode, setViewMode] = useState("grid");
+  const [exporting, setExporting] = useState(false);
 
   const { data: vehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles"],
@@ -49,14 +51,41 @@ export default function FleetVehiclesPage() {
   };
 
   const statCards = [
-    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status, onClick: () => setFilters({}) },
+    { label: "Total Vehicles", value: stats.total, icon: Truck, tone: "primary", trend: "in your fleet", active: !filters.status && !filters.restrictedOnly, onClick: () => setFilters({}) },
     { label: "Available", value: stats.available, icon: CheckCircle2, tone: "success", trend: "ready for dispatch", active: filters.status === "Available", onClick: () => setFilters({ status: "Available" }) },
-    { label: "Coding Restricted", value: stats.codingRestricted, icon: AlertTriangle, tone: "warning", trend: "restricted today", active: false, onClick: () => setFilters({}) },
+    { label: "Coding Restricted", value: stats.codingRestricted, icon: AlertTriangle, tone: "warning", trend: "restricted today", active: !!filters.restrictedOnly, onClick: () => setFilters(filters.restrictedOnly ? {} : { restrictedOnly: true }) },
     { label: "In Use", value: stats.inUse, icon: Activity, tone: "info", trend: "on the road", active: filters.status === "In Use", onClick: () => setFilters({ status: "In Use" }) },
     { label: "Under Maintenance", value: stats.maintenance, icon: Wrench, tone: "warning", trend: "being serviced", active: filters.status === "Under Maintenance", onClick: () => setFilters({ status: "Under Maintenance" }) },
     { label: "Out of Service", value: stats.outOfService, icon: AlertTriangle, tone: "danger", trend: "cannot be dispatched", active: filters.status === "Out of Service", onClick: () => setFilters({ status: "Out of Service" }) },
     { label: "Registration Expired", value: stats.registrationExpired, icon: AlertTriangle, tone: "danger", trend: "renew immediately", active: filters.status === "Registration Expired", onClick: () => setFilters({ status: "Registration Expired" }) },
   ];
+
+  const handleExport = () => {
+    setExporting(true);
+    try {
+      exportToCSV(vehicles, "fleet-vehicles", [
+        { label: "Plate Number", key: "plate_number" },
+        { label: "Vehicle Name", key: "vehicle_name" },
+        { label: "Manufacturer", key: "manufacturer" },
+        { label: "Model", key: "model" },
+        { label: "Year", key: "year" },
+        { label: "Color", key: "color" },
+        { label: "Fuel Type", key: "fuel_type" },
+        { label: "Seating Capacity", key: "seating_capacity" },
+        { label: "Mileage (km)", key: "mileage" },
+        { label: "Fuel Level (%)", key: "fuel_level" },
+        { label: "Status", key: "vehicle_status" },
+        { label: "Category", accessor: (v) => v.vehiclecategories?.category_name || "" },
+        { label: "Purchase Price", key: "purchase_price" },
+        { label: "Insurance Expiry", key: "insurance_expiry" },
+      ]);
+      toast.success(`Exported ${vehicles.length} records`);
+    } catch {
+      toast.error("Export failed — please try again");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const TONE_MAP = {
     primary:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   icon: 'bg-slate-500/15 text-slate-500',   dot: 'bg-slate-500',   text: 'text-slate-600 dark:text-slate-400' },
@@ -79,24 +108,10 @@ export default function FleetVehiclesPage() {
             <Button
               variant="outline"
               className={heroButtonOutlineClass}
-              onClick={() => exportToCSV(vehicles, "fleet-vehicles", [
-                { label: "Plate Number", key: "plate_number" },
-                { label: "Vehicle Name", key: "vehicle_name" },
-                { label: "Manufacturer", key: "manufacturer" },
-                { label: "Model", key: "model" },
-                { label: "Year", key: "year" },
-                { label: "Color", key: "color" },
-                { label: "Fuel Type", key: "fuel_type" },
-                { label: "Seating Capacity", key: "seating_capacity" },
-                { label: "Mileage (km)", key: "mileage" },
-                { label: "Fuel Level (%)", key: "fuel_level" },
-                { label: "Status", key: "vehicle_status" },
-                { label: "Category", accessor: (v) => v.vehiclecategories?.category_name || "" },
-                { label: "Purchase Price", key: "purchase_price" },
-                { label: "Insurance Expiry", key: "insurance_expiry" },
-              ])}
+              onClick={handleExport}
+              disabled={exporting}
             >
-              <Download className="w-4 h-4 mr-2" />
+              <Download className={cn("w-4 h-4 mr-2", exporting && "animate-pulse")} />
               Export
             </Button>
             <Button className={heroButtonPrimaryClass} onClick={() => router.push("/fleet/vehicles/new")}>

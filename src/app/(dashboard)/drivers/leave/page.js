@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
@@ -30,6 +31,7 @@ export default function DriverLeaveRequestsPage() {
   const { can } = useRoleAccess();
   const [filter, setFilter] = useState("Pending");
   const [selectedRequest, setSelectedRequest] = useState(null);
+  const [declining, setDeclining] = useState(null);
 
   const { data: leave = [], isLoading, isError } = useQuery({
     queryKey: ["all-leave-requests"],
@@ -37,9 +39,9 @@ export default function DriverLeaveRequestsPage() {
   });
 
   const review = useMutation({
-    mutationFn: ({ id, status }) => reviewDriverLeave(id, status),
-    onSuccess: () => {
-      toast.success("Leave request updated");
+    mutationFn: ({ id, status, notes }) => reviewDriverLeave(id, status, notes),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.status === "Declined" ? "Leave request declined" : "Leave request updated");
       queryClient.invalidateQueries({ queryKey: ["all-leave-requests"] });
     },
     onError: (err) => toast.error(err.message || "Failed to update request"),
@@ -118,7 +120,7 @@ export default function DriverLeaveRequestsPage() {
                             size="sm"
                             className="h-8 rounded-xl text-xs text-danger border-danger/30 hover:bg-danger/10"
                             disabled={review.isPending}
-                            onClick={() => review.mutate({ id: l.leave_request_id, status: "Declined" })}
+                            onClick={() => setDeclining(l)}
                           >
                             <XCircle className="w-3.5 h-3.5 mr-1" /> Decline
                           </Button>
@@ -214,6 +216,32 @@ export default function DriverLeaveRequestsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!declining}
+        onOpenChange={(open) => {
+          if (!open) setDeclining(null);
+        }}
+        variant="danger"
+        title="Decline this leave request?"
+        message={
+          declining
+            ? `${declining.driver?.first_name || "This driver"} ${declining.driver?.last_name || ""} — ${fmtDate(declining.start_date)} to ${fmtDate(declining.end_date)}. The driver will be returned to the available pool.`
+            : ""
+        }
+        confirmLabel="Decline request"
+        requireReason
+        reasonLabel="Reason for declining"
+        reasonPlaceholder="Explain why this leave is being declined"
+        loading={review.isPending}
+        onConfirm={(reason) => {
+          if (!declining) return;
+          review.mutate(
+            { id: declining.leave_request_id, status: "Declined", notes: reason },
+            { onSettled: () => setDeclining(null) }
+          );
+        }}
+      />
     </div>
   );
 }

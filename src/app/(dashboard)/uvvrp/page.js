@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { useMemo, useState } from "react";
 import { getUvvrpBoard } from "@/services/uvvrp.service";
+import { getUvvrpPolicy } from "@/services/settings.service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -41,6 +42,15 @@ export default function UvvrpBoardPage() {
     queryFn: () => getUvvrpBoard(date ? { date } : {}),
   });
 
+  // The board must tell the truth about enforcement: read the live policy
+  // instead of hardcoding "Active" — an admin who disabled coding should see
+  // that here, not a green badge that lies.
+  const { data: policy } = useQuery({
+    queryKey: ["uvvrp-policy"],
+    queryFn: getUvvrpPolicy,
+  });
+  const policyEnabled = Boolean(policy?.enabled);
+
   const restrictedToday = useMemo(() => data?.restrictedToday || [], [data]);
   const exemptions = useMemo(() => data?.exemptions || [], [data]);
   const upcoming = useMemo(() => data?.upcoming || [], [data]);
@@ -50,7 +60,7 @@ export default function UvvrpBoardPage() {
   const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
+    <div className="space-y-6 pb-12 w-full">
       {/* ── TOP HERO HEADER & CONTROL BAR ── */}
       <HeroHeader
         icon={ShieldCheck}
@@ -76,7 +86,13 @@ export default function UvvrpBoardPage() {
         <StatsGridSkeleton count={4} gridClass="grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" />
       ) : (
         <StatGrid cols={4}>
-          <StatCard icon={ShieldCheck} label="Policy Status" value="Active" trend="UVVRP Rule Enforcement Enabled" tone="success" />
+          <StatCard
+            icon={ShieldCheck}
+            label="Policy Status"
+            value={policyEnabled ? "Active" : "Disabled"}
+            trend={policyEnabled ? "UVVRP rule enforcement is on — dispatches are blocked for restricted plates" : "Coding rules are configured but NOT enforced"}
+            tone={policyEnabled ? "success" : "neutral"}
+          />
           <StatCard icon={Car} label="Restricted Vehicles" value={restrictedToday.filter((v) => !v.exempt).length} trend={`Restricted on ${date || todayStr}`} tone="warning" />
           <StatCard icon={CheckCircle2} label="Active Exemptions" value={exemptions.length} trend="Pre-approved fleet passes" tone="info" />
           <StatCard icon={AlertTriangle} label="Coding Violations" value={violations.length} trend={`${dispatchesAffected.length} dispatches flagged`} tone="danger" />

@@ -7,9 +7,10 @@ import { getExpiringDocuments } from "@/services/vehicle.service";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
-import { FileText, AlertTriangle, Clock, ShieldCheck, Truck, IdCard, ShieldAlert, Eye } from "lucide-react";
+import { FileText, AlertTriangle, Clock, ShieldCheck, Truck, IdCard, ShieldAlert, Eye, RefreshCw } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn } from "@/lib/utils";
+import { formatCalendarDate } from "@/lib/dates";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
 import { useRouter } from "next/navigation";
@@ -21,6 +22,29 @@ function daysLabel(days) {
   if (days < 0) return `Expired ${Math.abs(days)}d ago`;
   if (days === 0) return "Expires today";
   return `Expires in ${days}d`;
+}
+
+// Mirrors QueryBoundary's error state. A compliance page must say "the data
+// failed to load" — never render as if the fleet simply has no documents.
+function DocumentErrorPanel({ onRetry, busy }) {
+  return (
+    <div
+      className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40"
+      role="alert"
+    >
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 mb-4">
+        <AlertTriangle className="w-5 h-5 text-danger" />
+      </div>
+      <p className="text-sm font-medium text-foreground">Couldn&apos;t load document expiration data</p>
+      <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">
+        The registry below is unavailable because the request failed — not because nothing is expiring.
+      </p>
+      <Button variant="outline" size="sm" className="mt-4 cursor-pointer" onClick={onRetry} disabled={busy}>
+        <RefreshCw className={cn("mr-2 h-3.5 w-3.5", busy && "animate-spin")} />
+        Try again
+      </Button>
+    </div>
+  );
 }
 
 function ExpiryBadge({ days }) {
@@ -121,7 +145,7 @@ export default function DocumentExpirationPage() {
   const [tab, setTab] = useState("vehicle");
   const [docFilter, setDocFilter] = useState("all");
 
-  const { data, isLoading, isError, error, refetch } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ["documents-expiring"],
     queryFn: () => getExpiringDocuments(),
   });
@@ -195,7 +219,7 @@ export default function DocumentExpirationPage() {
       sortable: true,
       render: (val) => (
         <span className="font-data font-bold text-xs text-foreground">
-          {val ? new Date(val).toISOString().slice(0, 10) : "—"}
+          {formatCalendarDate(val)}
         </span>
       ),
     },
@@ -261,7 +285,7 @@ export default function DocumentExpirationPage() {
       sortable: true,
       render: (val) => (
         <span className="font-data font-bold text-xs text-foreground">
-          {val ? new Date(val).toISOString().slice(0, 10) : "—"}
+          {formatCalendarDate(val)}
         </span>
       ),
     },
@@ -300,58 +324,65 @@ export default function DocumentExpirationPage() {
         description="Vehicle and driver documents approaching or past expiry."
       />
 
-      {/* ── KPI Stat Summary Grid ── */}
-      {isLoading ? (
-        <div className="p-8 text-center text-sm text-foreground-muted">Loading metrics…</div>
+      {/* ── Error branch: one query feeds both tabs — say so, offer retry ── */}
+      {isError ? (
+        <DocumentErrorPanel onRetry={() => refetch()} busy={isRefetching} />
       ) : (
-        <KpiSummary items={items} activeFilter={docFilter} setFilter={setDocFilter} />
+        <>
+          {/* ── KPI Stat Summary Grid ── */}
+          {isLoading ? (
+            <div className="p-8 text-center text-sm text-foreground-muted">Loading metrics…</div>
+          ) : (
+            <KpiSummary items={items} activeFilter={docFilter} setFilter={setDocFilter} />
+          )}
+
+          {/* ── Tab Switcher Pill Buttons ── */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTab("vehicle")}
+              className={cn(
+                "px-4 h-9 flex items-center justify-center gap-2 rounded-full text-xs font-bold border transition-all cursor-pointer",
+                tab === "vehicle"
+                  ? "bg-primary text-white dark:text-slate-950 border-primary shadow-2xs"
+                  : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40"
+              )}
+            >
+              <Truck className="w-3.5 h-3.5" /> Vehicle Documents ({vehicleDocs.length})
+            </button>
+            <button
+              onClick={() => setTab("driver")}
+              className={cn(
+                "px-4 h-9 flex items-center justify-center gap-2 rounded-full text-xs font-bold border transition-all cursor-pointer",
+                tab === "driver"
+                  ? "bg-primary text-white dark:text-slate-950 border-primary shadow-2xs"
+                  : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40"
+              )}
+            >
+              <IdCard className="w-3.5 h-3.5" /> Driver Documents ({driverDocs.length})
+            </button>
+          </div>
+
+          {/* ── DataTable Card ── */}
+          <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+            <CardContent className="p-0">
+              <DataTable
+                columns={tab === "vehicle" ? vehicleColumns : driverColumns}
+                data={displayList}
+                pageSize={10}
+                title={tab === "vehicle" ? "Vehicle Expiration Registry" : "Driver License Expiration Registry"}
+                description={tab === "vehicle" ? "Monitor vehicle OR/CR, insurance, and registration expirations." : "Monitor driver license expirations and compliance status."}
+                icon={tab === "vehicle" ? Truck : IdCard}
+                context={tab === "vehicle" ? "Vehicle Docs" : "Driver Docs"}
+                searchPlaceholder="Search documents by plate or name..."
+                isLoading={isLoading}
+                onRowClick={(row) =>
+                  router.push(tab === "vehicle" ? `/fleet/vehicles/${row.vehicle_id}` : `/drivers/${row.driver_id}`)
+                }
+              />
+            </CardContent>
+          </Card>
+        </>
       )}
-
-      {/* ── Tab Switcher Pill Buttons ── */}
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setTab("vehicle")}
-          className={cn(
-            "px-4 h-9 flex items-center justify-center gap-2 rounded-full text-xs font-bold border transition-all cursor-pointer",
-            tab === "vehicle"
-              ? "bg-primary text-white dark:text-slate-950 border-primary shadow-2xs"
-              : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40"
-          )}
-        >
-          <Truck className="w-3.5 h-3.5" /> Vehicle Documents ({vehicleDocs.length})
-        </button>
-        <button
-          onClick={() => setTab("driver")}
-          className={cn(
-            "px-4 h-9 flex items-center justify-center gap-2 rounded-full text-xs font-bold border transition-all cursor-pointer",
-            tab === "driver"
-              ? "bg-primary text-white dark:text-slate-950 border-primary shadow-2xs"
-              : "bg-surface text-foreground-secondary border-border/80 hover:border-primary/40"
-          )}
-        >
-          <IdCard className="w-3.5 h-3.5" /> Driver Documents ({driverDocs.length})
-        </button>
-      </div>
-
-      {/* ── DataTable Card ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-        <CardContent className="p-0">
-          <DataTable
-            columns={tab === "vehicle" ? vehicleColumns : driverColumns}
-            data={displayList}
-            pageSize={10}
-            title={tab === "vehicle" ? "Vehicle Expiration Registry" : "Driver License Expiration Registry"}
-            description={tab === "vehicle" ? "Monitor vehicle OR/CR, insurance, and registration expirations." : "Monitor driver license expirations and compliance status."}
-            icon={tab === "vehicle" ? Truck : IdCard}
-            context={tab === "vehicle" ? "Vehicle Docs" : "Driver Docs"}
-            searchPlaceholder="Search documents by plate or name..."
-            isLoading={isLoading}
-            onRowClick={(row) =>
-              router.push(tab === "vehicle" ? `/fleet/vehicles/${row.vehicle_id}` : `/drivers/${row.driver_id}`)
-            }
-          />
-        </CardContent>
-      </Card>
     </div>
   );
 }

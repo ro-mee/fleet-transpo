@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { DataTable } from "@/components/tables/data-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getFuelRecords, updateFuelRecord, updateFuelStatus, deleteFuelRecord } from "@/services/fuel.service";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
@@ -74,6 +75,8 @@ export default function FuelPage() {
   const [zoomReceiptUrl, setZoomReceiptUrl] = useState(null);
   const [editRecord, setEditRecord] = useState(null);
   const [archivingRecord, setArchivingRecord] = useState(null);
+  const [approvingRecord, setApprovingRecord] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   // Reject Prompt State
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -114,20 +117,28 @@ export default function FuelPage() {
 
   // Export needs the whole (filtered) set, not just the current page.
   const handleExport = async () => {
-    const all = await getFuelRecords({
-      status: statusParam,
-      search: search || undefined,
-    });
-    exportToCSV(all || [], "fuel-receipt-claims", [
-      { label: "Refuel Date", key: "fuel_date" },
-      { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
-      { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
-      { label: "Station", key: "station_name" },
-      { label: "Fuel Type", key: "fuel_type" },
-      { label: "Liters", key: "liters" },
-      { label: "Total Amount", key: "amount" },
-      { label: "Status", key: "status" },
-    ]);
+    setExporting(true);
+    try {
+      const all = await getFuelRecords({
+        status: statusParam,
+        search: search || undefined,
+      });
+      exportToCSV(all || [], "fuel-receipt-claims", [
+        { label: "Refuel Date", key: "fuel_date" },
+        { label: "Vehicle Plate", accessor: (r) => r.vehicles?.plate_number || "" },
+        { label: "Driver", accessor: (r) => (r.drivers?.employees ? `${r.drivers.employees.first_name} ${r.drivers.employees.last_name}` : "") },
+        { label: "Station", key: "station_name" },
+        { label: "Fuel Type", key: "fuel_type" },
+        { label: "Liters", key: "liters" },
+        { label: "Total Amount", key: "amount" },
+        { label: "Status", key: "status" },
+      ]);
+      toast.success(`Exported ${(all || []).length} records`);
+    } catch {
+      toast.error("Export failed — please try again");
+    } finally {
+      setExporting(false);
+    }
   };
 
   // Mutations
@@ -137,6 +148,7 @@ export default function FuelPage() {
       toast.success(`Fuel record ${variables.status.toLowerCase()} successfully`);
       queryClient.invalidateQueries({ queryKey: ["fuel-records"] });
       setInspectRecord(null);
+      setApprovingRecord(null);
       setRejectDialogOpen(false);
       setRejectionReason("");
     },
@@ -241,16 +253,9 @@ export default function FuelPage() {
     {
       key: "status",
       label: "Status",
-      render: (val) => {
-        const st = (val || "Pending").toLowerCase();
-        if (st === "approved" || st === "completed") {
-          return <Badge variant="success" className="rounded-full px-3 py-1 text-xs font-bold">Approved</Badge>;
-        }
-        if (st === "rejected") {
-          return <Badge variant="danger" className="rounded-full px-3 py-1 text-xs font-bold">Rejected</Badge>;
-        }
-        return <Badge variant="warning" className="rounded-full px-3 py-1 text-xs font-bold">Pending Review</Badge>;
-      },
+      render: (val) => (
+        <StatusBadge status={val || "Pending"} entity="fuel" className="rounded-full px-3 py-1 text-xs font-bold" />
+      ),
     },
     {
       key: "actions",
@@ -277,7 +282,7 @@ export default function FuelPage() {
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7 rounded-full text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-700 cursor-pointer"
-                    onClick={() => handleApprove(row)}
+                    onClick={() => setApprovingRecord(row)}
                   >
                     <CheckCircle2 className="w-3.5 h-3.5" />
                   </Button>
@@ -380,8 +385,9 @@ export default function FuelPage() {
             variant="outline"
             className={cn("h-10", heroButtonOutlineClass)}
             onClick={handleExport}
+            disabled={exporting}
           >
-            <Download className="w-4 h-4 mr-2" />
+            <Download className={cn("w-4 h-4 mr-2", exporting && "animate-pulse")} />
             Export CSV
           </Button>
         }
@@ -863,6 +869,26 @@ export default function FuelPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── ROW APPROVE CONFIRMATION DIALOG ── */}
+      <ConfirmDialog
+        open={!!approvingRecord}
+        onOpenChange={(open) => { if (!open) setApprovingRecord(null); }}
+        title="Approve this fuel record?"
+        message={`Approve ${approvingRecord?.liters ?? "—"} L for ${approvingRecord?.vehicles?.plate_number || "—"} refueled by ${
+          approvingRecord?.drivers?.employees
+            ? `${approvingRecord.drivers.employees.first_name} ${approvingRecord.drivers.employees.last_name}`
+            : "—"
+        }?`}
+        confirmLabel="Approve"
+        variant="info"
+        loading={updateStatusMutation.isPending}
+        onConfirm={() => {
+          if (approvingRecord) {
+            updateStatusMutation.mutate({ id: approvingRecord.fuel_record_id, status: "Approved" });
+          }
+        }}
+      />
 
       {/* ── ARCHIVE CONFIRMATION DIALOG ── */}
       <ConfirmDialog

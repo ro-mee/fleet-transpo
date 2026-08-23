@@ -28,15 +28,6 @@ import {
   Globe, Calendar, Briefcase, Activity, KeyRound, ChevronRight
 } from "lucide-react";
 
-const statusColors = {
-  Available: "success",
-  "On Trip": "warning",
-  "Off Duty": "secondary",
-  "On Leave": "info",
-  Suspended: "danger",
-  Inactive: "secondary",
-};
-
 export default function DriverDetailPage() {
   const router = useRouter();
   const { id } = useParams();
@@ -144,9 +135,11 @@ export default function DriverDetailPage() {
                     <h1 className="text-3xl font-bold text-foreground tracking-tight">
                       {emp.first_name} {emp.last_name}
                     </h1>
-                    <Badge variant={statusColors[driver.driver_status] || "secondary"} className="rounded-full px-3.5 py-1 text-xs font-bold shadow-none border-transparent uppercase tracking-wider">
-                      {driver.driver_status || "Available"}
-                    </Badge>
+                    <StatusBadge
+                      status={driver.driver_status || "Available"}
+                      entity="driver"
+                      className="rounded-full px-3.5 py-1 text-xs font-bold shadow-none border-transparent uppercase tracking-wider"
+                    />
                   </div>
                   <div className="flex items-center gap-2.5 text-sm text-foreground-secondary flex-wrap font-medium">
                     <span className="flex items-center gap-1.5"><IdCard className="w-4 h-4 text-foreground-muted" /> #{emp.employee_id || driver.employee_id}</span>
@@ -240,10 +233,19 @@ export default function DriverDetailPage() {
                 <span className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider">Safety Score</span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-xl font-bold text-amber-600 dark:text-amber-500">
-                  {driver.performance_score ? (driver.performance_score * 20).toFixed(0) : "85"}
-                </span>
-                <span className="text-xs font-medium text-amber-600/70 dark:text-amber-500/70">/ 100</span>
+                {driver.performance_score != null ? (
+                  <>
+                    <span className="text-xl font-bold text-amber-600 dark:text-amber-500">
+                      {(driver.performance_score * 20).toFixed(0)}
+                    </span>
+                    <span className="text-xs font-medium text-amber-600/70 dark:text-amber-500/70">/ 100</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-xl font-bold text-foreground-muted">—</span>
+                    <span className="text-xs font-medium text-foreground-muted">Not enough completed trips</span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -424,12 +426,24 @@ export default function DriverDetailPage() {
                     </div>
                     <div>
                       <div className="flex items-baseline gap-1">
-                        <span className="text-3xl font-black text-foreground tracking-tight">
-                          {driver.performance_score ? (driver.performance_score * 20).toFixed(0) : "85"}
-                        </span>
-                        <span className="text-sm font-bold text-foreground-muted">/ 100</span>
+                        {driver.performance_score != null ? (
+                          <>
+                            <span className="text-3xl font-black text-foreground tracking-tight">
+                              {(driver.performance_score * 20).toFixed(0)}
+                            </span>
+                            <span className="text-sm font-bold text-foreground-muted">/ 100</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-3xl font-black text-foreground-muted tracking-tight">—</span>
+                          </>
+                        )}
                       </div>
-                      <p className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider mt-0.5">Safety &amp; Efficiency Score</p>
+                      {driver.performance_score != null ? (
+                        <p className="text-xs font-semibold text-foreground-secondary uppercase tracking-wider mt-0.5">Safety &amp; Efficiency Score</p>
+                      ) : (
+                        <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider mt-0.5">Not enough completed trips</p>
+                      )}
                     </div>
                   </div>
 
@@ -737,8 +751,9 @@ export default function DriverDetailPage() {
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Archive Driver Profile"
-        description={`Are you sure you want to archive ${emp.first_name} ${emp.last_name}? They will be marked inactive.`}
-        confirmText="Archive Driver"
+        message={`Are you sure you want to archive ${emp.first_name} ${emp.last_name}? They will be marked inactive.`}
+        confirmLabel="Archive driver"
+        variant="archive"
         onConfirm={() => deleteMutation.mutate()}
         loading={deleteMutation.isPending}
       />

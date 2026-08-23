@@ -637,10 +637,10 @@ export default function MaintenancePage() {
         open={!!archivingId}
         onOpenChange={(open) => { if (!open) setArchivingId(null); }}
         title="Archive Maintenance Record"
-        description="Are you sure you want to archive this maintenance record? This action can be audited."
+        message="Are you sure you want to archive this maintenance record? This action can be audited."
         confirmLabel="Archive"
-        variant="danger"
-        isLoading={archiveMutation.isPending}
+        variant="archive"
+        loading={archiveMutation.isPending}
         onConfirm={() => {
           if (archivingId) {
             archiveMutation.mutate(archivingId, {

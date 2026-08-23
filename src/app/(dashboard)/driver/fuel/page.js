@@ -13,6 +13,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { toast } from "@/components/ui/toast";
 import { getFuelRecords, createFuelRecord } from "@/services/fuel.service";
 import { getMyVehicleInspection } from "@/services/driver.service";
+import { FUEL_TYPE } from "@/lib/constants";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
@@ -43,6 +44,11 @@ export default function DriverFuelPage() {
   });
   const assignedVehicleId = inspection?.vehicle_id || null;
 
+  // Refuel dates can't be in the future — enforce natively via max and back it
+  // up with an inline error on submit.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const [dateError, setDateError] = useState("");
+
   const totalSpend = records.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const pendingCount = records.filter((r) => (r.status || "Pending").toLowerCase() === "pending").length;
 
@@ -57,6 +63,7 @@ export default function DriverFuelPage() {
     }),
     onSuccess: () => {
       toast.success("Fuel record submitted for verification.");
+      setDateError("");
       setForm({
         fuel_date: new Date().toISOString().slice(0, 10),
         fuel_type: "Diesel",
@@ -126,15 +133,27 @@ export default function DriverFuelPage() {
               </p>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <p className="md:col-span-3 text-[11px] text-foreground-muted">* required</p>
                 <div>
                   <Label htmlFor="fuel_date">Refuel Date *</Label>
-                  <Input id="fuel_date" type="date" value={form.fuel_date}
-                    onChange={(e) => setForm({ ...form, fuel_date: e.target.value })} />
+                  <Input id="fuel_date" type="date" max={todayStr} value={form.fuel_date}
+                    onChange={(e) => {
+                      setDateError("");
+                      setForm({ ...form, fuel_date: e.target.value });
+                    }} />
+                  {dateError && (
+                    <p className="mt-1 text-[11px] text-danger">{dateError}</p>
+                  )}
                 </div>
                 <div>
                   <Label htmlFor="fuel_type">Fuel Type *</Label>
-                  <Input id="fuel_type" value={form.fuel_type}
-                    onChange={(e) => setForm({ ...form, fuel_type: e.target.value })} />
+                  <select id="fuel_type" value={form.fuel_type}
+                    onChange={(e) => setForm({ ...form, fuel_type: e.target.value })}
+                    className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    {Object.values(FUEL_TYPE).map((type) => (
+                      <option key={type} value={type}>{type}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <Label htmlFor="station_name">Gas Station</Label>
@@ -161,13 +180,23 @@ export default function DriverFuelPage() {
                   <Input id="odometer" type="number" min="0" value={form.odometer}
                     onChange={(e) => setForm({ ...form, odometer: e.target.value })} />
                 </div>
-                <div className="md:col-span-3">
+                <div className="md:col-span-3 space-y-1.5">
                   <Button
                     disabled={createMutation.isPending || !form.liters || !form.amount}
-                    onClick={() => createMutation.mutate()}
+                    onClick={() => {
+                      if (form.fuel_date > todayStr) {
+                        setDateError("Refuel date cannot be in the future.");
+                        return;
+                      }
+                      setDateError("");
+                      createMutation.mutate();
+                    }}
                   >
                     {createMutation.isPending ? "Submitting…" : "Log Fuel"}
                   </Button>
+                  {createMutation.isPending === false && (!form.liters || !form.amount) && (
+                    <p className="text-[11px] text-foreground-muted">Enter liters and amount to submit.</p>
+                  )}
                 </div>
               </div>
             )}

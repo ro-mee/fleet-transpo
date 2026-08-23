@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getTrips } from "@/services/trip.service";
 import { formatDateTime, cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import { MapPin, Clock, Truck, Navigation, Route, TriangleAlert, RefreshCw, ClipboardList, CheckCircle2 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
@@ -30,6 +31,7 @@ function formatShortPlate(plate) {
 
 export default function TrackingHistoryPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  const router = useRouter();
 
   const {
     data: trips = [],
@@ -108,7 +110,7 @@ export default function TrackingHistoryPage() {
 
   if (isError) {
     return (
-      <div className="space-y-6 pb-12 w-full select-none">
+      <div className="space-y-6 pb-12 w-full">
         <HeroHeader
           icon={ClipboardList}
           title="Operational Review & Route History"
@@ -126,7 +128,7 @@ export default function TrackingHistoryPage() {
   }
 
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
+    <div className="space-y-6 pb-12 w-full">
       {/* ── HERO HEADER BAR ── */}
       <HeroHeader
         icon={ClipboardList}
@@ -147,11 +149,13 @@ export default function TrackingHistoryPage() {
         }
       />
 
-      {/* ── SUMMARY KPI CARDS ── */}
+      {/* ── SUMMARY KPI CARDS ──
+          The query caps at 50 rows for performance — the KPIs are scoped to
+          what is loaded, never presented as fleet-wide totals. */}
       <StatGrid cols={3}>
-        <StatCard icon={CheckCircle2} label="Completed Trips" value={trips.length} trend="Successfully fulfilled trips" tone="success" />
-        <StatCard icon={MapPin} label="Total Distance" value={`${totalDistance.toFixed(0)} km`} trend="Cumulative distance traveled" tone="primary" />
-        <StatCard icon={Route} label="Avg Trip Distance" value={`${avgDistance} km`} trend="Average route leg length" tone="warning" />
+        <StatCard icon={CheckCircle2} label="Completed Trips (recent)" value={trips.length} trend="Latest 50 shown" tone="success" />
+        <StatCard icon={MapPin} label="Total Distance" value={`${totalDistance.toFixed(0)} km`} trend="Across the latest 50 shown trips" tone="primary" />
+        <StatCard icon={Route} label="Avg Trip Distance (recent)" value={`${avgDistance} km`} trend="Computed over the latest 50 shown trips" tone="warning" />
       </StatGrid>
 
       {/* ── DATA TABLE CARD ── */}
@@ -164,6 +168,9 @@ export default function TrackingHistoryPage() {
             emptyTitle="No completed trips found"
             emptyDescription="Completed trips will appear here with their route and tracking data."
             isLoading={isLoading}
+            onRowClick={(row) => {
+              if (row?.trip_id) router.push(`/trips/${row.trip_id}`);
+            }}
           />
         </CardContent>
       </Card>

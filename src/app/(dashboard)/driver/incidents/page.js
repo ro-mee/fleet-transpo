@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -60,16 +61,30 @@ export default function DriverIncidentsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <Input placeholder="Incident type (e.g. vehicle breakdown, accident, near miss)"
-                value={incidentForm.incident_type}
-                onChange={(e) => setIncidentForm({ ...incidentForm, incident_type: e.target.value })} />
-              <Input placeholder="Location" value={incidentForm.location}
-                onChange={(e) => setIncidentForm({ ...incidentForm, location: e.target.value })} />
+              <div className="space-y-1">
+                <Label htmlFor="incident_type" className="text-xs font-semibold text-foreground-secondary">
+                  Incident type <span className="text-danger">*</span>
+                </Label>
+                <Input id="incident_type" placeholder="Incident type (e.g. vehicle breakdown, accident, near miss)"
+                  value={incidentForm.incident_type}
+                  onChange={(e) => setIncidentForm({ ...incidentForm, incident_type: e.target.value })} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="incident_location" className="text-xs font-semibold text-foreground-secondary">Location</Label>
+                <Input id="incident_location" placeholder="Location" value={incidentForm.location}
+                  onChange={(e) => setIncidentForm({ ...incidentForm, location: e.target.value })} />
+              </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div
+              className="flex items-center gap-2"
+              role="radiogroup"
+              aria-label="Severity"
+            >
               <label className="text-xs text-foreground-muted w-16">Severity</label>
               {["Minor", "Moderate", "Major", "Critical"].map((s) => (
                 <button key={s} type="button"
+                  role="radio"
+                  aria-checked={incidentForm.severity === s}
                   onClick={() => setIncidentForm({ ...incidentForm, severity: s })}
                   className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors cursor-pointer ${
                     incidentForm.severity === s ? "bg-foreground text-surface border-foreground" : "border-border text-foreground-secondary hover:bg-hover"
@@ -78,13 +93,19 @@ export default function DriverIncidentsPage() {
                 </button>
               ))}
             </div>
-            <textarea
-              rows={3}
-              placeholder="Describe what happened…"
-              value={incidentForm.description}
-              onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
-              className="w-full rounded-3xl border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            />
+            <div className="space-y-1">
+              <Label htmlFor="incident_description" className="text-xs font-semibold text-foreground-secondary">
+                Description <span className="text-danger">*</span>
+              </Label>
+              <textarea
+                id="incident_description"
+                rows={3}
+                placeholder="Describe what happened…"
+                value={incidentForm.description}
+                onChange={(e) => setIncidentForm({ ...incidentForm, description: e.target.value })}
+                className="w-full rounded-3xl border border-border bg-surface px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              />
+            </div>
             <div className="flex items-center gap-3">
               <Button
                 disabled={reportMutation.isPending || !incidentForm.incident_type || !incidentForm.description}

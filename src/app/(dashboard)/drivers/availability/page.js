@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api/client";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
@@ -346,7 +347,15 @@ export default function DriverAvailabilityBoard() {
                   )}
                 </div>
               </div>
-              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end">
+              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end gap-2">
+                {selectedDriver.driver_id && (
+                  <Link
+                    href={`/drivers/${selectedDriver.driver_id}`}
+                    className="inline-flex items-center h-9 px-4 rounded-xl bg-primary text-white dark:text-slate-950 text-xs font-semibold hover:bg-primary/90 transition-colors"
+                  >
+                    Open driver profile
+                  </Link>
+                )}
                 <Button variant="outline" className="rounded-xl shadow-xs h-9 px-4 text-xs font-semibold" onClick={() => setSelectedDriver(null)}>Close</Button>
               </div>
             </>
