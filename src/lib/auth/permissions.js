@@ -32,7 +32,7 @@ export const NAV_ROLES = {
   "/dispatch": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/incidents": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/uvvrp": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
-  "/drivers": ["admin", "system_admin", "fleet_manager"],
+  "/drivers": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers/leave": ["admin", "system_admin", "fleet_manager"],
   "/drivers/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/drivers/performance": ["admin", "system_admin", "fleet_manager", "management"],

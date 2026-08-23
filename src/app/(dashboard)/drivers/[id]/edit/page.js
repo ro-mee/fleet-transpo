@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { DetailSkeleton } from "@/components/ui/skeleton";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDriver, updateDriver } from "@/services/driver.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
 import { toast } from "@/components/ui/toast";
@@ -41,7 +42,7 @@ import Link from "next/link";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { driverEditSchema } from "@/lib/validation/schemas";
 import { rotateBase64Image } from "@/lib/images";
-import { FloatingField } from "@/components/ui/field";
+import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 
 export default function EditDriverPage() {
@@ -421,17 +422,23 @@ export default function EditDriverPage() {
                     />
                   </div>
 
-                  <FloatingField label="Sex" icon={User}>
-                    <select
-                      id="sex"
-                      {...form.register("sex")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
-                      <option value="">Select sex</option>
-                      <option value="M">Male</option>
-                      <option value="F">Female</option>
-                    </select>
-                  </FloatingField>
+                  <Controller
+                    control={form.control}
+                    name="sex"
+                    render={({ field }) => (
+                      <FloatingField label="Sex" icon={User}>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
+                            <SelectValue placeholder="Select sex" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="M">Male</SelectItem>
+                            <SelectItem value="F">Female</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FloatingField>
+                    )}
+                  />
 
                   <FloatingField label="Nationality" icon={Globe} className="md:col-span-2">
                     <input id="nationality" {...form.register("nationality")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1" />
@@ -475,16 +482,23 @@ export default function EditDriverPage() {
                     </p>
                   </div>
 
-                  <FloatingField label="Vehicle License Class" icon={IdCard} required>
-                    <select
-                      id="license_class"
-                      {...form.register("license_class")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
-                      <option value="B">Class B — Passenger Cars &amp; Light Vehicles</option>
-                      <option value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</option>
-                    </select>
-                  </FloatingField>
+                  <Controller
+                    control={form.control}
+                    name="license_class"
+                    render={({ field }) => (
+                      <FloatingField label="Vehicle License Class" icon={IdCard} required>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="B">Class B — Passenger Cars &amp; Light Vehicles</SelectItem>
+                            <SelectItem value="B1">Class B1 — Light Vans &amp; Commercial Vehicles</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FloatingField>
+                    )}
+                  />
 
                   <FloatingField label="License Type" icon={Briefcase}>
                     <input id="license_type" value="Professional Driver" readOnly className="w-full bg-transparent text-xs font-semibold text-foreground-secondary focus:outline-hidden py-1 cursor-not-allowed" />
@@ -498,26 +512,33 @@ export default function EditDriverPage() {
                     <input id="years_of_experience" type="number" min="0" {...form.register("years_of_experience")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data" />
                   </FloatingField>
 
-                  <FloatingField label="Duty Status" icon={UserCheck} className="md:col-span-2">
-                    <select
-                      id="driver_status"
-                      {...form.register("driver_status")}
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer"
-                    >
-                      <option value="Available">Available</option>
-                      <option value="On Trip">On Trip</option>
-                      <option value="Off Duty">Off Duty</option>
-                      <option value="On Leave">On Leave</option>
-                      <option value="Suspended">Suspended</option>
-                    </select>
-                    {form.watch("driver_status") === "Suspended" && (
-                      <p className="text-[11px] text-foreground-muted font-medium mt-1 leading-relaxed">
-                        {driver?.suspension_reason === "license_expired"
-                          ? "Suspended automatically for an expired license — saving a future expiry date reinstates the driver automatically."
-                          : "Manual suspensions are never lifted automatically — flip back to Available here when ready."}
-                      </p>
+                  <Controller
+                    control={form.control}
+                    name="driver_status"
+                    render={({ field }) => (
+                      <FloatingField label="Duty Status" icon={UserCheck} className="md:col-span-2">
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Available">Available</SelectItem>
+                            <SelectItem value="On Trip">On Trip</SelectItem>
+                            <SelectItem value="Off Duty">Off Duty</SelectItem>
+                            <SelectItem value="On Leave">On Leave</SelectItem>
+                            <SelectItem value="Suspended">Suspended</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {form.watch("driver_status") === "Suspended" && (
+                          <p className="text-[11px] text-foreground-muted font-medium mt-1 leading-relaxed">
+                            {driver?.suspension_reason === "license_expired"
+                              ? "Suspended automatically for an expired license — saving a future expiry date reinstates the driver automatically."
+                              : "Manual suspensions are never lifted automatically — flip back to Available here when ready."}
+                          </p>
+                        )}
+                      </FloatingField>
                     )}
-                  </FloatingField>
+                  />
                 </div>
               </CardContent>
             </Card>

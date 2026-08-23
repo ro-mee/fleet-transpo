@@ -142,15 +142,17 @@ export default function DriverDetailPage() {
                 Reinstate to make the driver dispatchable again.
               </p>
             </div>
-            <Button
-              size="sm"
-              className="rounded-xl shrink-0"
-              disabled={reinstateMutation.isPending}
-              onClick={() => reinstateMutation.mutate()}
-            >
-              <CheckCircle2 className="w-4 h-4 mr-1.5" />
-              {reinstateMutation.isPending ? "Reinstating…" : "Reinstate"}
-            </Button>
+            {can("drivers", "update") && (
+              <Button
+                size="sm"
+                className="rounded-xl shrink-0"
+                disabled={reinstateMutation.isPending}
+                onClick={() => reinstateMutation.mutate()}
+              >
+                <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                {reinstateMutation.isPending ? "Reinstating…" : "Reinstate"}
+              </Button>
+            )}
           </div>
         )}
 
@@ -205,24 +207,30 @@ export default function DriverDetailPage() {
 
             {/* Action Buttons */}
             <div className="flex flex-wrap items-center gap-3 shrink-0">
-              <Button
-                variant={driver.account?.has_password ? "outline" : "default"}
-                onClick={() => setAccountDialogOpen(true)}
-                className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs"
-              >
-                <KeyRound className="w-4 h-4 mr-2" />
-                {driver.account?.has_password ? "Manage Login" : "Enable Login"}
-              </Button>
-              <Button variant="outline" onClick={() => router.push(`/drivers/${id}/edit`)} className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs border-border/80">
-                <Pencil className="w-4 h-4 mr-2" /> Edit Profile
-              </Button>
-              <Button
-                variant="outline"
-                className="rounded-xl text-xs h-10 px-4 font-semibold text-danger border-danger/20 hover:bg-danger/5 hover:border-danger/40 transition-colors"
-                onClick={() => setConfirmDelete(true)}
-              >
-                <Archive className="w-4 h-4 mr-2" /> Archive
-              </Button>
+              {can("drivers", "update") && (
+                <Button
+                  variant={driver.account?.has_password ? "outline" : "default"}
+                  onClick={() => setAccountDialogOpen(true)}
+                  className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs"
+                >
+                  <KeyRound className="w-4 h-4 mr-2" />
+                  {driver.account?.has_password ? "Manage Login" : "Enable Login"}
+                </Button>
+              )}
+              {can("drivers", "update") && (
+                <Button variant="outline" onClick={() => router.push(`/drivers/${id}/edit`)} className="rounded-xl text-xs h-10 px-4 font-semibold shadow-xs border-border/80">
+                  <Pencil className="w-4 h-4 mr-2" /> Edit Profile
+                </Button>
+              )}
+              {can("drivers", "delete") && (
+                <Button
+                  variant="outline"
+                  className="rounded-xl text-xs h-10 px-4 font-semibold text-danger border-danger/20 hover:bg-danger/5 hover:border-danger/40 transition-colors"
+                  onClick={() => setConfirmDelete(true)}
+                >
+                  <Archive className="w-4 h-4 mr-2" /> Archive
+                </Button>
+              )}
             </div>
           </div>
 
