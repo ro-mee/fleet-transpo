@@ -87,7 +87,7 @@ export default function IncidentsScreen() {
         location: gpsLocation,
         latitude: lat,
         longitude: lng,
-        severity: ({ low: "Minor", medium: "Moderate", high: "Major" }[severity] || "Minor"),
+        severity: ({ low: "Minor", medium: "Moderate", high: "Major", critical: "Critical" }[severity] || "Minor"),
         incident_date: new Date().toISOString(),
         client_submission_id: clientSubmissionId,
       });
@@ -188,7 +188,7 @@ export default function IncidentsScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity Level</Text>
           <View style={styles.severityRow}>
-            {["low", "medium", "high"].map((s) => {
+            {["low", "medium", "high", "critical"].map((s) => {
               const selected = severity === s;
               const c =
                 s === "low"
@@ -210,18 +210,20 @@ export default function IncidentsScreen() {
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.severityText,
-                      {
-                        color: selected
-                          ? "#FFFFFF"
-                          : colors.onSurface,
-                      },
-                    ]}
-                  >
-                    {s.toUpperCase()}
-                  </Text>
+              <Text
+                style={[
+                  styles.severityText,
+                  {
+                    color: selected
+                      ? "#FFFFFF"
+                      : colors.onSurface,
+                  },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {s.toUpperCase()}
+              </Text>
                 </Pressable>
               );
             })}

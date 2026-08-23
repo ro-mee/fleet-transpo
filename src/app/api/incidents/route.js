@@ -10,8 +10,9 @@ export async function GET(req) {
     const sp = new URL(req.url).searchParams;
 
     let sql = `
-      SELECT i.incident_id, 
-             COALESCE(i.vehicle_id, a.vehicle_id) as vehicle_id, 
+      SELECT i.incident_id,
+             COALESCE(i.vehicle_id, a.vehicle_id) as vehicle_id,
+             i.vehicle_id as reported_vehicle_id,
              i.trip_id, i.incident_type, i.incident_date,
              i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
              i.actions_taken, i.created_at, i.assistance_needed, i.expense_amount,

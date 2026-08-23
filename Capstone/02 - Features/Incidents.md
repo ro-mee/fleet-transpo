@@ -46,10 +46,13 @@ Pure decision logic lives in `src/lib/incidents/resolution.js` (14 unit tests) s
 
 ## Known limits
 
-- The admin list falls back to the driver's *current* assignment when an incident has no `vehicle_id` (`COALESCE(i.vehicle_id, a.vehicle_id)`); the maintenance button can therefore name a vehicle the incident never mentioned.
 - No linkage column between `vehiclemaintenance` and the originating incident — only free text ("generated from Incident #N").
-- Mobile offers Minor/Moderate/Major only; Critical arrives exclusively via SOS.
 - Reassigning dispatches interrupted by grounding stays manual; resolving an incident says nothing about them.
+
+Closed 2026-08-23 (later the same day): the maintenance action now gates on
+`reported_vehicle_id` — the vehicle the incident itself names — instead of the
+list's COALESCE fallback to the driver's *current* assignment; and the mobile
+form offers all four severities including Critical.
 
 ## Database tables used
 

@@ -216,7 +216,13 @@ export default function IncidentsPage() {
         if ((row.status || "").toLowerCase() === "pending" || (row.status || "").toLowerCase() === "open") {
           return (
             <div className="flex justify-end gap-2">
-              {row.vehicle_id && (
+              {/* Gate on the vehicle the incident itself names. The list's
+                  vehicle_id falls back to the driver's CURRENT assignment
+                  (COALESCE in the API), which may be a vehicle the incident
+                  never mentioned — routing that one to emergency repairs on
+                  an incident's say-so is how costs land on the wrong truck.
+                  The server enforces the same rule. */}
+              {row.reported_vehicle_id && (
                 <Button
                   variant="outline"
                   size="sm"
