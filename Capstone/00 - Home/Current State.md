@@ -75,6 +75,8 @@ last_verified: 2026-08-22
 
 **Mobile fuel scanner — 2026-08-22 (commit `3b5dd94`):** Gemini-only server extraction, Petron/Shell brand normalization, camera crop/review, retry-safe upload, automatic vehicle-mileage odometer, direct nav-to-camera shortcut, and fuel-gauge removal. Targeted tests, Next build, and Android bundle export passed. See [[Fuel]] · [[2026-08-22]].
 
+**Audit backlog S6/S9/S11/S12 — 2026-08-22:** dedicated `MOBILE_JWT_SECRET`, drivers list closed to the driver role, SSRF guard on OCR media fetches, rightmost-XFF rate-limit keying. Suite now **374 tests / 31 files**; `verify-rbac.mjs` repaired (stale inventory from `0c0820c` deletions) and green at **72 checks**. Uncommitted at time of writing. → [[Security Audit]]
+
 **Mobile UI/UX — 2026-08-20:** mobile driver app audited (`impeccable` native critique + audit): **10/20** pre-fix (Accessibility 1, Performance 1, Theming 2, Conformance 3, Adaptivity 3). P1 fixes applied — status colors now palette-aware (dark/high-contrast correct), foreign colors removed, core trip-loop + SOS controls labeled. Lists still unvirtualized (P2, deferred). → [[UI UX Audit - Mobile]]
 
 ## What is incomplete — CONFIRMED

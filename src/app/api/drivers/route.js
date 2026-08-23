@@ -38,7 +38,11 @@ async function ensureDriverColumnsExist() {
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
+    // No "driver" role here: the RBAC matrix gives drivers their OWN profile
+    // (/api/driver/me), not the roster — admitting them to this route lets any
+    // driver enumerate colleagues' license numbers, contact details and
+    // schedules. GET /api/drivers/[id] already excludes the role as well.
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
     await ensureDriverColumnsExist();
 
     const { searchParams } = new URL(req.url);

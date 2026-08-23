@@ -5,8 +5,11 @@ import { SignJWT, jwtVerify } from "jose";
  * Bearer-token auth for the mobile app.
  *
  * The web app authenticates with an httpOnly NextAuth cookie, which a native
- * client cannot hold. Mobile gets JWTs instead, signed with the same
- * NEXTAUTH_SECRET so there is one signing key to rotate, not two.
+ * client cannot hold. Mobile gets JWTs instead, signed with MOBILE_JWT_SECRET
+ * so a leak of one signing key cannot forge BOTH web sessions and mobile
+ * tokens (audit finding S6). MOBILE_JWT_SECRET falls back to NEXTAUTH_SECRET
+ * (with a loud warning) so existing single-secret deployments keep working;
+ * set a distinct value in production.
  *
  * Access tokens are stateless: 15 minutes, verified by signature alone, no DB
  * hit on every request. Refresh tokens are long-lived, so they are recorded in
@@ -27,9 +30,15 @@ function getSigningKey() {
     throw new Error("mobile-token is server-only.");
   }
   if (!cachedKey) {
-    const secret = process.env.NEXTAUTH_SECRET;
+    let secret = process.env.MOBILE_JWT_SECRET;
     if (!secret) {
-      throw new Error("NEXTAUTH_SECRET is not set.");
+      console.warn(
+        "MOBILE_JWT_SECRET is not set — mobile tokens are falling back to NEXTAUTH_SECRET. Set a distinct MOBILE_JWT_SECRET so a leaked key cannot forge both token systems."
+      );
+      secret = process.env.NEXTAUTH_SECRET;
+    }
+    if (!secret) {
+      throw new Error("MOBILE_JWT_SECRET (or NEXTAUTH_SECRET fallback) is not set.");
     }
     cachedKey = new TextEncoder().encode(secret);
   }

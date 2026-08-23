@@ -43,9 +43,11 @@ const ACTION_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher"];
 const READ_ROLES = [...ACTION_ROLES, "management"];
 
 const ROUTES = [
-  { name: "review",      mod: "app/api/integration/transport-requests/[id]/review/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
-  { name: "approve",     mod: "app/api/integration/transport-requests/[id]/approve/route.js",     method: "PUT",  allow: ACTION_ROLES, kind: "action" },
-  { name: "reject",      mod: "app/api/integration/transport-requests/[id]/reject/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
+  // Kept in lockstep with what is actually on disk and with
+  // src/services/transport.service.js: review/reject/approve were deleted
+  // (0c0820c) — the lifecycle is now flags → recommendation → assign.
+  { name: "flags",          mod: "app/api/integration/transport-requests/[id]/flags/route.js",         method: "PATCH", allow: ["system_admin", "admin", "fleet_manager"], kind: "action" },
+  { name: "recommendation", mod: "app/api/integration/transport-requests/[id]/recommendation/route.js", method: "POST", allow: ACTION_ROLES, kind: "action" },
   { name: "assign",      mod: "app/api/integration/transport-requests/[id]/assign/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
   { name: "cancel",      mod: "app/api/integration/transport-requests/[id]/cancel/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
   { name: "reschedule",  mod: "app/api/integration/transport-requests/[id]/reschedule/route.js",  method: "PUT",  allow: ACTION_ROLES, kind: "action" },
@@ -132,10 +134,14 @@ console.log("3. Plan cases: dispatcher acts, management reads only");
 const dispatcherStatuses = {};
 for (const route of ROUTES) dispatcherStatuses[route.name] = await callAs(route, "dispatcher");
 check(
-  "dispatcher is admitted to every lifecycle route",
-  Object.values(dispatcherStatuses).every((s) => s !== 401 && s !== 403),
+  "dispatcher is admitted to every lifecycle route it may act on",
+  Object.entries(dispatcherStatuses).every(
+    ([name, s]) => name === "flags" || (s !== 401 && s !== 403)
+  ),
   JSON.stringify(dispatcherStatuses)
 );
+// flags is a fleet-role-only correction endpoint by design.
+check("dispatcher is refused 403 on flags", dispatcherStatuses.flags === 403, `got ${dispatcherStatuses.flags}`);
 
 // management is read-only by design — it observes without acting.
 const managementStatuses = {};
@@ -189,12 +195,14 @@ check("can(): unknown verb is denied", can(employee("dispatcher"), "reservations
 console.log("5. UI matrix and API boundary agree");
 for (const role of ALL_ROLES) {
   const uiAllows = VERBS.some((v) => can(employee(role), "reservations", v));
-  const apiStatus = await callAs(ROUTES.find((r) => r.name === "approve"), role);
+  // assign stands in as the representative live action route (approve/review/
+  // reject are gone; assigning a vehicle+driver IS the approval step now).
+  const apiStatus = await callAs(ROUTES.find((r) => r.name === "assign"), role);
   const apiAllows = apiStatus !== 401 && apiStatus !== 403;
   check(
     `${role}: can()=${uiAllows} matches API=${apiAllows}`,
     uiAllows === apiAllows,
-    `approve returned ${apiStatus}`
+    `assign returned ${apiStatus}`
   );
 }
 

@@ -40,11 +40,29 @@ export function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
   return { allowed: true, remaining: limit - bucket.count, retryAfter: 0 };
 }
 
-/** Best-effort client IP from a Next.js request's headers. */
+/** Matches IPv4, IPv6, and optional ":port" suffixes on dotted quads. */
+const IP_LIKE = /^[0-9a-fA-F:.]+$/;
+
+/**
+ * Best-effort client IP from a Next.js request's headers.
+ *
+ * x-forwarded-for is "client, proxy1, proxy2" — the LEFTMOST entry is what the
+ * client sent itself and is trivially spoofable. The rightmost entry is the
+ * one appended by the nearest trusted proxy, so that is what we key rate
+ * limits on. Without a trusted proxy in front of the app neither header can be
+ * fully trusted; rightmost-XFF is still strictly harder to spoof than first-XFF.
+ */
 export function clientIp(req) {
   const xff = req.headers?.get?.("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
+  if (xff) {
+    const hops = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    let nearest = hops[hops.length - 1];
+    if (nearest) {
+      nearest = nearest.replace(/^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/, "$1");
+      if (IP_LIKE.test(nearest)) return nearest;
+    }
+  }
   const real = req.headers?.get?.("x-real-ip");
-  if (real) return real.trim();
+  if (real && IP_LIKE.test(real.trim())) return real.trim();
   return "unknown";
 }

@@ -1,5 +1,6 @@
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import {
   extractTextFromImage,
   parseDriverLicenseFieldsFromText,
@@ -37,6 +38,11 @@ export async function POST(req) {
     const side = String(body.side).toLowerCase();
     if (side !== "front" && side !== "back") {
       return err("side must be 'front' or 'back'", 400);
+    }
+
+    // SSRF guard: only inline data URLs or fleet-storage hosts may be fetched.
+    if (!isSafeRemoteMediaUrl(body.file_url)) {
+      return err("file_url must be the captured scan image.", 400);
     }
 
     const ocrText = await extractTextFromImage(body.file_url);

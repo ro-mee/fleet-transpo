@@ -1,6 +1,7 @@
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
+import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import {
   extractTextFromImage,
   parseDriverLicenseFieldsFromText,
@@ -259,6 +260,12 @@ export async function POST(request) {
 
     if (!document_type) {
       return err("Document type is required (Driver_License, Driver_License_Back, OR_CR, Insurance)", 400);
+    }
+
+    // SSRF guard: the server (OCR + LLM provider) must never fetch arbitrary
+    // caller-supplied URLs — only fleet storage or inline data URLs.
+    if (file_url && !isSafeRemoteMediaUrl(file_url)) {
+      return err("file_url must be a document uploaded to fleet storage.", 400);
     }
 
     let extractedData = {};
