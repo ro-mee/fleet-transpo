@@ -7,8 +7,10 @@ source:
   - mobile/lib/api.js
   - mobile/lib/tracking.js
   - mobile/lib/rbac.js
+  - mobile/lib/permissions.js
+  - mobile/app/(app)/profile/license.js
   - mobile/AGENTS.md
-last_verified: 2026-08-11
+last_verified: 2026-08-23
 ---
 
 # Mobile Architecture
@@ -75,6 +77,14 @@ This is correct practice, correctly documented: the client decodes to decide wha
 ## Auth
 
 Separate from web — 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
+
+## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
+
+The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
+
+## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`)
+
+All five device permissions (foreground/background location, camera, photo library, notifications) are declared once in a registry with normalized `{ status, canAskAgain }`. Both the onboarding gate and Settings → PERMISSIONS consume it; see [[Driver Consent]] for the full behavior. Background location is listed as its own row (Android's "Allow all the time" is distinct from "While using"; iOS has no separate toggle).
 
 ## Version warning — CONFIRMED
 

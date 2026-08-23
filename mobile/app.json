@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "FleetOps",
-    "slug": "mobile",
+    "slug": "fleetops",
     "scheme": "fleetops",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -22,7 +22,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_LOCATION"
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.CAMERA"
       ],
       "package": "com.fleet.mobile",
       "googleServicesFile": "./services/google-services.json"
@@ -67,9 +68,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "a3c14c6f-3fcd-41f4-acf8-36d37747fc5e"
+        "projectId": "0c1651d5-7014-48da-8227-5d9f30ea1a23"
       }
     },
-    "owner": "fleet23s-team"
+    "owner": "josephlopezzzz"
   }
 }
