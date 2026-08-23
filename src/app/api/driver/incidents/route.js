@@ -213,8 +213,8 @@ export async function POST(req) {
           `SELECT ds.dispatch_id, ds.dispatch_number, r.guest_name
              FROM dispatchschedules ds
              LEFT JOIN transportation_requests r ON r.request_id = ds.request_id
-            WHERE ds.vehicle_id = $1 
-              AND ds.status IN ('Scheduled', 'In Progress') 
+            WHERE ds.vehicle_id = $1
+              AND ds.status IN ('Scheduled', 'In Progress')
               AND ds.deleted_at IS NULL
               AND (ds.status = 'In Progress' OR ds.scheduled_departure <= NOW() + $2::interval)`,
           [rows[0].vehicle_id, interval]
@@ -242,7 +242,7 @@ export async function POST(req) {
               reference_type: "dispatch",
               reference_id: ds.dispatch_id,
             }));
-            
+
             for (const notif of urgentRows) {
               await query(
                 `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
@@ -257,6 +257,17 @@ export async function POST(req) {
               data: { reference_type: "dispatch", reference_id: ds.dispatch_id },
             });
           }
+
+          // Re-assert grounding. Each teardown above runs syncVehicleStatus,
+          // which recomputes availability from maintenance records and live
+          // trips — and seeing neither (no repair record exists yet), resets
+          // the freshly-grounded vehicle straight back to Available. Found by
+          // the headless E2E rehearsal: the teardown un-did the grounding.
+          await supabase
+            .from("vehicles")
+            .update({ vehicle_status: "Under Maintenance" })
+            .eq("vehicle_id", rows[0].vehicle_id)
+            .is("deleted_at", null);
         }
       } catch (e) {
         console.warn("grounding automation failed:", e?.message || e);

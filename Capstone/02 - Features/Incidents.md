@@ -60,28 +60,26 @@ claims are reviewed, not auto-booked; assistance requests are structured chips.
 
 ## Manual QA checklist (needs two real sessions)
 
-What `next build`, vitest and DB rehearsal cannot prove. Run with a driver on
-the mobile app and staff in the admin:
+**Machine-proven 2026-08-23** by `scratch/qa_incidents_e2e.mjs` against the live
+API — minted driver+staff JWTs, seeded a dispatch, 19/19 assertions, `[QA]` rows
+cleaned up afterwards:
 
-1. **Offline SOS → replay.** Airplane-mode an SOS; confirm "saved offline"
-   copy. Go online; confirm exactly ONE incident row (client_submission_id
-   dedupe) and one grounding automation run.
-2. **Permanent-failure quarantine.** Queue a report, then let the session
-   expire before reconnect. Confirm the home-tab banner appears, RETRY clears
-   it after re-login, DISCARD asks first.
-3. **Grounding interrupting a live dispatch.** Seed an In-Progress dispatch on
-   the assigned vehicle; report a breakdown. Confirm: vehicle → Under
-   Maintenance, dispatch → Pending Reassignment, dispatcher push received,
-   resolve modal lists the interrupted dispatch.
-4. **Resolve loop.** Resolve with actions_taken. Confirm driver receives the
-   resolution push, Activity Logs shows RESOLVED + the narrative, grounded
-   vehicle returns to Available when no repair record keeps it out.
-5. **Repair completion loop.** Send to Maintenance from the registry; complete
-   the record in the register. Confirm cost starts at ₱0 with the claim in
-   remarks, vehicle returns to Available, and the reporter gets "Vehicle
-   Repair Completed".
-6. **Assistance chips end-to-end.** File with Tow Truck + Medical selected;
-   confirm chips render in the admin registry row.
+1. ✅ **Replay dedupe** — same `client_submission_id` twice → same incident, one row (S1)
+2. ✅ **Grounding + interruption** — vehicle `Under Maintenance`, seeded dispatch → `Pending Reassignment`, exact audit reason, dispatcher + driver ack notifications (S2)
+3. ✅ **Resolver context** — GET lists the interrupted dispatch; repairs empty before one exists (S3)
+4. ✅ **Resolve loop** — 400 without narrative → 200 → 409 re-resolve; vehicle restored; reporter notified (S4)
+5. ✅ **Atomic maintenance + replay guard** — cost=0, unverified claim in remarks, `source_incident_id` set; second POST → 409 (S5)
+6. ✅ **Completion loop** — PUT Completed → "Vehicle Repair Completed" to the reporter (S6)
+
+Step 2's first run **failed and found [[BUG Dispatch Teardown Ungrounds Vehicle]]**
+— fixed, suite green after.
+
+Still device-only (cannot be asserted headlessly):
+
+- **Expo push receipts** — notifications rows exist and `sendPush` was invoked;
+  actual delivery to a handset is unverified.
+- **AsyncStorage offline path** — the queue/dead-letter/banner flow needs a real
+  device in airplane mode (steps 1–2 of the original manual list).
 
 ## Database tables used
 

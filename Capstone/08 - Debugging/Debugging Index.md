@@ -18,12 +18,13 @@ Every finding here was **verified against the actual file or the live database**
 
 | Note | Severity | One-line |
 |---|---|---|
+| [[BUG Dispatch Teardown Ungrounds Vehicle]] | ✅ Fixed 2026-08-23 | Each dispatch teardown re-synced availability and reset the freshly-grounded vehicle to `Available`. Found by the headless E2E rehearsal, not by review |
 | [[BUG AuthError Not Imported]] | ✅ Fixed | Trip-start 404 path threw `ReferenceError`. Import added; `no-undef` enabled so the class can't recur silently |
 | [[BUG shouldGroundVehicle Is A Stub]] | ✅ Fixed | Grounded **every** vehicle on any incident — and tore down its live dispatch |
 | [[BUG Pending Reassignment Not In State Machine]] | ✅ Fixed | DB allowed a status the code rejected. Migration 033 + an explicit `INTERRUPT` set |
 | [[BUG Root proxy.js Is Dead Code]] | ✅ Fixed | Dead file implied the wrong auth model. Deleted |
 
-**All four are closed as of 2026-08-11.** New bugs go above; the closed ones stay
+**All five are closed as of 2026-08-23.** New bugs go above; the closed ones stay
 because *how* each was found is the reusable part.
 
 ## Technical debt
