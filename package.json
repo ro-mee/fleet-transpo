@@ -76,5 +76,11 @@
   "overrides": {
     "react": "$react",
     "react-dom": "$react-dom"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true,
+    "sharp@0.34.5": true,
+    "tesseract.js@7.0.0": true,
+    "unrs-resolver@1.12.2": true
   }
 }

@@ -1,5 +1,5 @@
 import { moderateScale } from '../lib/scaling';
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -8,25 +8,31 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import * as Location from "expo-location";
 import { useTheme } from "../lib/theme-context";
 import { fonts, radius, space } from "../lib/theme";
-import { Button, ErrorNotice, styles as ui } from "../components/ui";
+import { Button, ErrorNotice, StatusPill, styles as ui } from "../components/ui";
 import { BrandBar } from "../components/logo";
-import { MaterialIcons } from "@expo/vector-icons";
-// Since expo-camera might not be installed, we will just use dummy permission check for now or rely on native prompts later.
-// Actually expo-image-picker is installed based on package.json, so we can request media library / camera permissions from it.
-import * as ImagePicker from "expo-image-picker";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  describePermissionState,
+  getPermissionStatuses,
+  listAppPermissions,
+  requestAppPermission,
+} from "../lib/permissions";
 
-function PermissionCard({ icon, title, description }) {
+function PermissionCard({ icon, title, description, state }) {
   const { colors, type } = useTheme();
+  const presentation = describePermissionState(state);
   return (
     <View style={[styles.cardItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
       <View style={[styles.iconBox, { backgroundColor: colors.primaryContainer }]}>
-        <MaterialIcons name={icon} size={24} color={colors.onPrimaryContainer} />
+        <Ionicons name={icon} size={22} color={colors.onPrimaryContainer} />
       </View>
       <View style={styles.cardText}>
-        <Text style={[type.titleMd, styles.cardTitle, { color: colors.onSurface }]}>{title}</Text>
+        <View style={styles.titleRow}>
+          <Text style={[type.titleMd, styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>
+          {state && <StatusPill label={presentation.label} tone={presentation.tone} />}
+        </View>
         <Text style={[type.bodyMd, ui.bodyText, { color: colors.onSurfaceVariant }]}>{description}</Text>
       </View>
     </View>
@@ -37,33 +43,38 @@ export default function PermissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { colors, type } = useTheme();
+  const permissions = listAppPermissions();
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [statuses, setStatuses] = useState({});
+
+  useEffect(() => {
+    let active = true;
+    getPermissionStatuses().then((results) => {
+      if (!active) return;
+      setStatuses(Object.fromEntries(results.map((r) => [r.key, r])));
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   const onRequestPermissions = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      // 1. Request Location Permission
-      const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
-      
-      // 2. Request Camera Permission (using expo-image-picker which is in package.json)
-      const { status: camStatus } = await ImagePicker.requestCameraPermissionsAsync();
-
-      if (locStatus !== 'granted') {
-        // We log it but won't strictly block routing just to allow demo to proceed if simulator denies it.
-        console.warn("Location permission not granted");
+      for (const entry of permissions) {
+        const result = await requestAppPermission(entry.key);
+        if (result) {
+          setStatuses((prev) => ({ ...prev, [entry.key]: result }));
+        }
       }
-
-      // Navigate to the main app layout
       router.replace("/");
     } catch (e) {
       setError(e.message || "Something went wrong while requesting permissions.");
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [permissions, router]);
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>
@@ -76,7 +87,7 @@ export default function PermissionsScreen() {
       >
         <View style={styles.header}>
           <View style={[styles.iconContainer, { backgroundColor: colors.secondaryContainer }]}>
-            <MaterialIcons name="important-devices" size={48} color={colors.onSecondaryContainer} />
+            <Ionicons name="devices" size={48} color={colors.onSecondaryContainer} />
           </View>
           <Text style={[type.headlineMd, styles.title, { color: colors.onSurface }]}>App Permissions</Text>
           <Text style={[type.bodyMd, styles.subtitle, { color: colors.onSurfaceVariant }]}>
@@ -87,20 +98,18 @@ export default function PermissionsScreen() {
         <ErrorNotice message={error} />
 
         <View style={styles.cards}>
-          <PermissionCard
-            icon="near-me"
-            title="Location"
-            description="Required to dispatch trips and track your progress while on duty."
-          />
-          <PermissionCard
-            icon="photo-camera"
-            title="Camera"
-            description="Required for scanning fuel receipts and verifying licenses."
-          />
+          {permissions.map((entry) => (
+            <PermissionCard
+              key={entry.key}
+              icon={entry.icon}
+              title={entry.title}
+              description={entry.why}
+              state={statuses[entry.key]}
+            />
+          ))}
         </View>
       </ScrollView>
 
-      {/* Sticky Bottom Bar */}
       <View style={[styles.stickyFooter, { 
         backgroundColor: colors.surface, 
         borderTopColor: colors.outlineVariant,
@@ -161,7 +170,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cardText: { flex: 1, gap: 2 },
-  cardTitle: { },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.sm,
+  },
+  cardTitle: { flexShrink: 1 },
   stickyFooter: {
     position: "absolute",
     bottom: 0,

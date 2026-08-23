@@ -6,6 +6,7 @@ source:
   - src/lib/consent/driver-visibility.js
   - supabase/migrations/017_driver_consents.sql
   - mobile/app/(app)/profile/license.js
+  - mobile/lib/permissions.js
 last_verified: 2026-08-23
 ---
 
@@ -39,6 +40,16 @@ Note what a driver **cannot** edit: name, licence number, licence expiry, employ
 ## The 30-day re-upload window
 
 `canUpdateLicenseScan()` blocks licence re-scans inside a 30-day window. INFERRED: to prevent repeated re-uploads being used to churn the licence record — but the repository does not currently document why this specific window was chosen.
+
+## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`, 2026-08-23)
+
+The mobile app tracks **five OS permissions** in one registry: foreground location, background location, camera, photo library, notifications. Each entry carries `check()` / `request()` against the matching Expo API and normalizes to `{ status: granted|denied|undetermined, canAskAgain }`.
+
+Two consumers:
+1. **Onboarding gate** (`mobile/app/permissions.js`) — now requests all five from the registry (was hardcoded to location + camera only) and shows a live status pill per card. Still non-blocking: denials are recorded, not fatal.
+2. **Settings → PERMISSIONS** (`mobile/app/(app)/settings.js`) — the revisit point. A summary cluster ("DEVICE ACCESS · 4 OF 5" with one tappable segment per permission) sits above an accordion list: each row expands to show what it powers, what breaks without it ("Without it: …"), and an explicit action — **Allow** (re-prompt), **Open device settings** (permanently blocked → `Linking.openSettings()`), or a quiet "Managed in your device settings" note when approved. Statuses refresh on screen focus and on return from OS Settings via `AppState`; expand/collapse animates via `LayoutAnimation`, skipped when the OS reduce-motion setting is on. Layout is centered at `maxWidth` on wide screens (tablet/landscape/web).
+
+The PREFERENCES toggles above it (Push Notifications, Location Tracking) remain app-level choices in `settings-context` — deliberately separate from what the OS has actually granted.
 
 ## Mobile scan upload flow — CONFIRMED (`mobile/app/(app)/profile/license.js`, 2026-08-23)
 
