@@ -38,6 +38,7 @@ import { getTransportRequests } from "@/services/transport.service";
 import { getNotifications } from "@/services/notification.service";
 import { getAuditLogs } from "@/services/audit.service";
 import { getSystemActivity } from "@/services/system.service";
+import { vehiclePieColor, CHART_COLORS } from "@/lib/chart-tokens";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -56,13 +57,17 @@ const tooltipStyle = {
   fontSize: "12px",
 };
 
+// Shared chart palette (src/lib/chart-tokens.js) — previously a private copy
+// that drifted from the analytics/reports palettes.
 const PIE_COLORS = {
-  Available: "#10b981",
-  "In Use": "#f59e0b",
-  "Under Maintenance": "#ef4444",
-  "Out of Service": "#ef4444",
-  "Registration Expired": "#ef4444",
-  Unknown: "#9ca3af",
+  Available: vehiclePieColor("Available"),
+  "In Use": vehiclePieColor("In Use"),
+  "Under Maintenance": vehiclePieColor("Under Maintenance"),
+  "Out of Service": vehiclePieColor("Out of Service"),
+  "Registration Expired": vehiclePieColor("Registration Expired"),
+  Reserved: vehiclePieColor("Reserved"),
+  Decommissioned: vehiclePieColor("Decommissioned"),
+  Unknown: CHART_COLORS.neutral,
 };
 
 const OPEN_STATUSES = ["pending", "scheduled", "assigned", "in progress"];
@@ -245,7 +250,7 @@ export function RoleDashboard({ role, employee }) {
         let type = "info";
         if (status === "completed") { action = `Trip #${t.trip_id} completed`; type = "success"; }
         else if (status === "cancelled") { action = `Trip #${t.trip_id} cancelled`; type = "danger"; }
-        else if (status === "en route") { action = `Trip #${t.trip_id} en route`; type = "warning"; }
+        else if (status === "en route") { action = `Trip #${t.trip_id} en route`; type = "primary"; }
         else if (status) { action = `Trip #${t.trip_id} ${status}`; }
         else { action = `Trip #${t.trip_id} scheduled`; }
         const detail = driver ? `${plate} · ${driver}` : plate;
@@ -256,7 +261,8 @@ export function RoleDashboard({ role, employee }) {
   const queueItems = useMemo(() => {
     return reservations
       .filter((r) => OPEN_STATUSES.includes((r.fleet_status || "").toLowerCase()))
-      .sort((a, b) => new Date(b.pickup_datetime || b.created_at || 0) - new Date(a.pickup_datetime || a.created_at || 0))
+      // Soonest pickup first — the operator works the nearest deadline, not the newest row.
+      .sort((a, b) => new Date(a.pickup_datetime || a.created_at || 0) - new Date(b.pickup_datetime || b.created_at || 0))
       .slice(0, 6);
   }, [reservations]);
 
@@ -373,7 +379,7 @@ function DashboardSection({ section, data }) {
     case "area":
       return (
         <SectionCard title="Reservation Trends" icon={BarChart3} extra={<span className="text-xs text-foreground-muted">last 14 days</span>}>
-          <div className="h-[260px]">
+          <div className="chart-h-md">
             {data.reservationTrend.some((d) => d.count > 0) ? (
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <AreaChart data={data.reservationTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
@@ -404,7 +410,7 @@ function DashboardSection({ section, data }) {
     case "pie":
       return (
         <SectionCard title="Fleet Status" icon={Activity}>
-          <div className="h-[260px]">
+          <div className="chart-h-md">
             {data.fleetStatus.length ? (
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <PieChart>
@@ -584,9 +590,15 @@ function DashboardSection({ section, data }) {
             <div className="divide-y divide-border">
               {data.notifications.slice(0, 5).map((n) => (
                 <div key={n.notification_id} className="flex items-start gap-3 px-5 py-3">
-                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 bg-primary" />
+                  <span
+                    className={cn(
+                      "mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
+                      n.is_read ? "bg-transparent border border-border" : "bg-primary"
+                    )}
+                    aria-label={n.is_read ? "Read" : "Unread"}
+                  />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">{n.title}</p>
+                    <p className={cn("text-sm text-foreground truncate", !n.is_read && "font-medium")}>{n.title}</p>
                     <p className="text-xs text-foreground-muted truncate">{n.message}</p>
                   </div>
                   <span className="text-[11px] text-foreground-muted flex-shrink-0">{formatTime(n.sent_at)}</span>
@@ -603,7 +615,7 @@ function DashboardSection({ section, data }) {
           )}
         </SectionCard>
       );
-    case "activity":
+    case "platform-activity":
       return (
         <SectionCard
           title="Platform Activity"
@@ -731,3 +743,4 @@ function DashboardSection({ section, data }) {
       return null;
   }
 }
+

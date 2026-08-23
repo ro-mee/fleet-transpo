@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
-import { StatsGridSkeleton } from "@/components/ui/skeleton";
+import { StatsGridSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { Wallet, Fuel, Wrench, TrendingDown } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { formatCurrency } from "@/lib/utils";
@@ -27,7 +27,9 @@ export default function FleetCostPage() {
     { label: "Total Cost", value: formatCurrency(totals.total_cost || 0), icon: Wallet, tone: "primary" },
     { label: "Fuel Cost", value: formatCurrency(totals.fuel_cost || 0), icon: Fuel, tone: "warning" },
     { label: "Maintenance Cost", value: formatCurrency(totals.maintenance_cost || 0), icon: Wrench, tone: "danger" },
-    { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown, tone: "success" },
+    // Cost/km is descriptive, not good news — keep the KPI neutral instead of
+    // painting an expense metric green.
+    { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown },
   ];
 
   return (
@@ -55,7 +57,9 @@ export default function FleetCostPage() {
         </CardHeader>
         <CardContent className="p-0">
           {isLoading ? (
-            <div className="p-8 text-center text-sm text-foreground-muted">Loading…</div>
+            <div className="p-5">
+              <TableSkeleton rows={6} cols={6} />
+            </div>
           ) : isError ? (
             <div className="p-8 text-center text-sm text-foreground-secondary">
               Could not load cost data.{" "}
@@ -71,11 +75,11 @@ export default function FleetCostPage() {
                 <thead>
                   <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-foreground-muted">
                     <th className="px-5 py-3 font-medium">Vehicle</th>
-                    <th className="px-5 py-3 font-medium">Fuel</th>
-                    <th className="px-5 py-3 font-medium">Maintenance</th>
-                    <th className="px-5 py-3 font-medium">Total Cost</th>
-                    <th className="px-5 py-3 font-medium">Distance (km)</th>
-                    <th className="px-5 py-3 font-medium">Cost / km</th>
+                    <th className="px-5 py-3 text-right font-medium">Fuel</th>
+                    <th className="px-5 py-3 text-right font-medium">Maintenance</th>
+                    <th className="px-5 py-3 text-right font-medium">Total Cost</th>
+                    <th className="px-5 py-3 text-right font-medium">Distance (km)</th>
+                    <th className="px-5 py-3 text-right font-medium">Cost / km</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -87,11 +91,11 @@ export default function FleetCostPage() {
                         </Link>
                         <div className="text-xs text-foreground-muted">{d.vehicle || "—"}</div>
                       </td>
-                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.fuel_cost)}</td>
-                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.maintenance_cost)}</td>
-                      <td className="px-5 py-3 font-medium text-foreground">{formatCurrency(d.total_cost)}</td>
-                      <td className="px-5 py-3 text-foreground">{Number(d.distance).toLocaleString()}</td>
-                      <td className="px-5 py-3 text-foreground">{formatCurrency(d.cost_per_km)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.fuel_cost)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.maintenance_cost)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums font-medium text-foreground">{formatCurrency(d.total_cost)}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{Number(d.distance).toLocaleString()}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.cost_per_km)}</td>
                     </tr>
                   ))}
                 </tbody>

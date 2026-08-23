@@ -29,9 +29,11 @@ const opsQueries = [
   "trips",
   "activeTrips",
   "reservations",
-  "locations",
   "insights",
 ];
+
+// Only roles whose sections actually render a map should poll GPS locations.
+const opsQueriesWithMap = [...opsQueries, "locations"];
 
 export const DASHBOARD_CONFIGS = {
   system_admin: {
@@ -53,7 +55,7 @@ export const DASHBOARD_CONFIGS = {
       { label: "AI Logs", href: "/settings/ai/logs", icon: Brain },
     ],
     sections: [
-      { type: "activity", span: 2 },
+      { type: "platform-activity", span: 2 },
       { type: "notifications" },
       { type: "audit", span: 3 },
     ],
@@ -61,16 +63,16 @@ export const DASHBOARD_CONFIGS = {
   admin: {
     title: "Operations Center",
     description: "Live fleet status, trips and requests across the operation.",
-    queries: opsQueries,
+    queries: opsQueriesWithMap,
     kpis: [
       { label: "Total Vehicles", stat: "totalVehicles", icon: Truck, tone: "primary", trend: "in the fleet" },
       { label: "Available", stat: "available", icon: CheckCircle2, tone: "success", trend: "ready for dispatch" },
       { label: "Under Maintenance", stat: "maintenance", icon: Wrench, tone: "warning", trend: "needs attention" },
-      { label: "Drivers on Duty", stat: "driversOnDuty", icon: Users, tone: "primary", trend: "available now" },
+      { label: "Drivers Available", stat: "driversAvailable", icon: Users, tone: "primary", trend: "ready now" },
       { label: "Active Trips", stat: "activeTrips", icon: Navigation, tone: "info", trend: "in motion now" },
       { label: "Open Requests", stat: "openRequests", icon: CalendarCheck, tone: "warning", trend: "awaiting handling" },
       { label: "Trips Today", stat: "tripsToday", icon: Send, tone: "primary", trend: "started or scheduled" },
-      { label: "Fleet Utilization", stat: "utilization", icon: TrendingUp, tone: "success", trend: "of fleet ready" },
+      { label: "Fleet Availability", stat: "utilization", icon: TrendingUp, tone: "success", trend: "of fleet ready" },
     ],
     quickActions: [
       { label: "Add Vehicle", href: "/fleet/vehicles/new", icon: Plus },
@@ -93,8 +95,8 @@ export const DASHBOARD_CONFIGS = {
     kpis: [
       { label: "Available", stat: "available", icon: CheckCircle2, tone: "success", trend: "ready to deploy" },
       { label: "Under Maintenance", stat: "maintenance", icon: Wrench, tone: "warning", trend: "needs attention" },
-      { label: "Fleet Utilization", stat: "utilization", icon: Gauge, tone: "primary", trend: "of fleet ready" },
-      { label: "Drivers on Duty", stat: "driversOnDuty", icon: Users, tone: "primary", trend: "available now" },
+      { label: "Fleet Availability", stat: "utilization", icon: Gauge, tone: "primary", trend: "of fleet ready" },
+      { label: "Drivers Available", stat: "driversAvailable", icon: Users, tone: "primary", trend: "ready now" },
       { label: "Active Trips", stat: "activeTrips", icon: Navigation, tone: "info", trend: "in motion" },
       { label: "Open Requests", stat: "openRequests", icon: Inbox, tone: "warning", trend: "awaiting handling" },
     ],
@@ -115,16 +117,16 @@ export const DASHBOARD_CONFIGS = {
   dispatcher: {
     title: "Transportation Operations",
     description: "The dispatch floor: requests, trips in motion and live position.",
-    queries: opsQueries,
+    queries: opsQueriesWithMap,
     kpis: [
       { label: "Open Requests", stat: "openRequests", icon: Inbox, tone: "warning", trend: "awaiting action", href: "/reservations/queue" },
-      { label: "Due Today", stat: "todayRequests", icon: CalendarCheck, tone: "danger", trend: "pickups scheduled" },
+      { label: "Due Today", stat: "todayRequests", icon: CalendarCheck, tone: "warning", trend: "pickups scheduled" },
       { label: "Active Trips", stat: "activeTrips", icon: Navigation, tone: "info", trend: "in motion now" },
       { label: "Available Vehicles", stat: "available", icon: CheckCircle2, tone: "success", trend: "ready to assign", href: "/fleet/vehicles" },
-      { label: "Drivers on Duty", stat: "driversOnDuty", icon: Users, tone: "primary", trend: "available now" },
+      { label: "Drivers Available", stat: "driversAvailable", icon: Users, tone: "primary", trend: "ready now" },
     ],
     quickActions: [
-      { label: "Assign Vehicle", href: "/dispatch", icon: Send },
+      { label: "Dispatch Board", href: "/dispatch", icon: Send },
       { label: "Request Queue", href: "/reservations/queue", icon: Inbox },
       { label: "Trips Hub", href: "/trips", icon: Navigation },
       { label: "Live Map", href: "/tracking/live-map", icon: MapPin },
@@ -144,9 +146,9 @@ export const DASHBOARD_CONFIGS = {
     queries: opsQueries,
     kpis: [
       { label: "Trips Today", stat: "tripsToday", icon: Send, tone: "primary", trend: "started or scheduled" },
-      { label: "Fleet Utilization", stat: "utilization", icon: Gauge, tone: "success", trend: "of fleet ready" },
+      { label: "Fleet Availability", stat: "utilization", icon: Gauge, tone: "success", trend: "of fleet ready" },
       { label: "Under Maintenance", stat: "maintenance", icon: Wrench, tone: "warning", trend: "needs attention" },
-      { label: "Drivers on Duty", stat: "driversOnDuty", icon: Users, tone: "primary", trend: "available now" },
+      { label: "Drivers Available", stat: "driversAvailable", icon: Users, tone: "primary", trend: "ready now" },
       { label: "Active Trips", stat: "activeTrips", icon: Navigation, tone: "info", trend: "in motion" },
       { label: "Open Requests", stat: "openRequests", icon: Inbox, tone: "warning", trend: "awaiting handling" },
     ],

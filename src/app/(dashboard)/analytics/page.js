@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, MotionConfig, animate, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import {
   getFleetUtilizationReport,
   getFuelConsumptionReport,
@@ -20,6 +21,7 @@ import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toCalendarDay } from "@/lib/dates";
 import { exportToCSV } from "@/lib/export";
+import { CHART_COLORS as CHART_TOKENS } from "@/lib/chart-tokens";
 import {
   AreaChart,
   Area,
@@ -61,14 +63,14 @@ const PIE_COLORS = {
   Overdue: "#dc2626",
 };
 
-// The app's `@theme inline` tokens are NOT emitted as raw CSS variables, so
-// `var(--success)` etc. resolve to nothing and render black. Use the design
-// system's actual hex values for chart strokes/fills instead.
+// Shared chart palette (src/lib/chart-tokens.js). The tokens ARE emitted as
+// CSS vars now, but recharts SVG attributes take raw values — this module is
+// the single hex mirror of the design tokens.
 const CHART = {
-  info: "#3b82f6",
-  success: "#10b981",
-  warning: "#f59e0b",
-  danger: "#ef4444",
+  info: CHART_TOKENS.info,
+  success: CHART_TOKENS.success,
+  warning: CHART_TOKENS.warning,
+  danger: CHART_TOKENS.danger,
 };
 
 /* ── Motion language ───────────────────────────────────────────────
@@ -187,7 +189,7 @@ const KPI_TONES = {
   success: { deltaText: "text-success", glow: "from-success/15" },
   primary: { deltaText: "text-foreground-secondary", glow: "from-primary/10" },
   info: { deltaText: "text-info", glow: "from-info/15" },
-  danger: { deltaText: "text-warning", glow: "from-danger/15" },
+  danger: { deltaText: "text-danger", glow: "from-danger/15" },
 };
 
 function KpiCard({ label, value, delta, deltaIcon = false, context, tone }) {
@@ -345,39 +347,50 @@ export default function AnalyticsPage() {
     return { from: toCalendarDay(fromDate), to: toStr };
   }, [dateRange]);
 
-  const { data: fleet } = useQuery({
+  // Full query objects are kept so each chart card can surface an honest
+  // error banner (with retry) above itself instead of silently rendering zeros.
+  const fleetQuery = useQuery({
     queryKey: ["analytics-fleet", dateBounds],
     queryFn: () => getFleetUtilizationReport(dateBounds.from, dateBounds.to),
   });
 
-  const { data: fuel } = useQuery({
+  const fuelQuery = useQuery({
     queryKey: ["analytics-fuel", dateBounds],
     queryFn: () => getFuelConsumptionReport(dateBounds.from, dateBounds.to),
   });
 
-  const { data: financial } = useQuery({
+  const financialQuery = useQuery({
     queryKey: ["analytics-financial", dateBounds],
     queryFn: () => getFinancialSummary(dateBounds.from, dateBounds.to),
   });
 
-  const { data: driversPerformance } = useQuery({
+  const driversPerformanceQuery = useQuery({
     queryKey: ["analytics-drivers", dateBounds],
     queryFn: () => getDriverPerformanceReport(dateBounds.from, dateBounds.to),
   });
 
-  const { data: predictionData } = useQuery({
+  const predictionQuery = useQuery({
     queryKey: ["predictive-maintenance"],
     queryFn: () => getPredictiveMaintenance(),
   });
 
-  const { data: reservations = [] } = useQuery({
+  const reservationsQuery = useQuery({
     queryKey: ["analytics-transport-requests"],
     queryFn: () => getTransportRequests(),
   });
 
-  const f = fleet || { utilization: 0, totalTrips: 0, totalDistance: 0 };
-  const fu = fuel || { totalLiters: 0, totalCost: 0, byCategory: [], monthlyData: [] };
-  const fi = financial || { totalCost: 0, tripCost: 0, fuelCost: 0, maintCost: 0, costPerKm: 0 };
+  const { data: fleet } = fleetQuery;
+  const { data: fuel } = fuelQuery;
+  const { data: financial } = financialQuery;
+  const { data: driversPerformance } = driversPerformanceQuery;
+  const { data: predictionData } = predictionQuery;
+  const { data: reservations = [] } = reservationsQuery;
+
+  // Stable fallback objects — inline `{...} || {}` literals recreate every
+  // render and make downstream memo deps unstable.
+  const f = useMemo(() => fleet || { utilization: 0, totalTrips: 0, totalDistance: 0 }, [fleet]);
+  const fu = useMemo(() => fuel || { totalLiters: 0, totalCost: 0, byCategory: [], monthlyData: [] }, [fuel]);
+  const fi = useMemo(() => financial || { totalCost: 0, tripCost: 0, fuelCost: 0, maintCost: 0, costPerKm: 0 }, [financial]);
   const maintDue = (predictionData?.summary?.overdue ?? 0) + (predictionData?.summary?.critical ?? 0);
 
   // AI Analyst narrative — one consolidated snapshot across all executive KPIs.
@@ -458,6 +471,14 @@ export default function AnalyticsPage() {
   const totalRiskCount = useMemo(() => {
     return maintenanceRiskPie.reduce((acc, curr) => acc + curr.value, 0);
   }, [maintenanceRiskPie]);
+
+  // Healthy share is derived from the same data that draws the donut — never a
+  // hardcoded number. Null while the risk breakdown hasn't loaded.
+  const healthyShare = useMemo(() => {
+    if (!totalRiskCount) return null;
+    const healthy = maintenanceRiskPie.find((slice) => slice.name === "Healthy");
+    return healthy ? Math.round((healthy.value / totalRiskCount) * 100) : null;
+  }, [maintenanceRiskPie, totalRiskCount]);
 
   const monthlyCostData = useMemo(() => {
     return (fu.monthlyData || []).map((m) => ({
@@ -638,7 +659,7 @@ export default function AnalyticsPage() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="relative w-full select-none space-y-6 pb-16">
+      <div className="relative w-full space-y-6 pb-16">
         {/* Ambient background orbs — decorative, painted behind the cards */}
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[36rem] overflow-hidden">
           <div className="absolute -top-24 right-[6%] h-80 w-80 rounded-full bg-primary/[0.05] blur-3xl" />
@@ -755,7 +776,18 @@ export default function AnalyticsPage() {
         </motion.div>
 
         {/* ── CHARTS ROW 1: Pickup Volume & Fleet Risk ── */}
-        <div className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <div className="relative space-y-4">
+          <QueryErrorBanner
+            query={reservationsQuery}
+            title="Couldn't refresh booking requests"
+            description="The pickup volume chart below may be empty or stale."
+          />
+          <QueryErrorBanner
+            query={predictionQuery}
+            title="Couldn't refresh predictive maintenance data"
+            description="The fleet risk distribution below may be empty or stale."
+          />
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
           {/* Pickup Volume — large area chart with dual view toggle */}
           <ChartCard
             className="lg:col-span-7"
@@ -783,7 +815,7 @@ export default function AnalyticsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: EASE }}
-                  className="h-[300px]"
+                  className="chart-h-lg"
                 >
                   <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
@@ -995,9 +1027,11 @@ export default function AnalyticsPage() {
             title="Fleet Risk Distribution"
             subtitle="Predictive maintenance exposure by tier"
             actions={
-              <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[10px] font-bold">
-                92% Healthy
-              </Badge>
+              healthyShare != null ? (
+                <Badge variant="success" className="rounded-full px-2.5 py-0.5 text-[10px] font-bold">
+                  {healthyShare}% Healthy
+                </Badge>
+              ) : undefined
             }
           >
             <div className="relative flex h-[230px] items-center justify-center">
@@ -1066,10 +1100,17 @@ export default function AnalyticsPage() {
               })}
             </div>
           </ChartCard>
+          </div>
         </div>
 
         {/* ── CHARTS ROW 2: Fuel Volume vs Expense & Monthly Trend ── */}
-        <div className="relative grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+        <div className="relative space-y-4">
+          <QueryErrorBanner
+            query={fuelQuery}
+            title="Couldn't refresh fuel data"
+            description="Both fuel charts below may be empty or stale."
+          />
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
           {/* Fuel Volume vs Expense by Class */}
           <ChartCard
             icon={Fuel}
@@ -1088,7 +1129,7 @@ export default function AnalyticsPage() {
             }
           >
             <div className="space-y-4">
-              <div className="h-[280px]">
+              <div className="chart-h-md">
                 <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart key={dateRange} data={fuelByCategory} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
                     <defs>
@@ -1233,7 +1274,7 @@ export default function AnalyticsPage() {
             }
           >
             <div className="space-y-4">
-              <div className="h-[280px]">
+              <div className="chart-h-md">
                 <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart key={dateRange} data={monthlyCostData} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
                     <defs>
@@ -1338,9 +1379,15 @@ export default function AnalyticsPage() {
               </div>
             </div>
           </ChartCard>
+          </div>
         </div>
 
         {/* ── DRIVER SAFETY & PERFORMANCE LEADERBOARD ── */}
+        <QueryErrorBanner
+          query={driversPerformanceQuery}
+          title="Couldn't refresh driver performance"
+          description="The leaderboard below may be empty or stale."
+        />
         <ChartCard
           icon={Award}
           iconTone="bg-warning/10 text-warning border-warning/20"
@@ -1418,3 +1465,4 @@ export default function AnalyticsPage() {
     </MotionConfig>
   );
 }
+

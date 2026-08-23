@@ -8,6 +8,7 @@ import { getAiInsights } from "@/services/ai.service";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -53,12 +54,24 @@ export default function ExecutiveKpiPage() {
   const [driverPage, setDriverPage] = useState(1);
   const [insightPage, setInsightPage] = useState(1);
 
-  const { data: fin = {}, isLoading: finLoading } = useQuery({ queryKey: ["exec-financial"], queryFn: () => getFinancialSummary() });
-  const { data: util = {}, isLoading: utilLoading } = useQuery({ queryKey: ["exec-utilization"], queryFn: () => getFleetUtilizationReport() });
-  const { data: perf = {}, isLoading: perfLoading } = useQuery({ queryKey: ["exec-driver-perf"], queryFn: () => getDriverPerformanceReport() });
-  const { data: fuel = {}, isLoading: fuelLoading } = useQuery({ queryKey: ["exec-fuel"], queryFn: () => getFuelConsumptionReport() });
-  const { data: cost = {}, isLoading: costLoading } = useQuery({ queryKey: ["exec-cost"], queryFn: () => getFleetCostReport() });
+  const { data: fin = {}, isLoading: finLoading, isError: finError, refetch: finRefetch } = useQuery({ queryKey: ["exec-financial"], queryFn: () => getFinancialSummary() });
+  const { data: util = {}, isLoading: utilLoading, isError: utilError, refetch: utilRefetch } = useQuery({ queryKey: ["exec-utilization"], queryFn: () => getFleetUtilizationReport() });
+  const { data: perf = {}, isLoading: perfLoading, isError: perfError, refetch: perfRefetch } = useQuery({ queryKey: ["exec-driver-perf"], queryFn: () => getDriverPerformanceReport() });
+  const { data: fuel = {}, isLoading: fuelLoading, isError: fuelError, refetch: fuelRefetch } = useQuery({ queryKey: ["exec-fuel"], queryFn: () => getFuelConsumptionReport() });
+  const { data: cost = {}, isLoading: costLoading, isError: costError, refetch: costRefetch } = useQuery({ queryKey: ["exec-cost"], queryFn: () => getFleetCostReport() });
   const { data: insightsData } = useQuery({ queryKey: ["exec-insights"], queryFn: () => getAiInsights() });
+
+  // Banner-at-top honesty: a failed feed is announced with its own retry,
+  // while every panel that still has data keeps rendering. Failures never
+  // masquerade as confident zeros.
+  const failedQueries = [
+    { key: "financial", isError: finError, refetch: finRefetch },
+    { key: "utilization", isError: utilError, refetch: utilRefetch },
+    { key: "driver performance", isError: perfError, refetch: perfRefetch },
+    { key: "fuel", isError: fuelError, refetch: fuelRefetch },
+    { key: "cost", isError: costError, refetch: costRefetch },
+  ].filter((q) => q.isError);
+  const hasError = failedQueries.length > 0;
 
   const insights = useMemo(() => {
     if (Array.isArray(insightsData)) return insightsData;
@@ -67,8 +80,10 @@ export default function ExecutiveKpiPage() {
   }, [insightsData]);
 
   const loading = finLoading || utilLoading || perfLoading || fuelLoading || costLoading;
-  const utilVehicles = util.byVehicle || [];
-  const topDrivers = perf.details || [];
+  // Stable fallback arrays — inline `|| []` recreates every render and makes
+  // the pagination memo deps unstable.
+  const utilVehicles = useMemo(() => util.byVehicle || [], [util]);
+  const topDrivers = useMemo(() => perf.details || [], [perf]);
 
   // Pagination slicing
   const paginatedUtil = useMemo(() => {
@@ -101,7 +116,7 @@ export default function ExecutiveKpiPage() {
   ];
 
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
+    <div className="space-y-6 pb-12 w-full">
       <HeroHeader
         icon={Gauge}
         title="Executive KPI Center"
@@ -109,11 +124,24 @@ export default function ExecutiveKpiPage() {
         description="High-level operational and financial KPIs for leadership. Real-time overview."
       />
 
+      {hasError && (
+        <div className="space-y-2" role="alert">
+          {failedQueries.map((q) => (
+            <QueryErrorBanner
+              key={q.key}
+              query={q}
+              title={`Couldn't refresh the ${q.key} feed`}
+              description="KPIs and panels fed by this report may be missing or stale."
+            />
+          ))}
+        </div>
+      )}
+
       <StatGrid cols={4} className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
         {kpis.map((k) => {
           return (
             <Link key={k.label} href={k.href || "#"} className="block rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-              <StatCard icon={k.icon} label={k.label} value={loading ? "..." : k.value} tone={k.tone} interactive />
+              <StatCard icon={k.icon} label={k.label} value={loading ? "—" : k.value} tone={k.tone} interactive />
             </Link>
           );
         })}
@@ -219,7 +247,15 @@ export default function ExecutiveKpiPage() {
                             </p>
                           </div>
                         </div>
-                        <StatusBadge severity={d.performance_score >= 70 ? "high" : d.performance_score >= 40 ? "medium" : "low"} className="shrink-0" />
+                        {/* Positive grammar for a leaderboard: high score = strong,
+                            never the danger heat used for risk surfaces. */}
+                        {d.performance_score >= 70 ? (
+                          <Badge variant="success" className="shrink-0">Strong</Badge>
+                        ) : d.performance_score >= 40 ? (
+                          <Badge variant="warning" className="shrink-0">Developing</Badge>
+                        ) : (
+                          <Badge variant="info" className="shrink-0">Improving</Badge>
+                        )}
                       </div>
                     );
                   })}

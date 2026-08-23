@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header"
 
 const SEVERITY_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
 const SEVERITY_ICON = { critical: AlertTriangle, high: AlertTriangle, medium: Clock, low: Lightbulb };
-const URGENCY_VERB = { high: "Act now", medium: "Act this week", low: "On the radar" };
+const URGENCY_VERB = { critical: "Act now", high: "Act now", medium: "Act this week", low: "On the radar" };
 const SEVERITY_BAR = {
   danger: "bg-danger",
   warning: "bg-warning",
@@ -35,7 +35,7 @@ export default function AiInsightsPage() {
   const queryClient = useQueryClient();
   const [syncToken, setSyncToken] = useState(0);
 
-  const { data: insightsData, isLoading, isFetching, refetch } = useQuery({
+  const { data: insightsData, isLoading, isFetching, isError, error, refetch } = useQuery({
     queryKey: ["ai-insights", syncToken],
     queryFn: () => getAiInsights(syncToken > 0),
   });
@@ -72,12 +72,23 @@ export default function AiInsightsPage() {
     setSyncToken(Date.now());
   };
 
-  // Show success toast when fetching finishes
+  // Report the re-analysis result honestly — success only when the refetch
+  // actually succeeded, an error toast when it failed.
+  const syncResultRef = useRef({ started: false, ok: false });
   useEffect(() => {
-    if (syncToken > 0 && !isFetching && !isLoading) {
+    if (syncToken === 0) return;
+    if (isFetching || isLoading) {
+      syncResultRef.current.started = true;
+      return;
+    }
+    if (!syncResultRef.current.started) return;
+    if (isError) {
+      toast.error(error?.message || "Re-analysis failed — showing the last synced insights.");
+    } else {
       toast.success("AI Insights re-analyzed and synced!");
     }
-  }, [isFetching, isLoading, syncToken]);
+    syncResultRef.current.started = false;
+  }, [isFetching, isLoading, isError, error, syncToken]);
 
   const distribution = [
     { label: "High / Critical", value: counts.high, tone: "danger" },
@@ -87,7 +98,7 @@ export default function AiInsightsPage() {
   const total = counts.high + counts.medium + counts.low;
 
   return (
-    <div className="space-y-6 pb-12 w-full select-none">
+    <div className="space-y-6 pb-12 w-full">
       {/* ── TOP HERO HEADER BAR ── */}
       <HeroHeader
         icon={Lightbulb}
@@ -242,6 +253,22 @@ export default function AiInsightsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : isError ? (
+            <div
+              className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40"
+              role="alert"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 mb-4">
+                <ShieldAlert className="w-5 h-5 text-danger" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Couldn&apos;t load AI insights</p>
+              <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">
+                The insight engine didn&apos;t respond. Your alerts are safe — try again.
+              </p>
+              <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="mt-4">
+                <RefreshCw className={cn("mr-2 h-3.5 w-3.5", isFetching && "animate-spin")} /> Try again
+              </Button>
             </div>
           ) : sorted.length === 0 ? (
             <EmptyState

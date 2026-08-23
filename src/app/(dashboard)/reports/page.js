@@ -8,9 +8,9 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import {
-  Activity, ArrowDownToLine, Award, BarChart3, Calendar, CarFront,
+  Activity, AlertTriangle, ArrowDownToLine, Award, BarChart3, Calendar, CarFront,
   CircleDollarSign, Droplets, FileSpreadsheet, Fuel, Gauge, PhilippinePeso,
-  Layers, ShieldCheck, Sparkles, TrendingUp, Users, Wrench, Zap,
+  Layers, RefreshCw, ShieldCheck, Sparkles, TrendingUp, Users, Wrench, Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,8 +26,7 @@ import {
 import { exportToCSV } from "@/lib/export";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
-
-const CHART_COLORS = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+import { SERIES as CHART_COLORS } from "@/lib/chart-tokens";
 const EASE = [0.32, 0.72, 0, 1];
 const CARD_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_20px_44px_-30px_rgba(17,24,39,0.28)]";
 const CARD_SHADOW_HOVER = "hover:shadow-[0_24px_52px_-30px_rgba(17,24,39,0.34)]";
@@ -40,13 +39,22 @@ const REPORT_TYPES = [
   { id: "financial", label: "Financial summary", short: "Financial", icon: PhilippinePeso, description: "Operating cost allocation" },
 ];
 
+// Plates stay whole as data identity (React keys, titles) — CSS `truncate`
+// handles the visual shortening, so two long plates can never collide on a
+// shared 10-character prefix.
 function formatPlate(value) {
-  const text = String(value || "Unknown").trim();
-  return text.length > 13 ? `${text.slice(0, 10)}...` : text;
+  return String(value || "Unknown").trim();
 }
 
 function money(value) {
   return formatCurrency(Number(value) || 0);
+}
+
+// Local-calendar "YYYY-MM-DD". `.toISOString().slice(0, 10)` re-reads the
+// wall clock in UTC and silently drops "today" for UTC+8 mornings — en-CA
+// formats in the *local* zone while keeping the ISO date shape.
+function toLocalDay(date) {
+  return date.toLocaleDateString("en-CA");
 }
 
 function formatCurrencyK(val) {
@@ -99,8 +107,27 @@ function NoData({ label = "No records in this period" }) {
   return <EmptyState icon={Activity} title={label} description="Try a wider timeframe or add activity to see the live visualization." className="min-h-[250px]" />;
 }
 
+// Mirrors QueryBoundary's error state — a failed report must never fall through
+// to the "No records in this period" empty copy, which reads as a lie when the
+// request actually errored.
+function QueryFailurePanel({ title = "Couldn't load this report", description, onRetry, busy }) {
+  return (
+    <div className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40" role="alert">
+      <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-danger/10 mb-4">
+        <AlertTriangle className="w-5 h-5 text-danger" />
+      </div>
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="text-sm text-foreground-secondary mt-1 max-w-sm leading-relaxed">{description || "Something went wrong on our side while refreshing this report."}</p>
+      <Button variant="outline" size="sm" className="mt-4 cursor-pointer" onClick={onRetry} disabled={busy}>
+        <RefreshCw className={cn("mr-2 h-3.5 w-3.5", busy && "animate-spin")} />
+        Try again
+      </Button>
+    </div>
+  );
+}
+
 function LoadingChart() {
-  return <div className="flex h-[280px] items-end gap-3 px-4 pb-4 pt-8"><div className="h-1/3 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-2/3 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-1/2 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-4/5 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-3/5 flex-1 animate-pulse rounded-t-lg bg-hover" /></div>;
+  return <div className="flex chart-h-md items-end gap-3 px-4 pb-4 pt-8"><div className="h-1/3 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-2/3 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-1/2 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-4/5 flex-1 animate-pulse rounded-t-lg bg-hover" /><div className="h-3/5 flex-1 animate-pulse rounded-t-lg bg-hover" /></div>;
 }
 
 function EncodingBadge({ children }) {
@@ -168,13 +195,20 @@ export default function ReportsPage() {
 
   const dateBounds = useMemo(() => {
     const now = new Date();
-    const to = now.toISOString().slice(0, 10);
+    const to = toLocalDay(now);
     if (preset === "today") return { from: to, to };
-    if (preset === "7d") { const d = new Date(now); d.setDate(d.getDate() - 7); return { from: d.toISOString().slice(0, 10), to }; }
-    if (preset === "quarter") { const d = new Date(now); d.setMonth(d.getMonth() - 3); return { from: d.toISOString().slice(0, 10), to }; }
-    if (preset === "custom") return { from: customRange.from || "1970-01-01", to: customRange.to || "2100-01-01" };
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10), to };
+    if (preset === "7d") { const d = new Date(now); d.setDate(d.getDate() - 7); return { from: toLocalDay(d), to }; }
+    if (preset === "quarter") { const d = new Date(now); d.setMonth(d.getMonth() - 3); return { from: toLocalDay(d), to }; }
+    // Custom stays inert (falls back to this month) until BOTH dates are picked —
+    // it must never silently search 1970→2100. The header shows a hint and the
+    // export path is disabled meanwhile.
+    if (preset === "custom") {
+      if (!customRange.from || !customRange.to) return { from: to, to };
+      return { from: customRange.from, to: customRange.to };
+    }
+    return { from: toLocalDay(new Date(now.getFullYear(), now.getMonth(), 1)), to };
   }, [preset, customRange]);
+  const customIncomplete = preset === "custom" && (!customRange.from || !customRange.to);
 
   const fleet = useQuery({ queryKey: ["report-fleet", dateBounds], queryFn: () => getFleetUtilizationReport(dateBounds.from, dateBounds.to), enabled: selectedReport === "fleet" });
   const fuel = useQuery({ queryKey: ["report-fuel", dateBounds], queryFn: () => getFuelConsumptionReport(dateBounds.from, dateBounds.to), enabled: selectedReport === "fuel" });
@@ -224,7 +258,7 @@ export default function ReportsPage() {
   return (
     <MotionConfig reducedMotion="user">
       <motion.main initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, ease: EASE }} className="w-full space-y-6 pb-14">
-        <HeroHeader icon={FileSpreadsheet} title="Fleet Reports & Operational Intelligence" badge="Reports Engine" description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost." actions={<Button onClick={handleExport} disabled={!activeQuery?.data} className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs", heroButtonPrimaryClass)}><ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />Export Report CSV<span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white"><Zap className="h-4 w-4" strokeWidth={1.75} /></span></Button>}>
+        <HeroHeader icon={FileSpreadsheet} title="Fleet Reports & Operational Intelligence" badge="Reports Engine" description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost." actions={<Button onClick={handleExport} disabled={!activeQuery?.data || customIncomplete} className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs", heroButtonPrimaryClass)}><ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />Export Report CSV<span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white"><Zap className="h-4 w-4" strokeWidth={1.75} /></span></Button>}>
           <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-black/70"><span className="h-2 w-2 rounded-full bg-emerald-400" />Live reporting window</span>
         </HeroHeader>
 
@@ -236,7 +270,7 @@ export default function ReportsPage() {
             </div>
             <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{presets.map((item) => <button key={item.id} type="button" onClick={() => setPreset(item.id)} aria-pressed={preset === item.id} className={cn("relative shrink-0 rounded-full px-4 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", preset === item.id ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{preset === item.id && <motion.span layoutId="reports-timeframe-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10">{item.label}</span></button>)}</div>
           </div>
-          {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" /></div>}
+          {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" />{customIncomplete && <span className="text-xs font-medium text-warning">Pick both dates to set a custom range.</span>}</div>}
         </section>
 
         <nav aria-label="Report categories" className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
@@ -253,11 +287,22 @@ export default function ReportsPage() {
         <motion.div key={selectedReport} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: [0.32, 0.72, 0, 1] }} className="space-y-5">
           <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{selectedMeta?.short} report</p><h2 className="mt-1 text-2xl font-semibold tracking-[-0.025em] text-foreground">{selectedMeta?.label}</h2></div><p className="text-xs text-foreground-muted">{selectedMeta?.description}</p></div>
 
-          {selectedReport === "fleet" && <FleetReport query={fleet} data={fleetData} />}
-          {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} />}
-          {selectedReport === "maintenance" && <MaintenanceReport query={maintenance} data={maintenanceData} due={maintDue} />}
-          {selectedReport === "drivers" && <DriversReport query={drivers} data={driverData} />}
-          {selectedReport === "financial" && <FinancialReport query={financial} data={costData} total={totalCost} />}
+          {activeQuery?.isError ? (
+            <QueryFailurePanel
+              title={`Couldn't load the ${selectedMeta?.label?.toLowerCase() || "report"}`}
+              description="This is a refresh failure, not an empty period — the report data is unavailable right now."
+              onRetry={() => activeQuery.refetch()}
+              busy={activeQuery.isRefetching}
+            />
+          ) : (
+            <>
+              {selectedReport === "fleet" && <FleetReport query={fleet} data={fleetData} />}
+              {selectedReport === "fuel" && <FuelReport query={fuel} trend={fuelTrend} categories={fuelCategories} />}
+              {selectedReport === "maintenance" && <MaintenanceReport query={maintenance} data={maintenanceData} due={maintDue} />}
+              {selectedReport === "drivers" && <DriversReport query={drivers} data={driverData} />}
+              {selectedReport === "financial" && <FinancialReport query={financial} data={costData} total={totalCost} />}
+            </>
+          )}
 
         </motion.div>
       </motion.main>
@@ -282,8 +327,8 @@ function FleetReport({ query, data }) {
         {query.isLoading ? <LoadingChart /> : data.length ? (
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-3 border-b border-border/60 pb-5 sm:grid-cols-3">
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground">{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info">{formatDistance(highestDistance?.distance || 0)}</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground">{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success">{mostTrips?.trips || 0} trips</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={highestDistance?.plate}>{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info">{formatDistance(highestDistance?.distance || 0)}</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={mostTrips?.plate}>{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success">{mostTrips?.trips || 0} trips</p></div>
               <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Average trip distance</p><p className="mt-1.5 font-data text-sm font-bold text-foreground">{averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</p><p className="mt-0.5 text-xs font-medium text-foreground-muted">Across completed trips</p></div>
             </div>
             <div className="space-y-2.5">
@@ -292,9 +337,9 @@ function FleetReport({ query, data }) {
                 return (
                   <motion.div key={vehicle.plate} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.42, delay: Math.min(index * 0.055, 0.32), ease: EASE }} className="group grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-3 rounded-2xl px-2 py-2.5 transition-colors duration-300 hover:bg-hover/60 sm:grid-cols-[2.25rem_7rem_minmax(0,1fr)_6.5rem]">
                     <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl font-data text-[11px] font-bold", index === 0 ? "bg-primary text-surface" : "bg-hover text-foreground-secondary")}>{String(index + 1).padStart(2, "0")}</span>
-                    <div className="hidden min-w-0 sm:block"><p className="truncate text-xs font-bold text-foreground">{vehicle.plate}</p><p className="mt-0.5 text-[10px] font-medium text-foreground-muted">{share}% of peak distance</p></div>
+                    <div className="hidden min-w-0 sm:block"><p className="truncate text-xs font-bold text-foreground" title={vehicle.plate}>{vehicle.plate}</p><p className="mt-0.5 text-[10px] font-medium text-foreground-muted">{share}% of peak distance</p></div>
                     <div className="min-w-0">
-                      <div className="mb-1.5 flex items-center justify-between gap-3 sm:hidden"><p className="truncate text-xs font-bold text-foreground">{vehicle.plate}</p><span className="font-data text-[10px] font-semibold text-foreground-muted">{share}% peak</span></div>
+                      <div className="mb-1.5 flex items-center justify-between gap-3 sm:hidden"><p className="truncate text-xs font-bold text-foreground" title={vehicle.plate}>{vehicle.plate}</p><span className="font-data text-[10px] font-semibold text-foreground-muted">{share}% peak</span></div>
                       <div className="relative h-8 overflow-hidden rounded-xl bg-hover ring-1 ring-border/40">
                         <div aria-hidden className="absolute inset-0 flex justify-between px-[20%]"><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /></div>
                         <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.75, delay: 0.12 + Math.min(index * 0.05, 0.3), ease: EASE }} className={cn("absolute inset-y-1 left-1 origin-left rounded-lg", index === 0 ? "bg-gradient-to-r from-primary to-info" : "bg-gradient-to-r from-info/55 to-info")} style={{ width: `calc(${share}% - 0.25rem)` }} />
@@ -471,7 +516,7 @@ function FuelReport({ query, trend, categories }) {
             <LoadingChart />
           ) : categoryData.length ? (
             <div className="space-y-4">
-              <div className="relative h-[240px]">
+              <div className="relative chart-h-md">
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     <Pie
@@ -729,5 +774,6 @@ function DriversReport({ query, data }) {
 
 function FinancialReport({ query, data, total }) {
   const report = query.data || {};
-  return <><StatGrid cols={3}><StatCard icon={PhilippinePeso} label="Operating cost" value={money(report.totalCost || total)} valueNote="Fuel + maintenance" tone="primary" /><StatCard icon={Fuel} label="Fuel allocation" value={money(report.fuelCost)} valueNote="Recorded spend" tone="warning" /><StatCard icon={Wrench} label="Maintenance allocation" value={money(report.maintCost)} valueNote="Recorded spend" tone="danger" /></StatGrid><div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]"><Panel title="Operating cost allocation" description="Fuel and maintenance share of recorded operating spend" icon={PhilippinePeso} action={<EncodingBadge>Composition</EncodingBadge>}>{query.isLoading ? <LoadingChart /> : data.length ? <div className="relative h-[310px]"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{ value: 1 }]} dataKey="value" innerRadius={76} outerRadius={108} fill="var(--br)" opacity={0.22} isAnimationActive={false} /><Pie data={data} dataKey="value" nameKey="name" innerRadius={76} outerRadius={108} paddingAngle={5} cornerRadius={9} animationDuration={1000} animationEasing="ease-out">{data.map((item, index) => <Cell key={item.name} fill={CHART_COLORS[index]} stroke="none" />)}</Pie><Tooltip content={<PremiumTooltip />} /></PieChart></ResponsiveContainer><motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.55, delay: 0.3, ease: EASE }} className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><strong className="font-data text-2xl font-bold text-foreground">{money(total)}</strong><span className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Total cost</span></motion.div></div> : <NoData />}</Panel><Panel title="Cost detail" description="Exact values and operational efficiency" icon={FileSpreadsheet}>{data.length ? <div className="space-y-3">{data.map((item, index) => { const pct = total ? Math.round((item.value / total) * 100) : 0; return <motion.div key={item.name} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.42, delay: index * 0.09, ease: EASE }} className="flex items-center justify-between gap-4 rounded-2xl bg-hover/55 px-4 py-4"><div className="flex min-w-0 items-center gap-3"><span className="h-10 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS[index] }} /><div><p className="text-sm font-bold text-foreground">{item.name}</p><p className="mt-0.5 text-[10px] font-semibold text-foreground-muted">{pct}% of recorded operating cost</p></div></div><p className="shrink-0 font-data text-base font-bold text-foreground">{money(item.value)}</p></motion.div>; })}<div className="mt-5 grid grid-cols-2 gap-3 border-t border-border/60 pt-5"><div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Cost per kilometer</p><p className="mt-1.5 font-data text-lg font-bold text-foreground">{money(report.costPerKm)}</p></div><div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Distance covered</p><p className="mt-1.5 font-data text-lg font-bold text-foreground">{formatDistance(report.totalDistance || 0)}</p></div></div></div> : <NoData />}</Panel></div></>;
+  return <><StatGrid cols={3}><StatCard icon={PhilippinePeso} label="Operating cost" value={money(report.totalCost || total)} valueNote="Fuel + maintenance" tone="primary" /><StatCard icon={Fuel} label="Fuel allocation" value={money(report.fuelCost)} valueNote="Recorded spend" tone="warning" /><StatCard icon={Wrench} label="Maintenance allocation" value={money(report.maintCost)} valueNote="Recorded spend" tone="danger" /></StatGrid><div className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]"><Panel title="Operating cost allocation" description="Fuel and maintenance share of recorded operating spend" icon={PhilippinePeso} action={<EncodingBadge>Composition</EncodingBadge>}>{query.isLoading ? <LoadingChart /> : data.length ? <div className="relative chart-h-lg"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={[{ value: 1 }]} dataKey="value" innerRadius={76} outerRadius={108} fill="var(--br)" opacity={0.22} isAnimationActive={false} /><Pie data={data} dataKey="value" nameKey="name" innerRadius={76} outerRadius={108} paddingAngle={5} cornerRadius={9} animationDuration={1000} animationEasing="ease-out">{data.map((item, index) => <Cell key={item.name} fill={CHART_COLORS[index]} stroke="none" />)}</Pie><Tooltip content={<PremiumTooltip />} /></PieChart></ResponsiveContainer><motion.div initial={{ opacity: 0, scale: 0.94 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.55, delay: 0.3, ease: EASE }} className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center"><strong className="font-data text-2xl font-bold text-foreground">{money(total)}</strong><span className="mt-1 text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Total cost</span></motion.div></div> : <NoData />}</Panel><Panel title="Cost detail" description="Exact values and operational efficiency" icon={FileSpreadsheet}>{data.length ? <div className="space-y-3">{data.map((item, index) => { const pct = total ? Math.round((item.value / total) * 100) : 0; return <motion.div key={item.name} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.42, delay: index * 0.09, ease: EASE }} className="flex items-center justify-between gap-4 rounded-2xl bg-hover/55 px-4 py-4"><div className="flex min-w-0 items-center gap-3"><span className="h-10 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS[index] }} /><div><p className="text-sm font-bold text-foreground">{item.name}</p><p className="mt-0.5 text-[10px] font-semibold text-foreground-muted">{pct}% of recorded operating cost</p></div></div><p className="shrink-0 font-data text-base font-bold text-foreground">{money(item.value)}</p></motion.div>; })}<div className="mt-5 grid grid-cols-2 gap-3 border-t border-border/60 pt-5"><div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Cost per kilometer</p><p className="mt-1.5 font-data text-lg font-bold text-foreground">{money(report.costPerKm)}</p></div><div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-foreground-muted">Distance covered</p><p className="mt-1.5 font-data text-lg font-bold text-foreground">{formatDistance(report.totalDistance || 0)}</p></div></div></div> : <NoData />}</Panel></div></>;
 }
+
