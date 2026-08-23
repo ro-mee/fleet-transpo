@@ -6,7 +6,93 @@ let _apiFetch = null;
 export function setApiFetch(fn) { _apiFetch = fn; }
 
 const QUEUE_KEY = '@offline_queue';
+// Incident reports that permanently failed during replay (e.g. an expired
+// session mid-replay). They are never silently deleted like other dead
+// requests — the Activity Logs screen surfaces them for manual retry.
+const DEAD_LETTER_KEY = '@offline_dead_letter_incidents';
 let isSyncing = false;
+
+/**
+ * Incident reports that could not be delivered, newest last.
+ */
+export async function getIncidentDeadLetters() {
+  if (!isReady()) return [];
+  try {
+    const raw = await AsyncStorage.getItem(DEAD_LETTER_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveDeadLetters(list) {
+  await AsyncStorage.setItem(DEAD_LETTER_KEY, JSON.stringify(list));
+}
+
+function isIncidentReport(req) {
+  return typeof req?.path === "string" && req.path.includes("/api/driver/incidents");
+}
+
+async function quarantineIncidentReport(req, errorMessage) {
+  try {
+    const list = await getIncidentDeadLetters();
+    list.push({
+      id: req.id,
+      method: req.method,
+      path: req.path,
+      body: req.body,
+      timestamp: req.timestamp,
+      error: String(errorMessage || "Unknown error"),
+      quarantined_at: Date.now(),
+    });
+    await saveDeadLetters(list);
+  } catch {
+    // Quarantining must never throw into the sync loop.
+  }
+}
+
+/**
+ * Remove one quarantined report (after a successful manual retry or an
+ * informed user decision to discard it).
+ */
+export async function removeIncidentDeadLetter(id) {
+  const list = await getIncidentDeadLetters();
+  await saveDeadLetters(list.filter((item) => item.id !== id));
+}
+
+/**
+ * Attempt to deliver every quarantined report once. Returns how many are left.
+ */
+export async function retryIncidentDeadLetters() {
+  const list = await getIncidentDeadLetters();
+  let remaining = 0;
+  for (const item of list) {
+    try {
+      if (!_apiFetch) throw new Error("apiFetch not injected");
+      await _apiFetch(item.path, {
+        method: item.method,
+        body: item.body ? JSON.stringify(item.body) : undefined,
+        queueOnFailure: false,
+      });
+      await removeIncidentDeadLetter(item.id);
+    } catch {
+      remaining += 1;
+    }
+  }
+  return remaining;
+}
+
+/**
+ * Discard all quarantined reports. Only ever called from a user action that
+ * makes the deletion explicit — never automatically.
+ */
+export async function clearIncidentDeadLetters() {
+  if (!isReady()) return;
+  try {
+    await AsyncStorage.removeItem(DEAD_LETTER_KEY);
+  } catch {}
+}
 
 /**
  * Returns true only when the AsyncStorage native module is available.
@@ -85,8 +171,14 @@ export async function syncQueue() {
           console.log(`[Sync] Network still down for ${req.path}, keeping in queue.`);
           remainingQueue.push(req);
         } else {
-          // Permanent backend error — drop from queue to avoid infinite loop
+          // Permanent backend error — drop from queue to avoid infinite loop.
           console.error(`[Sync] Permanent failure syncing ${req.path}:`, err);
+          if (isIncidentReport(req)) {
+            // An incident report is a safety record: quarantine it for the
+            // driver instead of deleting it. The server deduplicates via
+            // client_submission_id, so retrying later is always safe.
+            await quarantineIncidentReport(req, err?.message || err);
+          }
         }
       }
     }

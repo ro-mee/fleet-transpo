@@ -69,9 +69,39 @@ export async function POST(req) {
       vehicle_id: { type: "id", label: "Vehicle" },
       trip_id: { type: "id", label: "Trip" },
       assistance_needed: { label: "Assistance needed" },
-      expense_amount: { type: "positiveNumber", label: "Expense amount" }
+      expense_amount: { type: "positiveNumber", label: "Expense amount" },
+      client_submission_id: { maxLength: 64, label: "Submission reference" },
     });
     if (!isValidObject(errors)) return errValidation(errors);
+
+    // Offline-replay guard. The mobile app queues incident POSTs during
+    // network failures and replays them later; without this key a replay that
+    // races a manual resubmit creates duplicate reports — each one re-running
+    // grounding automation and paging dispatchers again. Optional so older
+    // clients keep working, but format-checked when present.
+    let clientSubmissionId = null;
+    if (body.client_submission_id !== undefined && body.client_submission_id !== null) {
+      if (
+        typeof body.client_submission_id !== "string" ||
+        !/^[0-9a-z-]{16,64}$/i.test(body.client_submission_id)
+      ) {
+        return errValidation({ client_submission_id: "Submission reference must be 16-64 letters, digits or dashes" });
+      }
+      clientSubmissionId = body.client_submission_id;
+
+      const { rows: duplicate } = await query(
+        `SELECT incident_id, incident_type, incident_date, description, location,
+                latitude, longitude, severity, status, created_at, vehicle_id,
+                assistance_needed, expense_amount
+           FROM driverincidents
+          WHERE driver_id = $1 AND client_submission_id = $2 AND deleted_at IS NULL
+          LIMIT 1`,
+        [driver.driver_id, clientSubmissionId]
+      );
+      // Already recorded (offline replay reaching us late): return the original
+      // WITHOUT re-running grounding automation or notifications.
+      if (duplicate[0]) return ok(duplicate[0]);
+    }
 
     const severity = ["Minor", "Moderate", "Major", "Critical"].includes(body.severity)
       ? body.severity
@@ -90,13 +120,33 @@ export async function POST(req) {
     const { rows } = await query(
       `INSERT INTO driverincidents
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
-          description, location, latitude, longitude, severity, assistance_needed, expense_amount)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          description, location, latitude, longitude, severity, assistance_needed,
+          expense_amount, client_submission_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       ON CONFLICT (driver_id, client_submission_id)
+         WHERE deleted_at IS NULL AND client_submission_id IS NOT NULL
+       DO NOTHING
        RETURNING incident_id, incident_type, incident_date, description, location,
                  latitude, longitude, severity, status, created_at, vehicle_id, assistance_needed, expense_amount`,
       [driver.driver_id, body.vehicle_id || driver.assigned_vehicle_id || null, body.trip_id || null, body.incident_type,
-       incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null]
+       incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null, clientSubmissionId]
     );
+
+    // Lost an insert race against a concurrent replay of the same submission:
+    // fetch the winner and stop — automation must run once per report.
+    if (!rows[0] && clientSubmissionId) {
+      const { rows: existing } = await query(
+        `SELECT incident_id, incident_type, incident_date, description, location,
+                latitude, longitude, severity, status, created_at, vehicle_id,
+                assistance_needed, expense_amount
+           FROM driverincidents
+          WHERE driver_id = $1 AND client_submission_id = $2 AND deleted_at IS NULL
+          LIMIT 1`,
+        [driver.driver_id, clientSubmissionId]
+      );
+      if (existing[0]) return ok(existing[0]);
+      return err("This report was already submitted", 409);
+    }
 
     const incident = rows[0];
 

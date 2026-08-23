@@ -31,6 +31,12 @@ export default function IncidentsScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [queuedOffline, setQueuedOffline] = useState(false);
+  // Stable per-screen-open reference so an offline-queued report that the sync
+  // queue replays later can never create a duplicate incident server-side
+  // (same pattern as fuel-report.js / inspection.js).
+  const [clientSubmissionId] = useState(
+    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   const handleSubmit = async () => {
     if (!type) {
@@ -83,6 +89,7 @@ export default function IncidentsScreen() {
         longitude: lng,
         severity: ({ low: "Minor", medium: "Moderate", high: "Major" }[severity] || "Minor"),
         incident_date: new Date().toISOString(),
+        client_submission_id: clientSubmissionId,
       });
       // apiFetch queues POSTs during network failures and resolves
       // { queued: true } — the report has NOT reached dispatch yet.

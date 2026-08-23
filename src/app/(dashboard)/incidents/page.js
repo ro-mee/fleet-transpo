@@ -70,27 +70,12 @@ export default function IncidentsPage() {
   });
 
   const sendToMaintenanceMutation = useMutation({
-    mutationFn: async (row) => {
-      // 1. Create the Maintenance Record
-      await apiFetch("/api/vehicle-maintenance", {
-        method: "POST",
-        body: {
-          vehicle_id: row.vehicle_id,
-          maintenance_date: new Date().toISOString().split("T")[0],
-          maintenance_type: "Emergency Repair",
-          description: `Emergency repair generated from Incident #${row.incident_id}: ${row.description || ""}`,
-          cost: row.expense_amount ? parseFloat(row.expense_amount) : 0,
-          status: "In Progress",
-          priority: "High",
-          remarks: `Incident Type: ${row.incident_type || "Unknown"}`
-        }
-      });
-      // 2. Mark the Incident as Resolved
-      await updateIncident(row.incident_id, {
-        status: "Resolved",
-        actions_taken: "Sent to vehicle maintenance team for emergency repairs."
-      });
-    },
+    // One atomic server request: creates the emergency repair record AND
+    // resolves the incident in a single transaction. The old client-side
+    // two-call sequence could strand a repair record against a still-open
+    // incident, or duplicate the repair on retry.
+    mutationFn: (row) =>
+      apiFetch(`/api/incidents/${row.incident_id}/maintenance`, { method: "POST" }),
     onSuccess: () => {
       toast.success("Incident resolved and sent to Maintenance successfully!");
       queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
@@ -274,7 +259,7 @@ export default function IncidentsPage() {
         icon={AlertTriangle}
         title="Fleet Incidents Registry"
         badge="Driver Reports"
-        description="Driver-reported incidents across the fleet. Read-only audit log."
+        description="Driver-reported incidents across the fleet. Resolve inline or route the vehicle to emergency repairs."
       />
 
       <StatGrid cols={4}>
@@ -339,6 +324,11 @@ export default function IncidentsPage() {
               placeholder="e.g., Sent mechanic, Dispatched tow truck, Verified safe to drive..."
               className="w-full min-h-[100px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y"
             />
+            {!actionsTaken.trim() && (
+              <p className="text-xs font-semibold text-danger mt-1.5">
+                Documenting the actions taken is required — the reporting driver sees this.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -357,7 +347,7 @@ export default function IncidentsPage() {
                   });
                 }
               }}
-              disabled={resolveMutation.isPending}
+              disabled={resolveMutation.isPending || !actionsTaken.trim()}
               className="gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />

@@ -14,6 +14,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
+import {
+  getIncidentDeadLetters,
+  retryIncidentDeadLetters,
+  clearIncidentDeadLetters,
+} from "../../lib/sync";
+import { AppAlert } from "../../components/AppAlert";
 
 const FILTERS = ["ALL", "FUEL", "INSPECTIONS", "INCIDENTS"];
 
@@ -27,7 +33,14 @@ function LogCard({ item, colors, onPress }) {
 
   const getStatusDisplay = () => {
     const tone = (t) => statusColorForTone(colors, t);
-    if (isIncident) return { text: "ALERT", bg: colors.errorContainer, textCol: colors.onErrorContainer };
+    if (isIncident) {
+      // Real lifecycle status from the server — dispatch resolves reports and
+      // the driver now sees the outcome instead of a static ALERT label.
+      const s = item.status?.toLowerCase();
+      if (s === "resolved") return { text: "RESOLVED", bg: tone("success").bg, textCol: tone("success").fg };
+      if (!s) return { text: "ALERT", bg: colors.errorContainer, textCol: colors.onErrorContainer };
+      return { text: "OPEN", bg: tone("warning").bg, textCol: tone("warning").fg };
+    }
     if (isFuel) {
       const s = item.status?.toLowerCase();
       if (s === "pending") return { text: "PENDING", bg: tone("warning").bg, textCol: tone("warning").fg };
@@ -81,6 +94,11 @@ function LogCard({ item, colors, onPress }) {
           {item.description}
         </Text>
       ) : null}
+      {isIncident && item.actions_taken ? (
+        <Text style={[styles.logDesc, { color: colors.primary, fontFamily: fonts.bodySemiBold }]} numberOfLines={3}>
+          Resolution: {item.actions_taken}
+        </Text>
+      ) : null}
     </>
   );
 
@@ -126,10 +144,19 @@ export default function SubmissionsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
+  // Incident reports that permanently failed to deliver while offline.
+  const [deadLetterCount, setDeadLetterCount] = useState(0);
+  const [retryingDead, setRetryingDead] = useState(false);
+
+  const refreshDeadLetters = useCallback(async () => {
+    const list = await getIncidentDeadLetters();
+    setDeadLetterCount(list.length);
+  }, []);
 
   const load = useCallback(async () => {
     try {
       setError(null);
+      await refreshDeadLetters();
       const [subRes, inspRes] = await Promise.allSettled([
         api.get("/api/mobile/driver/submissions"),
         api.get("/api/mobile/driver/inspections"),
@@ -142,9 +169,32 @@ export default function SubmissionsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [refreshDeadLetters]);
 
   useEffect(() => { load(); }, [load]);
+
+  const onRetryDeadLetters = async () => {
+    setRetryingDead(true);
+    try {
+      await retryIncidentDeadLetters();
+      setRefreshing(true);
+      await load();
+    } finally {
+      setRetryingDead(false);
+    }
+  };
+
+  const onDiscardDeadLetters = () => {
+    AppAlert.alert(
+      "Discard unsent reports?",
+      `${deadLetterCount} incident report${deadLetterCount > 1 ? "s" : ""} never reached dispatch and will be removed from this device. This cannot be undone.`,
+      [
+        { text: "Keep", style: "cancel" },
+        { text: "Discard", destructive: true, onPress: async () => { await clearIncidentDeadLetters(); refreshDeadLetters(); } },
+      ],
+      { type: "warning" }
+    );
+  };
 
   const allItems = [
     ...submissionsData.map((i) => ({
@@ -186,6 +236,50 @@ export default function SubmissionsScreen() {
           </Text>
         </View>
       </View>
+
+      {/* Unsent incident reports — quarantined offline, never auto-deleted */}
+      {deadLetterCount > 0 && (
+        <View style={[styles.deadBanner, { backgroundColor: colors.errorContainer }]}>
+          <Ionicons name="cloud-offline-outline" size={20} color={colors.error} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.deadTitle, { color: colors.onSurface }]}>
+              {deadLetterCount} unsent incident report{deadLetterCount > 1 ? "s" : ""}
+            </Text>
+            <Text style={[styles.deadSub, { color: colors.onSurfaceVariant }]}>
+              Dispatch has NOT received {deadLetterCount > 1 ? "them" : "it"} yet.
+            </Text>
+          </View>
+          <Pressable
+            onPress={onRetryDeadLetters}
+            disabled={retryingDead}
+            accessibilityRole="button"
+            accessibilityLabel="Retry sending unsent incident reports"
+            style={({ pressed }) => [
+              styles.deadBtn,
+              { backgroundColor: colors.primary, opacity: retryingDead ? 0.6 : pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Text style={[styles.deadBtnText, { color: colors.onPrimary }]}>
+              {retryingDead ? "SENDING" : "RETRY"}
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={onDiscardDeadLetters}
+            disabled={retryingDead}
+            accessibilityRole="button"
+            accessibilityLabel="Discard unsent incident reports"
+            style={({ pressed }) => [
+              styles.deadBtn,
+              {
+                backgroundColor: colors.surfaceContainerHighest,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+          >
+            <Text style={[styles.deadBtnText, { color: colors.onSurface }]}>DISCARD</Text>
+          </Pressable>
+        </View>
+      )}
 
       {/* Filter Tabs */}
       <View style={[styles.filterBar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant + '30' }]}>
@@ -295,6 +389,23 @@ const styles = StyleSheet.create({
   topBarTitle: { fontSize: 17, fontFamily: fonts.displayBold },
   topBarSub: { fontSize: 12, fontFamily: fonts.body },
   filterBar: { borderBottomWidth: 1 },
+  deadBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  deadTitle: { fontSize: 14, fontFamily: fonts.bodySemiBold },
+  deadSub: { fontSize: 12, fontFamily: fonts.body },
+  deadBtn: {
+    minHeight: TOUCH_TARGET - 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  deadBtnText: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6 },
   filterScroll: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, flexDirection: "row" },
   filterTab: {
     paddingHorizontal: 14,

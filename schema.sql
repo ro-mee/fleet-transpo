@@ -265,6 +265,8 @@ CREATE TABLE driverincidents (
   longitude numeric(10,7),
   assistance_needed text[],
   expense_amount numeric(12,2),
+  client_submission_id varchar(64),
+  CONSTRAINT chk_driverincidents_status CHECK (((status)::text = ANY ((ARRAY['Open'::character varying, 'Resolved'::character varying])::text[]))),
   CONSTRAINT driverincidents_pkey PRIMARY KEY (incident_id)
 );
 
@@ -965,6 +967,7 @@ CREATE INDEX idx_vehicles_category ON public.vehicles USING btree (category_id);
 CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
 CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status);
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
+CREATE UNIQUE INDEX uq_driverincidents_driver_submission ON public.driverincidents USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments USING btree (driver_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dva_active_vehicle ON public.driver_vehicle_assignments USING btree (vehicle_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dws_driver_day ON public.driver_work_schedules USING btree (driver_id, day_of_week);

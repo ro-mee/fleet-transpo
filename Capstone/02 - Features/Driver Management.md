@@ -63,6 +63,13 @@ Migration `024_driverincidents.sql` recreates a table that `005` dropped:
 
 A migration removed a table that live code still used, and nothing caught it. → [[Migrations]]
 
+## Incident lifecycle — CONFIRMED 2026-08-23
+
+Report → ground → resolve is now a closed loop with the driver. Resolving restores
+vehicle availability, requires a documented `actions_taken`, notifies the reporter,
+and offline submissions are idempotent (`client_submission_id`). Full rules and
+remaining limits: → [[Incidents]]
+
 ## Database tables used
 
 `drivers` (23) · [[employees]] (47) · [[driver_vehicle_assignments]] · `driverincidents` · `driver_documents` · `driver_consents` · `driverattendance` **0 rows** · `driver_stats` (view) · [[mobile_refresh_tokens]] (57)
