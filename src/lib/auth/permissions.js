@@ -59,6 +59,7 @@ export const NAV_ROLES = {
   "/settings/general": ["admin", "system_admin"],
   "/settings/number-coding": ["admin", "system_admin"],
   "/settings/dispatch": ["admin", "system_admin"],
+  "/settings/users": ["admin", "system_admin"],
   "/settings/users/new": ["admin", "system_admin"],
   "/settings/ai": ["admin", "system_admin", "fleet_manager"],
   "/settings/ai/logs": ["admin", "system_admin", "fleet_manager"],

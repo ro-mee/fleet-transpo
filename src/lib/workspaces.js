@@ -54,7 +54,15 @@ export const WORKS = {
         label: "Administration",
         items: [
           { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
-          { href: "/settings/users/new", label: "User Management", icon: UserCog },
+          {
+            href: "/settings/users",
+            label: "User Management",
+            icon: UserCog,
+            children: [
+              { href: "/settings/users", label: "All Users" },
+              { href: "/settings/users/new", label: "Add User" },
+            ],
+          },
           { href: "/settings/api", label: "API & Integrations", icon: KeyRound },
           { href: "/settings/ai", label: "AI Providers", icon: Brain },
           { href: "/settings/ai/logs", label: "AI & Automation Logs", icon: Database },
@@ -126,6 +134,7 @@ export const WORKS = {
             icon: Settings,
             children: [
               { href: "/settings/general", label: "General" },
+              { href: "/settings/users", label: "Users" },
               { href: "/settings/users/new", label: "Add User" },
               { href: "/settings/api", label: "API Access" },
               { href: "/settings/number-coding", label: "Number Coding" },
