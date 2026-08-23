@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
 import { APP_NAME } from "@/lib/constants";
 import {
@@ -67,16 +68,24 @@ const CONNECTOR_ICONS = {
 const STATUS_META = {
   connected: { label: "Connected", badge: "success", dot: "bg-success" },
   partial: { label: "Partial", badge: "warning", dot: "bg-warning" },
-  mock: { label: "Mock", badge: "info", dot: "bg-info" },
+  mock: {
+    label: "Preview",
+    badge: "info",
+    dot: "bg-info",
+    title: "Connector not yet configured — showing sample data",
+  },
   missing: { label: "Not configured", badge: "secondary", dot: "bg-foreground-muted" },
 };
 
-const DEFAULT_HOTEL = {
-  hotel_name: "CoCo Star Hotel",
-  address: "CoCo Star Hotel, Manila, Philippines",
-  latitude: 14.5159034,
-  longitude: 120.9953405,
-  google_maps_url: "https://maps.app.goo.gl/jmKkcqiUrSbr1i747",
+// Never seeded into the form — the form starts empty and is hydrated only
+// from what the server actually returns, so a premature Save can't overwrite
+// real configuration with hard-coded defaults.
+const EMPTY_HOTEL = {
+  hotel_name: "",
+  address: "",
+  latitude: "",
+  longitude: "",
+  google_maps_url: "",
 };
 
 export default function SettingsGeneralPage() {
@@ -95,21 +104,21 @@ export default function SettingsGeneralPage() {
     queryFn: () => getConnectors(),
   });
 
-  const [form, setForm] = useState(DEFAULT_HOTEL);
-  // Server values arrive async; sync them into the form by adjusting state
-  // during render (the documented "store previous prop" pattern) instead of in
-  // an effect, which the lint rule flags for cascading re-renders.
-  const [prevHotel, setPrevHotel] = useState(null);
-  if (hotelData && hotelData !== prevHotel) {
-    setPrevHotel(hotelData);
+  const [form, setForm] = useState(EMPTY_HOTEL);
+  const [naiaConfirmOpen, setNaiaConfirmOpen] = useState(false);
+  // Hydrate the form once the server values arrive. Done in an effect (not a
+  // render-time sync) so the form is provably empty until real config lands —
+  // no early Save can persist defaults over the live configuration.
+  useEffect(() => {
+    if (!hotelData) return;
     setForm({
-      hotel_name: hotelData.hotel_name || DEFAULT_HOTEL.hotel_name,
-      address: hotelData.address || DEFAULT_HOTEL.address,
-      latitude: hotelData.latitude ?? DEFAULT_HOTEL.latitude,
-      longitude: hotelData.longitude ?? DEFAULT_HOTEL.longitude,
-      google_maps_url: hotelData.google_maps_url || DEFAULT_HOTEL.google_maps_url,
+      hotel_name: hotelData.hotel_name || "",
+      address: hotelData.address || "",
+      latitude: hotelData.latitude ?? "",
+      longitude: hotelData.longitude ?? "",
+      google_maps_url: hotelData.google_maps_url || "",
     });
-  }
+  }, [hotelData]);
 
   // Real values instead of hardcoded text — the server's locale may not be
   // Manila and the calendar format is whatever the browser resolves.
@@ -160,10 +169,10 @@ export default function SettingsGeneralPage() {
   }, [connectors]);
 
   const summaryChips = [
-    { n: connectorCounts.connected, label: "Connected", dot: "bg-success", cls: "bg-success-bg text-success" },
-    { n: connectorCounts.partial, label: "Partial", dot: "bg-warning", cls: "bg-warning-bg text-warning" },
-    { n: connectorCounts.mock, label: "Mock", dot: "bg-info", cls: "bg-info-bg text-info" },
-    { n: connectorCounts.missing, label: "Missing", dot: "bg-foreground-muted", cls: "bg-hover text-foreground-secondary" },
+    { n: connectorCounts.connected, label: "Connected", dot: "bg-success", cls: "bg-success-bg text-success", title: undefined },
+    { n: connectorCounts.partial, label: "Partial", dot: "bg-warning", cls: "bg-warning-bg text-warning", title: undefined },
+    { n: connectorCounts.mock, label: "Preview", dot: "bg-info", cls: "bg-info-bg text-info", title: STATUS_META.mock.title },
+    { n: connectorCounts.missing, label: "Missing", dot: "bg-foreground-muted", cls: "bg-hover text-foreground-secondary", title: undefined },
   ].filter((c) => c.n > 0);
 
   return (
@@ -228,8 +237,9 @@ export default function SettingsGeneralPage() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold text-foreground mb-1.5 block">Hotel Name</label>
+                    <label htmlFor="hotel_name" className="text-xs font-bold text-foreground mb-1.5 block">Hotel Name</label>
                     <Input
+                      id="hotel_name"
                       value={form.hotel_name}
                       onChange={(e) => setForm((p) => ({ ...p, hotel_name: e.target.value }))}
                       placeholder="e.g. CoCo Star Hotel"
@@ -238,10 +248,11 @@ export default function SettingsGeneralPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-foreground mb-1.5 block">
+                    <label htmlFor="google_maps_url" className="text-xs font-bold text-foreground mb-1.5 block">
                       Google Maps URL / Share Link
                     </label>
                     <Input
+                      id="google_maps_url"
                       value={form.google_maps_url}
                       onChange={(e) => setForm((p) => ({ ...p, google_maps_url: e.target.value }))}
                       placeholder="https://maps.app.goo.gl/..."
@@ -251,8 +262,9 @@ export default function SettingsGeneralPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-bold text-foreground mb-1.5 block">Full Physical Address</label>
+                  <label htmlFor="hotel_address" className="text-xs font-bold text-foreground mb-1.5 block">Full Physical Address</label>
                   <Input
+                    id="hotel_address"
                     value={form.address}
                     onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
                     placeholder="Street, District, City, Country"
@@ -262,10 +274,11 @@ export default function SettingsGeneralPage() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs font-bold text-foreground mb-1.5 block flex items-center gap-1.5">
+                    <label htmlFor="hotel_latitude" className="text-xs font-bold text-foreground mb-1.5 block flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5 text-primary" /> Latitude
                     </label>
                     <Input
+                      id="hotel_latitude"
                       type="number"
                       step="any"
                       value={form.latitude}
@@ -275,10 +288,11 @@ export default function SettingsGeneralPage() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-foreground mb-1.5 block flex items-center gap-1.5">
+                    <label htmlFor="hotel_longitude" className="text-xs font-bold text-foreground mb-1.5 block flex items-center gap-1.5">
                       <MapPin className="w-3.5 h-3.5 text-primary" /> Longitude
                     </label>
                     <Input
+                      id="hotel_longitude"
                       type="number"
                       step="any"
                       value={form.longitude}
@@ -294,22 +308,28 @@ export default function SettingsGeneralPage() {
                     variant="outline"
                     size="sm"
                     disabled={seedNaiaMutation.isPending}
-                    onClick={() => seedNaiaMutation.mutate()}
+                    onClick={() => setNaiaConfirmOpen(true)}
                     className="h-9 text-xs rounded-xl"
                   >
                     <Plane className="w-4 h-4 mr-1.5 text-info" />
                     {seedNaiaMutation.isPending ? "Syncing Routes..." : "Sync All NAIA Airport Terminal Routes"}
                   </Button>
 
-                  <Button
-                    type="submit"
-                    size="sm"
-                    disabled={updateMutation.isPending}
-                    className="h-9 text-xs rounded-xl active:scale-[0.98] transition-transform"
-                  >
-                    <Save className="w-4 h-4 mr-1.5" />
-                    {updateMutation.isPending ? "Saving Location..." : "Save Hotel Location & Coordinates"}
-                  </Button>
+                  <div className="flex flex-col items-end gap-1">
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={!hotelData || updateMutation.isPending}
+                      className="h-9 text-xs rounded-xl active:scale-[0.98] transition-transform"
+                      title={!hotelData ? "Loading current configuration…" : undefined}
+                    >
+                      <Save className="w-4 h-4 mr-1.5" />
+                      {updateMutation.isPending ? "Saving Location..." : "Save Hotel Location & Coordinates"}
+                    </Button>
+                    {!hotelData && (
+                      <span className="text-[11px] text-foreground-muted">Loading current configuration…</span>
+                    )}
+                  </div>
                 </div>
               </form>
             )}
@@ -372,7 +392,7 @@ export default function SettingsGeneralPage() {
                     <button
                       key={t.value}
                       type="button"
-                      onClick={() => setThemeMode(t.value)}
+                      onClick={(e) => setThemeMode(t.value, e)}
                       className={cn(
                         "relative flex flex-col items-center gap-1.5 p-3 rounded-2xl border text-center cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98]",
                         themeMode === t.value
@@ -537,6 +557,7 @@ export default function SettingsGeneralPage() {
                       <div className="shrink-0 text-right">
                         <Badge
                           variant={meta.badge}
+                          title={meta.title}
                           className="text-[10px] font-bold rounded-full px-2.5 py-0.5"
                         >
                           {meta.label}
@@ -576,6 +597,21 @@ export default function SettingsGeneralPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ConfirmDialog
+        open={naiaConfirmOpen}
+        onOpenChange={setNaiaConfirmOpen}
+        variant="warning"
+        title="Re-seed NAIA routes?"
+        message="This creates and updates the NAIA airport terminal routes used for pickups and drop-offs. Existing terminal routes will be refreshed with the latest schedule."
+        confirmLabel="Sync routes"
+        loading={seedNaiaMutation.isPending}
+        onConfirm={() => {
+          seedNaiaMutation.mutate(undefined, {
+            onSettled: () => setNaiaConfirmOpen(false),
+          });
+        }}
+      />
     </div>
   );
 }

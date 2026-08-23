@@ -71,6 +71,8 @@ double-bezel tray for visual consistency.
 
 Auth surfaces (`(auth)/`) render without the dashboard chrome (the `DashboardLayout` short-circuits for those routes) and carry a premium editorial-split presentation: a branded left panel with animated route-line artwork plus a double-bezel form card. Motion respects `prefers-reduced-motion` via `MotionConfig reducedMotion="user"`; entrance states are rendered identically on server and client so hydration is safe.
 
+**Theme switching (standardized 2026-08-23):** `use-theme.js` uses the modern **View Transition API** (`document.startViewTransition`) paired with a CSS `clip-path: circle(...)` animation on `::view-transition-new(root)`. When a user toggles light/dark mode (or picks an explicit mode in `/settings/general`), the incoming theme dynamically expands outwards in a hardware-accelerated circular reveal originating directly from the button click coordinate (`(clientX, clientY)` or element rect) across 450ms (`cubic-bezier(0.22, 1, 0.36, 1)`), smoothly covering the screen with no flash. Automatically degrades to instant toggle for environments without View Transitions or when `prefers-reduced-motion: reduce` is detected.
+
 ## Empty and missing routes — CONFIRMED
 
 | Path | State |

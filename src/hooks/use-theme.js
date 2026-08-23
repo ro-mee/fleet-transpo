@@ -67,15 +67,81 @@ function getServerSnapshot() {
   return SERVER_SNAPSHOT;
 }
 
-function setModeValue(next) {
+function setModeValue(next, event) {
   if (!MODES.includes(next)) return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY, next);
-  } catch {
-    // Preference just won't survive a reload.
+  const currentEffective = effectiveTheme(storedMode());
+  const nextEffective = effectiveTheme(next);
+
+  const canAnimate =
+    typeof document !== "undefined" &&
+    typeof document.startViewTransition === "function" &&
+    !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+
+  const commit = () => {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Preference just won't survive a reload.
+    }
+    applyTheme(next);
+    listeners.forEach((l) => l());
+  };
+
+  if (!canAnimate || currentEffective === nextEffective) {
+    commit();
+    return;
   }
-  applyTheme(next);
-  listeners.forEach((l) => l());
+
+  // Calculate coordinates for the circular expansion
+  let x = window.innerWidth / 2;
+  let y = window.innerHeight / 2;
+
+  if (
+    event &&
+    typeof event.clientX === "number" &&
+    typeof event.clientY === "number" &&
+    (event.clientX !== 0 || event.clientY !== 0)
+  ) {
+    x = event.clientX;
+    y = event.clientY;
+  } else if (event?.currentTarget?.getBoundingClientRect) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    x = rect.left + rect.width / 2;
+    y = rect.top + rect.height / 2;
+  } else if (event?.target?.getBoundingClientRect) {
+    const rect = event.target.getBoundingClientRect();
+    x = rect.left + rect.width / 2;
+    y = rect.top + rect.height / 2;
+  }
+
+  const endRadius = Math.hypot(
+    Math.max(x, window.innerWidth - x),
+    Math.max(y, window.innerHeight - y)
+  );
+
+  const transition = document.startViewTransition(() => {
+    commit();
+  });
+
+  transition.ready
+    .then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${x}px ${y}px)`,
+            `circle(${endRadius}px at ${x}px ${y}px)`,
+          ],
+        },
+        {
+          duration: 450,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          pseudoElement: "::view-transition-new(root)",
+        }
+      );
+    })
+    .catch(() => {
+      // Graceful fallback if transition is cancelled
+    });
 }
 
 // Re-resolve `system` when the OS preference flips. Snapshot caching keeps
@@ -89,8 +155,9 @@ if (typeof window !== "undefined" && window.matchMedia) {
 export function ThemeProvider({ children }) {
   const { theme, mode } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
-  const toggle = useCallback(() => {
-    setModeValue(effectiveTheme(storedMode()) === "dark" ? "light" : "dark");
+  const toggle = useCallback((event) => {
+    const current = effectiveTheme(storedMode());
+    setModeValue(current === "dark" ? "light" : "dark", event);
   }, []);
 
   // Sync the initial class from localStorage (the blocking script handles the
