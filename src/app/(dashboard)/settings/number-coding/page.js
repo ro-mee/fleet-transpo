@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toast } from "@/components/ui/toast";
 import { Car, ShieldCheck, Clock, Hash, CheckCircle2, ShieldAlert } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -159,14 +160,19 @@ export default function NumberCodingSettingsPage() {
     queryFn: () => getUvvrpViolations({ pendingOnly: true }),
   });
 
-  const [exForm, setExForm] = useState({ vehicle_id: "", category: "Government Pass", expires_on: "" });
+  const [exForm, setExForm] = useState({ vehicle_id: "", category: "", expires_on: "" });
+  // Categories come from the saved policy (with defaults when unset); the form
+  // falls back to the first one so a pass can never be filed with a stale
+  // hard-coded category.
+  const exemptionCategories = policy?.exemptionCategories || [];
+  const activeCategory = exForm.category || exemptionCategories[0] || "";
 
   const addExemption = useMutation({
     mutationFn: createUvvrpExemption,
     onSuccess: () => {
       toast.success("Exemption pass added.");
       queryClient.invalidateQueries({ queryKey: ["uvvrp-exemptions"] });
-      setExForm({ vehicle_id: "", category: "Government Pass", expires_on: "" });
+      setExForm({ vehicle_id: "", category: "", expires_on: "" });
     },
     onError: (e) => toast.error(e.message || "Failed to add exemption."),
   });
@@ -178,12 +184,16 @@ export default function NumberCodingSettingsPage() {
     },
   });
 
+  // Pending violation awaiting a confirm dialog: { violation, approve } | null.
+  const [decision, setDecision] = useState(null);
+
   const decide = useMutation({
-    mutationFn: ({ id, approve }) => decideUvvrpViolation(id, { approve }),
-    onSuccess: () => {
-      toast.success("Decision updated.");
+    mutationFn: ({ id, approve, reason }) => decideUvvrpViolation(id, { approve, reason }),
+    onSuccess: (_data, vars) => {
+      toast.success(vars.approve ? "Coding exemption approved." : "Coding exemption denied.");
       queryClient.invalidateQueries({ queryKey: ["uvvrp-violations"] });
     },
+    onError: (e) => toast.error(e.message || "Could not record the decision."),
   });
 
   return (
@@ -221,26 +231,50 @@ export default function NumberCodingSettingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-5 space-y-4">
-            <div className="flex flex-col sm:flex-row gap-2">
-              <Select value={exForm.vehicle_id} onValueChange={(v) => setExForm({ ...exForm, vehicle_id: v })}>
-                <SelectTrigger className="h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue placeholder="Vehicle" /></SelectTrigger>
-                <SelectContent>
-                  {vehicles.map((vh) => (
-                    <SelectItem key={vh.vehicle_id} value={String(vh.vehicle_id)}>
-                      {vh.plate_number} — {vh.make || ""} {vh.model || ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Input
-                type="date"
-                value={exForm.expires_on}
-                onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })}
-                className="h-9 rounded-3xl border-border/80 text-xs font-data font-medium"
-              />
+            <div className="space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="space-y-1">
+                  <Label htmlFor="exemption-vehicle" className="text-xs font-semibold text-foreground-secondary">Vehicle</Label>
+                  <Select value={exForm.vehicle_id} onValueChange={(v) => setExForm({ ...exForm, vehicle_id: v })}>
+                    <SelectTrigger id="exemption-vehicle" className="h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue placeholder="Vehicle" /></SelectTrigger>
+                    <SelectContent>
+                      {vehicles.map((vh) => (
+                        <SelectItem key={vh.vehicle_id} value={String(vh.vehicle_id)}>
+                          {vh.plate_number} — {vh.make || ""} {vh.model || ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="exemption-category" className="text-xs font-semibold text-foreground-secondary">Category</Label>
+                  <Select
+                    value={activeCategory}
+                    onValueChange={(v) => setExForm({ ...exForm, category: v })}
+                    disabled={exemptionCategories.length === 0}
+                  >
+                    <SelectTrigger id="exemption-category" className="h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue placeholder="Category" /></SelectTrigger>
+                    <SelectContent>
+                      {exemptionCategories.map((cat) => (
+                        <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="exemption-expires" className="text-xs font-semibold text-foreground-secondary">Expires on</Label>
+                  <Input
+                    id="exemption-expires"
+                    type="date"
+                    value={exForm.expires_on}
+                    onChange={(e) => setExForm({ ...exForm, expires_on: e.target.value })}
+                    className="h-9 rounded-3xl border-border/80 text-xs font-data font-medium"
+                  />
+                </div>
+              </div>
               <Button
-                onClick={() => addExemption.mutate({ vehicle_id: Number(exForm.vehicle_id), category: exForm.category, expires_on: exForm.expires_on || null })}
-                disabled={!exForm.vehicle_id || addExemption.isPending}
+                onClick={() => addExemption.mutate({ vehicle_id: Number(exForm.vehicle_id), category: activeCategory, expires_on: exForm.expires_on || null })}
+                disabled={!exForm.vehicle_id || !activeCategory || addExemption.isPending}
                 className="rounded-xl font-semibold h-9 text-xs"
               >
                 Add Pass
@@ -292,8 +326,8 @@ export default function NumberCodingSettingsPage() {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button size="xs" variant="success" className="rounded-xl font-medium" onClick={() => decide.mutate({ id: v.violation_id, approve: true })}>Approve</Button>
-                    <Button size="xs" variant="danger" className="rounded-xl font-medium" onClick={() => decide.mutate({ id: v.violation_id, approve: false })}>Deny</Button>
+                    <Button size="xs" variant="success" className="rounded-xl font-medium" onClick={() => setDecision({ violation: v, approve: true })}>Approve</Button>
+                    <Button size="xs" variant="danger" className="rounded-xl font-medium" onClick={() => setDecision({ violation: v, approve: false })}>Deny</Button>
                   </div>
                 </div>
               ))}
@@ -301,6 +335,32 @@ export default function NumberCodingSettingsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!decision}
+        onOpenChange={(open) => {
+          if (!open) setDecision(null);
+        }}
+        variant={decision?.approve ? "info" : "danger"}
+        title={decision?.approve ? "Approve this coding exemption?" : "Deny this coding exemption?"}
+        message={
+          decision
+            ? `${decision.violation.plate_number || `Vehicle #${decision.violation.vehicle_id}`} — ${decision.violation.weekday} restriction (Digit ${decision.violation.plate_digit}), dispatched ${decision.violation.scheduled_departure ? new Date(decision.violation.scheduled_departure).toLocaleString() : "today"}.`
+            : ""
+        }
+        confirmLabel={decision?.approve ? "Approve" : "Deny"}
+        requireReason={!!decision && !decision.approve}
+        reasonLabel="Reason for denying"
+        reasonPlaceholder="Explain why this exemption is denied"
+        loading={decide.isPending}
+        onConfirm={(reason) => {
+          if (!decision) return;
+          decide.mutate(
+            { id: decision.violation.violation_id, approve: decision.approve, reason },
+            { onSettled: () => setDecision(null) }
+          );
+        }}
+      />
     </div>
   );
 }

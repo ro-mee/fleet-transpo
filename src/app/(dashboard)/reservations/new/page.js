@@ -87,7 +87,7 @@ export default function MockInjectorPage() {
     passenger_count: 1,
     special_requests: "",
     requested_vehicle_type: "",
-    priority: "Normal",
+    priority: "Medium",
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -142,7 +142,7 @@ export default function MockInjectorPage() {
       passenger_count: Math.floor(Math.random() * 4) + 1,
       special_requests: "Cold towels & bottled water requested.",
       requested_vehicle_type: categories[0]?.category_name || "",
-      priority: Math.random() > 0.7 ? "High" : "Normal",
+      priority: Math.random() > 0.7 ? "High" : "Medium",
     });
     toast.success("Filled mock transport request data!");
   };
@@ -357,7 +357,11 @@ export default function MockInjectorPage() {
               value={form.priority}
               onChange={(e) => set("priority", e.target.value)}
             >
-              <option value="Normal">Normal</option>
+              {/* Vocabulary matches chk_transport_priority exactly — "Normal"
+                  is silently translated to Medium downstream, so offer Medium
+                  here and never show the user a word the record won't carry. */}
+              <option value="Low">Low</option>
+              <option value="Medium">Medium</option>
               <option value="High">High (VIP)</option>
               <option value="Urgent">Urgent</option>
             </FloatingSelect>

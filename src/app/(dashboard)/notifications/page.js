@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from "@/services/notification.service";
 import { formatDate, cn } from "@/lib/utils";
 import {
@@ -62,8 +63,9 @@ export default function NotificationsPage() {
   const { employee } = useAuth();
   const role = employee?.roles?.role_name;
   const [filter, setFilter] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
-  const { data: notifications = [] } = useQuery({
+  const { data: notifications = [], isLoading } = useQuery({
     queryKey: ["notifications", filter],
     queryFn: () => getNotifications(filter === "unread" ? { is_read: false } : {}),
     // New notifications should appear without a page reload: poll every 15s,
@@ -143,7 +145,20 @@ export default function NotificationsPage() {
 
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardContent className="p-0">
-          {uniqueNotifications.length === 0 ? (
+          {isLoading ? (
+            <div className="p-3 space-y-3 bg-muted/10" aria-hidden="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="flex items-start gap-4 p-4 rounded-[20px] bg-surface border border-border/60 animate-pulse">
+                  <div className="w-11 h-11 rounded-[14px] bg-hover shrink-0" />
+                  <div className="flex-1 space-y-2 pt-1">
+                    <div className="h-3.5 w-44 rounded-full bg-hover" />
+                    <div className="h-3 w-full max-w-md rounded-full bg-hover" />
+                    <div className="h-2.5 w-28 rounded-full bg-hover" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : uniqueNotifications.length === 0 ? (
             <EmptyState
               icon={Bell}
               title="No notifications"
@@ -205,7 +220,7 @@ export default function NotificationsPage() {
                         </h4>
                         {isUnread && (
                           <span className="flex h-2 w-2 relative">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                            <span className="animate-ping motion-reduce:animate-none absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                           </span>
                         )}
@@ -237,12 +252,12 @@ export default function NotificationsPage() {
                           <CheckCheck className="w-4 h-4 text-foreground-muted" />
                         </Button>
                       )}
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="w-8 h-8 rounded-full text-danger/60 hover:text-danger hover:bg-danger/10" 
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="w-8 h-8 rounded-full text-danger/60 hover:text-danger hover:bg-danger/10"
                         title="Delete notification"
-                        onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(notif.notification_id); }}
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(notif); }}
                       >
                         <Trash2 className="w-4 h-4" />
                       </Button>
@@ -254,6 +269,24 @@ export default function NotificationsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+        variant="danger"
+        title="Delete notification?"
+        message="This permanently removes it from your feed."
+        confirmLabel="Delete"
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          deleteMutation.mutate(deleteTarget.notification_id, {
+            onSettled: () => setDeleteTarget(null),
+          });
+        }}
+      />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { resetSessionPassword } from "@/services/auth.service";
@@ -11,8 +12,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Loader2, CarFront, Eye, EyeOff } from "lucide-react";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 
+// Same policy as /settings/security so both change paths enforce identical rules.
 const resetSchema = {
-  password: { required: true, type: "password", label: "New password" },
+  password: (value) => {
+    if (!value) return "New password is required.";
+    if (value.length < 8) return "Password must be at least 8 characters.";
+    if (!/[a-z]/.test(value)) return "Include at least one lowercase letter.";
+    if (!/[A-Z]/.test(value)) return "Include at least one uppercase letter.";
+    if (!/[0-9]/.test(value)) return "Include at least one number.";
+    if (!/[^A-Za-z0-9]/.test(value)) return "Include at least one special character.";
+    return null;
+  },
   confirmPassword: (value, values) => {
     if (!value) return "Confirm password is required.";
     if (value !== values.password) return "Passwords do not match.";
@@ -20,9 +30,16 @@ const resetSchema = {
   },
 };
 
+const PASSWORD_RULES = [
+  "At least 8 characters",
+  "Upper and lowercase letters",
+  "At least one number",
+  "At least one special character",
+];
+
 function ResetPasswordForm() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status: sessionStatus } = useSession();
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -30,6 +47,29 @@ function ResetPasswordForm() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
   const { validate, fieldError, registerField } = useFormValidation(resetSchema);
+
+  // The reset endpoint changes the SESSION user's password — an anonymous
+  // visitor has nothing to reset. Say so before they fill the form.
+  if (sessionStatus !== "loading" && !session?.user?.email) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background p-4">
+        <Card className="shadow-xl border-0 text-center max-w-md w-full">
+          <CardHeader>
+            <CardTitle className="text-xl">Sign in first</CardTitle>
+            <CardDescription>
+              Password resets apply to your signed-in account. Sign in with your current password, then
+              change it here or from Settings &rarr; Security.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/login">
+              <Button className="w-full h-11">Go to login</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -91,6 +131,14 @@ function ResetPasswordForm() {
             <CardDescription>Enter your new password below</CardDescription>
           </CardHeader>
           <CardContent>
+            <ul className="mb-4 space-y-1 text-xs text-foreground-secondary" aria-label="Password requirements">
+              {PASSWORD_RULES.map((rule) => (
+                <li key={rule} className="flex items-center gap-1.5">
+                  <span aria-hidden="true" className="h-1 w-1 rounded-full bg-foreground-muted" />
+                  {rule}
+                </li>
+              ))}
+            </ul>
             <form onSubmit={handleSubmit} className="space-y-4">
               {error && (
                 <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-sm text-danger">
@@ -111,6 +159,7 @@ function ResetPasswordForm() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-foreground-muted"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}

@@ -227,7 +227,7 @@ export function ReservationCard({
             View
           </Link>
 
-          {!isTerminal(status) && permissions.update && (
+          {!isTerminal(status) && permissions.cancel && (
             <Button
               variant="ghost"
               size="sm"

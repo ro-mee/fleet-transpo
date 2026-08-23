@@ -106,19 +106,25 @@ export default function SettingsGeneralPage() {
 
   const [form, setForm] = useState(EMPTY_HOTEL);
   const [naiaConfirmOpen, setNaiaConfirmOpen] = useState(false);
-  // Hydrate the form once the server values arrive. Done in an effect (not a
-  // render-time sync) so the form is provably empty until real config lands —
-  // no early Save can persist defaults over the live configuration.
-  useEffect(() => {
-    if (!hotelData) return;
-    setForm({
-      hotel_name: hotelData.hotel_name || "",
-      address: hotelData.address || "",
-      latitude: hotelData.latitude ?? "",
-      longitude: hotelData.longitude ?? "",
-      google_maps_url: hotelData.google_maps_url || "",
-    });
-  }, [hotelData]);
+  // Hydrate the form once the server values arrive — using React's documented
+  // "adjust state during render" pattern (setState guarded by a previous-value
+  // check) rather than an effect: provably empty until real config lands, no
+  // early Save can persist defaults over the live configuration.
+  const [hydratedFrom, setHydratedFrom] = useState(undefined);
+  if (hotelData !== hydratedFrom) {
+    setHydratedFrom(hotelData);
+    setForm(
+      hotelData
+        ? {
+            hotel_name: hotelData.hotel_name || "",
+            address: hotelData.address || "",
+            latitude: hotelData.latitude ?? "",
+            longitude: hotelData.longitude ?? "",
+            google_maps_url: hotelData.google_maps_url || "",
+          }
+        : EMPTY_HOTEL
+    );
+  }
 
   // Real values instead of hardcoded text — the server's locale may not be
   // Manila and the calendar format is whatever the browser resolves.

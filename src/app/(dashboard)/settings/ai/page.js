@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip } from "@/components/ui/tooltip";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   getAiProviders,
   createAiProvider,
@@ -49,11 +50,17 @@ const aiProviderSchema = {
   display_name: { required: true, maxLength: 100, label: "Display name" },
   base_url: { required: true, maxLength: 255, label: "Base URL" },
   model_name: { required: true, maxLength: 100, label: "Model name" },
-  temperature: { required: true, type: "positiveNumber", max: 9.99, label: "Temperature" },
+  temperature: { required: true, type: "positiveNumber", max: 2, label: "Temperature" },
   max_tokens: { required: true, type: "positiveNumber", min: 1, max: 1000000, integer: true, label: "Max tokens" },
   timeout_seconds: { required: true, type: "positiveNumber", min: 1, max: 600, integer: true, label: "Timeout (seconds)" },
   api_key: { maxLength: 2000, label: "API key" },
 };
+
+// The server masks keys as `••••••••••••<last4>` — a value containing a bullet
+// is the untouched stored key, never a new one.
+function isMaskedApiKey(value) {
+  return !value || String(value).includes("•");
+}
 
 export default function AiSettingsPage() {
   useRequireRole(["admin", "system_admin"]);
@@ -61,6 +68,7 @@ export default function AiSettingsPage() {
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingProvider, setEditingProvider] = useState(null);
+  const [deletingProvider, setDeletingProvider] = useState(null);
   const [testingId, setTestingId] = useState(null);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModelList, setFetchedModelList] = useState([]);
@@ -233,13 +241,16 @@ export default function AiSettingsPage() {
   function handleSubmit(e) {
     e.preventDefault();
 
+    // In edit mode a masked/empty key means "keep the stored key": omit it
+    // from the payload entirely instead of submitting bullets back.
+    const keepStoredKey = editingProvider && isMaskedApiKey(formData.api_key);
+
     const isValid = validate(formData, {
       onSuccess: () => {
         const payload = {
-          provider_name: formData.provider_class,
+          provider_name: formData.name.trim() || formData.provider_class,
           display_name: formData.display_name,
           base_url: formData.base_url,
-          api_key: formData.api_key,
           model_name: formData.model_name,
           temperature: Number(formData.temperature),
           max_tokens: Number(formData.max_tokens),
@@ -247,6 +258,9 @@ export default function AiSettingsPage() {
           is_default: formData.is_default,
           is_enabled: true,
         };
+        if (!keepStoredKey) {
+          payload.api_key = formData.api_key;
+        }
 
         if (editingProvider) {
           updateMutation.mutate({ id: editingProvider.provider_id, data: payload });
@@ -279,7 +293,7 @@ export default function AiSettingsPage() {
         toast.info("Using default model options");
       }
     } catch (err) {
-      toast.error(`Fetch models notice: ${err.message}`);
+      toast.error(`Could not fetch models: ${err.message}`);
     } finally {
       setFetchingModels(false);
     }
@@ -433,7 +447,7 @@ export default function AiSettingsPage() {
                         variant="ghost"
                         size="icon"
                         className="w-8 h-8 rounded-xl text-danger hover:text-danger hover:bg-danger/10 cursor-pointer"
-                        onClick={() => deleteMutation.mutate(p.provider_id)}
+                        onClick={() => setDeletingProvider(p)}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
@@ -880,7 +894,7 @@ export default function AiSettingsPage() {
                   type="number"
                   step="0.1"
                   min="0"
-                  max="1"
+                  max="2"
                   value={formData.temperature}
                   onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
                   ref={registerField("temperature")}
@@ -944,6 +958,28 @@ export default function AiSettingsPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deletingProvider}
+        onOpenChange={(open) => {
+          if (!open) setDeletingProvider(null);
+        }}
+        variant="danger"
+        title="Delete provider?"
+        message={
+          deletingProvider
+            ? `${deletingProvider.display_name || deletingProvider.provider_name || "This provider"} will be permanently removed. AI features fall back to the deterministic rule-based engine.`
+            : ""
+        }
+        confirmLabel="Delete provider"
+        loading={deleteMutation.isPending}
+        onConfirm={() => {
+          if (!deletingProvider) return;
+          deleteMutation.mutate(deletingProvider.provider_id, {
+            onSettled: () => setDeletingProvider(null),
+          });
+        }}
+      />
     </div>
   );
 }

@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { toast } from "@/components/ui/toast";
 
 // Phase 17 — the reservation list, repointed to transportation_requests.
 //
@@ -64,6 +65,7 @@ export default function ReservationsPage() {
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState([]);
+  const [exporting, setExporting] = useState(false);
 
   // Debounce the server-side search so every keystroke doesn't hit the API.
   useEffect(() => {
@@ -117,7 +119,7 @@ export default function ReservationsPage() {
         cell: (info) => (
           <div>
             <div className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-3 py-1.5 font-data text-xs font-bold tracking-wide text-foreground shadow-2xs">
-              {info.getValue() || `#${info.row.original.request_id}`}
+              {info.getValue() || `REQ-${info.row.original.request_id}`}
             </div>
             {info.row.original.booking_reference && (
               <p className="text-[11px] text-foreground-muted mt-1 font-medium">{info.row.original.booking_reference}</p>
@@ -275,11 +277,15 @@ export default function ReservationsPage() {
     },
   ];
 
-  // Export needs the whole register, not the current page — re-fetch unpaginated.
+  // Export needs the whole register, not the current page — re-fetch
+  // unpaginated, keeping whichever KPI chip is active so the file matches what
+  // the user sees. Without page/pageSize params the API returns a plain array.
   const handleExport = async () => {
+    setExporting(true);
     try {
-      const all = await getTransportRequests();
-      exportToCSV(all || [], "reservations", [
+      const result = await getTransportRequests({ ...filterParams });
+      const rows = Array.isArray(result) ? result : result?.rows || [];
+      exportToCSV(rows, "reservations", [
         { label: "Reservation No.", key: "reservation_number" },
         { label: "Booking Reference", key: "booking_reference" },
         { label: "Source", key: "source_system" },
@@ -302,8 +308,11 @@ export default function ReservationsPage() {
         { label: "Booking Status", key: "booking_status" },
         { label: "Reason", key: "status_reason" },
       ]);
-    } catch {
-      /* keep current page data on export failure */
+      toast.success(`Exported ${rows.length} transportation request${rows.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      toast.error(err?.message || "Failed to export reservations");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -337,12 +346,12 @@ export default function ReservationsPage() {
           <>
             <Button
               variant="outline"
-              disabled={!requests.length}
+              disabled={!requests.length || exporting}
               className={cn(heroButtonOutlineClass)}
               onClick={handleExport}
             >
               <Download className="mr-2 h-4 w-4" />
-              Export
+              {exporting ? "Exporting..." : "Export"}
             </Button>
             <Button variant="outline" className={cn(heroButtonOutlineClass)} onClick={() => router.push("/reservations/queue")}>
               <Inbox className="mr-2 h-4 w-4" />
@@ -397,7 +406,18 @@ export default function ReservationsPage() {
               </div>
             }
             emptyTitle="No transportation requests yet"
-            emptyDescription="Requests arrive from the Booking subsystem. Use Inject Mock Request to create one in development."
+            emptyDescription="Requests ingested from Booking will appear here."
+            emptyAction={
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-xl"
+                onClick={() => refetch()}
+                disabled={isLoading}
+              >
+                Refresh
+              </Button>
+            }
             onRowClick={(row) => router.push(`/reservations/${row.request_id}`)}
             manualPagination
             pageIndex={page - 1}

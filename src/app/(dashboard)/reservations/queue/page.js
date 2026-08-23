@@ -35,6 +35,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 // The unified Transportation Queue — the merged dispatcher workspace.
 //
@@ -70,6 +71,10 @@ export default function UnifiedQueuePage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [assigning, setAssigning] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  // Cancel is a consequential action (it cancels linked dispatches/trips and
+  // notifies Booking), so it always routes through a confirm dialog that
+  // captures a reason for the audit trail.
+  const [cancelTarget, setCancelTarget] = useState(null);
 
   // Debounce the free-text search so we don't hit the server on every keystroke.
   useEffect(() => {
@@ -155,10 +160,11 @@ export default function UnifiedQueuePage() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: (r) => cancelRequest(r.request_id),
-    onMutate: (r) => setBusyId(r.request_id),
+    mutationFn: (target) => cancelRequest(target.request_id, target.reason || null),
+    onMutate: (target) => setBusyId(target.request_id),
     onSuccess: () => {
       toast.success("Request cancelled — Booking will be notified");
+      setCancelTarget(null);
       invalidate();
     },
     onError: (e) => toast.error(e.message || "Failed to cancel request"),
@@ -396,7 +402,7 @@ export default function UnifiedQueuePage() {
               request={r}
               permissions={permissions}
               isBusy={busyId === r.request_id}
-              onCancel={(req) => cancelMutation.mutate(req)}
+              onCancel={(req) => setCancelTarget(req)}
               onAssign={(req) => setAssigning(req)}
             />
           ))}
@@ -475,6 +481,23 @@ export default function UnifiedQueuePage() {
           setAssigning(null);
           invalidate();
         }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(cancelTarget)}
+        onOpenChange={(open) => !open && setCancelTarget(null)}
+        variant="danger"
+        title="Cancel this request?"
+        message={`Cancelling "${cancelTarget?.guest_name || cancelTarget?.reservation_number || "this request"}" also cancels any dispatch and trip already raised for it, and notifies Booking. This can't be undone.`}
+        confirmLabel="Cancel request"
+        cancelLabel="Keep request"
+        requireReason
+        reasonLabel="Reason for cancelling"
+        reasonPlaceholder="e.g. Guest cancelled the booking"
+        loading={cancelMutation.isPending}
+        onConfirm={(reason) =>
+          cancelMutation.mutate({ ...(cancelTarget || {}), reason: reason || null })
+        }
       />
     </div>
   );

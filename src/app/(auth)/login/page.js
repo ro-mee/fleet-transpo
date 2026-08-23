@@ -197,6 +197,22 @@ export default function LoginPage() {
           router.push(session?.user?.role === "driver" ? "/driver" : "/dashboard");
           router.refresh();
         } catch (err) {
+          // NextAuth collapses every authorize() failure (including the IP
+          // throttle) into "CredentialsSignin", so a locked-out user would be
+          // told their password is wrong. Check the public throttle status and
+          // tell them the truth instead.
+          try {
+            const res = await fetch("/api/auth/login-status");
+            const status = await res.json();
+            if (status?.locked) {
+              setError(
+                `Too many login attempts from this network. Try again in ${status.retryAfterSec || 60}s.`
+              );
+              return;
+            }
+          } catch {
+            // Status check is best-effort — fall back to the generic message.
+          }
           setError(err.message || "Invalid email or password");
         } finally {
           setLoading(false);

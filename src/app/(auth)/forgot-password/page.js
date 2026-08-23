@@ -53,9 +53,10 @@ export default function ForgotPasswordPage() {
                   <MailCheck className="w-8 h-8 text-success" />
                 </div>
               </div>
-              <CardTitle className="text-xl">Check your email</CardTitle>
+              <CardTitle className="text-xl">Request received</CardTitle>
               <CardDescription>
-                If an account exists for <strong>{email}</strong>, a reset link has been sent.
+                If an account exists for <strong>{email}</strong>, contact your FleetOps administrator to receive a
+                reset link — reset links are issued by administrators, not emailed automatically.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -86,7 +87,7 @@ export default function ForgotPasswordPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-xl">Forgot password</CardTitle>
             <CardDescription>
-              Enter your email and we&apos;ll send you a reset link
+              Enter your email — your FleetOps administrator can issue a reset link for your account
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -111,7 +112,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Button type="submit" className="w-full h-11" disabled={loading}>
                 {loading ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : null}
-                Send reset link
+                Request reset
               </Button>
             </form>
           </CardContent>

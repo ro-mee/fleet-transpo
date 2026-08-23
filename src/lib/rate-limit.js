@@ -40,6 +40,25 @@ export function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
   return { allowed: true, remaining: limit - bucket.count, retryAfter: 0 };
 }
 
+/**
+ * Read-only check — does NOT consume a hit. Used by the public login-status
+ * endpoint so the UI can tell a locked-out user the truth (and how long is
+ * left) even though NextAuth collapses every authorize() failure into
+ * "CredentialsSignin" client-side.
+ */
+export function peekRateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
+  const now = Date.now();
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    return { allowed: true, remaining: limit, retryAfter: 0 };
+  }
+  return {
+    allowed: bucket.count < limit,
+    remaining: Math.max(0, limit - bucket.count),
+    retryAfter: Math.ceil((bucket.resetAt - now) / 1000),
+  };
+}
+
 /** Matches IPv4, IPv6, and optional ":port" suffixes on dotted quads. */
 const IP_LIKE = /^[0-9a-fA-F:.]+$/;
 

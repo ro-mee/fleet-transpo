@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { toast } from "@/components/ui/toast";
-import { Shield, Key, Lock, Smartphone, History, Loader2, Eye, EyeOff } from "lucide-react";
+import { Shield, Key, Lock, Smartphone, MonitorSmartphone, Loader2, Eye, EyeOff } from "lucide-react";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { isPassword, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial } from "@/lib/validation/helpers";
 
@@ -95,10 +95,12 @@ export default function SecurityPage() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm text-foreground-secondary">Current Password</label>
+                <label htmlFor="currentPassword" className="text-sm text-foreground-secondary">Current Password</label>
                 <div className="relative">
                   <Input
+                    id="currentPassword"
                     name="currentPassword"
+                    autoComplete="current-password"
                     type={showPasswords ? "text" : "password"}
                     value={form.currentPassword}
                     onChange={handleChange}
@@ -109,9 +111,11 @@ export default function SecurityPage() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-foreground-secondary">New Password</label>
+                <label htmlFor="newPassword" className="text-sm text-foreground-secondary">New Password</label>
                 <Input
+                  id="newPassword"
                   name="newPassword"
+                  autoComplete="new-password"
                   type={showPasswords ? "text" : "password"}
                   value={form.newPassword}
                   onChange={handleChange}
@@ -121,9 +125,11 @@ export default function SecurityPage() {
                 {fieldError("newPassword").error && <p className="text-xs text-danger mt-1">{fieldError("newPassword").error}</p>}
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-foreground-secondary">Confirm New Password</label>
+                <label htmlFor="confirmPassword" className="text-sm text-foreground-secondary">Confirm New Password</label>
                 <Input
+                  id="confirmPassword"
                   name="confirmPassword"
+                  autoComplete="new-password"
                   type={showPasswords ? "text" : "password"}
                   value={form.confirmPassword}
                   onChange={handleChange}
@@ -167,7 +173,10 @@ export default function SecurityPage() {
             <p className="text-sm text-foreground-secondary">
               Add an extra layer of security to your account by enabling two-factor authentication.
             </p>
-            <Button variant="outline" disabled>Enable 2FA</Button>
+            <div>
+              <Button variant="outline" disabled>Enable 2FA</Button>
+              <p className="mt-2 text-xs text-foreground-muted">Two-factor authentication isn&apos;t available yet — it&apos;s on the roadmap.</p>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -175,29 +184,19 @@ export default function SecurityPage() {
       <Card className="border-0 shadow-sm">
         <CardHeader className="pb-3">
           <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <History className="w-4 h-4 text-primary" /> Recent Sessions
+            <MonitorSmartphone className="w-4 h-4 text-primary" /> Session Management
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {[
-              { device: "Chrome on Windows", location: "Manila, PH", ip: "192.168.1.100", lastActive: "2 min ago", current: true },
-              { device: "Safari on iPhone", location: "Quezon City, PH", ip: "192.168.1.101", lastActive: "2 hrs ago", current: false },
-              { device: "Firefox on macOS", location: "Makati, PH", ip: "192.168.1.102", lastActive: "3 days ago", current: false },
-            ].map((session, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 rounded-lg hover:bg-hover transition-colors">
-                <div className={`w-2 h-2 rounded-full ${session.current ? "bg-success" : "bg-muted"}`} />
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium text-foreground">{session.device}</p>
-                    {session.current && <Badge variant="success" className="text-[11px]">Current</Badge>}
-                  </div>
-                  <p className="text-xs text-foreground-muted">{session.location} · {session.ip}</p>
-                </div>
-                <span className="text-xs text-foreground-muted">{session.lastActive}</span>
-              </div>
-            ))}
-          </div>
+        <CardContent className="text-sm text-foreground-secondary space-y-2">
+          <p>
+            Web sessions are signed in per browser and end when you sign out or the session expires.
+            On shared computers, always use <span className="font-medium text-foreground">Sign out</span> from
+            the top-right account menu when you&apos;re done.
+          </p>
+          <p className="text-xs text-foreground-muted">
+            Driver mobile devices can be signed out individually from the mobile app, or all at once via
+            &ldquo;Logout on all devices&rdquo; there. Per-device session history isn&apos;t tracked.
+          </p>
         </CardContent>
       </Card>
     </div>

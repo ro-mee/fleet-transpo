@@ -124,7 +124,9 @@ export const driverSchema = z.object({
     .min(1, "License number is required.")
     .max(30, "License number must be at most 30 characters.")
     .transform((v) => v.toUpperCase()),
-  license_expiry: dateString("License expiry", { noPast: true }),
+  // Past license expiries are allowed: real records arrive already expired and
+  // staff must record the truth (compliance risk is surfaced from the value).
+  license_expiry: dateString("License expiry"),
   license_type: z.string().optional(),
   license_class: z.string().optional(),
   years_of_experience: z.preprocess(
