@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useDeferredValue } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -26,6 +26,7 @@ const PAGE_COMMANDS = [
   { href: "/dispatch", label: "Dispatch Board" },
   { href: "/dispatch/calendar", label: "Dispatch Calendar" },
   { href: "/trips", label: "Trips" },
+  { href: "/trips/active", label: "Active Trips" },
   { href: "/incidents", label: "Incidents" },
   { href: "/fuel", label: "Fuel Monitoring" },
   { href: "/fuel/analytics", label: "Fuel Analytics" },
@@ -36,13 +37,36 @@ const PAGE_COMMANDS = [
   { href: "/uvvrp", label: "Number Coding (UVVRP)" },
   { href: "/routes", label: "Routes" },
   { href: "/reports", label: "Reports" },
+  { href: "/reports/cost", label: "Fleet Cost Dashboard" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/executive", label: "Executive Overview" },
   { href: "/ai/insights", label: "AI Insights" },
+  { href: "/ai/predictive-maintenance", label: "AI Predictive Maintenance" },
   { href: "/fleet/vehicles", label: "Vehicle Management" },
   { href: "/fleet/documents", label: "Document Expiration" },
   { href: "/drivers", label: "Drivers" },
   { href: "/drivers/performance", label: "Driver Performance" },
+  { href: "/drivers/leave", label: "Driver Leave Requests" },
+  { href: "/notifications", label: "Notifications" },
+  { href: "/notifications/preferences", label: "Notification Preferences" },
+  { href: "/system/audit", label: "Audit Logs" },
   { href: "/settings/general", label: "System Settings" },
+  { href: "/settings/users", label: "User Management" },
+  { href: "/settings/users/new", label: "Add User" },
+  { href: "/settings/api", label: "API & Integrations" },
+  { href: "/settings/ai", label: "AI Providers" },
+  { href: "/settings/ai/logs", label: "AI Logs" },
+  { href: "/settings/number-coding", label: "Number Coding Settings" },
+  { href: "/settings/dispatch", label: "Dispatch Policy" },
+  // Driver workspace
+  { href: "/driver", label: "My Dashboard" },
+  { href: "/driver/trips", label: "My Trips" },
+  { href: "/driver/vehicle", label: "My Vehicle" },
+  { href: "/driver/fuel", label: "Fuel Logs" },
+  { href: "/driver/incidents", label: "Incident Reporting" },
+  { href: "/driver/schedule", label: "My Schedule & Leave" },
+  { href: "/driver/attendance", label: "My Attendance" },
+  { href: "/driver/profile", label: "Profile & Credentials" },
 ];
 
 const TYPE_META = {
@@ -59,15 +83,21 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
 
+  // Deferred entity search: typing stays instant while the network query lags
+  // one render behind instead of firing per keystroke.
+  const debouncedQuery = useDeferredValue(query);
+
   const pageCommands = useMemo(
     () => PAGE_COMMANDS.filter((c) => canAccess(c.href)),
     [canAccess]
   );
 
-  const { data: results = [] } = useQuery({
-    queryKey: ["global-search", query],
-    queryFn: () => globalSearch(query),
-    enabled: open && query.trim().length >= 2,
+  // Deferred (not debounced) entity search handled above via useDeferredValue.
+
+  const { data: results = [], isFetching } = useQuery({
+    queryKey: ["global-search", debouncedQuery],
+    queryFn: () => globalSearch(debouncedQuery),
+    enabled: open && debouncedQuery.trim().length >= 2,
     staleTime: 30_000,
     placeholderData: (prev) => prev,
   });
@@ -83,7 +113,7 @@ export function CommandPalette() {
       .map((t) => ({ type: t, items: byType[t] }));
   }, [results]);
 
-  const hasQuery = query.trim().length >= 2;
+  const hasQuery = debouncedQuery.trim().length >= 2;
   const sections = useMemo(() => {
     const s = [];
     if (!hasQuery) {
@@ -95,10 +125,17 @@ export function CommandPalette() {
           items: sec.items.map((r) => ({ ...r, type: r.type })),
         });
       }
-      if (s.length === 0) s.push({ label: "No results", items: [] });
+      // Pages stay available while searching — jumping to a page mid-search is
+      // a common move and the two result kinds aren't mutually exclusive.
+      const q = debouncedQuery.trim().toLowerCase();
+      const pageHits = pageCommands
+        .filter((c) => c.label.toLowerCase().includes(q))
+        .map((c) => ({ ...c, type: "page" }));
+      if (pageHits.length) s.push({ label: "Pages", items: pageHits });
+      if (s.length === 0 && !isFetching) s.push({ label: "No results", items: [] });
     }
     return s;
-  }, [hasQuery, pageCommands, searchSections]);
+  }, [hasQuery, pageCommands, searchSections, debouncedQuery, isFetching]);
 
   // Flat item index for arrow-key navigation.
   const { flat, count } = useMemo(() => {
@@ -107,10 +144,21 @@ export function CommandPalette() {
     return { flat, count: flat.length };
   }, [sections]);
 
-  // Reset scroll position whenever the result set changes.
-  useEffect(() => {
+  // Reset the highlighted row whenever the result set changes — done with the
+  // "adjust state during render" pattern instead of an effect so the cursor
+  // never points at a stale item.
+  const resultKey = `${open}|${debouncedQuery}|${count}`;
+  const [lastResultKey, setLastResultKey] = useState(resultKey);
+  if (resultKey !== lastResultKey) {
+    setLastResultKey(resultKey);
     setActive(0);
-  }, [query, open]);
+  }
+
+  const navigate = (href) => {
+    setOpen(false);
+    setQuery("");
+    router.push(href);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +176,7 @@ export function CommandPalette() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- navigate closes over stable router.push
   }, [open, count, flat, active]);
 
   // Global Ctrl/Cmd+K toggle.
@@ -141,12 +190,6 @@ export function CommandPalette() {
     window.addEventListener("keydown", onToggle);
     return () => window.removeEventListener("keydown", onToggle);
   }, []);
-
-  const navigate = (href) => {
-    setOpen(false);
-    setQuery("");
-    router.push(href);
-  };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -182,7 +225,7 @@ export function CommandPalette() {
                 const Icon = it.type === "page" ? FileText : TYPE_META[it.type].icon;
                 return (
                   <button
-                    key={`${it.type}-${it.href}`}
+                    key={`${it.type}-${it.href}-${it.id ?? ""}`}
                     type="button"
                     onClick={() => navigate(it.href)}
                     onMouseMove={() => setActive(idx)}

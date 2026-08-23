@@ -17,13 +17,13 @@
   --color-sidebar-active: var(--sb-active);
   --color-sidebar-border: var(--sb-br);
 
-  --color-success: #10b981;
+  --color-success: var(--success);
   --color-success-bg: var(--success-bg);
-  --color-warning: #f59e0b;
+  --color-warning: var(--warning);
   --color-warning-bg: var(--warning-bg);
-  --color-danger: #ef4444;
+  --color-danger: var(--danger);
   --color-danger-bg: var(--danger-bg);
-  --color-info: #3b82f6;
+  --color-info: var(--info);
   --color-info-bg: var(--info-bg);
 
   --font-sans: var(--font-inter), system-ui, sans-serif;
@@ -60,6 +60,15 @@
  */
 
 :root {
+  /* Semantic status colors are ALSO emitted as raw custom properties so
+     non-Tailwind consumers (recharts SVG attributes, JS chart palettes) can
+     read them without duplicating hex values per page. Keep @theme inline and
+     this block in sync — @theme maps Tailwind classes onto these vars. */
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #3b82f6;
+
   --bg: #f3f3f3;
   --sf: #ffffff;
   --br: #d1d5db;
@@ -85,7 +94,9 @@
   --br: #2a2a2a;
   --fg: #f5f5f5;
   --fg-secondary: #a3a3a3;
-  --fg-muted: #6b7280;
+  /* Raised from #6b7280 (~3.4:1 on #1a1a1a) to meet 4.5:1 body-size contrast
+     in dark mode; still visually secondary next to --fg-secondary. */
+  --fg-muted: #8b909a;
   --primary: #f5f5f5;
   --primary-bg: #262626;
   --hv: #242424;
@@ -114,6 +125,13 @@ body {
 @utility font-data {
   font-family: var(--font-data), var(--font-mono), monospace;
 }
+
+/* Chart height scale — the canonical heights for recharts ResponsiveContainer
+   wrappers. Prefer these over one-off h-[230px]-style values so charts stay on
+   a consistent vertical rhythm across dashboards, analytics and reports. */
+@utility chart-h-sm { height: 220px; }
+@utility chart-h-md { height: 260px; }
+@utility chart-h-lg { height: 300px; }
 
 .kpi-stat-card {
   will-change: transform;

@@ -54,6 +54,11 @@ export function StatCard({
           </p>
           {valueNote && <span className={cn("shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold leading-none", t.trend)}>{valueNote}</span>}
         </div>
+        {/* Context caption — the "why does this matter" layer written by each
+            dashboard config. Rendered as plain supporting text under the value. */}
+        {trend && (
+          <p className="mt-1.5 text-[11px] leading-snug text-foreground-muted">{trend}</p>
+        )}
       </div>
     </Component>
   );

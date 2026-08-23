@@ -35,13 +35,22 @@ const ENTITY_MAPS = {
     suspended: "danger",
     inactive: "secondary",
   },
+  // All 16 TRIP_STATUS values from src/lib/constants.js (migration 012 CHECK),
+  // lowercased, so every trip state colors consistently.
   trip: {
     pending: "warning",
     approved: "default",
+    assigned: "info",
+    "vehicle assigned": "info",
+    "driver assigned": "info",
     dispatched: "info",
     "driver accepted": "info",
     "trip started": "info",
+    "at pickup": "info",
+    "passenger onboard": "primary",
+    "in progress": "primary",
     "en route": "primary",
+    "drop-off": "primary",
     arrived: "success",
     completed: "success",
     cancelled: "secondary",
@@ -69,6 +78,7 @@ const ENTITY_MAPS = {
     completed: "success",
   },
   dispatch: {
+    "pending reassignment": "danger",
     scheduled: "info",
     "in progress": "warning",
     completed: "success",
@@ -83,6 +93,24 @@ const ENTITY_MAPS = {
     "in progress": "warning",
     completed: "success",
     done: "success",
+    cancelled: "secondary",
+  },
+  // driverincidents lifecycle. Code only produces Open (DB default,
+  // migration 030) and Resolved (incidents page); the rest are defensive
+  // entries for the same ladder.
+  incident: {
+    open: "warning",
+    pending: "warning",
+    "in progress": "warning",
+    resolved: "success",
+    closed: "secondary",
+  },
+  // driver_leave_requests: Pending → Approved/Declined (review actions in
+  // drivers/leave). Cancelled is defensive — drivers delete pending requests.
+  leave: {
+    pending: "warning",
+    approved: "success",
+    declined: "danger",
     cancelled: "secondary",
   },
   // Reservation priority is Urgent/High/Medium/Low (migration 016). Maintenance
@@ -100,6 +128,12 @@ const ENTITY_MAPS = {
   },
 };
 
+// Global fallback for statuses with no entity context. Entity maps are
+// authoritative: lookup() tries the entity map first, so contradictions here
+// (e.g. global "cancelled" = danger vs the neutral secondary used by every
+// entity lifecycle, or global "high" = danger vs priority.high = warning)
+// only surface when a caller passes no entity — and then the generic heat
+// reading is the safest default.
 const GLOBAL_STATUS_MAP = {
   completed: "success",
   done: "success",

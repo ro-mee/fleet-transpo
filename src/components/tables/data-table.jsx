@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useId } from "react";
 import {
   flexRender,
   getCoreRowModel,
@@ -45,7 +45,11 @@ export function DataTable({
   onPageChange,
   rowCount,
   onSortChange,
+  stickyFirstColumn = false,
+  getRowLabel,
+  emptyAction,
 }) {
+  const searchInputId = useId();
   const [sorting, setSorting] = useState([]);
   const [internalFilter, setInternalFilter] = useState("");
   const [internalPageIndex, setInternalPageIndex] = useState(0);
@@ -136,8 +140,12 @@ export function DataTable({
       {searchable && (
         <div className="flex flex-col gap-3 px-6 py-3.5 border-b border-border/60 bg-surface sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full sm:w-72">
+            <label htmlFor={searchInputId} className="sr-only">{searchPlaceholder}</label>
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" />
             <input
+              id={searchInputId}
+              type="search"
+              aria-label={searchPlaceholder}
               placeholder={searchPlaceholder}
               value={globalFilter ?? ""}
               onChange={(e) => setGlobalFilter(e.target.value)}
@@ -160,68 +168,127 @@ export function DataTable({
           <TableSkeleton />
         </div>
       ) : (
-        <div className="relative w-full max-w-full overflow-x-auto [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-border">
-          <table className="w-full text-sm text-left border-collapse table-auto">
-            <thead>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <tr key={headerGroup.id} className="border-b border-border/60 bg-surface">
-                  {headerGroup.headers.map((header) => (
-                    <th
-                      key={header.id}
-                      className={cn(
-                        "px-3 sm:px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
-                        header.column.getCanSort() && "cursor-pointer hover:text-foreground transition-colors"
-                      )}
-                      onClick={header.column.getToggleSortingHandler()}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {header.column.getCanSort() && (
-                          <span className="text-foreground-muted/60">
-                            {{
-                              asc: <ChevronUp className="w-3 h-3 text-foreground" />,
-                              desc: <ChevronDown className="w-3 h-3 text-foreground" />,
-                            }[header.column.getIsSorted()] ?? (
-                              <ChevronsUpDown className="w-3 h-3 opacity-30" />
-                            )}
-                          </span>
-                        )}
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              ))}
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {table.getRowModel().rows.length ? (
-                table.getRowModel().rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={cn(
-                      "group transition-colors hover:bg-hover/30",
-                      onRowClick && "cursor-pointer"
-                    )}
-                    onClick={() => onRowClick?.(row.original)}
-                  >
-                    {row.getVisibleCells().map((cell) => (
-                      <td key={cell.id} className={cn("px-3 sm:px-5 py-4 text-xs font-medium text-foreground whitespace-nowrap", cell.column.columnDef.meta?.className)}>
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </td>
-                    ))}
+        <div className="relative">
+          <div className="w-full max-w-full overflow-x-auto [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-border">
+            <table className="w-full text-sm text-left border-collapse table-auto">
+              <thead>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} className="border-b border-border/60 bg-surface">
+                    {headerGroup.headers.map((header, colIdx) => {
+                      const canSort = header.column.getCanSort();
+                      const isSorted = header.column.getIsSorted();
+                      const sortLabel =
+                        typeof header.column.columnDef.header === "string" && header.column.columnDef.header
+                          ? header.column.columnDef.header
+                          : header.column.id;
+                      return (
+                        <th
+                          key={header.id}
+                          scope="col"
+                          aria-sort={isSorted ? (isSorted === "desc" ? "descending" : "ascending") : undefined}
+                          className={cn(
+                            "px-3 sm:px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
+                            stickyFirstColumn && colIdx === 0 && "sticky left-0 bg-surface z-10 border-r border-border/60 shadow-[6px_0_10px_-8px_rgba(0,0,0,0.35)]"
+                          )}
+                        >
+                          {canSort ? (
+                            <button
+                              type="button"
+                              onClick={header.column.getToggleSortingHandler()}
+                              aria-label={`Sort by ${sortLabel}`}
+                              className="flex items-center gap-1.5 uppercase tracking-widest text-[11px] font-black text-inherit cursor-pointer hover:text-foreground transition-colors"
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                              <span className="text-foreground-muted/60">
+                                {{
+                                  asc: <ChevronUp className="w-3 h-3 text-foreground" />,
+                                  desc: <ChevronDown className="w-3 h-3 text-foreground" />,
+                                }[isSorted] ?? (
+                                  <ChevronsUpDown className="w-3 h-3 opacity-30" />
+                                )}
+                              </span>
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1.5">
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={columns.length} className="px-5 py-16">
-                    <div className="text-center space-y-1">
-                      <p className="text-sm font-bold text-foreground">{emptyTitle}</p>
-                      <p className="text-xs text-foreground-secondary">{emptyDescription}</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                ))}
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {table.getRowModel().rows.length ? (
+                  table.getRowModel().rows.map((row) => {
+                    let rowLabelText;
+                    if (onRowClick) {
+                      if (getRowLabel) {
+                        rowLabelText = getRowLabel(row.original);
+                      } else {
+                        const firstValue = row.getVisibleCells()[0]?.getValue();
+                        rowLabelText = firstValue == null ? "" : String(firstValue);
+                      }
+                    }
+                    return (
+                      <tr
+                        key={row.id}
+                        className={cn(
+                          "group transition-colors hover:bg-hover/30",
+                          onRowClick &&
+                            "cursor-pointer focus-visible:bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                        )}
+                        tabIndex={onRowClick ? 0 : undefined}
+                        aria-label={onRowClick && rowLabelText ? rowLabelText : undefined}
+                        onClick={() => onRowClick?.(row.original)}
+                        onKeyDown={
+                          onRowClick
+                            ? (e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  onRowClick(row.original);
+                                }
+                              }
+                            : undefined
+                        }
+                      >
+                        {row.getVisibleCells().map((cell, cellIdx) => (
+                          <td
+                            key={cell.id}
+                            className={cn(
+                              "px-3 sm:px-5 py-4 text-xs font-medium text-foreground whitespace-nowrap",
+                              stickyFirstColumn && cellIdx === 0 && "sticky left-0 bg-surface z-10 border-r border-border/60 shadow-[6px_0_10px_-8px_rgba(0,0,0,0.35)]",
+                              cell.column.columnDef.meta?.className
+                            )}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={columns.length} className="px-5 py-16">
+                      <div className="text-center space-y-1">
+                        <p className="text-sm font-bold text-foreground">{emptyTitle}</p>
+                        <p className="text-xs text-foreground-secondary">{emptyDescription}</p>
+                        {emptyAction && <div className="pt-4 flex justify-center">{emptyAction}</div>}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {/* Scroll affordance: hints at off-screen columns once the first column pins. */}
+          {stickyFirstColumn && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-foreground/[0.07] to-transparent"
+            />
+          )}
         </div>
       )}
 

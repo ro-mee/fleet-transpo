@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle, Trash2, Archive, LogOut, Info, Loader2 } from "lucide-react";
@@ -74,11 +74,46 @@ export function ConfirmDialog({
   const bodyText = message ?? description ?? "Are you sure?";
   const actionLabel = confirmLabel ?? confirmText ?? "Confirm";
 
-  const [reason, setReason] = useState("");
-  useEffect(() => {
-    if (open) setReason("");
-  }, [open]);
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        {/* Keyed by `open` so the reason textarea remounts fresh each time the
+            dialog opens — no reset-in-effect. */}
+        <DialogBody
+          key={String(open)}
+          config={config}
+          Icon={Icon}
+          title={title}
+          bodyText={bodyText}
+          requireReason={requireReason}
+          reasonLabel={reasonLabel}
+          reasonPlaceholder={reasonPlaceholder}
+          busy={busy}
+          actionLabel={actionLabel}
+          cancelLabel={cancelLabel}
+          onOpenChange={onOpenChange}
+          onConfirm={onConfirm}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
 
+function DialogBody({
+  config,
+  Icon,
+  title,
+  bodyText,
+  requireReason,
+  reasonLabel,
+  reasonPlaceholder,
+  busy,
+  actionLabel,
+  cancelLabel,
+  onOpenChange,
+  onConfirm,
+}) {
+  const [reason, setReason] = useState("");
   const canConfirm = !busy && (!requireReason || reason.trim().length > 0);
 
   const handleConfirm = () => {
@@ -90,49 +125,47 @@ export function ConfirmDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <div className={`w-10 h-10 rounded-xl ${config.iconBg} flex items-center justify-center mb-3`}>
-            <Icon className={`w-5 h-5 ${config.iconColor}`} />
-          </div>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{bodyText}</DialogDescription>
-        </DialogHeader>
-        {requireReason && (
-          <div className="space-y-1.5">
-            <label htmlFor="confirm-reason" className="text-xs font-medium text-foreground-secondary">
-              {reasonLabel} <span className="text-danger">*</span>
-            </label>
-            <textarea
-              id="confirm-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder={reasonPlaceholder}
-              rows={3}
-              maxLength={500}
-              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 resize-none"
-            />
-            {!reason.trim() && (
-              <p className="text-[11px] text-foreground-muted">A short reason is recorded with this action.</p>
-            )}
-          </div>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
-            {cancelLabel}
-          </Button>
-          <Button
-            variant={config.confirmVariant}
-            onClick={handleConfirm}
-            disabled={!canConfirm}
-          >
-            {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            {actionLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+    <>
+      <DialogHeader>
+        <div className={`w-10 h-10 rounded-xl ${config.iconBg} flex items-center justify-center mb-3`}>
+          <Icon className={`w-5 h-5 ${config.iconColor}`} />
+        </div>
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription>{bodyText}</DialogDescription>
+      </DialogHeader>
+      {requireReason && (
+        <div className="space-y-1.5">
+          <label htmlFor="confirm-reason" className="text-xs font-medium text-foreground-secondary">
+            {reasonLabel} <span className="text-danger">*</span>
+          </label>
+          <textarea
+            id="confirm-reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder={reasonPlaceholder}
+            rows={3}
+            maxLength={500}
+            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 resize-none"
+          />
+          {!reason.trim() && (
+            <p className="text-[11px] text-foreground-muted">A short reason is recorded with this action.</p>
+          )}
+        </div>
+      )}
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+          {cancelLabel}
+        </Button>
+        <Button
+          variant={config.confirmVariant}
+          onClick={handleConfirm}
+          disabled={!canConfirm}
+        >
+          {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {actionLabel}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }
 
@@ -184,13 +217,11 @@ export function useConfirm() {
       requireReason={state.config.requireReason}
       reasonLabel={state.config.reasonLabel}
       reasonPlaceholder={state.config.reasonPlaceholder}
-      onConfirm={(reason) => settle(requireReasonValue(reason))}
+      onConfirm={(reason) =>
+        settle(state.config.requireReason ? { confirmed: true, reason } : true)
+      }
     />
   );
-
-  function requireReasonValue(reason) {
-    return state.config.requireReason ? { confirmed: true, reason } : true;
-  }
 
   return [confirm, ConfirmDialogComponent];
 }

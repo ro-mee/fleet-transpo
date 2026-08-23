@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
 import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -17,15 +18,6 @@ import { Archive, CalendarClock, CircleGauge, Eye, Pencil, Truck, Users } from "
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 
-const statusVariant = {
-  Available: "success",
-  "In Use": "warning",
-  "Under Maintenance": "danger",
-  "Out of Service": "danger",
-  Reserved: "default",
-  "Registration Expired": "danger",
-};
-
 const columnHelper = createColumnHelper();
 
 export function FleetTable({ filters = {} }) {
@@ -36,16 +28,6 @@ export function FleetTable({ filters = {} }) {
     queryFn: () => getVehicles(),
   });
 
-  const vehicles = useMemo(() => {
-    return allVehicles.filter((v) => {
-      // status filter
-      if (filters.status && v.vehicle_status !== filters.status) {
-        return false;
-      }
-      return true;
-    });
-  }, [allVehicles, filters]);
-
   const { data: uvvrpPolicy } = useQuery({
     queryKey: ["uvvrp-policy"],
     queryFn: getUvvrpPolicy,
@@ -54,11 +36,25 @@ export function FleetTable({ filters = {} }) {
   const restrictedPlates = useMemo(() => {
     const set = new Set();
     if (!uvvrpPolicy?.enabled) return set;
-    vehicles.forEach((v) => {
+    allVehicles.forEach((v) => {
       if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) set.add(v.plate_number);
     });
     return set;
-  }, [uvvrpPolicy, vehicles]);
+  }, [uvvrpPolicy, allVehicles]);
+
+  const vehicles = useMemo(() => {
+    return allVehicles.filter((v) => {
+      // status filter
+      if (filters.status && v.vehicle_status !== filters.status) {
+        return false;
+      }
+      // UVVRP number-coding filter
+      if (filters.restrictedOnly && !restrictedPlates.has(v.plate_number)) {
+        return false;
+      }
+      return true;
+    });
+  }, [allVehicles, filters, restrictedPlates]);
 
   const archiveMutation = useMutation({
     mutationFn: deleteVehicle,
@@ -126,9 +122,10 @@ export function FleetTable({ filters = {} }) {
         header: "Status",
         cell: (info) => {
           const restricted = restrictedPlates.has(info.row.original.plate_number);
-          const status = restricted ? "Coding Restricted" : info.getValue();
-          const variant = restricted ? "danger" : statusVariant[info.getValue()] || "default";
-          return <Badge variant={variant} className="rounded-full px-3 py-1 text-xs font-bold">{status}</Badge>;
+          if (restricted) {
+            return <Badge variant="danger" className="rounded-full px-3 py-1 text-xs font-bold">Coding Restricted</Badge>;
+          }
+          return <StatusBadge status={info.getValue()} entity="vehicle" className="rounded-full px-3 py-1 text-xs font-bold" />;
         },
       }),
       columnHelper.display({

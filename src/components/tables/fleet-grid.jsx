@@ -6,9 +6,8 @@ import { useRouter } from "next/navigation";
 import { getVehicles } from "@/services/vehicle.service";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cn, formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Users, Fuel, Settings, Truck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
@@ -19,13 +18,6 @@ export function FleetGrid({ filters = {} }) {
     queryFn: () => getVehicles(),
   });
 
-  const vehicles = useMemo(() => {
-    return allVehicles.filter((v) => {
-      if (filters.status && v.vehicle_status !== filters.status) return false;
-      return true;
-    });
-  }, [allVehicles, filters]);
-
   const { data: uvvrpPolicy } = useQuery({
     queryKey: ["uvvrp-policy"],
     queryFn: getUvvrpPolicy,
@@ -34,11 +26,19 @@ export function FleetGrid({ filters = {} }) {
   const restrictedPlates = useMemo(() => {
     const set = new Set();
     if (!uvvrpPolicy?.enabled) return set;
-    vehicles.forEach((v) => {
+    allVehicles.forEach((v) => {
       if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) set.add(v.plate_number);
     });
     return set;
-  }, [uvvrpPolicy, vehicles]);
+  }, [uvvrpPolicy, allVehicles]);
+
+  const vehicles = useMemo(() => {
+    return allVehicles.filter((v) => {
+      if (filters.status && v.vehicle_status !== filters.status) return false;
+      if (filters.restrictedOnly && !restrictedPlates.has(v.plate_number)) return false;
+      return true;
+    });
+  }, [allVehicles, filters, restrictedPlates]);
 
   if (isLoading) {
     return (
@@ -70,15 +70,6 @@ export function FleetGrid({ filters = {} }) {
       </Card>
     );
   }
-
-  const statusVariant = {
-    Available: "success",
-    "In Use": "warning",
-    "Under Maintenance": "danger",
-    "Out of Service": "danger",
-    Reserved: "default",
-    "Registration Expired": "danger",
-  };
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-7">
@@ -173,15 +164,15 @@ export function FleetGrid({ filters = {} }) {
                   </div>
 
                   <div className="px-1">
-                    <div className="text-[13px] font-black text-foreground tracking-tight font-data truncate">
-                      {v.fuel_level ? `${v.fuel_level}%` : "100%"}
+                    <div className={cn("text-[13px] font-black tracking-tight font-data truncate", v.fuel_level != null ? "text-foreground" : "text-foreground-muted")}>
+                      {v.fuel_level != null ? `${v.fuel_level}%` : "—"}
                     </div>
                     <div className="text-[10px] uppercase font-bold text-foreground-muted tracking-wider mt-0.5">Fuel Tank</div>
                   </div>
 
                   <div className="px-1">
-                    <div className="text-[13px] font-black text-foreground tracking-tight font-data truncate">
-                      {v.mileage ? `${(v.mileage / 1000).toFixed(0)}k` : "0k"}
+                    <div className={cn("text-[13px] font-black tracking-tight font-data truncate", v.mileage != null ? "text-foreground" : "text-foreground-muted")}>
+                      {v.mileage != null ? `${(v.mileage / 1000).toFixed(0)}k` : "—"}
                     </div>
                     <div className="text-[10px] uppercase font-bold text-foreground-muted tracking-wider mt-0.5">Odo km</div>
                   </div>
