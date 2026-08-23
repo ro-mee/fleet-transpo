@@ -27,6 +27,7 @@ export default function SwipeButton({
   textColor,
   icon = 'chevron-forward',
   disabled = false,
+  busy = false,
 }) {
   const { colors } = useTheme();
   const [containerWidth, setContainerWidth] = useState(0);
@@ -156,9 +157,33 @@ export default function SwipeButton({
   const bg = backgroundColor || colors.primary;
   const fg = textColor       || colors.onPrimary;
 
+  // Screen-reader activation path — mirrors the gesture release handler's
+  // success branch so assistive tech triggers the exact same flow.
+  const handleActivate = () => {
+    if (disabledRef.current || busy || swipedRef.current) return;
+    swipedRef.current = true;
+    setSwiped(true);
+    Animated.spring(thumbX, {
+      toValue: maxXRef.current, bounciness: 0, speed: 22, useNativeDriver: true,
+    }).start();
+    if (onSuccessRef.current) onSuccessRef.current();
+    if (playSuccessRef.current) playSuccessRef.current();
+  };
+
   return (
     /* ── Outer Shell: Double-Bezel ring ──────────────────────────────────── */
-    <View style={[styles.outerShell, { borderColor: `${bg}40` }]}>
+    <View
+      style={[styles.outerShell, { borderColor: `${bg}40` }]}
+      accessible={true}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityHint="Double-tap to confirm this action"
+      accessibilityState={{ disabled, busy }}
+      accessibilityActions={[{ name: 'activate' }]}
+      onAccessibilityAction={(event) => {
+        if (event.nativeEvent.actionName === 'activate') handleActivate();
+      }}
+    >
 
       {/* ── Inner Track: machined primary pill ────────────────────────────── */}
       <View

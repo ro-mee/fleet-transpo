@@ -54,11 +54,11 @@ export default function SettingsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        
+
         {/* DISPLAY SECTION */}
         <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>DISPLAY</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-          
+
           <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
             <View style={styles.rowLeft}>
               <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>

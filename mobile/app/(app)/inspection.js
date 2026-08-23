@@ -47,9 +47,28 @@ export default function PreShiftInspection() {
 
   const allAnswered = CHECKLIST.every((item) => statuses[item.id] !== null);
   const passCount = Object.values(statuses).filter((s) => s === "PASS").length;
+  const failedCount = Object.values(statuses).filter((s) => s === "FAIL").length;
+  const answeredCount = Object.values(statuses).filter(Boolean).length;
 
   const setStatus = (id, val) => {
     setStatuses((prev) => ({ ...prev, [id]: val }));
+  };
+
+  // Leaving mid-checklist must not silently throw away answers.
+  const handleBack = () => {
+    if (answeredCount > 0 && !submitting) {
+      AppAlert.alert(
+        "Discard Checklist?",
+        "Your answers will be lost and the pre-trip check will not be recorded.",
+        [
+          { text: "Keep Editing", style: "cancel" },
+          { text: "Discard", style: "destructive", onPress: () => router.back() },
+        ],
+        { type: "warning" }
+      );
+      return;
+    }
+    router.back();
   };
 
   const handleSubmit = async () => {
@@ -83,7 +102,13 @@ export default function PreShiftInspection() {
         ]);
         return;
       }
-      AppAlert.alert("Inspection Completed", "Pre-trip vehicle check passed. Your trip is ready for departure when the schedule opens.", [
+      if (failedCount > 0) {
+        AppAlert.alert("Inspection Saved", "Pre-trip check saved. Some items were marked FAIL — dispatch has been notified to review before departure.", [
+          { text: "Done", onPress: () => router.back() },
+        ]);
+        return;
+      }
+      AppAlert.alert("Inspection Completed", "Pre-trip check complete. All items passed. Your trip is ready for departure when the schedule opens.", [
         { text: "Done", onPress: () => router.back() },
       ]);
     } catch (e) {
@@ -102,8 +127,8 @@ export default function PreShiftInspection() {
           { backgroundColor: colors.surfaceContainerHigh, paddingTop: insets.top },
         ]}
       >
-        <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
-          <Ionicons name="menu" size={24} color={colors.onSurfaceVariant} />
+        <Pressable onPress={handleBack} hitSlop={8} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+          <Ionicons name="arrow-back" size={24} color={colors.onSurfaceVariant} />
         </Pressable>
         <Text style={[type.headlineMd, styles.topBarTitle, { color: colors.primary }]}>FleetOps</Text>
         <View style={[styles.topAvatar, { backgroundColor: colors.surfaceVariant }]}>

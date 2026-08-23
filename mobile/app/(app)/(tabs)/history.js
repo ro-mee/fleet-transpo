@@ -1,29 +1,14 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, ActivityIndicator,  } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl } from 'react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { api } from "../../../lib/api";
-import { StatusPill } from "../../../components/ui";
+import { StatusPill, SkeletonCard } from "../../../components/ui";
 import { AppAlert } from '../../../components/AppAlert';
-
-const STATUS_ORDER = [
-  "Pending",
-  "Approved",
-  "Assigned",
-  "Vehicle Assigned",
-  "Driver Assigned",
-  "Dispatched",
-  "Driver Accepted",
-  "Trip Started",
-  "En Route",
-  "Arrived",
-  "Completed",
-  "Cancelled",
-];
 
 function statusColor(status, colors) {
   const tone =
@@ -49,6 +34,8 @@ function TripItem({ trip, colors, onPress }) {
   return (
     <Pressable
       onPress={() => onPress(trip)}
+      accessibilityRole="button"
+      accessibilityLabel={`Trip #${trip.trip_id}: ${trip.origin || "Origin"} to ${trip.destination || "Destination"}, status ${trip.trip_status}`}
       style={({ pressed }) => [
         styles.tripItem,
         {
@@ -188,6 +175,9 @@ export default function TripsTab() {
               <Pressable
                 key={f}
                 onPress={() => setActiveFilter(f)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={`Filter trips: ${f}`}
                 style={[
                   styles.filterTab,
                   {
@@ -217,9 +207,11 @@ export default function TripsTab() {
         }
       >
         {loading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={colors.primary} />
-          </View>
+          <>
+            <SkeletonCard lines={3} />
+            <SkeletonCard lines={3} />
+            <SkeletonCard lines={2} />
+          </>
         ) : error ? (
           <View style={styles.centered}>
             <Ionicons name="cloud-offline-outline" size={48} color={colors.outline} />
@@ -266,7 +258,14 @@ const styles = StyleSheet.create({
   pageSub: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
   filterBar: { borderBottomWidth: 1 },
   filterScroll: { paddingHorizontal: moderateScale(16), paddingVertical: moderateScale(10), gap: moderateScale(8) },
-  filterTab: { paddingHorizontal: moderateScale(16), paddingVertical: moderateScale(6), borderRadius: moderateScale(999), borderWidth: 1 },
+  filterTab: {
+    paddingHorizontal: moderateScale(16),
+    paddingVertical: moderateScale(6),
+    minHeight: moderateScale(40),
+    justifyContent: "center",
+    borderRadius: moderateScale(999),
+    borderWidth: 1,
+  },
   filterText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(12) },
   centered: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(12) },

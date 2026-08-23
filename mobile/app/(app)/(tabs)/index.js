@@ -1,6 +1,6 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, Linking, ActivityIndicator, Animated, Easing, Image } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator, Animated, Easing, Image } from 'react-native';
 import LottieView from 'lottie-react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +20,13 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { StatusPill, SkeletonCard, ErrorNotice, PulsingDot, CountUpText } from "../../../components/ui";
 import { Plate } from "../../../components/plate";
 import { onLaunchComplete } from "../../../lib/launch";
+
+/**
+ * Dark ink for light surfaces (the white hero CTA pill) that stays legible in
+ * every palette — colors.primary becomes a light tint in dark mode, so it can
+ * never sit on a white pill. Matches the dark-palette onPrimary value.
+ */
+const ON_LIGHT_INK = "#103A30";
 
 /**
  * Home Dashboard — premium dispatch floor.
@@ -43,6 +50,7 @@ export default function Home() {
   const [completingTrip, setCompletingTrip] = useState(null);
   const [odometerInput, setOdometerInput] = useState("");
   const [odometerError, setOdometerError] = useState(null);
+  const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now());
 
   const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
@@ -161,8 +169,16 @@ export default function Home() {
       setOdometerError("Enter a valid odometer reading.");
       return;
     }
+    // Guard against rolling the odometer backwards: a trip's end reading must
+    // never undercut the vehicle's recorded mileage.
+    const recorded = Number(completingTrip?.current_mileage);
+    if (!isNaN(recorded) && recorded > 0 && val < recorded) {
+      setOdometerError(`Odometer cannot be lower than the recorded ${Math.round(recorded).toLocaleString()} km.`);
+      return;
+    }
     try {
       setOdometerError(null);
+      setOdometerSaving(true);
       await api.put(
         `/api/trips/${completingTrip.trip_id}/complete`,
         { end_odometer: val }
@@ -172,15 +188,15 @@ export default function Home() {
       await load();
     } catch (e) {
       setOdometerError(e.message || "Could not complete trip.");
+    } finally {
+      setOdometerSaving(false);
     }
   };
 
-  const openMap = (trip) => {
-    const lat = trip.destination_latitude;
-    const lng = trip.destination_longitude;
-    if (lat && lng) {
-      Linking.openURL(`https://maps.google.com/?q=${lat},${lng}`);
-    }
+  const closeOdometerModal = () => {
+    setCompletingTrip(null);
+    setOdometerInput("");
+    setOdometerError(null);
   };
 
   const driverName = user?.firstName || user?.name?.split(" ")?.[0] || "Driver";
@@ -189,6 +205,16 @@ export default function Home() {
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
   const nextTrip = activeTrip || pendingTrips[0];
+
+  // GPS posting health for the active trip, shown as a subtle status chip.
+  // Relative seconds are recomputed on render — the card re-renders often
+  // enough (focus, polling, actions) to keep a caption honest.
+  const lastSentAgeS = tracking.lastSentAt
+    ? Math.max(0, Math.round((Date.now() - new Date(tracking.lastSentAt).getTime()) / 1000))
+    : null;
+  const trackingChipText = tracking.error
+    ? "Location not sending — will retry"
+    : `Location updated ${lastSentAgeS}s ago`;
 
   // Departure-window gate for the card CTA. A trip that has NOT yet STARTED
   // (still Assigned, Driver Accepted, etc.) and is not ready shows VIEW DETAILS
@@ -303,7 +329,7 @@ export default function Home() {
               pressed && styles.pressed,
             ]}
           >
-            <Text style={[type.labelLg, styles.avatarText, { color: "#FFFFFF" }]}>
+            <Text style={[type.labelLg, styles.avatarText, { color: colors.onPrimary }]}>
               {(user?.firstName?.[0] || user?.name?.[0] || "D").toUpperCase()}
             </Text>
           </Pressable>
@@ -368,46 +394,46 @@ export default function Home() {
                 ) : nextTrip ? (
                   <>
                     <View style={styles.heroTopRow}>
-                      <Text style={styles.heroDate}>{todayLabel}</Text>
-                      <View style={[styles.statusChip, { backgroundColor: activeTrip ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.14)" }]}>
-                        {activeTrip ? <PulsingDot color="#FFFFFF" size={7} /> : <View style={styles.statusDotIdle} />}
-                        <Text style={styles.statusChipText}>
+                      <Text style={[styles.heroDate, { color: `${colors.onPrimary}CC` }]}>{todayLabel}</Text>
+                      <View style={[styles.statusChip, { backgroundColor: activeTrip ? `${colors.onPrimary}38` : `${colors.onPrimary}24` }]}>
+                        {activeTrip ? <PulsingDot color={colors.onPrimary} size={7} /> : <View style={[styles.statusDotIdle, { backgroundColor: `${colors.onPrimary}B3` }]} />}
+                        <Text style={[styles.statusChipText, { color: colors.onPrimary }]}>
                           {activeTrip ? "On trip" : "Ready"}
                         </Text>
                       </View>
                     </View>
 
                     <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginTop: moderateScale(4) }}>
-                      <Text style={[styles.heroGreeting, { fontSize: moderateScale(26) }]} numberOfLines={2}>
+                      <Text style={[styles.heroGreeting, { fontSize: moderateScale(26), color: colors.onPrimary }]} numberOfLines={2}>
                         {activeTrip ? "Trip in progress" : (tripDayLabel ? tripDayLabel + "'s trip" : "Next trip")}
                       </Text>
                       {nextTrip.departure_time ? (
-                        <Text style={[styles.heroSupport, { color: "rgba(255,255,255,0.9)" }]}>
+                        <Text style={[styles.heroSupport, { color: colors.onPrimary }]}>
                           {new Date(nextTrip.departure_time).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </Text>
                       ) : null}
                     </View>
 
                     <View style={[styles.routeViz, { marginTop: moderateScale(22) }]}>
-                      <View style={[styles.routeLine, { borderColor: "rgba(255,255,255,0.3)" }]} />
+                      <View style={[styles.routeLine, { borderColor: `${colors.onPrimary}4D` }]} />
                       <View style={styles.routeStop}>
-                        <View style={[styles.routeDot, { borderColor: "rgba(255,255,255,0.6)", backgroundColor: "rgba(255,255,255,0.1)" }]}>
-                          <View style={[styles.routeDotInner, { backgroundColor: "rgba(255,255,255,0.6)" }]} />
+                        <View style={[styles.routeDot, { borderColor: `${colors.onPrimary}99`, backgroundColor: `${colors.onPrimary}1A` }]}>
+                          <View style={[styles.routeDotInner, { backgroundColor: `${colors.onPrimary}99` }]} />
                         </View>
                         <View style={styles.routeStopInfo}>
-                          <Text style={[type.label, styles.stopType, { color: "rgba(255,255,255,0.7)" }]}>Pickup</Text>
-                          <Text style={[type.titleMd, styles.stopName, { color: "#FFFFFF" }]} numberOfLines={2}>
+                          <Text style={[type.label, styles.stopType, { color: `${colors.onPrimary}B3` }]}>Pickup</Text>
+                          <Text style={[type.titleMd, styles.stopName, { color: colors.onPrimary }]} numberOfLines={2}>
                             {nextTrip.origin || "Origin"}
                           </Text>
                         </View>
                       </View>
                       <View style={styles.routeStop}>
-                        <View style={[styles.routeDot, styles.routeDotDest, { borderColor: "#FFFFFF", backgroundColor: "#FFFFFF" }]}>
+                        <View style={[styles.routeDot, styles.routeDotDest, { borderColor: colors.onPrimary, backgroundColor: colors.onPrimary }]}>
                           <Ionicons name="flag" size={10} color={colors.primary} />
                         </View>
                         <View style={styles.routeStopInfo}>
-                          <Text style={[type.label, styles.stopType, { color: "rgba(255,255,255,0.7)" }]}>Drop-off</Text>
-                          <Text style={[type.titleMd, styles.stopName, { color: "#FFFFFF" }]} numberOfLines={2}>
+                          <Text style={[type.label, styles.stopType, { color: `${colors.onPrimary}B3` }]}>Drop-off</Text>
+                          <Text style={[type.titleMd, styles.stopName, { color: colors.onPrimary }]} numberOfLines={2}>
                             {nextTrip.destination || "Destination"}
                           </Text>
                         </View>
@@ -417,11 +443,11 @@ export default function Home() {
                     {vehiclePlate ? (
                       <View style={styles.heroVehicle}>
                         <View style={styles.heroVehicleIcon}>
-                          <Ionicons name="car-sport-outline" size={20} color="#FFFFFF" />
+                          <Ionicons name="car-sport-outline" size={20} color={colors.onPrimary} />
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.heroVehicleLabel}>Assigned Vehicle</Text>
-                          <Text style={styles.heroVehicleModel} numberOfLines={1}>{vehicleModel}</Text>
+                          <Text style={[styles.heroVehicleLabel, { color: `${colors.onPrimary}A6` }]}>Assigned Vehicle</Text>
+                          <Text style={[styles.heroVehicleModel, { color: colors.onPrimary }]} numberOfLines={1}>{vehicleModel}</Text>
                         </View>
                         <Plate plate={vehiclePlate} />
                       </View>
@@ -440,31 +466,48 @@ export default function Home() {
                         accessibilityLabel={activeTrip ? "Continue trip" : "Start trip"}
                       >
                         {actingOn === nextTrip.trip_id ? (
-                          <ActivityIndicator color={colors.primary} />
+                          <ActivityIndicator color={ON_LIGHT_INK} />
                         ) : (
                           <>
-                            <Text style={[type.labelLg, styles.tripCtaText, { color: isPreStart && !startReady ? "#FFFFFF" : colors.primary }]}>
+                            <Text style={[type.labelLg, styles.tripCtaText, { color: isPreStart && !startReady ? colors.onPrimary : ON_LIGHT_INK }]}>
                               {isPreStart && !startReady ? "View Details" : (activeTrip ? "Continue Trip" : "Start Trip")}
                             </Text>
-                            <View style={[styles.ctaIcon, { backgroundColor: isPreStart && !startReady ? "rgba(255,255,255,0.1)" : colors.primary + "1A" }]}>
-                              <Ionicons name={isPreStart && !startReady ? "chevron-forward" : (activeTrip ? "navigate" : "play")} size={18} color={isPreStart && !startReady ? "#FFFFFF" : colors.primary} />
+                            <View style={[styles.ctaIcon, { backgroundColor: isPreStart && !startReady ? `${colors.onPrimary}1A` : colors.primary + "1A" }]}>
+                              <Ionicons name={isPreStart && !startReady ? "chevron-forward" : (activeTrip ? "navigate" : "play")} size={18} color={isPreStart && !startReady ? colors.onPrimary : ON_LIGHT_INK} />
                             </View>
                           </>
                         )}
                       </Pressable>
                     ) : null}
+
+                    {/* GPS posting health — subtle caption chip, warning-toned on failure */}
+                    {activeTrip && canReportLocation && (tracking.error || tracking.lastSentAt) ? (
+                      <View style={[styles.trackingChip, { backgroundColor: tracking.error ? colors.errorContainer : colors.surfaceContainerHigh }]}>
+                        <Ionicons
+                          name={tracking.error ? "alert-circle" : "location"}
+                          size={12}
+                          color={tracking.error ? colors.onErrorContainer : colors.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[type.caption, { color: tracking.error ? colors.onErrorContainer : colors.onSurfaceVariant }]}
+                          accessibilityLabel={`Location status. ${trackingChipText}`}
+                        >
+                          {trackingChipText}
+                        </Text>
+                      </View>
+                    ) : null}
                   </>
                 ) : (
                   <>
                     <View style={styles.heroTopRow}>
-                      <Text style={styles.heroDate}>{todayLabel}</Text>
-                      <View style={[styles.statusChip, { backgroundColor: "rgba(255,255,255,0.14)" }]}>
-                        <View style={styles.statusDotIdle} />
-                        <Text style={styles.statusChipText}>Ready</Text>
+                      <Text style={[styles.heroDate, { color: `${colors.onPrimary}CC` }]}>{todayLabel}</Text>
+                      <View style={[styles.statusChip, { backgroundColor: `${colors.onPrimary}24` }]}>
+                        <View style={[styles.statusDotIdle, { backgroundColor: `${colors.onPrimary}B3` }]} />
+                        <Text style={[styles.statusChipText, { color: colors.onPrimary }]}>Ready</Text>
                       </View>
                     </View>
-                    <Text style={styles.heroGreeting}>All clear</Text>
-                    <Text style={styles.heroSupport}>
+                    <Text style={[styles.heroGreeting, { color: colors.onPrimary }]}>All clear</Text>
+                    <Text style={[styles.heroSupport, { color: colors.onPrimary }]}>
                       You are ready for new assignments.
                     </Text>
                   </>
@@ -607,7 +650,7 @@ export default function Home() {
         visible={!!completingTrip}
         transparent
         animationType="fade"
-        onRequestClose={() => setCompletingTrip(null)}
+        onRequestClose={closeOdometerModal}
       >
         <View style={styles.modalBackdrop}>
           <View
@@ -627,6 +670,11 @@ export default function Home() {
             <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
               Enter the ending odometer reading to finalize this trip.
             </Text>
+            {completingTrip?.current_mileage != null && Number(completingTrip.current_mileage) > 0 ? (
+              <Text style={[type.caption, styles.modalRecorded, { color: colors.onSurfaceVariant }]} accessibilityLabel={`Recorded mileage: ${Math.round(Number(completingTrip.current_mileage)).toLocaleString()} kilometers`}>
+                Recorded: {Math.round(Number(completingTrip.current_mileage)).toLocaleString()} km
+              </Text>
+            ) : null}
             <TextInput
               style={[
                 type.bodyMd,
@@ -642,6 +690,7 @@ export default function Home() {
               keyboardType="numeric"
               value={odometerInput}
               onChangeText={setOdometerInput}
+              editable={!odometerSaving}
             />
             {odometerError ? (
               <Text style={[type.caption, styles.modalError, { color: colors.error }]}>
@@ -650,16 +699,25 @@ export default function Home() {
             ) : null}
             <View style={styles.modalActions}>
               <Pressable
-                onPress={() => { setCompletingTrip(null); setOdometerInput(""); }}
-                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && styles.pressed]}
+                onPress={closeOdometerModal}
+                disabled={odometerSaving}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: odometerSaving }}
+                style={({ pressed }) => [styles.modalCancelBtn, { backgroundColor: colors.surfaceContainerLow }, pressed && !odometerSaving && styles.pressed, odometerSaving && { opacity: 0.5 }]}
               >
                 <Text style={[type.labelLg, styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
               <Pressable
                 onPress={submitOdometer}
-                style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.primary }, pressed && styles.ctaPressed]}
+                disabled={odometerSaving}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: odometerSaving, busy: odometerSaving }}
+                style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.primary }, pressed && !odometerSaving && styles.ctaPressed, odometerSaving && { opacity: 0.6 }]}
               >
-                <Text style={[type.labelLg, styles.modalConfirmText, { color: "#FFFFFF" }]}>Complete</Text>
+                {odometerSaving ? <ActivityIndicator size="small" color={colors.onPrimary} /> : null}
+                <Text style={[type.labelLg, styles.modalConfirmText, { color: colors.onPrimary }]}>
+                  {odometerSaving ? "Completing..." : "Complete"}
+                </Text>
               </Pressable>
             </View>
           </View>
@@ -807,31 +865,26 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemiBold,
     fontSize: 12,
     letterSpacing: 0.6,
-    color: "#FFFFFF",
   },
   statusDotIdle: {
     width: moderateScale(7),
     height: moderateScale(7),
     borderRadius: moderateScale(4),
-    backgroundColor: "rgba(255,255,255,0.7)",
   },
   heroGreeting: {
     fontFamily: fonts.displayBold,
     fontSize: moderateScale(30),
     lineHeight: moderateScale(38),
-    color: "#FFFFFF",
     letterSpacing: -0.5,
   },
   heroDate: {
     fontFamily: fonts.bodyMedium,
     fontSize: moderateScale(14),
-    color: "rgba(255,255,255,0.8)",
   },
   heroSupport: {
     fontFamily: fonts.body,
     fontSize: moderateScale(14),
     lineHeight: moderateScale(21),
-    color: "rgba(255,255,255,0.78)",
     marginTop: moderateScale(4),
   },
   heroVehicle: {
@@ -856,12 +909,10 @@ const styles = StyleSheet.create({
     fontFamily: fonts.data,
     fontSize: 10,
     letterSpacing: 1,
-    color: "rgba(255,255,255,0.65)",
   },
   heroVehicleModel: {
     fontFamily: fonts.bodySemiBold,
     fontSize: moderateScale(15),
-    color: "#FFFFFF",
     marginTop: 1,
   },
 
@@ -1013,6 +1064,16 @@ const styles = StyleSheet.create({
   },
   ctaPressed: { transform: [{ scale: 0.98 }], opacity: 0.94 },
   tripCtaText: { letterSpacing: 0.2, flexShrink: 1 },
+  trackingChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: moderateScale(6),
+    marginTop: moderateScale(10),
+    paddingHorizontal: moderateScale(10),
+    paddingVertical: moderateScale(4),
+    borderRadius: 999,
+  },
   ctaIcon: {
     width: moderateScale(34),
     height: moderateScale(34),
@@ -1202,6 +1263,7 @@ const styles = StyleSheet.create({
   },
   modalTitle: {},
   modalBody: {},
+  modalRecorded: { marginTop: -moderateScale(4) },
   modalInput: {
     borderWidth: 1,
     borderRadius: moderateScale(12),

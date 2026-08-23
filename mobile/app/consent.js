@@ -91,7 +91,7 @@ export default function ConsentScreen() {
           <ConsentCard
             icon="location-on"
             title="Location Tracking"
-            description="GPS is tracked only during your active shifts for dispatching."
+            description="GPS is tracked while you are signed in and on duty, including periodic location checks between trips."
           />
           <ConsentCard
             icon="directions-car"

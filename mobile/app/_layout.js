@@ -29,7 +29,7 @@ import { completeLaunch } from "../lib/launch";
 
 // Keep the native splash up while fonts load so the app never flashes in a
 // fallback typeface. Hidden in the effect below once fonts are ready.
-SplashScreen.preventAutoHideAsync().catch(() => {});
+SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
   const { scheme, colors } = useTheme();
@@ -55,7 +55,7 @@ function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
           }}
         />
       </Animated.View>
-{/* Premium alert overlay — above everything, below nothing */}
+      {/* Premium alert overlay — above everything, below nothing */}
       <AppAlertHost />
       {/* Heads-up banners + toasts for the 3-tier notification system */}
       <NotificationHost />
@@ -87,7 +87,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (ready) {
-      SplashScreen.hideAsync().catch(() => {});
+      SplashScreen.hideAsync().catch(() => { });
     }
   }, [ready]);
 
@@ -96,7 +96,7 @@ export default function RootLayout() {
   useEffect(() => {
     // Create the Android notification channel before any push can arrive so
     // remote FCM notifications have somewhere to display.
-    initPush().catch(() => {});
+    initPush().catch(() => { });
   }, []);
 
   const handleLaunchDone = (reduceMotion) => {
@@ -117,7 +117,7 @@ export default function RootLayout() {
         nextAppState === "active"
       ) {
         // App has come to the foreground, trigger sync
-        syncQueue().catch(() => {});
+        syncQueue().catch(() => { });
       }
       appState.current = nextAppState;
     });

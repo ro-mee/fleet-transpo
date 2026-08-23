@@ -81,7 +81,10 @@ function deriveIcon(title = '', options = {}) {
 
 // ─── Host component — mount once in your root layout ──────────────────────
 export function AppAlertHost() {
-  const { colors, isDark } = useTheme();
+  // The theme context exposes `scheme` (not isDark) — derive it so the icon
+  // chip picks a real surface token in dark mode instead of forced white.
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
   const [visible, setVisible] = useState(false);
   const [config, setConfig]   = useState(null);
 

@@ -8,10 +8,13 @@ import {
   RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { useNotificationFeed } from "../../../context/notification-feed";
+import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
+import { SkeletonCard } from "../../../components/ui";
 
 const NOTIF_TYPE_ICONS = {
   trip_assigned: { icon: "car", color: "primary" },
@@ -47,6 +50,8 @@ function NotifCard({ notif, colors, onPress }) {
   return (
     <Pressable
       onPress={() => onPress && onPress(notif)}
+      accessibilityRole="button"
+      accessibilityLabel={`${notif.title || "Notification"}. ${notif.message || notif.body || ""}`}
       style={({ pressed }) => [
         styles.notifCard,
         {
@@ -81,6 +86,7 @@ function NotifCard({ notif, colors, onPress }) {
 
 export default function NotificationsTab() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { colors, type } = useTheme();
 
   const {
@@ -105,6 +111,10 @@ export default function NotificationsTab() {
   const handleNotifPress = async (notif) => {
     const id = notif.notification_id || notif.id;
     if (!notif.is_read && id) markRead(id);
+    // Deep-link to the notification's target (same map the banners use);
+    // null means "no destination — marking read was the whole action".
+    const target = mobileNotificationTarget(notif);
+    if (target) router.push(target);
   };
 
   return (
@@ -128,7 +138,13 @@ export default function NotificationsTab() {
           </View>
         </View>
         {unreadCount > 0 && (
-          <Pressable onPress={markAllRead} hitSlop={8}>
+          <Pressable
+            onPress={markAllRead}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Mark all notifications as read"
+            style={styles.markReadBtn}
+          >
             <Text style={[type.labelLg, styles.markRead, { color: colors.primary }]}>Mark all read</Text>
           </Pressable>
         )}
@@ -146,9 +162,11 @@ export default function NotificationsTab() {
         }
       >
         {loading ? (
-          <View style={styles.emptyBox}>
-            <Text style={[type.bodyMd, styles.emptyText, { color: colors.onSurfaceVariant }]}>Loading...</Text>
-          </View>
+          <>
+            <SkeletonCard lines={3} />
+            <SkeletonCard lines={2} />
+            <SkeletonCard lines={2} />
+          </>
         ) : notifications.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="notifications-off-outline" size={48} color={colors.outline} />
@@ -209,6 +227,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   badgeText: { },
+  markReadBtn: {
+    minHeight: TOUCH_TARGET,
+    justifyContent: "center",
+    paddingHorizontal: moderateScale(4),
+  },
   markRead: { },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(8) },
   groupLabel: {

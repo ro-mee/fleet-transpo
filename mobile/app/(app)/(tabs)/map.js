@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking } from 'react-native';
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
@@ -11,6 +11,7 @@ import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
+import { FilledButton, TonalButton } from "../../../components/ui";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -69,9 +70,11 @@ export default function MapTab() {
   const { user } = useAuth();
   
   const [activeTrip, setActiveTrip] = useState(null);
-  const [todayStats, setTodayStats] = useState({ completed: 0, distance: 0 });
+  const [todayStats, setTodayStats] = useState({ completed: 0 });
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [permissionDenied, setPermissionDenied] = useState(false);
+  const [permRetry, setPermRetry] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [routeData, setRouteData] = useState(null);
   const [now, setNow] = useState(Date.now());
@@ -196,8 +199,6 @@ export default function MapTab() {
     return () => sub.remove();
   }, []);
 
-  const [actingOn, setActingOn] = useState(null);
-
   const loadTrip = useCallback(async () => {
     try {
       const data = await api.get("/api/mobile/driver/trips");
@@ -205,11 +206,9 @@ export default function MapTab() {
       const active = data.find(t => !["Completed", "Cancelled"].includes(t.trip_status));
       setActiveTrip(active || null);
       
-      // Calculate today's stats for the idle dashboard
-      const completedCount = data.filter(t => t.trip_status === 'Completed').length;
-      setTodayStats({ 
-        completed: completedCount, 
-        distance: completedCount > 0 ? (completedCount * 8.4).toFixed(1) : 0 // Rough estimate until actual distance tracking is implemented
+      // Completed-trip count for the idle dashboard.
+      setTodayStats({
+        completed: data.filter(t => t.trip_status === 'Completed').length
       });
     } catch (e) {
       console.warn("Could not load trip for map", e);
@@ -220,13 +219,23 @@ export default function MapTab() {
 
   useFocusEffect(useCallback(() => { loadTrip(); }, [loadTrip]));
 
+  // Location pipeline: request permission once (or on retry), then stream
+  // fixes. Re-runs wholesale when permRetry changes so "Try Again" can recover
+  // from a denial without remounting the screen.
   useEffect(() => {
     let subscription = null;
     let headingSubscription = null;
+    let cancelled = false;
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      
+      if (cancelled) return;
+      if (status !== 'granted') {
+        setPermissionDenied(true);
+        setLoading(false);
+        return;
+      }
+      setPermissionDenied(false);
+
       // Get initial location with highest accuracy so it doesn't calculate the route from a wrong/approximate spot!
       let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Highest });
       setDriverLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude, heading: loc.coords.heading });
@@ -317,10 +326,18 @@ export default function MapTab() {
       console.warn("Location unavailable:", error.message);
     });
     return () => {
+      cancelled = true;
       if (subscription) subscription.remove();
       if (headingSubscription) headingSubscription.remove();
     };
-  }, []);
+  }, [permRetry]);
+
+  // "Try Again" on the permission-denied state: clear the flag and re-run the
+  // location effect via the retry counter.
+  const retryLocationPermission = () => {
+    setPermissionDenied(false);
+    setPermRetry((c) => c + 1);
+  };
 
   // Determine trip state machine for UI
   const status = activeTrip?.trip_status;
@@ -340,6 +357,32 @@ export default function MapTab() {
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
   }, [activeTrip?.trip_status]);
+
+  // Permission denied — an honest dead-end with a way out, not a loader that
+  // never resolves.
+  if (permissionDenied) {
+    return (
+      <View style={[styles.center, { backgroundColor: colors.background }, styles.permState]}>
+        <View style={[styles.permIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <Ionicons name="location-outline" size={32} color={colors.onSurfaceVariant} />
+        </View>
+        <Text style={[styles.permTitle, { color: colors.onSurface }]}>Location Permission Required</Text>
+        <Text style={[styles.permMessage, { color: colors.onSurfaceVariant }]}>
+          Location permission is required to show your position and track trips.
+        </Text>
+        <FilledButton
+          label="Open Settings"
+          onPress={() => Linking.openSettings()}
+          style={styles.permAction}
+        />
+        <TonalButton
+          label="Try Again"
+          onPress={retryLocationPermission}
+          style={styles.permAction}
+        />
+      </View>
+    );
+  }
 
   if (!driverLocation) {
     return (
@@ -402,16 +445,9 @@ export default function MapTab() {
             <View style={[styles.statBox, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '30' }]}>
               <View style={styles.statIconRow}>
                 <Ionicons name="checkmark-done-circle" size={18} color={colors.secondary} />
-                <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>TRIPS TODAY</Text>
+                <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>COMPLETED TRIPS</Text>
               </View>
               <Text style={[styles.statValue, { color: colors.onSurface }]}>{todayStats.completed}</Text>
-            </View>
-            <View style={[styles.statBox, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '30' }]}>
-              <View style={styles.statIconRow}>
-                <Ionicons name="speedometer-outline" size={18} color={colors.primary} />
-                <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>DISTANCE</Text>
-              </View>
-              <Text style={[styles.statValue, { color: colors.onSurface }]}>{todayStats.distance} <Text style={styles.statUnit}>km</Text></Text>
             </View>
           </View>
         </View>
@@ -625,8 +661,10 @@ export default function MapTab() {
           ) : (
             <SwipeButton
               title={
+                // Single clock gate: label AND disabled state both derive from
+                // earliest_start/windowOpen so they can never disagree.
                 (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
-                (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(new Date(activeTrip.scheduled_time).getTime() - 15 * 60000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
+                (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
                 (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
                 isState1 ? "ARRIVED AT PICKUP" :
                 isState2 ? "PICKED UP GUEST" :
@@ -802,6 +840,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  permState: {
+    padding: 24,
+    gap: 12,
+  },
+  permIconWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  permTitle: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 18,
+    textAlign: 'center',
+  },
+  permMessage: {
+    fontFamily: fonts.body,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  permAction: {
+    alignSelf: 'stretch',
+    maxWidth: 320,
+  },
   mapLoader: {
     width: 180,
     height: 180,
@@ -902,10 +968,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displayBold || fonts.bodySemiBold,
     fontSize: 22,
     letterSpacing: -0.5,
-  },
-  statUnit: {
-    fontFamily: fonts.body,
-    fontSize: 13,
   },
   bottomSheet: {
     position: "absolute",

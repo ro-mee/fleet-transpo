@@ -1007,7 +1007,7 @@ const styles = StyleSheet.create({
   fieldRow: { flexDirection: "row", gap: 12 },
   fieldLabel: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase" },
   input: {
-    height: 48,
+    minHeight: 48,
     borderWidth: 1,
     borderRadius: 12,
     paddingHorizontal: 14,

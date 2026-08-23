@@ -30,6 +30,7 @@ export default function IncidentsScreen() {
   const [severity, setSeverity] = useState("medium");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
+  const [queuedOffline, setQueuedOffline] = useState(false);
 
   const handleSubmit = async () => {
     if (!type) {
@@ -42,6 +43,7 @@ export default function IncidentsScreen() {
     }
     try {
       setSubmitting(true);
+      setQueuedOffline(false);
       
       let gpsLocation = "GPS Location unavailable";
       let lat = null;
@@ -72,7 +74,7 @@ export default function IncidentsScreen() {
         console.warn("Failed to get location for incident report", locErr);
       }
 
-      await api.post("/api/driver/incidents", {
+      const result = await api.post("/api/driver/incidents", {
         trip_id: tripId ? parseInt(tripId, 10) : null,
         incident_type: type,
         description,
@@ -82,6 +84,9 @@ export default function IncidentsScreen() {
         severity: ({ low: "Minor", medium: "Moderate", high: "Major" }[severity] || "Minor"),
         incident_date: new Date().toISOString(),
       });
+      // apiFetch queues POSTs during network failures and resolves
+      // { queued: true } — the report has NOT reached dispatch yet.
+      setQueuedOffline(result?.queued === true);
       setShowSuccess(true);
     } catch (e) {
       AppAlert.alert("Unable to Submit Incident Report", e.message || "Please check your network connection and try submitting again.");
@@ -291,9 +296,13 @@ export default function IncidentsScreen() {
               <Ionicons name="shield-checkmark" size={32} color={colors.onErrorContainer} />
             </View>
           </View>
-          <Text style={{ fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 12, textAlign: 'center' }}>Help is on the way</Text>
+          <Text style={{ fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 12, textAlign: 'center' }}>
+            {queuedOffline ? "Report saved offline" : "Help is on the way"}
+          </Text>
           <Text style={{ fontFamily: fonts.body, fontSize: 15, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 32, lineHeight: 22 }}>
-            Dispatch has received your exact coordinates and incident report. Please prioritize safety and await instructions.
+            {queuedOffline
+              ? "You appear to be offline. Your report is saved on this device and will be sent automatically when you're back online — dispatch has NOT received it yet. Please prioritize safety and call for immediate help if needed."
+              : "Dispatch has received your exact coordinates and incident report. Please prioritize safety and await instructions."}
           </Text>
           <Pressable
             onPress={() => router.back()}
