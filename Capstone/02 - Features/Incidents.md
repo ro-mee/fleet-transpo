@@ -43,6 +43,8 @@ Drivers report breakdowns and emergencies from the mobile app; staff triage them
 | Failed ≠ deleted | sync dead-letter (`@offline_dead_letter_incidents`) | A session expiring mid-replay silently destroyed emergency reports |
 | Repairs link back to incidents | `vehiclemaintenance.source_incident_id` (migration 063, backfilled from the free-text prefix) + completion notifies the reporter | The only connection used to be description text; nobody could query it or hear that the work finished |
 | Resolvers see the blast radius | GET `/api/incidents/[id]` matches grounding's exact audit reason to list interrupted dispatches + linked repairs, rendered in the resolve modal | Whoever resolved had no way to verify reassignment happened |
+| Claims ≠ costs | Emergency repairs book `cost = 0`; the driver-reported `expense_amount` travels in remarks as an *unverified claim* staff confirm against the invoice | An unverified number used to flow straight into fleet-cost analytics |
+| Structured help requests | Mobile form sends `assistance_needed[]` chips (Tow Truck, Mechanic, Medical, Police, Alternative Vehicle, Fuel); admin registry renders them | Dispatch had to parse prose to know what help to send |
 
 Pure decision logic lives in `src/lib/incidents/resolution.js` (14 unit tests) so the routes stay thin — same pattern as [[grounding]]. The DB dedup pattern mirrors fuel/inspection idempotency (migrations 059/060); migration 062 carries it for incidents.
 
@@ -53,7 +55,33 @@ Pure decision logic lives in `src/lib/incidents/resolution.js` (14 unit tests) s
 Closed 2026-08-23: the maintenance action gates on `reported_vehicle_id` — the
 vehicle the incident itself names — instead of the list's COALESCE fallback; the
 mobile form offers all four severities including Critical; repairs carry
-`source_incident_id` and completing one notifies the reporting driver.
+`source_incident_id` and completing one notifies the reporting driver; expense
+claims are reviewed, not auto-booked; assistance requests are structured chips.
+
+## Manual QA checklist (needs two real sessions)
+
+What `next build`, vitest and DB rehearsal cannot prove. Run with a driver on
+the mobile app and staff in the admin:
+
+1. **Offline SOS → replay.** Airplane-mode an SOS; confirm "saved offline"
+   copy. Go online; confirm exactly ONE incident row (client_submission_id
+   dedupe) and one grounding automation run.
+2. **Permanent-failure quarantine.** Queue a report, then let the session
+   expire before reconnect. Confirm the home-tab banner appears, RETRY clears
+   it after re-login, DISCARD asks first.
+3. **Grounding interrupting a live dispatch.** Seed an In-Progress dispatch on
+   the assigned vehicle; report a breakdown. Confirm: vehicle → Under
+   Maintenance, dispatch → Pending Reassignment, dispatcher push received,
+   resolve modal lists the interrupted dispatch.
+4. **Resolve loop.** Resolve with actions_taken. Confirm driver receives the
+   resolution push, Activity Logs shows RESOLVED + the narrative, grounded
+   vehicle returns to Available when no repair record keeps it out.
+5. **Repair completion loop.** Send to Maintenance from the registry; complete
+   the record in the register. Confirm cost starts at ₱0 with the claim in
+   remarks, vehicle returns to Available, and the reporter gets "Vehicle
+   Repair Completed".
+6. **Assistance chips end-to-end.** File with Tow Truck + Medical selected;
+   confirm chips render in the admin registry row.
 
 ## Database tables used
 
