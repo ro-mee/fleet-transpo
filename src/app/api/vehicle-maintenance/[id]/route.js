@@ -98,6 +98,12 @@ export async function PUT(req, { params }) {
     // amend a soft-deleted row and the recompute below would then push the
     // vehicle's schedule from a record that is supposed to be gone.
     values.push(id);
+    // Completion detection for the incident loop below needs the prior status:
+    // RETURNING only shows the after-state.
+    const beforeStatus = (await query(
+      `SELECT status FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
+      [values.length]
+    )).rows[0]?.status ?? null;
     const { rows } = await query(
       `UPDATE vehiclemaintenance SET ${sets.join(", ")}
         WHERE maintenance_id = $${values.length} AND deleted_at IS NULL RETURNING *`,
@@ -113,6 +119,48 @@ export async function PUT(req, { params }) {
       // push permanent.
       if (!rows[0].deleted_at) {
         await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
+      }
+    }
+    // Close the loop on incident-sourced repairs (source_incident_id, migration
+    // 063): when the work an incident triggered finishes, tell the driver who
+    // reported it that the vehicle is back. Best-effort — never fails the PUT.
+    if (
+      rows[0]?.source_incident_id &&
+      rows[0]?.status === "Completed" &&
+      beforeStatus !== "Completed"
+    ) {
+      try {
+        const { sendPush } = await import("@/services/push.service");
+        const { rows: reporter } = await query(
+          `SELECT e.employee_id
+             FROM driverincidents i
+             JOIN drivers d ON d.driver_id = i.driver_id
+             JOIN employees e ON e.employee_id = d.employee_id
+            WHERE i.incident_id = $1`,
+          [rows[0].source_incident_id]
+        );
+        const reporterEmployeeId = reporter[0]?.employee_id;
+        if (reporterEmployeeId) {
+          const plate = (await query(
+            `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
+            [rows[0].vehicle_id]
+          )).rows[0]?.plate_number;
+          await query(
+            `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [reporterEmployeeId, "Vehicle Repair Completed",
+             `The vehicle from your incident report (#${rows[0].source_incident_id}) has been repaired${plate ? ` (${plate})` : ""} and is back in service.`,
+             "Info", "incident", rows[0].source_incident_id]
+          );
+          await sendPush({
+            employeeIds: [reporterEmployeeId],
+            title: "Vehicle Repair Completed",
+            body: `The vehicle from your incident report (#${rows[0].source_incident_id}) is back in service.`,
+            data: { reference_type: "incident", reference_id: rows[0].source_incident_id },
+          });
+        }
+      } catch (e) {
+        console.warn("maintenance completion notification failed:", e?.message || e);
       }
     }
     return ok(rows[0]);

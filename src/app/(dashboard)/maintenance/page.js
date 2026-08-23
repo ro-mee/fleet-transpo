@@ -245,7 +245,24 @@ export default function MaintenancePage() {
       }),
       columnHelper.accessor("maintenance_type", {
         header: "Type",
-        cell: (info) => <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs font-bold">{info.getValue()}</Badge>,
+        cell: (info) => {
+          const row = info.row.original;
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <Badge variant="secondary" className="rounded-full px-3 py-1 text-xs font-bold">{info.getValue()}</Badge>
+              {row.source_incident_id && (
+                <Link
+                  href="/incidents"
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-danger bg-danger/10 border border-danger/20 rounded px-1.5 py-0.5 hover:bg-danger/15 transition-colors"
+                  title="This repair was generated from a driver incident report"
+                >
+                  <TriangleAlert className="w-3 h-3" />
+                  Incident #{row.source_incident_id}
+                </Link>
+              )}
+            </div>
+          );
+        },
       }),
       columnHelper.accessor("maintenance_date", {
         header: "Scheduled Date",

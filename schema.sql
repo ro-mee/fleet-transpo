@@ -743,6 +743,7 @@ CREATE TABLE vehiclemaintenance (
   deleted_at timestamptz,
   created_by integer,
   updated_by integer,
+  source_incident_id integer,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -864,6 +865,7 @@ ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FO
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_category_id_fkey FOREIGN KEY (category_id) REFERENCES vehiclecategories(category_id);
@@ -963,6 +965,7 @@ CREATE INDEX idx_vehicledocuments_type ON public.vehicledocuments USING btree (d
 CREATE INDEX idx_vehicledocuments_vehicle ON public.vehicledocuments USING btree (vehicle_id);
 CREATE INDEX idx_vehicleinspection_trip ON public.vehicleinspection USING btree (trip_id, inspection_date DESC, created_at DESC);
 CREATE INDEX idx_vehicleinspection_vehicle_date ON public.vehicleinspection USING btree (vehicle_id, inspection_date DESC, created_at DESC);
+CREATE INDEX idx_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
 CREATE INDEX idx_vehicles_category ON public.vehicles USING btree (category_id);
 CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
 CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status);

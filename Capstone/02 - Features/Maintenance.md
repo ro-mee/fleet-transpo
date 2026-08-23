@@ -35,8 +35,12 @@ A maintenance-due notification fires and links to a page that isn't there. **TOD
 Progress, High priority, `created_by` = resolving staff) and resolves the
 incident in **one transaction** — the old client-side two-call chain could orphan
 or duplicate the repair. `syncVehicleStatus` keeps the vehicle grounded while the
-record is active; completing it restores availability. No FK back to the incident
-yet — linkage is free text only. → [[Incidents]]
+record is active; completing it restores availability.
+
+Since migration 063 the row carries **`source_incident_id`** (FK, backfilled from
+the description prefix), the register renders an `Incident #N` chip per linked
+record, and completing a linked record notifies the reporting driver that the
+vehicle is back in service. → [[Incidents]]
 
 ## Predictive maintenance
 

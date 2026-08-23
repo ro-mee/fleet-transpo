@@ -24,7 +24,6 @@ import { CheckCircle2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { updateIncident } from "@/services/driver.service";
 import { apiFetch } from "@/lib/api/client";
-
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -67,6 +66,14 @@ export default function IncidentsPage() {
     onError: (err) => {
       toast.error(err.message || "Failed to resolve incident");
     },
+  });
+
+  // Resolver context for the modal: what grounding automation did on this
+  // incident's behalf (interrupted dispatches) and any linked repairs.
+  const detailQuery = useQuery({
+    queryKey: ["incident-detail", resolveModal.incident?.incident_id],
+    queryFn: () => apiFetch(`/api/incidents/${resolveModal.incident.incident_id}`),
+    enabled: resolveModal.open && !!resolveModal.incident,
   });
 
   const sendToMaintenanceMutation = useMutation({
@@ -322,6 +329,47 @@ export default function IncidentsPage() {
               Marking this incident as resolved will clear it from the pending alerts. Please document any actions taken.
             </DialogDescription>
           </DialogHeader>
+          {resolveModal.incident && (
+            <div className="px-6 pt-2 space-y-2">
+              {(detailQuery.data?.affected_dispatches?.length > 0 ||
+                detailQuery.data?.linked_maintenance?.length > 0) && (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                  {detailQuery.data.affected_dispatches?.length > 0 && (
+                    <div className="mb-2">
+                      <p className="font-bold text-foreground mb-1">
+                        Interrupted dispatches ({detailQuery.data.affected_dispatches.length})
+                      </p>
+                      {detailQuery.data.affected_dispatches.map((d) => (
+                        <div key={d.dispatch_id} className="flex items-center justify-between gap-2 py-0.5">
+                          <span className="text-foreground-secondary font-medium truncate">
+                            #{d.dispatch_number || d.dispatch_id} — {d.guest_name || "Unknown guest"}
+                          </span>
+                          <span className={`shrink-0 font-bold ${(d.dispatch_status || "").toLowerCase() === "pending reassignment" ? "text-danger" : "text-foreground-muted"}`}>
+                            {d.dispatch_status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {detailQuery.data.linked_maintenance?.length > 0 && (
+                    <div>
+                      <p className="font-bold text-foreground mb-1">
+                        Linked repairs ({detailQuery.data.linked_maintenance.length})
+                      </p>
+                      {detailQuery.data.linked_maintenance.map((m) => (
+                        <div key={m.maintenance_id} className="flex items-center justify-between gap-2 py-0.5">
+                          <span className="text-foreground-secondary font-medium truncate">
+                            #{m.maintenance_id} — {m.maintenance_type}
+                          </span>
+                          <span className="shrink-0 font-bold text-foreground-muted">{m.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div className="p-6 pt-2">
             <p className="text-sm font-medium text-foreground mb-2">Actions Taken</p>
             <textarea

@@ -41,18 +41,19 @@ Drivers report breakdowns and emergencies from the mobile app; staff triage them
 | One incident, one repair record | atomic endpoint + `FOR UPDATE` lock | Client-side two-call chain could orphan/duplicate emergency repairs |
 | One report, one automation run | `client_submission_id` unique partial index (`uq_driverincidents_driver_submission`) | Offline replay racing a manual resubmit duplicated reports and re-paged dispatch |
 | Failed ≠ deleted | sync dead-letter (`@offline_dead_letter_incidents`) | A session expiring mid-replay silently destroyed emergency reports |
+| Repairs link back to incidents | `vehiclemaintenance.source_incident_id` (migration 063, backfilled from the free-text prefix) + completion notifies the reporter | The only connection used to be description text; nobody could query it or hear that the work finished |
+| Resolvers see the blast radius | GET `/api/incidents/[id]` matches grounding's exact audit reason to list interrupted dispatches + linked repairs, rendered in the resolve modal | Whoever resolved had no way to verify reassignment happened |
 
 Pure decision logic lives in `src/lib/incidents/resolution.js` (14 unit tests) so the routes stay thin — same pattern as [[grounding]]. The DB dedup pattern mirrors fuel/inspection idempotency (migrations 059/060); migration 062 carries it for incidents.
 
 ## Known limits
 
-- No linkage column between `vehiclemaintenance` and the originating incident — only free text ("generated from Incident #N").
-- Reassigning dispatches interrupted by grounding stays manual; resolving an incident says nothing about them.
+- Reassigning dispatches interrupted by grounding stays manual — the resolve modal now *shows* them (and their live status), but nothing auto-reassigns.
 
-Closed 2026-08-23 (later the same day): the maintenance action now gates on
-`reported_vehicle_id` — the vehicle the incident itself names — instead of the
-list's COALESCE fallback to the driver's *current* assignment; and the mobile
-form offers all four severities including Critical.
+Closed 2026-08-23: the maintenance action gates on `reported_vehicle_id` — the
+vehicle the incident itself names — instead of the list's COALESCE fallback; the
+mobile form offers all four severities including Critical; repairs carry
+`source_incident_id` and completing one notifies the reporting driver.
 
 ## Database tables used
 

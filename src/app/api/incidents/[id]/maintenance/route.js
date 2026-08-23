@@ -59,8 +59,8 @@ export async function POST(req, props) {
       const maintenanceResult = await tx.query(
         `INSERT INTO vehiclemaintenance
            (vehicle_id, maintenance_date, maintenance_type, description,
-            cost, status, priority, remarks, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            cost, status, priority, remarks, created_by, source_incident_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING maintenance_id, vehicle_id, maintenance_type, maintenance_date,
                    status, priority, cost`,
         [
@@ -73,6 +73,7 @@ export async function POST(req, props) {
           payload.priority,
           payload.remarks,
           session.user.employeeId ?? null,
+          incident.incident_id,
         ]
       );
 

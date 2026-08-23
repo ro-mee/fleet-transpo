@@ -9,11 +9,81 @@ import {
   resolutionActionsError,
 } from "@/lib/incidents/resolution";
 
-// Staff resolution endpoint. Resolving is no longer just a row edit: it also
+// Staff resolution endpoints. Resolving is no longer just a row edit: it also
 // restores the vehicle's availability (grounding automation set it to
 // "Under Maintenance" at report time) and tells the reporting driver what was
 // done — previously the loop closed nowhere and the driver never learned the
 // outcome.
+
+/**
+ * GET /api/incidents/[id]
+ *
+ * Resolver context: the incident plus everything the grounding automation did
+ * on its behalf — the dispatches it tore down to Pending Reassignment (matched
+ * by the exact audit reason the automation writes) and any emergency repairs
+ * linked to it. Without this, whoever resolves cannot verify reassignment
+ * happened or see the repair state.
+ */
+export async function GET(req, props) {
+  try {
+    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+
+    const params = await props.params;
+    const id = params.id;
+    if (!id) return err("Incident ID is required", 400);
+
+    const { rows } = await query(
+      `SELECT i.incident_id, i.driver_id, i.vehicle_id, i.trip_id, i.incident_type,
+              i.incident_date, i.description, i.location, i.latitude, i.longitude,
+              i.severity, i.status, i.actions_taken, i.created_at, i.updated_at,
+              i.assistance_needed, i.expense_amount, v.plate_number,
+              CASE WHEN d.driver_id IS NULL THEN NULL ELSE
+                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
+              END AS driver
+         FROM driverincidents i
+         LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
+         LEFT JOIN drivers d ON d.driver_id = i.driver_id
+         LEFT JOIN employees e ON e.employee_id = d.employee_id
+        WHERE i.incident_id = $1 AND i.deleted_at IS NULL`,
+      [id]
+    );
+    if (!rows[0]) return err("Incident not found", 404);
+
+    // Grounding writes one audit entry per interrupted dispatch with this exact
+    // reason string (src/app/api/driver/incidents/route.js).
+    const { rows: affectedDispatches } = await query(
+      `SELECT DISTINCT ON (a.resource_id)
+              a.resource_id AS dispatch_id,
+              ds.dispatch_number, ds.status AS dispatch_status,
+              r.guest_name, ds.scheduled_departure,
+              a.created_at AS interrupted_at
+         FROM audit_logs a
+         JOIN dispatchschedules ds ON ds.dispatch_id = a.resource_id AND ds.deleted_at IS NULL
+         LEFT JOIN transportation_requests r ON r.request_id = ds.request_id
+        WHERE a.resource = 'dispatchschedules'
+          AND a.old_values->>'reason' = $1
+        ORDER BY a.resource_id, a.created_at DESC`,
+      [`Incident #${id} grounded the vehicle.`]
+    );
+
+    const { rows: linkedMaintenance } = await query(
+      `SELECT maintenance_id, vehicle_id, maintenance_type, maintenance_date,
+              completed_date, status, priority, cost
+         FROM vehiclemaintenance
+        WHERE source_incident_id = $1 AND deleted_at IS NULL
+        ORDER BY maintenance_date DESC`,
+      [id]
+    );
+
+    return ok({
+      ...rows[0],
+      affected_dispatches: affectedDispatches,
+      linked_maintenance: linkedMaintenance,
+    });
+  } catch (e) {
+    return handleError(e);
+  }
+}
 
 export async function PATCH(req, props) {
   try {
