@@ -3,16 +3,80 @@ import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { fonts, TOUCH_TARGET, statusSurfaces } from "../../../lib/theme";
+import { api, apiFetch } from "../../../lib/api";
 import { AppAlert } from '../../../components/AppAlert';
+import { notify } from "../../../lib/notifications/notify";
+
+const SCAN_MAX_WIDTH = 1400;
+const SCAN_COMPRESS = 0.72;
+
+function daysUntilExpiry(expiry) {
+  const s = String(expiry || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((new Date(y, m - 1, d).getTime() - today.getTime()) / 86400000);
+}
+
+function formatExpiry(expiry) {
+  const s = String(expiry || "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString();
+}
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
     <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: isLast ? 0 : 1 }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
+    </View>
+  );
+}
+
+function ScanSourceButtons({ side, colors, canUpload, busy, onPick }) {
+  const disabled = !canUpload || busy !== null;
+  const isUploading = busy === side;
+  return (
+    <View style={styles.sourceRow}>
+      <Pressable
+        onPress={() => onPick(side, "camera")}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Take a photo of the ${side} of your license`}
+        style={({ pressed }) => [
+          styles.sourceBtn,
+          { backgroundColor: canUpload ? colors.primary : colors.surfaceContainerHigh, opacity: isUploading || pressed ? 0.85 : 1 },
+        ]}
+      >
+        {isUploading ? (
+          <ActivityIndicator size="small" color={colors.onPrimary} />
+        ) : (
+          <Ionicons name="camera-outline" size={16} color={canUpload ? colors.onPrimary : colors.onSurfaceVariant} />
+        )}
+        <Text style={[styles.sourceBtnText, { color: canUpload ? colors.onPrimary : colors.onSurfaceVariant }]}>
+          {isUploading ? "Working…" : "Take Photo"}
+        </Text>
+      </Pressable>
+      <Pressable
+        onPress={() => onPick(side, "gallery")}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Choose an existing photo of the ${side} of your license`}
+        style={({ pressed }) => [
+          styles.sourceBtn,
+          styles.sourceBtnSecondary,
+          { borderColor: colors.outlineVariant, opacity: pressed ? 0.8 : 1 },
+        ]}
+      >
+        <Ionicons name="images-outline" size={16} color={colors.primary} />
+        <Text style={[styles.sourceBtnText, { color: colors.primary }]}>Gallery</Text>
+      </Pressable>
     </View>
   );
 }
@@ -24,6 +88,7 @@ export default function LicenseInformation() {
 
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [uploadingSide, setUploadingSide] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +103,72 @@ export default function LicenseInformation() {
 
   useEffect(() => { load(); }, [load]);
 
+  const toDataUrl = async (asset) => {
+    const context = ImageManipulator.manipulate(asset.uri);
+    if ((asset.width || 0) > SCAN_MAX_WIDTH) context.resize({ width: SCAN_MAX_WIDTH });
+    const rendered = await context.renderAsync();
+    const saved = await rendered.saveAsync({ compress: SCAN_COMPRESS, format: SaveFormat.JPEG, base64: true });
+    if (!saved.base64) throw new Error("The image could not be processed.");
+    return `data:image/jpeg;base64,${saved.base64}`;
+  };
+
+  const verifyAndSaveScan = async (side, dataUrl) => {
+    const check = await api.post(
+      "/api/driver/license-scan",
+      { side, file_url: dataUrl },
+      { queueOnFailure: false }
+    );
+    if (!check?.ok) {
+      AppAlert.alert(
+        "Scan Unreadable",
+        check?.validation_issues?.[0] ||
+          "We could not read the license photo clearly. Retake with better lighting and keep the card flat and fully in frame."
+      );
+      return false;
+    }
+    const field = side === "front" ? "license_image_url" : "license_back_image_url";
+    await apiFetch("/api/driver/me", {
+      method: "PATCH",
+      body: JSON.stringify({ [field]: dataUrl }),
+    });
+    return true;
+  };
+
+  const handleUpload = useCallback(async (side, source) => {
+    if (uploadingSide !== null) return;
+    try {
+      setUploadingSide(side);
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== "granted") {
+        AppAlert.alert(
+          "Permission Required",
+          source === "camera"
+            ? "Camera permission is required to photograph your license."
+            : "Photo library permission is required to select your license scan."
+        );
+        return;
+      }
+      const options = { mediaTypes: ["images"], quality: 0.8 };
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (result.canceled || !result.assets?.length) return;
+
+      const dataUrl = await toDataUrl(result.assets[0]);
+      const saved = await verifyAndSaveScan(side, dataUrl);
+      if (saved) {
+        notify.toast({ message: `License ${side} scan updated successfully.`, tone: "success" });
+        await load();
+      }
+    } catch (e) {
+      AppAlert.alert("Upload Failed", e.message || "The scan could not be uploaded. Check your connection and try again.");
+    } finally {
+      setUploadingSide(null);
+    }
+  }, [uploadingSide, load]);
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -47,6 +178,23 @@ export default function LicenseInformation() {
   }
 
   const license = profile?.license;
+  const reuploadDays = license?.reuploadWindowDays ?? 30;
+
+  const days = daysUntilExpiry(license?.expiry);
+  let status;
+  if (days === null) status = { tone: "neutral", label: "No expiry on file" };
+  else if (days < 0) status = { tone: "danger", label: `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago` };
+  else if (days <= reuploadDays) status = { tone: "warning", label: days === 0 ? "Expires today" : `Expires in ${days} day${days === 1 ? "" : "s"}` };
+  else status = { tone: "success", label: "Valid" };
+
+  const surfaces = statusSurfaces(colors);
+  const statusColorsMap = {
+    danger: { bg: surfaces.danger, fg: colors.error },
+    warning: { bg: surfaces.warning, fg: colors.warning },
+    success: { bg: surfaces.success, fg: colors.success },
+    neutral: { bg: surfaces.neutral, fg: colors.onSurfaceVariant },
+  };
+  const statusTone = statusColorsMap[status.tone];
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -63,17 +211,23 @@ export default function LicenseInformation() {
           <InfoRow label="License Number" value={license?.number} colors={colors} />
           <InfoRow label="License Class" value={license?.class} colors={colors} />
           <InfoRow label="License Type" value={license?.type} colors={colors} />
-          <InfoRow 
-            label="Expiry Date" 
-            value={license?.expiry ? new Date(license.expiry).toLocaleDateString() : null} 
-            colors={colors} 
+          <InfoRow
+            label="Expiry Date"
+            value={license?.expiry ? formatExpiry(license.expiry) : null}
+            colors={colors}
           />
+          <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: 1 }]}>
+            <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
+            <View style={[styles.statusPill, { backgroundColor: statusTone.bg }]}>
+              <Text style={[styles.statusPillText, { color: statusTone.fg }]}>{status.label}</Text>
+            </View>
+          </View>
           <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} />
         </View>
 
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant, padding: 16, gap: 16 }]}>
           <Text style={[type.label, styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
-          
+
           <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Front of License</Text>
@@ -83,14 +237,18 @@ export default function LicenseInformation() {
                 <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
-            <Pressable 
-              style={[styles.uploadBtn, { backgroundColor: license?.canUploadFront ? colors.primary : colors.surfaceContainerHigh }]}
-              disabled={!license?.canUploadFront}
-            >
-              <Text style={[styles.uploadBtnText, { color: license?.canUploadFront ? colors.onPrimary : colors.onSurfaceVariant }]}>
-                {license?.frontScanImageUrl ? "Update Scan" : "Upload Scan"}
+            <ScanSourceButtons
+              side="front"
+              colors={colors}
+              canUpload={license?.canUploadFront}
+              busy={uploadingSide}
+              onPick={handleUpload}
+            />
+            {!license?.canUploadFront && (
+              <Text style={[styles.lockHint, { color: colors.onSurfaceVariant }]}>
+                Replacement unlocks {reuploadDays} days before expiry — contact an administrator to update it sooner.
               </Text>
-            </Pressable>
+            )}
           </View>
 
           <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
@@ -102,14 +260,18 @@ export default function LicenseInformation() {
                 <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
-            <Pressable 
-              style={[styles.uploadBtn, { backgroundColor: license?.canUploadBack ? colors.primary : colors.surfaceContainerHigh }]}
-              disabled={!license?.canUploadBack}
-            >
-              <Text style={[styles.uploadBtnText, { color: license?.canUploadBack ? colors.onPrimary : colors.onSurfaceVariant }]}>
-                {license?.backScanImageUrl ? "Update Scan" : "Upload Scan"}
+            <ScanSourceButtons
+              side="back"
+              colors={colors}
+              canUpload={license?.canUploadBack}
+              busy={uploadingSide}
+              onPick={handleUpload}
+            />
+            {!license?.canUploadBack && (
+              <Text style={[styles.lockHint, { color: colors.onSurfaceVariant }]}>
+                Replacement unlocks {reuploadDays} days before expiry — contact an administrator to update it sooner.
               </Text>
-            </Pressable>
+            )}
           </View>
 
         </View>
@@ -132,7 +294,7 @@ const styles = StyleSheet.create({
   backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, textAlign: "center" },
   scroll: { padding: 16, paddingTop: 24, gap: 24 },
-  
+
   sectionCard: {
     borderRadius: 12,
     borderWidth: 1,
@@ -149,6 +311,13 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
 
+  statusPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  statusPillText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
+
   sectionHeading: {},
   scanBox: {
     padding: 12,
@@ -158,11 +327,17 @@ const styles = StyleSheet.create({
   },
   scanHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   scanTitle: { fontSize: 14, fontFamily: fonts.bodyMedium },
-  uploadBtn: {
+  sourceRow: { flexDirection: "row", gap: 10 },
+  sourceBtn: {
+    flex: 1,
     height: 40,
     borderRadius: 8,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: 7,
   },
-  uploadBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold },
+  sourceBtnSecondary: { borderWidth: 1, backgroundColor: "transparent" },
+  sourceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
+  lockHint: { fontSize: 12, fontFamily: fonts.body, lineHeight: 17 },
 });

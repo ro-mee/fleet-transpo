@@ -7,8 +7,9 @@ source:
   - mobile/lib/api.js
   - mobile/lib/tracking.js
   - mobile/lib/rbac.js
+  - mobile/app/(app)/profile/license.js
   - mobile/AGENTS.md
-last_verified: 2026-08-11
+last_verified: 2026-08-23
 ---
 
 # Mobile Architecture
@@ -75,6 +76,10 @@ This is correct practice, correctly documented: the client decodes to decide wha
 ## Auth
 
 Separate from web — 15-minute access tokens, 30-day single-use rotating refresh tokens hashed in `mobile_refresh_tokens`, audience-split. Full detail in [[Authentication]].
+
+## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
+
+The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
 
 ## Version warning — CONFIRMED
 

@@ -5,7 +5,8 @@ tags: [feature, consent, privacy, drivers]
 source:
   - src/lib/consent/driver-visibility.js
   - supabase/migrations/017_driver_consents.sql
-last_verified: 2026-08-11
+  - mobile/app/(app)/profile/license.js
+last_verified: 2026-08-23
 ---
 
 # Feature: Driver Consent
@@ -38,6 +39,16 @@ Note what a driver **cannot** edit: name, licence number, licence expiry, employ
 ## The 30-day re-upload window
 
 `canUpdateLicenseScan()` blocks licence re-scans inside a 30-day window. INFERRED: to prevent repeated re-uploads being used to churn the licence record — but the repository does not currently document why this specific window was chosen.
+
+## Mobile scan upload flow — CONFIRMED (`mobile/app/(app)/profile/license.js`, 2026-08-23)
+
+The mobile **License & Compliance** screen implements the full self-service scan replacement:
+
+1. Driver picks **Take Photo** (camera) or **Gallery** (`expo-image-picker`) per side (front/back).
+2. The image is resized to ≤1400 px and compressed to JPEG, then sent as a base64 data URL.
+3. `POST /api/driver/license-scan` runs the OCR gate first — an unreadable scan is shown the retake guidance and **never saved**.
+4. On pass, `PATCH /api/driver/me` with `license_image_url` / `license_back_image_url`; the server re-runs `canUpdateLicenseScan()` and rejects outside the window (**fail closed** — UI gating is cosmetic, the DB gate is authoritative).
+5. The screen shows a compliance status pill (Expired / Expires in N days within the 30-day window / Valid) computed with the same local-calendar math as `daysUntilLicenseExpiry()`, plus an explanatory hint on locked sides.
 
 ## Consent records
 
