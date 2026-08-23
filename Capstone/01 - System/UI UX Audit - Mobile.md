@@ -84,3 +84,30 @@ None found. The app's core flows complete.
 4. Refresh `schema.sql`/vault notes only if the backend changes — this audit is frontend-only.
 
 > Follow-up: run `$impeccable audit` again after any fixes to track the score improving.
+
+---
+
+## Changes Applied — Round 2 (2026-08-23, UI/UX fix pass)
+
+Follow-up round closing the deferred P2s plus honesty/accessibility gaps. Frontend-only; no dependency or business-logic changes.
+
+| # | File(s) | Change |
+|---|---------|--------|
+| 1 | `components/SwipeButton.js` | Screen-reader activation: `accessible`/`role=button`/label/hint/state on the outer shell + `onAccessibilityAction("activate")` mirroring the gesture success branch. New optional `busy` prop. PanResponder untouched. |
+| 2 | `(app)/incidents.js` | Offline queue honesty: `result?.queued === true` now renders "Report saved offline" overlay variant stating dispatch has NOT received it yet. Online copy unchanged. |
+| 3 | `(tabs)/map.js` | Permission denial no longer spins forever: themed empty state (icon, exact message, Open Settings via `Linking.openSettings()`, Try Again re-runs permission effect via `permRetry` counter). |
+| 4 | `lib/theme.js`, `(tabs)/index.js` | Hero contrast: `onPrimary` **already existed** in all four palettes (dark = `#103A30`, ≈6.9:1 on `#A6C7B8`) so theme.js needed no change. All hero text/badge/dot/route-viz whites converted to `colors.onPrimary` (+ alpha suffixes); static styles stripped of baked whites. White CTA pill label/icon/spinner use module constant `ON_LIGHT_INK = "#103A30"` (single token that stays dark in every palette). |
+| 5 | `index.js` | Tracking status chip under the active-trip hero: warning-toned "Location not sending — will retry" on error, else neutral "Location updated Xs ago" (`caption` size, accessibilityLabel); hidden without an active trip. |
+| 6 | `index.js` | Odometer modal: shows "Recorded: N km" (from `current_mileage`), client-side validation (positive AND ≥ recorded), confirm button disabled + spinner/"Completing..." while submitting; cancel also disabled mid-submit. |
+| 7 | `(tabs)/map.js` | Single clock gate: OPENS AT label now derived from the same `earliest_start`/`windowOpen` expression as the disabled state (was `scheduled_time − 15min`). |
+| 8 | `notifications.js`, `history.js` | Loading states use `SkeletonCard` (mirrors Home) instead of "Loading..." / spinner. |
+| 9 | `components/AppAlert.js` | `isDark` was destructured from a context that never provides it → icon chip forced `#FFFFFF`. Now derived as `scheme === "dark"`. |
+| 10 | `(app)/inspection.js` | Back icon `menu`→`arrow-back`; success alert split: all-passed vs FAIL ("dispatch has been notified" — verified true: backend inserts dispatcher notifications + push on any FAIL item); discard confirmation when leaving with answered items (AppAlert warning, Keep Editing/Discard). |
+| 11 | `app/consent.js` | GPS copy now accurate: tracked "while you are signed in and on duty, including periodic location checks between trips". |
+| 12 | `(tabs)/map.js` | Removed fabricated idle-dashboard distance (`completedCount * 8.4`). Remaining tile relabeled COMPLETED TRIPS (honest count). |
+| 13 | `notifications.js` | Row taps deep-link via `mobileNotificationTarget()` (same map as banners) in addition to mark-read; cards get role+label (title+summary); Mark-all-read Pressable ≥48px (`TOUCH_TARGET`) with role+label. |
+| 14 | `history.js` | Filter chips: `minHeight` 40, role=button, `accessibilityState.selected`; trip rows get role+label (route + status). |
+| 15 | `fuel-report.js` | `styles.input` fixed `height: 48` → `minHeight: 48`. `login.js` checked — its input rows already use `minHeight: TOUCH_TARGET`; no change needed. |
+| 16 | dead code | Removed: `STATUS_ORDER` (history.js), unused `actingOn` (map.js), unused `openMap` + then-unused `Linking` import (index.js), orphaned `statUnit` style (map.js). |
+
+**Verification:** source-level only (no lint/test suite in `mobile/`); every modified file re-read top-to-bottom post-edit. Backend semantics confirmed before copy changes (inspections route notifies overseers on FAIL; apiFetch returns `{ queued: true }` when offline-queued).

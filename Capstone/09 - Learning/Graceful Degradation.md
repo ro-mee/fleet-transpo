@@ -18,7 +18,7 @@ The design question is always the same: **is this feature load-bearing?** If not
 
 ## How it appears in my project — CONFIRMED
 
-Four instances, four different fallbacks:
+Five instances, five different fallbacks:
 
 | Component            | Failure                           | Degrades to | Consequence                                                  |
 | -------------------- | --------------------------------- | ----------- | ------------------------------------------------------------ |
@@ -26,6 +26,9 @@ Four instances, four different fallbacks:
 | Priority translation | unknown value from Booking        | `Medium`    | ingest never blocks → [[Anti-Corruption Layer]]              |
 | OCR                  | 6-second timeout                  | `""`        | driver types the licence by hand → [[Driver Consent]]        |
 | Booking gateway      | `BOOKING_GATEWAY` unset           | mock        | Fleet works, nothing reaches Booking → [[System Boundaries]] |
+| Web dashboard queries | report API error                 | zeros / "empty" copy | **was** the dishonest one — fixed 2026-08-23 with `QueryErrorBanner`/`QueryBoundary` retry panels across reports, analytics, executive, documents, predictive, history, driver performance (see [[Reports]]) |
+
+The dashboard row used to be the counter-example: TanStack failures fell through to `data || {}` defaults and rendered confident zeros or "No records in this period" — the exact "broken looks like normal" failure in the table below.
 
 ## Example from my codebase
 

@@ -60,59 +60,65 @@ Do not introduce page-local colors, arbitrary radii, duplicate button variants, 
 
 The visual character is the **dispatch floor**: asphalt, concrete, paper, and signal markings. It is practical rather than decorative—quiet surfaces let data, status, and actions stand out.
 
+> **Canonical source note.** This section was rewritten (2026-08) to match the
+> shipped FleetOps implementation (`src/app/globals.css`). The earlier draft
+> described an aspirational palette (Archivo/IBM Plex faces, rust-red primary,
+> 4/8/12 px radii) that was never implemented on the web dashboard; treat those
+> as candidates for future products only, not as the FleetOps baseline.
+
 ### 3.1 Color roles
 
-Use semantic roles rather than raw color values in designs and code. Light and dark themes provide the values; the meaning stays the same.
+Use semantic roles rather than raw color values in designs and code. Light and dark themes provide the values; the meaning stays the same. All values below live in `src/app/globals.css` and are emitted both as Tailwind theme colors and raw CSS custom properties.
 
 | Role | Light | Dark | Use |
 |---|---:|---:|---|
-| `background` | `#F1F1ED` | `#121417` | Page field |
-| `surface` | `#FFFFFF` | `#1A1D21` | Cards, sheets, dialogs |
-| `border` | `#DFE1DB` | `#2A2E34` | Separators and control outlines |
-| `foreground` | `#1A1D21` | `#F2F4F6` | Primary text |
-| `foreground-secondary` | `#5C636F` | `#A8AFB8` | Supporting text |
-| `foreground-muted` | `#9AA0AA` | `#6E757F` | Disabled or incidental text only |
-| `primary` | `#B53A1E` | `#FF6A3D` | Primary actions, active emphasis |
-| `accent` | `#F2B900` | `#FFC400` | Restricted brand highlight on dark surfaces |
-| `success` | `#157A4D` | `#35C98B` | Complete, available, online |
-| `warning` | `#8A5A00` | `#FFB84D` | Needs attention, in progress |
-| `danger` | `#B5281A` | `#FF5F52` | Failure, overdue, destructive action |
-| `info` | `#2A6CB0` | `#5AA8F5` | Scheduled, neutral system information |
+| `background` | `#F3F3F3` | `#111111` | Page field |
+| `surface` | `#FFFFFF` | `#1A1A1A` | Cards, sheets, dialogs |
+| `border` | `#D1D5DB` | `#2A2A2A` | Separators and control outlines |
+| `foreground` | `#111827` | `#F5F5F5` | Primary text |
+| `foreground-secondary` | `#4B5563` | `#A3A3A3` | Supporting text |
+| `foreground-muted` | `#6B7280` | `#8B909A` | Incidental text, captions |
+| `primary` | `#111827` | `#F5F5F5` | Primary actions and active emphasis — ink-on-surface, not a brand hue |
+| `success` | `#10B981` | `#10B981` (bg `#064E3B`) | Complete, available, online |
+| `warning` | `#F59E0B` | `#F59E0B` (bg `#78350F`) | Needs attention, in progress |
+| `danger` | `#EF4444` | `#EF4444` (bg `#7F1D1D`) | Failure, overdue, destructive action |
+| `info` | `#3B82F6` | `#3B82F6` (bg `#1E3A5F`) | Scheduled, neutral system information |
 
 Rules:
 
-- Use `primary` for a meaningful action or focus point, not for broad decoration.
-- Use status color with a text label and, where useful, an icon or dot. Color alone never communicates state.
-- Reserve muted text for information that is genuinely optional. Important supporting copy uses `foreground-secondary`.
+- `primary` is near-black in light mode and near-white in dark mode: emphasis comes from contrast, not from a saturated brand color. Status colors carry meaning; primary carries action.
+- Use status color with a text label and, where useful, an icon or dot. Color alone never communicates state. The authoritative mapping lives in `src/components/ui/status-badge.jsx`.
+- Reserve muted text for information that is genuinely optional. Important supporting copy uses `foreground-secondary`. Dark-mode muted meets 4.5:1 body-size contrast.
 - Products may not invent a new semantic color to distinguish a local status. Map it to an existing role or propose a shared role.
+- Charts read hex mirrors of these tokens from `src/lib/chart-tokens.js`; never declare a private palette inside a page.
 
 ### 3.2 Typography and data
 
 | Role | Typeface | Use |
 |---|---|---|
-| Display | Archivo | Page titles, board headers, major values |
-| Interface | IBM Plex Sans | UI copy, forms, descriptions, table text |
-| Data | IBM Plex Mono | Figures, IDs, dates, times, amounts, codes |
+| Display & interface | Inter | Page titles through captions — hierarchy comes from weight and size, never a competing face |
+| Data | Inter (same family) | Figures, IDs, dates, times, amounts, codes — kept in-family so operational values never look like a different app |
 
-Use tabular figures for values that are compared or scanned. Tables, reports, time, currency, percentages, plates, order numbers, and identifiers should align vertically.
+Use tabular figures (`tabular-nums`, or the `font-data` utility) for values that are compared or scanned. Tables, reports, time, currency, percentages, plates, order numbers, and identifiers should align vertically.
 
 | Style | Specification | Use |
 |---|---|---|
-| Page title | Archivo 700, 24/1.2 | One title per page |
-| Section heading | Archivo 600, 18/1.3 | Card and section titles |
-| Body | IBM Plex Sans 400, 14/1.5 | Default interface text |
-| Supporting text | IBM Plex Sans 400, 12–13/1.4–1.5 | Captions and help text |
-| Data | IBM Plex Mono 500, 12–13/1.4 | Numbers, codes, status labels |
-| Label | IBM Plex Mono 500, 11/1.3, uppercase | Eyebrows and table headers |
+| Page title | Inter 700, 22–24px | One title per page (HeroHeader renders it) |
+| Section heading | Inter 600, 18px | Card and section titles |
+| Body | Inter 400, 14px | Default interface text |
+| Supporting text | Inter 400, 12–13px | Captions and help text |
+| Caption / eyebrow | Inter 500–600, 11px, uppercase tracking-wider | Table headers, KPI labels |
+| Data | Inter 500, 12–13px (`font-data`, tabular) | Numbers, codes, status labels |
 
 ### 3.3 Spacing, shape, and elevation
 
 Build on a 4 px spacing scale: `4, 8, 12, 16, 20, 24, 32, 40, 48`.
 
-- Standard page padding: 24 px on desktop; reduce thoughtfully on smaller screens.
-- Card padding: 20 px; compact surfaces: 16 px; controls: 8 px internal padding.
-- Radius: 4 px for small markers, 8 px for controls, 12 px for cards and dialogs.
-- Cards are flat sheets with a 1 px border and subtle resting shadow. Strong elevation is reserved for temporary layers such as menus and dialogs.
+- Standard page padding: 24 px (`p-6`) on desktop; reduce thoughtfully on smaller screens.
+- Card padding: 16–24 px depending on density; controls: 8 px internal padding.
+- Radius scale (tokens): `--radius-control: 12px` for inputs/selects/buttons, `--radius-card: 16px` for cards/dialogs/panels (rounded-3xl), plus sm/md/lg at 4/6/8 px for small elements. Prefer the named radii over arbitrary values.
+- Charts use the height utilities `chart-h-sm` (220px), `chart-h-md` (260px), `chart-h-lg` (300px) instead of one-off pixel values.
+- Cards are flat sheets with a 1 px border and subtle resting shadow (`shadow-xs`/`shadow-sm`). Strong elevation is reserved for temporary layers such as menus and dialogs.
 
 ## 4. Information hierarchy and layout
 

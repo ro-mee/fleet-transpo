@@ -1,0 +1,76 @@
+# UI UX Audit — Web Dashboard
+
+Companion to `UI UX Audit - Mobile.md`. Records the full-product web audit
+(2026-08-23) and the remediation waves applied on top of it.
+
+## Scope & method
+
+Source-level review of every `(dashboard)` route cluster, auth pages, shared
+`src/components/ui` + `src/components/tables` primitives, RBAC config
+(`workspaces.js`, `permissions.js`, `role-guard.js`), and the documented design
+system (`docs/design-system.md`). Findings were severity-ranked; remediation ran
+in phases (0–6) below.
+
+## Remediation waves — what changed
+
+### Phase 0 — Truth & safety
+
+| Fix | Where |
+|---|---|
+| Queue-card cancel now routes through a confirm dialog that **requires a reason** and is gated by `can("reservations","cancel")` (was a single unprotected click gated by `update`) | `reservations/queue/page.js`, `reservation-card.jsx` |
+| Fabricated data removed: fake "Recent Sessions", mock API keys, hardcoded driver score "85", grid fuel="100%"/odo="0k" defaults, hardcoded "92% Healthy", hardcoded UVVRP "Policy Status: Active" | security/api pages, drivers/[id], fleet-grid, analytics, uvvrp board |
+| Duplicate `case "activity"` killed System Console's primary panel → renamed to `platform-activity` | `role-dashboard.jsx`, `dashboard-configs.js` |
+| KPI truth: "Drivers on Duty"(=roster total) → "Drivers Available"; dashboard "Fleet Utilization" relabeled "Fleet Availability" (reports keep In Use/total definition); queue list sorted soonest-pickup-first; notification read-state dots | `dashboard-configs.js`, `role-dashboard.jsx` |
+| Ghost GPS polling removed for roles whose dashboard renders no map | `dashboard-configs.js` opsQueries split |
+| Login rate-limit honesty: public `GET /api/auth/login-status` peeks the throttle; login page tells locked-out users the truth + countdown instead of "Invalid email or password" | `lib/rate-limit.js`, new api route, `login/page.js` |
+| Account recovery honesty: forgot-password no longer claims an email was sent (admin-issued links); reset-password gates on session BEFORE the form + shows password rules upfront | auth pages |
+| Status grammar: added `Pending Reassignment`(danger), full 16-state trip map, `incident` + `leave` entities; local shadow maps deleted (fleet-table/grid, drivers/[id], fuel, routes) | `status-badge.jsx` + consumers |
+
+### Phase 1 — Feedback backbone
+
+- `QueryBoundary` / `QueryErrorBanner` (`components/ui/query-feedback.jsx`) — one loading/error+retry/empty contract. Rolled out to executive, analytics, reports (+tabs), documents, performance, predictive, tracking/history, ai-insights. Failures no longer render as empty datasets.
+- `ConfirmDialog` upgrade: canonical props + legacy aliases (`description`, `confirmText`, `isLoading`, `variant:"danger"`), `loading` state, optional `requireReason` textarea. Archive flows normalized to `variant="archive"`.
+- Confirmation ladder applied: leave decline (reason → `notes`), notification delete, UVVRP violation approve/deny (deny reason → `reason`), AI provider delete, NAIA route seed, blind fuel approve.
+- StatCard now renders its `trend` caption (~30 config captions restored).
+- ai/insights: `critical → "Act now"`; re-analysis toast keyed off real success/error.
+
+### Phase 2 — Chain continuity
+
+- Shared `PhaseRail` (`components/ui/phase-rail.jsx`) replaces three competing steppers; trip detail uses the FULL live chain (was 3 of 16 states).
+- Trip detail links Dispatch ⇄ Request (guest name not exposed by API); trips table Dispatch # is a real link; DispatchList exposes "View trip".
+- Post-assign success surfaces returned `dispatch_id/dispatch_number` + "View dispatch" action.
+- Reassign possible from dispatch detail (`mode:"assign"`); PATCH failures render inline (ConflictBlock when structured conflicts exist, else prefixed toast) instead of toast-only.
+- Dual-navigation cleanup: dispatch stat cards are non-interactive summaries; lane chips are the single filter (queue page keeps tabs, cards no longer duplicate cancel semantics).
+
+### Phase 3 — Forms & tables
+
+- DataTable: `aria-sort` + real button sort headers, labeled search, keyboard rows (`tabIndex`, Enter/Space, focus ring, `getRowLabel`), opt-in `stickyFirstColumn`.
+- Driver portal incidents form has real labels + radiogroup severity; fuel type is a `FUEL_TYPE` select; date pickers accept expired documents (truth over convenience) with helper copy; `.pdf` removed from license scan inputs; driver status options unified to canonical set.
+- AI providers form: masked keys never resubmitted, entered Name actually used, temperature max unified to 2, delete confirmed.
+- Exports across drivers/fuel/vehicles/reservations: try/catch + toasts + disabled-while-running; reservations export respects active filter; ID fallback unified to `REQ-####`; priority form vocabulary aligned to DB CHECK (Low/Medium/High/Urgent).
+
+### Phase 4 — Trust screens & IA
+
+- New staff-account index `/settings/users` + `GET/PUT /api/settings/users` (list/search; disable = soft-delete per migration-028 convention, blocks sign-in; self-disable prevented; audit-writes). Nav "User Management" now points at the real index.
+- API Keys page replaced mock credentials with honest capability placeholder + live-integration pointers.
+- Availability boards: tabs match canonical statuses exactly (Reserved/Registration Expired reachable again); dialogs link to vehicle/driver records; duplicate search field removed.
+- Command palette: full role-filtered page coverage (settings, system, notifications, driver workspace), Pages stay visible during entity search, deferred (non-blocking) query.
+- Number Coding board reads the live policy flag; exemption category selectable from policy categories; preset overwrite + decide actions confirmed.
+
+### Phase 5 — Mobile hardening
+
+See `UI UX Audit - Mobile.md` ("Changes Applied — Round 2"). Headlines: SwipeButton accessibility activation, incident offline honesty, map permission recovery state, hero `onPrimary` contrast token, GPS-failure chip, odometer modal bounds/busy, single departure clock, skeletons, AppAlert dark fix, inspection back/discard/copy fixes.
+
+### Phase 6 — Polish
+
+- Semantic colors emitted as raw CSS vars; single chart palette module `src/lib/chart-tokens.js` (three drifting palettes consolidated).
+- Chart height utilities `chart-h-sm/md/lg` replace one-off pixel heights.
+- Reduced-motion: pings gated, count-up already respects OS setting; dark-mode muted text raised to ≥4.5:1.
+- `docs/design-system.md` rewritten to be canonical with shipped tokens (Inter-everywhere, ink primary, control/card radii) with provenance note.
+
+## Known remaining gaps (post-waves)
+
+- Per-device web session history isn't tracked (security page explains honestly).
+- Email delivery (reset links, notification email/push channels) still not implemented — UI copy no longer claims otherwise.
+- Trips list lacks a Guest column because `TRIPS_LIST_SELECT` doesn't expose request/guest fields (backend change required).
+- Dispatch reassign conflicts arrive as plain strings from `PUT /api/dispatch/[id]` (no structured `conflicts[]`) — inline rendering handles both shapes today.

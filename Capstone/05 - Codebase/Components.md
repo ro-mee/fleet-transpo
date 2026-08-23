@@ -62,3 +62,32 @@ Use server mode for large tables; the pilot is the Trips list (see `trips/page.j
 Replicate the same pattern (`manualPagination` + query-key params + `keepPreviousData`)
 to the other big lists (drivers, vehicles, fuel, incidents, dispatch, reservations,
 routes, audit) to keep downloads to one page instead of the whole table.
+
+---
+
+## StatusBadge is THE central status grammar (synced 2026-08-23)
+
+`src/components/ui/status-badge.jsx` owns one severity grammar for the whole
+dashboard: **danger = act now, warning = act this cycle, info = watch,
+success = healthy, primary = in motion/emphasis, secondary = neutral.**
+
+- `ENTITY_MAPS` holds per-entity vocabularies (`vehicle`, `driver`, `trip`,
+  `reservation`, `fuel`, `dispatch`, `route`, `maintenance`, `priority`,
+  `incident`, `leave`, …), keyed by the exact DB CHECK strings lowercased.
+  The trip map covers all 16 `TRIP_STATUS` values; dispatch includes
+  "pending reassignment" → danger.
+- `GLOBAL_STATUS_MAP` is only a fallback for entity-less calls. Entity maps
+  win: `lookup()` tries the entity map first, so known contradictions
+  (global `cancelled` = danger vs neutral secondary lifecycles, global
+  `high` = danger vs `priority.high` = warning) never leak into entity badges.
+- Pages must NOT keep local shadow maps. FleetTable/FleetGrid, driver detail,
+  fuel, and routes all render statuses through `<StatusBadge entity="…" />`
+  so the same status colors identically everywhere.
+
+## ConfirmDialog canonical props (synced 2026-08-23)
+
+Call sites use `message=` / `confirmLabel=` / `loading=` / `variant=`.
+Aliases (`description`, `confirmText`, `isLoading`, `variant="danger"`)
+still work but are legacy. Archive flows use `variant="archive"`
+(warning icon), destructive deletes use `"destructive"`, informational
+confirmations use `"info"`.

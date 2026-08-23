@@ -52,6 +52,22 @@ Both are hard refusals, and the second one is the only guarantee — the app-lev
 
 The AI advisory scores and ranks candidates. It has **no write path**. A dispatcher calls the assign endpoint. → [[ADR-003 Deterministic AI]] · [[AI Advisory]]
 
+## Chain continuity in the UI — CONFIRMED 2026-08-23
+
+Every screen in the chain now links to its neighbours, so a dispatcher can walk
+request → dispatch → trip without a manual search:
+
+| Surface | Continuity |
+|---|---|
+| Trip detail (`/trips/[id]`) | Chips link to the dispatch (`dispatch_id`) and the originating request (`transportation_requests.request_id`, labelled by reservation number — guest_name is **not** in the trip detail projection). Progress rail is the full live driver chain via `<PhaseRail>`; legacy ingest statuses fall back with a note. |
+| Trips log (`/trips`) | Dispatch # cell is a real link when `dispatch_id` exists. No Guest column — the list projection carries no request join. |
+| Reservation detail | Lifecycle is `<PhaseRail>` over Pending → Scheduled → Assigned → In Progress → Completed; raised-dispatch rows expose "View trip"; cancel uses `ConfirmDialog requireReason` (matches the queue). |
+| AI recommendation panel | After assign succeeds it shows "Dispatch {number} created" + a View-dispatch link from the endpoint's `dispatch_id`/`dispatch_number`. |
+| Dispatch board | Stat cards are summary-only; lane chips are the single filter. Reassign failures surface inline (see [[Dispatch]]). |
+
+Driver names render as stored everywhere new (no lowercase+CSS-capitalize mangling of e.g.
+"MC Dela Cruz"); one known instance remains in `dispatch-card.jsx:240` (owned elsewhere).
+
 ## Where this chain is broken today — CONFIRMED
 
 | Break | Effect |

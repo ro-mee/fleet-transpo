@@ -824,3 +824,53 @@ controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
 - A driver hitting `/dashboard` directly would render it (UI-only exposure; data APIs still enforce roles).
 - Mobile status-advance uses the **web** route `PUT /api/trips/{id}/status` (not `/mobile/` prefix).
 - Not implemented (documented scope limits): background location, **push** notifications (email/push channels are stored in `notification_preferences` but delivery does not ship yet), offline sync, guest mode, receipt OCR.
+
+---
+
+## 11. ★ UI remediation wave (2026-08-23) — shared primitives & behavior contracts
+
+A full UX audit ran across web + mobile; the remediation landed in phases
+0–6. The complete record lives in
+`Capstone/01 - System/UI UX Audit - Web.md` (and the mobile twin). What a
+future developer/AI must know:
+
+**New/changed shared primitives (`src/components/ui/`)**
+- `query-feedback.jsx` — `QueryBoundary` (loading skeleton / error+Retry /
+  empty / children-as-function) and `QueryErrorBanner`. Every data surface is
+  expected to handle query failure explicitly; failures must never render as
+  "empty".
+- `phase-rail.jsx` — `PhaseRail`, the ONE stepper grammar for ordered
+  lifecycles (request/reservation/dispatch/trip chains). Tolerant of unknown
+  statuses via fallback note.
+- `confirm-dialog.jsx` — canonical props `{title, message, confirmLabel,
+  variant, requireReason, loading, onConfirm(reason)}` with legacy aliases
+  (`description`, `confirmText`, `isLoading`, `variant:"danger"` accepted).
+  Variants: destructive/danger/warning/archive/logout/info. Destructive or
+  externally-visible actions require confirmation; reason capture where audit
+  matters.
+- `stat-card.jsx` — renders `trend` as a context caption under the value;
+  dashboard configs rely on it.
+- `status-badge.jsx` — central grammar now covers ALL dispatch/trip states
+  (incl. `Pending Reassignment` = danger), plus `incident` and `leave`
+  entities. Do not add local status maps in pages; extend the central maps.
+- `command-palette.jsx` — full role-filtered page coverage + entity search
+  (deferred, non-blocking); Pages remain visible during search.
+
+**Design tokens**
+- Semantic colors exist as raw CSS vars AND Tailwind theme colors
+  (`globals.css`). Charts take hex mirrors from `src/lib/chart-tokens.js` —
+  never declare private palettes. Chart heights use `chart-h-sm/md/lg`
+  utilities. `docs/design-system.md` is canonical for the shipped visual
+  language (Inter-everywhere, ink primary).
+
+**Behavior contracts**
+- Cancel of a transportation request ALWAYS goes through ConfirmDialog +
+  required reason, gated by `can("reservations","cancel")`.
+- Login throttling surfaces honestly: `GET /api/auth/login-status`
+  (read-only peek) backs the login page's lockout messaging.
+- Staff account management: `/settings/users` index +
+  `GET/PUT /api/settings/users` (disable = soft-delete per migration 028 —
+  that is what blocks sign-in; status='Inactive' is the readable flag).
+- Availability boards tab vocabulary mirrors canonical DB CHECK values exactly.
+- Mobile: SwipeButton exposes accessibility actions; offline-queued incident
+  reports say "saved offline", never claim dispatch receipt.

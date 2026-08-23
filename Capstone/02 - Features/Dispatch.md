@@ -91,6 +91,22 @@ The substitute offer is date-scoped to `scheduled_departure`, so a vehicle whose
 is away but has no coverage for that date stays withheld — a dispatcher records a substitute
 schedule first, then reassigns.
 
+### Continuity surface — CONFIRMED 2026-08-23
+
+- The **dispatch detail page** (`/dispatch/[id]`) now has its own permission-gated
+  (`dispatch:update`) **Reassign** button wired to `DispatchEditDialog mode:"assign"`,
+  mirroring the board. Back button pushes `/dispatch` instead of `router.back()`, and the
+  cancel dialog reuses the board's exact consequence wording ("the originating request keeps
+  its own status — reassign or re-dispatch it from the queue").
+- The dialog always offers the dispatch's **current pair** as an explicit option (badged
+  "Current") even when availability/pairing filters would exclude it — the server
+  re-validates the effective state on PATCH.
+- A blocked reassignment is no longer toast-only: the dialog renders the error inline
+  (`ConflictBlock` when a 409 body carries `conflicts[]`, a plain alert for the endpoint's
+  usual string-only errors), and the board pins structured findings in a dismissible alert
+  above the lanes (`lastReassignConflicts`). Note `PUT /api/dispatch/[id]` currently returns
+  plain `{ error }` strings — no `conflicts[]` — so in practice the inline-alert branch runs.
+
 ## Schedule & leave now gate availability — CONFIRMED 2026-08-15
 
 When a pickup window is given, a driver is additionally **blocked by their weekly

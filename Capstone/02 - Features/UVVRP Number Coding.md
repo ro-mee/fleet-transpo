@@ -35,6 +35,13 @@ It's the law in the operating city. A dispatch that violates it exposes the hote
 
 Standard UVVRP mapping: last plate digit → weekday. Weekends unrestricted.
 
+The fleet vehicles page (`src/app/(dashboard)/fleet/vehicles/page.js`) surfaces
+this as a **Coding Restricted** KPI card that actually filters: clicking it
+toggles `filters.restrictedOnly`, which both `FleetGrid` and `FleetTable`
+honour by keeping only vehicles whose plate is in the day's restricted set
+(the page already computed restriction per-plate via `isRestricted()` for the
+stat count — same set is reused).
+
 ## The three response modes — CONFIRMED
 
 `src/lib/uvvrp/policy.js` supports:
