@@ -38,16 +38,20 @@ export function DatePicker({
 
   // Keep internal state in sync with external value changes
   React.useEffect(() => {
-    if (!value) {
-      setSelectedDate(null);
-      return;
-    }
-    const str = String(value).includes("T") ? value : `${value}T00:00:00`;
-    const d = new Date(str);
-    if (!isNaN(d.getTime())) {
-      setSelectedDate(d);
-      setViewDate(d);
-    }
+    // Deferred one tick: external-value sync without sync setState in the effect body.
+    const t = setTimeout(() => {
+      if (!value) {
+        setSelectedDate(null);
+        return;
+      }
+      const str = String(value).includes("T") ? value : `${value}T00:00:00`;
+      const d = new Date(str);
+      if (!isNaN(d.getTime())) {
+        setSelectedDate(d);
+        setViewDate(d);
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, [value]);
 
   const commitDate = (dateObj) => {

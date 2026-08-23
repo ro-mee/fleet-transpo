@@ -73,7 +73,7 @@ function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
  */
 export default function RootLayout() {
   const [showLaunch, setShowLaunch] = useState(true);
-  const appEntrance = useRef(new Animated.Value(0)).current;
+  const [appEntrance] = useState(() => new Animated.Value(0));
   const [loaded, error] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,

@@ -193,6 +193,7 @@ export default function VehicleFormPage({ params }) {
 
       if (Array.isArray(vehicle.documents)) {
         const orCr = vehicle.documents.find((d) => d.document_type === "OR_CR");
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating local doc draft from the loaded vehicle record
         if (orCr) setOrCrDoc({ document_number: orCr.document_number || "", file_url: orCr.file_url || "" });
 
         const ins = vehicle.documents.find((d) => d.document_type === "Insurance");

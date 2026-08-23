@@ -48,18 +48,19 @@ export default function SwipeButton({
   }, [containerWidth]);
 
   // ─── Animated values (all useNativeDriver:true) ───────────────────────────
-  const thumbX        = useRef(new Animated.Value(0)).current;
+  const [thumbX] = useState(() => new Animated.Value(0));
   // Success glass overlay
-  const glassOpacity  = useRef(new Animated.Value(0)).current;
-  const glassScale    = useRef(new Animated.Value(0.82)).current;
+  const [glassOpacity] = useState(() => new Animated.Value(0));
+  const [glassScale] = useState(() => new Animated.Value(0.82));
   // Label fade
   const labelOpacity  = thumbX.interpolate({
+      // eslint-disable-next-line react-hooks/refs -- interpolation ranges read live layout refs; recomputed on layout change
     inputRange: [0, maxXRef.current * 0.28, maxXRef.current],
     outputRange: [1, 0, 0],
     extrapolate: 'clamp',
   });
   // Chevron arrow hint — pulses subtly at rest (handled via opacity)
-  const thumbScale    = useRef(new Animated.Value(1)).current;
+  const [thumbScale] = useState(() => new Animated.Value(1));
 
   // The green fill follows the thumb. We use a 2000px wide box shifted way left,
   // and translate it to perfectly align its right edge with the thumb center.
@@ -102,6 +103,7 @@ export default function SwipeButton({
 
   // ─── PanResponder ─────────────────────────────────────────────────────────
   const panResponder = useRef(
+    // eslint-disable-next-line react-hooks/refs -- RN gesture responder closes over live refs; created once via lazy state
     PanResponder.create({
       onStartShouldSetPanResponder:         () => !disabledRef.current && !swipedRef.current,
       onStartShouldSetPanResponderCapture:  () => !disabledRef.current && !swipedRef.current,
@@ -216,7 +218,8 @@ export default function SwipeButton({
 
         {/* ── Thumb (drag handle) ─────────────────────────────────────────── */}
         <Animated.View
-          {...panResponder.panHandlers}
+      // eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers
+      {...panResponder.panHandlers}
           style={[
             styles.thumb,
             {

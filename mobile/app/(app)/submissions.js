@@ -144,7 +144,11 @@ export default function SubmissionsScreen() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
+  const t = setTimeout(load, 0);
+  return () => clearTimeout(t);
+}, [load]);
 
   const allItems = [
     ...submissionsData.map((i) => ({

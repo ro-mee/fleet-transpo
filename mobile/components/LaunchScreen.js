@@ -15,9 +15,9 @@ import { fonts } from "../lib/theme";
 export function LaunchScreen({ onComplete }) {
   const { colors } = useTheme();
   const [reduceMotion, setReduceMotion] = useState(false);
-  const reveal = useRef(new Animated.Value(0)).current;
-  const route = useRef(new Animated.Value(0)).current;
-  const exit = useRef(new Animated.Value(1)).current;
+  const [reveal] = useState(() => new Animated.Value(0));
+  const [route] = useState(() => new Animated.Value(0));
+  const [exit] = useState(() => new Animated.Value(1));
   const finished = useRef(false);
 
   useEffect(() => {

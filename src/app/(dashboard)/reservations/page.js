@@ -235,7 +235,7 @@ export default function ReservationsPage() {
         cell: (info) => <StatusBadge status={info.getValue()} entity="reservation" className="rounded-full px-3 py-1 text-xs font-bold" />,
       }),
     ],
-    [router]
+    []
   );
 
   const statCards = [

@@ -97,12 +97,14 @@ export function NotificationFeedProvider({ children }) {
 
   // Poll + foreground refresh.
   useEffect(() => {
-    refresh(true);
+    // Deferred one tick: poll semantics without sync setState in the effect body.
+    const first = setTimeout(() => refresh(true), 0);
     const id = setInterval(() => refresh(true), POLL_MS);
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") refresh(true);
     });
     return () => {
+      clearTimeout(first);
       clearInterval(id);
       sub.remove();
     };

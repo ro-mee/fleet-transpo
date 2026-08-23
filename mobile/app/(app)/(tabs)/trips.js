@@ -195,6 +195,9 @@ function TripItem({ trip, display, now, router, colors }) {
   );
 }
 
+// Frozen at module load; the 30s interval below keeps it current without render-time reads.
+const NOW_AT_LOAD = Date.now();
+
 export default function TripsTab() {
   const insets = useSafeAreaInsets();
   const { colors } = useTheme();
@@ -204,7 +207,7 @@ export default function TripsTab() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(NOW_AT_LOAD);
 
   // Live clock: re-evaluate the queue every 30s so READY/OVERDUE flip live.
   useEffect(() => {
@@ -263,7 +266,7 @@ export default function TripsTab() {
             <Text style={[styles.progressValue, { color: colors.primary }]}>{currentTime}</Text>
           </View>
           <View style={styles.progressBoxRight}>
-            <Text style={[styles.progressLabel, { color: colors.onSurface }]}>TODAY'S PROGRESS</Text>
+            <Text style={[styles.progressLabel, { color: colors.onSurface }]}>TODAY&apos;S PROGRESS</Text>
             <Text style={[styles.progressValueGreen, { color: colors.secondary }]}>{String(remaining)} Trips Remaining</Text>
           </View>
         </View>

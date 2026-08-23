@@ -64,7 +64,7 @@ export default function SystemAuditPage() {
     queryFn: () => getAuditLogs(applied),
   });
 
-  const logs = data?.logs ?? [];
+  const logs = useMemo(() => data?.logs ?? [], [data]);
   const total = data?.total ?? 0;
 
   const applyFilters = () => {
@@ -80,10 +80,12 @@ export default function SystemAuditPage() {
     return logs;
   }, [logs, quickFilter]);
 
-  // Reset page when quickFilter changes
-  useEffect(() => {
+  // Reset page when quickFilter changes (render-adjust pattern).
+  const [prevQuickFilter, setPrevQuickFilter] = useState(quickFilter);
+  if (prevQuickFilter !== quickFilter) {
+    setPrevQuickFilter(quickFilter);
     setCurrentPage(1);
-  }, [quickFilter]);
+  }
 
   const totalPages = Math.ceil(filteredLogs.length / PAGE_SIZE) || 1;
   const paginatedLogs = useMemo(() => {

@@ -142,7 +142,7 @@ export default function IncidentMap({ incidents = [] }) {
                         <div className="relative overflow-hidden rounded-lg bg-danger/5 border border-danger/20 p-2.5 shadow-2xs mt-1">
                           <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-danger" />
                           <p className="text-xs font-bold text-foreground/90 leading-relaxed">
-                            "{inc.description}"
+                            &ldquo;{inc.description}&rdquo;
                           </p>
                         </div>
                       )}

@@ -74,6 +74,7 @@ export function DataTable({
   }, [rawColumns]);
 
   const paginationState = { pageIndex, pageSize };
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table owns its instance/store
   const table = useReactTable({
     data,
     columns,

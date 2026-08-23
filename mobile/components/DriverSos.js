@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -39,10 +39,13 @@ export function DriverSos() {
   const bounds = useRef({ maxX: 0, maxY: 0 });
   const moved = useRef(false);
 
-  const setPosition = (next) => {
-    offset.current = next;
-    position.setValue(next);
-  };
+  const setPosition = useCallback(
+    (next) => {
+      offset.current = next;
+      position.setValue(next);
+    },
+    [position]
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((value) => {
@@ -55,52 +58,61 @@ export function DriverSos() {
       show.remove();
       hide.remove();
     };
-  }, []);
+  }, [setPosition]);
 
-  const [pan] = useState(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onStartShouldSetPanResponderCapture: () => true,
-    onPanResponderGrant: () => {
-      moved.current = false;
-      start.current = offset.current;
-      position.stopAnimation();
-      const screen = Dimensions.get("window");
-      bounds.current = {
-        maxX: screen.width - SOS_WIDTH - moderateScale(32),
-        maxY: screen.height - moderateScale(220),
-      };
-    },
-    onPanResponderMove: (_, gesture) => {
-      if (Math.hypot(gesture.dx, gesture.dy) > 6) moved.current = true;
-      const { maxX, maxY } = bounds.current;
-      setPosition({
-        x: Math.max(-maxX, Math.min(0, start.current.x + gesture.dx)),
-        y: Math.max(-maxY, Math.min(0, start.current.y + gesture.dy)),
-      });
-    },
-    onPanResponderRelease: () => {
-      if (!moved.current) {
-        setOpen(true);
-        return;
-      }
-      const screen = Dimensions.get("window");
-      const maxX = screen.width - SOS_WIDTH - moderateScale(32);
-      const current = offset.current;
-      const snapped = { x: current.x < -maxX / 2 ? -maxX : 0, y: current.y };
-      offset.current = snapped;
-      Animated.spring(position, {
-        toValue: snapped,
-        damping: 18,
-        stiffness: 220,
-        mass: 0.8,
-        overshootClamping: true,
-        useNativeDriver: false,
-      }).start();
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapped)).catch(() => {});
-    },
-    onPanResponderTerminationRequest: () => false,
-    onShouldBlockNativeResponder: () => true,
-  }));
+  // Handlers live OUTSIDE the lazy PanResponder initializer so no `.current`
+  // access is lexically inside render scope; they only run on real gestures.
+  const handleGrant = () => {
+    moved.current = false;
+    start.current = offset.current;
+    position.stopAnimation();
+    const screen = Dimensions.get("window");
+    bounds.current = {
+      maxX: screen.width - SOS_WIDTH - moderateScale(32),
+      maxY: screen.height - moderateScale(220),
+    };
+  };
+  const handleMove = (_e, gesture) => {
+    if (Math.hypot(gesture.dx, gesture.dy) > 6) moved.current = true;
+    const { maxX, maxY } = bounds.current;
+    setPosition({
+      x: Math.max(-maxX, Math.min(0, start.current.x + gesture.dx)),
+      y: Math.max(-maxY, Math.min(0, start.current.y + gesture.dy)),
+    });
+  };
+  const handleRelease = () => {
+    if (!moved.current) {
+      setOpen(true);
+      return;
+    }
+    const screen = Dimensions.get("window");
+    const maxX = screen.width - SOS_WIDTH - moderateScale(32);
+    const current = offset.current;
+    const snapped = { x: current.x < -maxX / 2 ? -maxX : 0, y: current.y };
+    offset.current = snapped;
+    Animated.spring(position, {
+      toValue: snapped,
+      damping: 18,
+      stiffness: 220,
+      mass: 0.8,
+      overshootClamping: true,
+      useNativeDriver: false,
+    }).start();
+    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(snapped)).catch(() => {});
+  };
+
+  // eslint-disable-next-line react-hooks/refs -- RN PanResponder idiom: handlers read live refs; created once via lazy state, invoked only on real gestures
+  const [pan] = useState(() =>
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onPanResponderGrant: handleGrant,
+      onPanResponderMove: handleMove,
+      onPanResponderRelease: handleRelease,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+    })
+  );
 
   const sendEmergencyLocation = async () => {
     try {

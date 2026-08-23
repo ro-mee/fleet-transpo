@@ -89,9 +89,9 @@ export function AppAlertHost() {
   const [config, setConfig]   = useState(null);
 
   // Animated values — GPU-only spring physics
-  const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const cardScale       = useRef(new Animated.Value(0.9)).current;
-  const cardOpacity     = useRef(new Animated.Value(0)).current;
+  const [backdropOpacity] = useState(() => new Animated.Value(0));
+  const [cardScale] = useState(() => new Animated.Value(0.9));
+  const [cardOpacity] = useState(() => new Animated.Value(0));
 
   useEffect(() => {
     _showAlert = (cfg) => {
@@ -121,7 +121,7 @@ export function AppAlertHost() {
       ]).start();
     };
     return () => { _showAlert = null; };
-  }, []);
+  }, [backdropOpacity, cardScale, cardOpacity]);
 
   const dismiss = (onPress) => {
     Animated.parallel([

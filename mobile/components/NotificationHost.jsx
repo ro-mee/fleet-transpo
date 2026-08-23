@@ -67,9 +67,9 @@ function toneVisual(colors) {
 
 // ── Heads-up banner ──────────────────────────────────────────────────────────
 function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
-  const progress = useRef(new Animated.Value(1)).current;
-  const y = useRef(new Animated.Value(-130)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [progress] = useState(() => new Animated.Value(1));
+  const [y] = useState(() => new Animated.Value(-130));
+  const [opacity] = useState(() => new Animated.Value(0));
   const visual = toneVisual(colors)[banner.tone] || toneVisual(colors).info;
 
   useEffect(() => {
@@ -191,8 +191,8 @@ function HeadsUpBanner({ banner, colors, type, reduceMotion, onDismiss }) {
 
 // ── Toast ────────────────────────────────────────────────────────────────────
 function ToastItem({ toast, colors, type, reduceMotion, onDismiss }) {
-  const y = useRef(new Animated.Value(24)).current;
-  const opacity = useRef(new Animated.Value(0)).current;
+  const [y] = useState(() => new Animated.Value(24));
+  const [opacity] = useState(() => new Animated.Value(0));
   const visual = toneVisual(colors)[toast.tone] || toneVisual(colors).info;
 
   useEffect(() => {

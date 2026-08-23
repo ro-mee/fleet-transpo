@@ -706,7 +706,7 @@ export default function FuelPage() {
 
           <div className="space-y-4 pt-2">
             <p className="text-xs text-foreground-secondary">
-              Please enter a reason for rejecting this driver refuel claim (e.g. <i>"Unreadable image scan"</i>, <i>"Amount mismatch on receipt"</i>).
+              Please enter a reason for rejecting this driver refuel claim (e.g. <i>&quot;Unreadable image scan&quot;</i>, <i>&quot;Amount mismatch on receipt&quot;</i>).
             </p>
 
             <div className="space-y-1.5">

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "lint:ci": "eslint --max-warnings 233",
+    "lint:ci": "eslint --max-warnings 0",
     "test": "vitest",
     "test:run": "vitest run",
     "db:check": "node scripts/migrate.mjs check",

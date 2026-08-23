@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, useSyncExternalStore } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, MotionConfig, animate, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -104,15 +104,17 @@ const CARD_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_20px_44px_-30px_rgb
 const CARD_SHADOW_HOVER = "hover:shadow-[0_24px_52px_-30px_rgba(17,24,39,0.34)]";
 
 function useReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
+  // External-store subscription: pure getSnapshot, no setState-in-effect.
+  const subscribe = (onChange) => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-    const onChange = (e) => setReduced(e.matches);
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
-  }, []);
-  return reduced;
+  };
+  return useSyncExternalStore(
+    subscribe,
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => false
+  );
 }
 
 /* ── Chart tooltip & tick formatting — inverted for contrast on both themes ── */
@@ -586,7 +588,7 @@ export default function AnalyticsPage() {
   const [riskCount, setRiskCount] = useState(0);
   useEffect(() => {
     if (reducedMotion) {
-      setRiskCount(totalRiskCount);
+      // Display value derives directly below; nothing to animate.
       return;
     }
     const controls = animate(0, totalRiskCount, {

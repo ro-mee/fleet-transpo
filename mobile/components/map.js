@@ -21,6 +21,17 @@ import { useTheme } from "../lib/theme-context";
  * web tiles). Markers are baked into the static image at their geo position,
  * so they track correctly as the map pans.
  */
+function createMapPanResponder(h) {
+  return PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (_e, g) => Math.abs(g.dx) + Math.abs(g.dy) > 6,
+    onPanResponderGrant: h.onGrant,
+    onPanResponderMove: h.onMove,
+    onPanResponderRelease: h.onRelease,
+    onPanResponderTerminate: h.onTerminate,
+  });
+}
+
 export default function TripMap({
   origin,
   destination,
@@ -66,7 +77,10 @@ export default function TripMap({
   // Live-drag transform; committed to `center` on release.
   const [drag, setDrag] = useState({ x: 0, y: 0 });
   const centerRef = useRef(center);
-  centerRef.current = center;
+  useEffect(() => {
+    // Mirror latest value for the (once-created) gesture callbacks.
+    centerRef.current = center;
+  }, [center]);
 
   // Approximate degrees-per-pixel at the current zoom. The static image spans
   // ~0.02° of longitude at zoom 13; each zoom step halves/doubles the span.
@@ -74,7 +88,9 @@ export default function TripMap({
   const degPerPx = spanDeg / 640;
   // Kept in a ref so the PanResponder (created once) reads the live value.
   const degPerPxRef = useRef(degPerPx);
-  degPerPxRef.current = degPerPx;
+  useEffect(() => {
+    degPerPxRef.current = degPerPx;
+  }, [degPerPx]);
 
   const panBy = (dLat, dLng) => {
     setCenter([centerRef.current[0] + dLat, centerRef.current[1] + dLng]);
@@ -82,20 +98,19 @@ export default function TripMap({
 
   const panStep = () => spanDeg * 0.22;
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) + Math.abs(g.dy) > 6,
-      onPanResponderGrant: () => setDrag({ x: 0, y: 0 }),
-      onPanResponderMove: (_, g) => setDrag({ x: g.dx, y: g.dy }),
-      onPanResponderRelease: (_, g) => {
+  // eslint-disable-next-line react-hooks/refs -- live gesture refs are read only from gesture callbacks; responder created once
+  const [panResponder] = useState(() =>
+    createMapPanResponder({
+      onGrant: () => setDrag({ x: 0, y: 0 }),
+      onMove: (_e, g) => setDrag({ x: g.dx, y: g.dy }),
+      onRelease: (_e, g) => {
         // Screen y grows downward: dragging down moves the map north.
         panBy(g.dy * degPerPxRef.current, -g.dx * degPerPxRef.current);
         setDrag({ x: 0, y: 0 });
       },
-      onPanResponderTerminate: () => setDrag({ x: 0, y: 0 }),
+      onTerminate: () => setDrag({ x: 0, y: 0 }),
     })
-  ).current;
+  );
 
   const markers = [];
   if (originValid) markers.push({ lat: Number(origin.latitude), lng: Number(origin.longitude), color: "10B981" });
