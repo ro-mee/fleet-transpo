@@ -3,6 +3,7 @@ import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/l
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
+import { suspensionAction } from "@/lib/drivers/compliance";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -230,6 +231,71 @@ export async function PUT(req, { params }) {
       );
     }
 
+    // License-renewal reinstatement (gated): saving a valid expiry while the
+    // driver carries a compliance suspension ('license_expired') lifts it.
+    // Manual/legacy suspensions never auto-restore. An explicit driver_status
+    // in this same request wins — the admin said what they meant.
+    let reinstated = false;
+    if (driver_status === undefined) {
+      try {
+        const after = await query(
+          `SELECT d.driver_status, d.suspension_reason, d.license_expiry,
+                  e.first_name || ' ' || e.last_name AS name
+             FROM drivers d
+             LEFT JOIN employees e ON e.employee_id = d.employee_id
+            WHERE d.driver_id = $1 AND d.deleted_at IS NULL`,
+          [id]
+        );
+        // Map the SQL row's snake_case columns onto the helper's camelCase
+        // contract — passing the row verbatim silently binds nothing.
+        const decision = suspensionAction({
+          driverStatus: after.rows[0]?.driver_status,
+          suspensionReason: after.rows[0]?.suspension_reason,
+          licenseExpiry: after.rows[0]?.license_expiry,
+        });
+        if (decision.action === "restore") {
+          await query(
+            `UPDATE drivers SET driver_status = $1, suspension_reason = NULL, updated_at = NOW()
+              WHERE driver_id = $2`,
+            ["Available", id]
+          );
+          reinstated = true;
+          const name = after.rows[0]?.name || `Driver #${id}`;
+
+          // Tell the ops roles the driver is back. Best-effort.
+          const { rows: staff } = await query(
+            `SELECT employee_id FROM employees
+              WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin','admin','fleet_manager'))
+                AND deleted_at IS NULL`
+          );
+          if (staff.length) {
+            const { sendPush } = await import("@/services/push.service");
+            await query(
+              `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+               SELECT u.employee_id, $2, $3, 'Info', 'driver', $4 FROM unnest($1::int[]) AS u(employee_id)`,
+              [staff.map((s) => s.employee_id), "Driver Reinstated",
+               `${name}'s license was renewed — compliance suspension lifted and driver is Available again.`, Number(id) || null]
+            ).catch(() => {});
+            sendPush({
+              employeeIds: staff.map((s) => s.employee_id),
+              title: "Driver Reinstated",
+              body: `${name}'s license renewal lifted the suspension — driver is Available.`,
+              data: { reference_type: "driver", reference_id: Number(id) || null },
+            }).catch(() => {});
+          }
+          await writeAudit(req, null, {
+            action: "update",
+            resource: "drivers",
+            resourceId: Number(id) || null,
+            oldValues: { driver_status: "Suspended" },
+            newValues: { driver_status: "Available", reason: "license renewed — compliance suspension lifted" },
+          });
+        }
+      } catch (complianceErr) {
+        console.warn("license-renewal reinstatement skipped:", complianceErr?.message || complianceErr);
+      }
+    }
+
     // Fetch updated driver via raw SQL query to guarantee clean response
     const fetchSql = `
       SELECT 
@@ -250,7 +316,7 @@ export async function PUT(req, { params }) {
     `;
 
     const { rows: updatedRows } = await query(fetchSql, [id]);
-    return ok(updatedRows[0]);
+    return ok({ ...updatedRows[0], reinstated });
   } catch (e) {
     return handleError(e);
   }

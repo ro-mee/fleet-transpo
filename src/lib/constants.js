@@ -152,6 +152,14 @@ export const DRIVER_STATUS = {
   SUSPENDED: "Suspended",
 };
 
+// Why a driver carries the Suspended flag. 'license_expired' is written (and
+// cleared) by the automatic compliance sync and is the only reason code may
+// auto-reinstate from; NULL means a human set it — never auto-restored.
+export const DRIVER_SUSPENSION_REASON = {
+  LICENSE_EXPIRED: "license_expired",
+  MANUAL: "manual",
+};
+
 export const MAINTENANCE_TYPE = {
   ROUTINE: "Routine",
   REPAIR: "Repair",

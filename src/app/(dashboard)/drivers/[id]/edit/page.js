@@ -510,6 +510,13 @@ export default function EditDriverPage() {
                       <option value="On Leave">On Leave</option>
                       <option value="Suspended">Suspended</option>
                     </select>
+                    {form.watch("driver_status") === "Suspended" && (
+                      <p className="text-[11px] text-foreground-muted font-medium mt-1 leading-relaxed">
+                        {driver?.suspension_reason === "license_expired"
+                          ? "Suspended automatically for an expired license — saving a future expiry date reinstates the driver automatically."
+                          : "Manual suspensions are never lifted automatically — flip back to Available here when ready."}
+                      </p>
+                    )}
                   </FloatingField>
                 </div>
               </CardContent>

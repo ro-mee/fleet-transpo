@@ -1,4 +1,7 @@
 import { getAdminClient } from "@/lib/db";
+import { query } from "@/lib/db";
+import { suspensionAction } from "@/lib/drivers/compliance";
+import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -220,21 +223,88 @@ export async function syncDriverStatus(driverId) {
   // Driver availability is separate from trip activity. driver_status is a
   // human-set availability flag (Available / Off Duty / On Leave / Suspended);
   // being mid-trip is captured by the windowed conflict checks, not by flipping
-  // this column to "On Trip". The only automatic write here is a compliance one:
-  // an expired license grounds the driver regardless of anything else. On Leave
-  // is never overridden.
+  // this column to "On Trip".
+  //
+  // The only automatic write is license compliance, decided by the pure helper
+  // in src/lib/drivers/compliance.js: an expired license suspends — stamped
+  // with suspension_reason so it can later be auto-reinstated — and ONLY a
+  // 'license_expired' suspension is ever auto-restored. Manual/legacy
+  // suspensions (any other reason or NULL) are never touched here.
+  // On Leave always wins.
   const { data: driver } = await supabase
     .from("drivers")
-    .select("driver_status, license_expiry")
+    .select("driver_status, license_expiry, suspension_reason")
     .eq("driver_id", driverId)
     .maybeSingle();
   if (!driver) return;
-  if (driver.driver_status === "On Leave") return;
 
-  if (isBeforeToday(driver.license_expiry)) {
-    await supabase.from("drivers").update({ driver_status: "Suspended" }).eq("driver_id", driverId);
-    return;
+  const decision = suspensionAction({
+    driverStatus: driver.driver_status,
+    suspensionReason: driver.suspension_reason,
+    licenseExpiry: driver.license_expiry,
+  });
+
+  if (decision.action === "suspend") {
+    await supabase
+      .from("drivers")
+      .update({
+        driver_status: DRIVER_STATUS.SUSPENDED,
+        suspension_reason: decision.reason,
+      })
+      .eq("driver_id", driverId);
+
+    // The suspension used to be silent — dispatchers found out when a booking
+    // failed. Tell the people who can act on it. Best-effort.
+    try {
+      const { rows: info } = await query(
+        `SELECT e.first_name || ' ' || e.last_name AS name, d.license_expiry
+           FROM drivers d JOIN employees e ON e.employee_id = d.employee_id
+          WHERE d.driver_id = $1`,
+        [driverId]
+      );
+      const name = info.rows[0]?.name || `Driver #${driverId}`;
+      const expiry = info.rows[0]?.license_expiry || "unknown date";
+      const { rows: staff } = await query(
+        `SELECT employee_id FROM employees
+          WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin','admin','fleet_manager'))
+            AND deleted_at IS NULL`
+      );
+      if (staff.length) {
+        await supabase.from("notifications").insert(
+          staff.map((s) => ({
+            employee_id: s.employee_id,
+            title: "Driver Auto-Suspended",
+            message: `${name} was automatically suspended — license expired ${expiry}. Reinstate from their profile after renewal.`,
+            type: "Warning",
+            reference_type: "driver",
+            reference_id: driverId,
+          }))
+        );
+        const { sendPush } = await import("@/services/push.service");
+        await sendPush({
+          employeeIds: staff.map((s) => s.employee_id),
+          title: "Driver Auto-Suspended",
+          body: `${name} suspended — license expired ${expiry}.`,
+          data: { reference_type: "driver", reference_id: driverId },
+        });
+      }
+    } catch (e) {
+      console.warn("driver suspend notification failed:", e?.message || e);
+    }
   }
+
+  // Safety-net restore for a compliance suspension whose license became valid
+  // again through some path other than PUT /api/drivers/[id] (which performs
+  // its own reinstatement with audit + notification). Silent by design to
+  // avoid duplicate notices; manual/legacy reasons never reach this branch.
+  if (decision.action === "restore") {
+    await supabase
+      .from("drivers")
+      .update({ driver_status: DRIVER_STATUS.AVAILABLE, suspension_reason: null })
+      .eq("driver_id", driverId);
+  }
+
+  return decision;
 }
 
 

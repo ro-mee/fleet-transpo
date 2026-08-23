@@ -297,6 +297,7 @@ CREATE TABLE drivers (
   emergency_contact_address text,
   license_image_url text,
   license_back_image_url text,
+  suspension_reason varchar(50),
   CONSTRAINT chk_driver_status CHECK (((driver_status)::text = ANY ((ARRAY['Available'::character varying, 'On Trip'::character varying, 'Off Duty'::character varying, 'On Leave'::character varying, 'Suspended'::character varying])::text[]))),
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );

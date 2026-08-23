@@ -18,6 +18,7 @@ Every finding here was **verified against the actual file or the live database**
 
 | Note | Severity | One-line |
 |---|---|---|
+| [[GAP Compliance Suspension Had No Inverse]] | ✅ Fixed 2026-08-23 | License renewal never un-suspended anyone — no reason was recorded. Now gated by `suspension_reason` (migration 064) |
 | [[BUG Dispatch Teardown Ungrounds Vehicle]] | ✅ Fixed 2026-08-23 | Each dispatch teardown re-synced availability and reset the freshly-grounded vehicle to `Available`. Found by the headless E2E rehearsal, not by review |
 | [[BUG AuthError Not Imported]] | ✅ Fixed | Trip-start 404 path threw `ReferenceError`. Import added; `no-undef` enabled so the class can't recur silently |
 | [[BUG shouldGroundVehicle Is A Stub]] | ✅ Fixed | Grounded **every** vehicle on any incident — and tore down its live dispatch |

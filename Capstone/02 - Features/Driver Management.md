@@ -70,6 +70,15 @@ vehicle availability, requires a documented `actions_taken`, notifies the report
 and offline submissions are idempotent (`client_submission_id`). Full rules and
 remaining limits: → [[Incidents]]
 
+## License-compliance suspension — CONFIRMED 2026-08-23
+
+Expired license ⇒ auto-`Suspended`, now **with an inverse**: `drivers.suspension_reason`
+(migration 064) marks compliance suspensions (`license_expired`), and saving a valid
+future expiry reinstates automatically — audit + staff notification on both the suspend
+and the reinstate. Manual/legacy suspensions (reason NULL) are never touched by code.
+Pure rule in `src/lib/drivers/compliance.js`; driver page carries a Reinstate banner
+for the lingering-flag case. → [[GAP Compliance Suspension Had No Inverse]]
+
 ## Database tables used
 
 `drivers` (23) · [[employees]] (47) · [[driver_vehicle_assignments]] · `driverincidents` · `driver_documents` · `driver_consents` · `driverattendance` **0 rows** · `driver_stats` (view) · [[mobile_refresh_tokens]] (57)

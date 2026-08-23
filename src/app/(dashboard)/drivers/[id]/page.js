@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { getDriver, deleteDriver, syncDriverAccount } from "@/services/driver.service";
+import { getDriver, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
+import { licenseExpired } from "@/lib/drivers/compliance";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
@@ -76,6 +77,21 @@ export default function DriverDetailPage() {
     },
   });
 
+  // Manual lift of a lingering compliance suspension. Only offered when the
+  // license is valid again — the flag itself was set automatically when it
+  // expired, and renewal alone never clears it.
+  const reinstateMutation = useMutation({
+    mutationFn: () => updateDriver(id, { driver_status: "Available" }),
+    onSuccess: () => {
+      toast.success("Driver reinstated — status set to Available");
+      queryClient.invalidateQueries({ queryKey: ["driver", id] });
+      queryClient.invalidateQueries({ queryKey: ["drivers"] });
+    },
+    onError: (err) => {
+      toast.error(err.message || "Failed to reinstate driver");
+    },
+  });
+
   if (isLoading) return <DetailSkeleton />;
 
   if (isError || !driver) {
@@ -113,6 +129,31 @@ export default function DriverDetailPage() {
 
   return (
     <div className="space-y-6 w-full pb-10">
+      {/* ── Compliance banner: license renewed but the auto-suspension lingers ── */}
+      {driver.driver_status === "Suspended" &&
+        driver.suspension_reason === "license_expired" &&
+        !licenseExpired(driver.license_expiry) && (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border border-warning/30 bg-warning/5 rounded-2xl px-5 py-4">
+            <ShieldAlert className="w-5 h-5 text-warning shrink-0" />
+            <div className="flex-1 text-sm">
+              <p className="font-bold text-foreground">License renewed — driver still marked Suspended</p>
+              <p className="text-xs text-foreground-secondary font-medium mt-0.5">
+                The expiry now reads {driver.license_expiry ? formatDate(driver.license_expiry) : "—"}.
+                Reinstate to make the driver dispatchable again.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              className="rounded-xl shrink-0"
+              disabled={reinstateMutation.isPending}
+              onClick={() => reinstateMutation.mutate()}
+            >
+              <CheckCircle2 className="w-4 h-4 mr-1.5" />
+              {reinstateMutation.isPending ? "Reinstating…" : "Reinstate"}
+            </Button>
+          </div>
+        )}
+
       {/* ── Top Header Banner Card ── */}
       <div className="relative overflow-hidden bg-surface border border-border/60 p-6 md:p-8 rounded-[24px] shadow-sm">
         {/* Subtle background decoration */}
