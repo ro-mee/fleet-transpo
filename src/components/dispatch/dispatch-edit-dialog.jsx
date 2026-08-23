@@ -18,6 +18,7 @@ import { getDrivers } from "@/services/driver.service";
 import { getDriverAssignments } from "@/services/driver-assignment.service";
 import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { formatDateTime } from "@/lib/utils";
+import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { Save, Shuffle, UserCheck, CheckCircle2, Search, Users, AlertCircle, CarFront } from "lucide-react";
 
 const TITLES = {
@@ -28,7 +29,7 @@ const TITLES = {
   notes: { title: "Dispatch Notes", description: "Free-text notes carried with this dispatch." },
 };
 
-function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
+function AssignBody({ dispatch, onClose, onSubmit, isPending, error }) {
   const departure = dispatch?.scheduled_departure;
   const returnAt = dispatch?.scheduled_arrival || null;
   const passengers = Number(dispatch?.transportation_requests?.passenger_count) || 1;
@@ -163,7 +164,37 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
     }, [])
     .sort((a, b) => a.plateNumber.localeCompare(b.plateNumber));
 
-  const filteredOptions = options.filter((o) => {
+  // Standalone assign mode: the dialog must always offer the pair currently on
+  // the dispatch, even when availability/pairing filters would exclude it (the
+  // server re-validates the effective state on PATCH). Without this the
+  // pre-filled selection can point at a value no row renders.
+  const currentPair = (() => {
+    const vid = dispatch?.vehicle_id;
+    const did = dispatch?.driver_id;
+    if (vid == null || did == null) return null;
+    const value = `${vid}:${did}`;
+    if (options.some((o) => o.value === value)) return null;
+    const v = vById.get(Number(vid)) || dispatch?.vehicles || null;
+    const d = dById.get(Number(did)) || dispatch?.drivers || null;
+    const currentDriverName =
+      [d?.first_name, d?.last_name].filter(Boolean).join(" ").trim() || `Driver #${did}`;
+    return {
+      value,
+      vehicleId: Number(vid),
+      driverId: Number(did),
+      plateNumber: v?.plate_number || `Vehicle #${vid}`,
+      model: v?.model || "Current vehicle",
+      seats: v?.seating_capacity ?? undefined,
+      driverName: currentDriverName,
+      substitute: false,
+      scheduleWarning: d?.schedule_warning,
+      isCurrent: true,
+    };
+  })();
+
+  const allOptions = currentPair ? [currentPair, ...options] : options;
+
+  const filteredOptions = allOptions.filter((o) => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -224,7 +255,7 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
               <AlertCircle className="w-5 h-5 text-warning mb-1" />
               <p className="text-xs font-semibold text-foreground">No matching pairs available</p>
               <p className="text-[11px] text-foreground-muted mt-0.5">
-                {options.length === 0
+                {allOptions.length === 0
                   ? "No eligible vehicles & drivers are currently on duty."
                   : "Try clearing your search query."}
               </p>
@@ -261,6 +292,12 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
                           Substitute
                         </span>
                       )}
+                      {o.isCurrent && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-info/30 bg-info/10 px-2 py-0.5 text-[10px] font-bold text-info">
+                          <CheckCircle2 className="w-3 h-3" aria-hidden="true" />
+                          Current
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-foreground-secondary pt-0.5">
                       <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
@@ -290,6 +327,24 @@ function AssignBody({ dispatch, onClose, onSubmit, isPending }) {
           date. Reassigning will automatically flip interrupted dispatches back to{" "}
           <span className="font-bold text-foreground">Scheduled</span> status.
         </p>
+
+        {/* The PATCH failure surface. A structured 409 body renders through
+            ConflictBlock; a plain error string (the dispatch endpoint's usual
+            shape — document windows, coding, double-booking) renders inline so
+            the toast is never the only carrier of why the pair was rejected. */}
+        {(() => {
+          if (!error) return null;
+          const conflicts = Array.isArray(error?.data?.conflicts) ? error.data.conflicts : [];
+          if (conflicts.length > 0) {
+            return <ConflictBlock conflicts={conflicts} />;
+          }
+          return (
+            <div className="flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 p-3">
+              <AlertCircle className="mt-0.5 w-4 h-4 shrink-0 text-danger" aria-hidden="true" />
+              <p className="text-xs font-medium text-foreground">{error.message}</p>
+            </div>
+          );
+        })()}
       </div>
 
       <DialogFooter className="gap-2 sm:gap-0">

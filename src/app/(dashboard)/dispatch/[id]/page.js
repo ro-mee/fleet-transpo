@@ -47,6 +47,7 @@ import {
   PlayCircle,
   Route as RouteIcon,
   Send,
+  Shuffle,
   StickyNote,
   TriangleAlert,
   User,
@@ -54,7 +55,6 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-
 // Phase 17 — the dispatch detail page.
 //
 // Rewritten off `vehiclereservations`. The old page read
@@ -277,8 +277,8 @@ export default function DispatchDetailPage() {
             variant="outline"
             size="icon"
             className="rounded-xl shrink-0"
-            onClick={() => router.back()}
-            aria-label="Go back"
+            onClick={() => router.push("/dispatch")}
+            aria-label="Back to the dispatch board"
           >
             <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
           </Button>
@@ -331,9 +331,23 @@ export default function DispatchDetailPage() {
               size="sm"
               className="rounded-xl text-xs"
               disabled={busy}
-              onClick={() => setEditing({ dispatch, mode: "notes" })}
+              onClick={() => { patchMutation.reset(); setEditing({ dispatch, mode: "notes" }); }}
             >
               <FileText className="w-3.5 h-3.5 mr-1" /> Notes
+            </Button>
+          )}
+          {/* Same verb the board offers: swap the committed pair. The dialog
+              pre-selects the current vehicle+driver and PATCHes through the
+              same transition-guarded endpoint. */}
+          {permissions.dispatchUpdate && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs"
+              disabled={busy}
+              onClick={() => { patchMutation.reset(); setEditing({ dispatch, mode: "assign" }); }}
+            >
+              <Shuffle className="w-3.5 h-3.5 mr-1" /> Reassign
             </Button>
           )}
           {canCancel && (
@@ -538,7 +552,8 @@ export default function DispatchDetailPage() {
         dispatch={editing?.dispatch || null}
         mode={editing?.mode || null}
         isPending={patchMutation.isPending}
-        onClose={() => setEditing(null)}
+        error={patchMutation.error}
+        onClose={() => { patchMutation.reset(); setEditing(null); }}
         onSubmit={({ patch }) => patchMutation.mutate({ patch })}
       />
 
@@ -547,9 +562,11 @@ export default function DispatchDetailPage() {
           <DialogContent>
             <DialogHeader>
               <DialogTitle>Cancel this dispatch?</DialogTitle>
+              {/* Same consequence wording as the board's cancel dialog — the
+                  request keeps its own status and is re-dispatched from the
+                  queue, not cancelled with the run. */}
               <DialogDescription>
-                {dispatch.dispatch_number} will be stood down. The vehicle and driver are released,
-                and the originating request goes back to needing a dispatch.
+                {`${dispatch.dispatch_number || `DSP-${dispatch.dispatch_id}`} will be stood down. The vehicle and driver return to the pool. The originating request keeps its own status — reassign or re-dispatch it from the queue.`}
               </DialogDescription>
             </DialogHeader>
             <div className="px-6">

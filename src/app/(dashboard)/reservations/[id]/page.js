@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { PhaseRail } from "@/components/ui/phase-rail";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   Dialog,
   DialogContent,
@@ -36,12 +38,10 @@ import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { cn, formatDateTime, formatDistance, formatDuration } from "@/lib/utils";
 import {
   ArrowLeft,
-  ArrowRight,
   Ban,
   Building2,
   CalendarClock,
   CarFront,
-  CheckCircle2,
   Clock,
   ExternalLink,
   FileText,
@@ -57,7 +57,12 @@ import {
   Users,
 } from "lucide-react";
 
-const STEPS = [L.PENDING, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS, L.COMPLETED];
+// The verified reservation lifecycle (reservation-state.js + the
+// chk_transport_fleet_status CHECK): a strict linear chain. There is no
+// Approved step and no Under Review step in fleet_status — approval happens on
+// Booking's side before the request reaches Fleet.
+const RESERVATION_STEPS = [L.PENDING, L.SCHEDULED, L.ASSIGNED, L.IN_PROGRESS, L.COMPLETED]
+  .map((key) => ({ key, label: key }));
 
 const ABORTED = { [L.CANCELLED]: "Cancelled" };
 
@@ -88,7 +93,7 @@ function Field({ icon: Icon, label, children, className }) {
   );
 }
 
-function LifecycleBar({ status }) {
+function LifecycleRail({ status }) {
   if (ABORTED[status]) {
     return (
       <div className="flex items-center gap-2 rounded-3xl border border-danger/30 bg-danger/5 px-4 py-3 text-xs">
@@ -100,38 +105,9 @@ function LifecycleBar({ status }) {
     );
   }
 
-  const current = STEPS.indexOf(status);
-
   return (
     <div className="p-4 rounded-2xl bg-surface border border-border/60 shadow-xs">
-      <ol className="flex flex-wrap items-center gap-2">
-        {STEPS.map((step, i) => {
-          const done = current > -1 && i < current;
-          const active = i === current;
-          return (
-            <li key={step} className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold transition-colors",
-                  active
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : done
-                    ? "bg-success/15 text-success border border-success/30 font-medium"
-                    : "bg-muted/50 text-foreground-muted border border-border/40"
-                )}
-              >
-                {done && <CheckCircle2 className="w-3.5 h-3.5" />}
-                {step}
-              </span>
-              {i < STEPS.length - 1 && (
-                <ArrowRight
-                  className={cn("w-3.5 h-3.5", done ? "text-success" : "text-foreground-muted/40")}
-                />
-              )}
-            </li>
-          );
-        })}
-      </ol>
+      <PhaseRail steps={RESERVATION_STEPS} status={status} />
     </div>
   );
 }
@@ -153,12 +129,20 @@ function DispatchList({ dispatches }) {
       </CardHeader>
       <CardContent className="space-y-2 pt-4">
         {dispatches.map((d) => (
-          <Link
+          // One row, two destinations: the row's base is an overlay link to the
+          // dispatch, and the explicit "View trip" link sits above it (anchors
+          // cannot nest). Content ignores pointer events so clicks fall through
+          // to the dispatch overlay.
+          <div
             key={d.dispatch_id}
-            href={`/dispatch/${d.dispatch_id}`}
-            className="flex items-center justify-between gap-3 rounded-3xl border border-border p-3.5 transition-all hover:bg-hover hover:border-primary/40 bg-surface"
+            className="relative flex items-center justify-between gap-3 rounded-3xl border border-border bg-surface p-3.5 transition-all hover:bg-hover hover:border-primary/40"
           >
-            <div className="min-w-0">
+            <Link
+              href={`/dispatch/${d.dispatch_id}`}
+              aria-label={`Open dispatch ${d.dispatch_number || d.dispatch_id}`}
+              className="absolute inset-0 z-0 rounded-3xl"
+            />
+            <div className="pointer-events-none relative z-10 min-w-0">
               <div className="flex items-center gap-2">
                 <Send className="w-3.5 h-3.5 shrink-0 text-primary" />
                 <span className="font-data text-xs font-bold text-foreground">
@@ -173,10 +157,25 @@ function DispatchList({ dispatches }) {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
-              {d.trip_status && <StatusBadge status={d.trip_status} entity="trip" />}
-              <StatusBadge status={d.status} entity="dispatch" />
+              {d.trip_status && (
+                <span className="pointer-events-none relative z-10">
+                  <StatusBadge status={d.trip_status} entity="trip" />
+                </span>
+              )}
+              <span className="pointer-events-none relative z-10">
+                <StatusBadge status={d.status} entity="dispatch" />
+              </span>
+              {d.trip_id && (
+                <Link
+                  href={`/trips/${d.trip_id}`}
+                  className="relative z-20 inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2.5 py-1 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10"
+                >
+                  <ExternalLink className="w-3 h-3" aria-hidden="true" />
+                  View trip
+                </Link>
+              )}
             </div>
-          </Link>
+          </div>
         ))}
       </CardContent>
     </Card>
@@ -222,7 +221,9 @@ export default function ReservationDetailPage() {
   };
 
   const cancelMutation = useMutation({
-    mutationFn: () => cancelRequest(requestId, reason || null),
+    // The required reason arrives from ConfirmDialog's onConfirm — same contract
+    // the queue's cancel dialog uses.
+    mutationFn: (why) => cancelRequest(requestId, why || null),
     onSuccess: () => {
       toast.success("Request cancelled — Booking will be notified");
       setCancelling(false);
@@ -301,7 +302,7 @@ export default function ReservationDetailPage() {
             <Button
               size="sm"
               onClick={() => setAssigning(true)}
-              className="rounded-xl text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-xs"
+              className="rounded-xl text-xs bg-primary hover:bg-primary/90 text-white font-semibold shadow-xs"
             >
               <Send className="w-3.5 h-3.5 mr-1 text-white" />
               {r.vehicle_id && r.driver_id ? "Reassign Resources" : "Assign Resources"}
@@ -338,8 +339,8 @@ export default function ReservationDetailPage() {
         </div>
       </div>
 
-      {/* ── Lifecycle Progress Bar ── */}
-      <LifecycleBar status={status} />
+      {/* ── Lifecycle Progress Rail ── */}
+      <LifecycleRail status={status} />
 
       {conflicts.length > 0 && (
         <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
@@ -522,41 +523,23 @@ export default function ReservationDetailPage() {
         }}
       />
 
-      <Dialog open={cancelling} onOpenChange={setCancelling}>
-        <DialogContent className="rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold">Cancel Transport Request</DialogTitle>
-            <DialogDescription className="text-xs">
-              This will cancel the request in Fleet and notify the Booking system.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-2 pt-3">
-            <FloatingField label="Cancellation Reason (Optional)" icon={AlertCircle}>
-              <input
-                id="cancel-reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="e.g. Guest cancelled booking"
-                className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/60 py-1"
-              />
-            </FloatingField>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setCancelling(false)} className="rounded-xl">
-              Back
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              disabled={cancelMutation.isPending}
-              onClick={() => cancelMutation.mutate()}
-              className="rounded-xl"
-            >
-              Cancel Request
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ConfirmDialog
+        open={cancelling}
+        onOpenChange={setCancelling}
+        variant="danger"
+        title="Cancel Transport Request"
+        message="Cancelling this request also stands down any dispatch and trip already raised for it, and notifies the Booking system that the booking will not be fulfilled."
+        confirmLabel="Cancel request"
+        cancelLabel="Keep request"
+        requireReason
+        reasonLabel="Cancellation reason"
+        reasonPlaceholder="e.g. Guest cancelled booking"
+        loading={cancelMutation.isPending}
+        onConfirm={(why) => {
+          setReason(why);
+          cancelMutation.mutate(why);
+        }}
+      />
 
       <Dialog open={rescheduling} onOpenChange={setRescheduling}>
         <DialogContent className="rounded-2xl">

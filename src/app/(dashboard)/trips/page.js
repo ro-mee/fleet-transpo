@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
@@ -131,12 +132,24 @@ export default function TripsPage() {
         header: "Dispatch #",
         cell: (info) => {
           const val = info.getValue();
-          return val ? (
-            <span className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-2.5 py-1 font-data text-xs font-bold text-foreground shadow-2xs" title={val}>
+          const dispatchId = info.row.original.dispatch_id;
+          if (!val) return <span className="text-foreground-muted text-xs font-medium">—</span>;
+          const chipClass =
+            "inline-flex items-center rounded-xl border border-border/80 bg-surface px-2.5 py-1 font-data text-xs font-bold text-foreground shadow-2xs transition-colors";
+          // A trip with a dispatch links straight to it on the board; a
+          // hand-raised trip without one stays plain text.
+          return dispatchId ? (
+            <Link
+              href={`/dispatch/${dispatchId}`}
+              className={cn(chipClass, "hover:border-primary/40 hover:text-primary")}
+              title={`Open dispatch ${val}`}
+            >
+              {val}
+            </Link>
+          ) : (
+            <span className={chipClass} title={val}>
               {val}
             </span>
-          ) : (
-            <span className="text-foreground-muted text-xs font-medium">—</span>
           );
         },
       }),
@@ -207,33 +220,6 @@ export default function TripsPage() {
 
   const activeCount = counts.active;
   const completedCount = counts.completed;
-
-  const statCards = [
-    {
-      label: "Total Trips",
-      value: counts.total,
-      icon: Route,
-      color: "primary",
-      active: statusFilter === "all",
-      onClick: () => { setStatusFilter("all"); setPage(1); },
-    },
-    {
-      label: "Active",
-      value: activeCount,
-      icon: Truck,
-      color: "info",
-      active: statusFilter === "Active",
-      onClick: () => { setStatusFilter(statusFilter === "Active" ? "all" : "Active"); setPage(1); },
-    },
-    {
-      label: "Completed",
-      value: completedCount,
-      icon: CheckCircle2,
-      color: "success",
-      active: statusFilter === "Completed",
-      onClick: () => { setStatusFilter(statusFilter === "Completed" ? "all" : "Completed"); setPage(1); },
-    },
-  ];
 
   const handleExport = async () => {
     try {

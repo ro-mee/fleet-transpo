@@ -19,6 +19,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { DispatchCard, DispatchCardSkeleton } from "@/components/dispatch/dispatch-card";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
+import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { useDepartureAlerts } from "@/hooks/use-departure-alerts";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -120,6 +121,10 @@ export default function DispatchPage() {
   const [cancelling, setCancelling] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
   const [busyId, setBusyId] = useState(null);
+  // Blocking findings from a rejected reassignment PATCH, kept visible above
+  // the lanes until dismissed — a toast alone disappears too fast for a
+  // dispatcher mid-decision.
+  const [lastReassignConflicts, setLastReassignConflicts] = useState(null);
 
   // Reset page whenever the active lane or search term changes
   const switchLane = (id) => { setLane(id); setPage(1); };
@@ -201,9 +206,25 @@ export default function DispatchPage() {
               : "Notes saved"
       );
       setEditing(null);
+      setLastReassignConflicts(null);
       invalidate();
     },
-    onError: (e) => toast.error(e.message || "Failed to update the dispatch"),
+    onError: (e, { patch }) => {
+      // The server answers a blocked reassignment with a rich message (document
+      // windows, number coding, double-booking) and — for structured bodies —
+      // the blocking conflicts themselves. Structured findings stay pinned in an
+      // inline alert above the lanes; everything else rides the toast.
+      const conflicts = Array.isArray(e?.data?.conflicts) ? e.data.conflicts : [];
+      const isReassign = patch?.vehicle_id !== undefined || patch?.driver_id !== undefined;
+      if (conflicts.length > 0) {
+        setLastReassignConflicts(conflicts);
+        toast.error(e.message || "Reassignment blocked");
+      } else if (isReassign) {
+        toast.error(`Reassignment blocked: ${e.message || "the pair was rejected"}`);
+      } else {
+        toast.error(e.message || "Failed to update the dispatch");
+      }
+    },
   });
 
   const counts = useMemo(
@@ -249,6 +270,8 @@ export default function DispatchPage() {
     ? allItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
     : allItems;
 
+  // Summary-only: the lane chips below are the single filter control, so these
+  // cards carry counts and tones but no click behaviour.
   const stats = useMemo(
     () => [
       {
@@ -257,8 +280,6 @@ export default function DispatchPage() {
         icon: Inbox,
         tone: "danger",
         trend: "needs urgent action",
-        active: lane === "pendingReassignment",
-        onClick: () => switchLane("pendingReassignment"),
       },
       {
         label: "Scheduled",
@@ -266,8 +287,6 @@ export default function DispatchPage() {
         icon: Clock,
         tone: "primary",
         trend: "awaiting departure",
-        active: lane === "scheduled",
-        onClick: () => switchLane("scheduled"),
       },
       {
         label: "In Progress",
@@ -275,8 +294,6 @@ export default function DispatchPage() {
         icon: PlayCircle,
         tone: "warning",
         trend: "on the road",
-        active: lane === "inProgress",
-        onClick: () => switchLane("inProgress"),
       },
       {
         label: "Completed",
@@ -284,8 +301,6 @@ export default function DispatchPage() {
         icon: CheckCircle2,
         tone: "success",
         trend: "closed out",
-        active: lane === "completed",
-        onClick: () => switchLane("completed"),
       },
       {
         label: "Cancelled",
@@ -293,11 +308,9 @@ export default function DispatchPage() {
         icon: XCircle,
         tone: "secondary",
         trend: "stood down",
-        active: lane === "cancelled",
-        onClick: () => switchLane("cancelled"),
       },
     ],
-    [counts, lane]
+    [counts]
   );
 
   const searching = search.trim().length > 0;
@@ -344,6 +357,25 @@ export default function DispatchPage() {
           return <StatCard key={s.label} {...s} />;
         })}
       </StatGrid>
+
+      {/* Reassignment blockers — persistent until dismissed, so the reason a
+          pair was rejected survives the toast and stays visible while the
+          dispatcher picks another lane or another pair. */}
+      {lastReassignConflicts?.length > 0 && (
+        <div className="rounded-2xl border border-danger/30 bg-danger/5 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <ConflictBlock conflicts={lastReassignConflicts} className="flex-1 min-w-0" />
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() => setLastReassignConflicts(null)}
+            >
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Departure warnings — the one thing on this board that is time-critical,
           so it sits above the lanes and stays put regardless of which lane is
@@ -556,7 +588,8 @@ export default function DispatchPage() {
         dispatch={editing?.dispatch}
         mode={editing?.mode}
         isPending={patchMutation.isPending}
-        onClose={() => setEditing(null)}
+        error={editing?.mode === "assign" ? patchMutation.error : null}
+        onClose={() => { patchMutation.reset(); setEditing(null); }}
         onSubmit={(payload) => patchMutation.mutate(payload)}
       />
 

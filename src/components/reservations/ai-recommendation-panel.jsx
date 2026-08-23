@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { useNow } from "@/components/reservations/trip-summary";
 import {
   CarFront,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   ChevronsUpDown,
@@ -385,6 +387,10 @@ export function AiRecommendationPanel({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [conflictError, setConflictError] = useState(null);
   const [regenerating, setRegenerating] = useState(false);
+  // The assign endpoint returns the dispatch it auto-created. Kept in state so
+  // the panel can hand the dispatcher the link onward — request → dispatch
+  // continuity without leaving this surface.
+  const [assignedDispatch, setAssignedDispatch] = useState(null);
 
   const {
     data: rec,
@@ -457,6 +463,9 @@ export function AiRecommendationPanel({
           : "AI recommendation accepted - resources assigned"
       );
       setConflictError(null);
+      if (res?.dispatch_id) {
+        setAssignedDispatch({ id: res.dispatch_id, number: res.dispatch_number ?? null });
+      }
       queryClient.invalidateQueries({ queryKey: ["reservation-timeline", requestId] });
       onAssigned?.(res);
     },
@@ -509,6 +518,22 @@ export function AiRecommendationPanel({
       )}
 
       <CardContent className={cn("space-y-3", compact && "p-0")}>
+        {/* Continuity: the pair was committed and a dispatch exists — say so
+            here and hand over the link, since this panel is where the
+            dispatcher was last standing. */}
+        {assignedDispatch && (
+          <div className="flex items-center justify-between gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2">
+            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-success">
+              <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                Dispatch {assignedDispatch.number || `#${assignedDispatch.id}`} created
+              </span>
+            </span>
+            <Button asChild variant="outline" size="sm" className="h-7 shrink-0">
+              <Link href={`/dispatch/${assignedDispatch.id}`}>View dispatch</Link>
+            </Button>
+          </div>
+        )}
         {isLoading ? (
           <div className="rounded-[1.375rem] p-1.5 bg-foreground/[0.035] ring-1 ring-border/60">
             <div className="rounded-[calc(1.375rem-0.375rem)] bg-surface shadow-xs p-4 space-y-3">

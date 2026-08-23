@@ -2,8 +2,11 @@
 
 import { useMemo } from "react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
+import { PhaseRail } from "@/components/ui/phase-rail";
+import { TRIP_STATUS as T } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +27,7 @@ import {
   Navigation,
   Gauge,
   CheckCircle2,
-  ChevronRight,
+  Send,
   TrendingUp,
   Star,
   TriangleAlert,
@@ -37,7 +40,20 @@ const TripRouteMap = dynamic(() => import("@/components/maps/live-locations-map"
   loading: () => <div className="h-full w-full animate-pulse bg-hover rounded-2xl" />,
 });
 
-const tripSteps = ["Assigned", "Trip Started", "Completed"];
+// The FULL live driver chain from trip-state.js — not a truncated 3-step model.
+// Legacy/ingest statuses (Pending, Approved, Vehicle Assigned, Driver Assigned,
+// Dispatched, In Progress, Arrived) are not in this rail; PhaseRail degrades
+// gracefully for them via the fallbackNote below.
+const TRIP_CHAIN = [
+  { key: T.ASSIGNED, label: T.ASSIGNED },
+  { key: T.DRIVER_ACCEPTED, label: T.DRIVER_ACCEPTED },
+  { key: T.TRIP_STARTED, label: T.TRIP_STARTED },
+  { key: T.AT_PICKUP, label: T.AT_PICKUP },
+  { key: T.PASSENGER_ONBOARD, label: T.PASSENGER_ONBOARD },
+  { key: T.EN_ROUTE, label: T.EN_ROUTE },
+  { key: T.DROP_OFF, label: T.DROP_OFF },
+  { key: T.COMPLETED, label: T.COMPLETED },
+];
 
 export default function TripDetailPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
@@ -128,26 +144,32 @@ export default function TripDetailPage() {
     );
   }
 
-  const rawDriverName = trip.drivers
-    ? `${trip.drivers.first_name || ""} ${trip.drivers.last_name || ""}`.trim()
-    : "";
-  const driverName = rawDriverName
-    ? rawDriverName.split(" ").map((w) => (w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : "")).join(" ")
-    : "Unassigned Driver";
+  // Render the name exactly as stored (trimmed, spaces collapsed) — no
+  // re-casing, which mangled names like "MC Dela Cruz". No fabricated fallback:
+  // a missing driver says so plainly.
+  const driverName = trip.drivers
+    ? `${trip.drivers.first_name || ""} ${trip.drivers.last_name || ""}`.trim().replace(/\s+/g, " ") || null
+    : null;
 
-  const driverInitials = driverName !== "Unassigned Driver"
-    ? driverName.split(" ").map(n => n[0]).slice(0, 2).join("").toUpperCase()
-    : "DR";
+  const driverInitials = driverName
+    ? driverName.split(" ").map((n) => n[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()
+    : null;
 
   const vehiclePlate = trip.vehicles?.plate_number || "—";
-  const driverLiveLabel = driverName !== "Unassigned Driver"
+  const driverLiveLabel = driverName
     ? `Driver: ${driverName}${vehiclePlate ? ` (${vehiclePlate})` : ""}`
     : "Driver Live GPS Location";
 
   const pickup = trip.pickup_location || trip.routes?.origin || "—";
   const dropoff = trip.dropoff_location || trip.routes?.destination || "—";
 
-  const currentStepIndex = tripSteps.indexOf(trip.trip_status);
+  // Chain links: the trip back to its dispatch and its originating request.
+  // GET /api/trips/:id joins dispatchschedules (dispatch_number) and the
+  // transportation request (request_id + reservation_number, but NOT guest_name —
+  // that column is deliberately outside the detail projection), so the chip is
+  // labelled by reservation number.
+  const dispatchNumber = trip.dispatchschedules?.dispatch_number;
+  const linkedRequest = trip.transportation_requests || null;
 
   const hasPerformanceMetrics = [
     trip.on_time_completion,
@@ -156,7 +178,7 @@ export default function TripDetailPage() {
   ].some((v) => v !== null && v !== undefined);
 
   return (
-    <div className="space-y-6 pb-12 select-none">
+    <div className="space-y-6 pb-12">
       <HeroHeader
         icon={Route}
         title={`Trip #${trip.trip_id}`}
@@ -173,45 +195,36 @@ export default function TripDetailPage() {
         }
       />
 
-      {/* Progress Stepper Card */}
+      {/* Chain Links + Progress Rail */}
       <Card className="border-0 shadow-xs rounded-3xl bg-surface">
-        <CardContent className="p-5">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            {tripSteps.map((step, i) => {
-              const isCompleted = i <= currentStepIndex;
-              const isCurrent = i === currentStepIndex;
-              return (
-                <div
-                  key={step}
-                  className="flex items-center gap-2 flex-shrink-0"
-                  aria-current={isCurrent ? "step" : undefined}
+        <CardContent className="p-5 space-y-4">
+          {(trip.dispatch_id || linkedRequest) && (
+            <div className="flex items-center flex-wrap gap-2">
+              {trip.dispatch_id && (
+                <Link
+                  href={`/dispatch/${trip.dispatch_id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/10"
                 >
-                  <div
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs transition-all font-semibold ${
-                      isCurrent
-                        ? "bg-primary text-white shadow-2xs"
-                        : isCompleted
-                        ? "bg-success/15 text-success border border-success/30"
-                        : "bg-muted text-foreground-muted border border-border/40"
-                    }`}
-                  >
-                    {isCompleted && !isCurrent && (
-                      <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
-                    )}
-                    {step}
-                  </div>
-                  {i < tripSteps.length - 1 && (
-                    <ChevronRight
-                      className={`w-3.5 h-3.5 ${
-                        i < currentStepIndex ? "text-success" : "text-foreground-muted"
-                      }`}
-                      aria-hidden="true"
-                    />
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  <Send className="w-3.5 h-3.5" aria-hidden="true" />
+                  Dispatch {dispatchNumber || `#${trip.dispatch_id}`}
+                </Link>
+              )}
+              {linkedRequest?.request_id && (
+                <Link
+                  href={`/reservations/${linkedRequest.request_id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-info/30 bg-info/5 px-3 py-1 text-xs font-semibold text-info transition-colors hover:bg-info/10"
+                >
+                  <Route className="w-3.5 h-3.5" aria-hidden="true" />
+                  {linkedRequest.reservation_number || `Request #${linkedRequest.request_id}`}
+                </Link>
+              )}
+            </div>
+          )}
+          <PhaseRail
+            steps={TRIP_CHAIN}
+            status={trip.trip_status}
+            fallbackNote="This trip uses an older status vocabulary."
+          />
         </CardContent>
       </Card>
 
@@ -233,12 +246,16 @@ export default function TripDetailPage() {
         <Card className="border-0 shadow-xs rounded-3xl bg-surface hover:-translate-y-0.5 transition-all duration-200">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="w-11 h-11 rounded-2xl bg-info/10 text-info border border-info/20 shrink-0 flex items-center justify-center font-bold text-xs font-data">
-              {driverInitials}
+              {driverInitials || <Users className="w-4 h-4 opacity-60" aria-hidden="true" />}
             </div>
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Driver</p>
-              <p className="text-sm font-bold text-foreground truncate">{driverName}</p>
-              <p className="text-[11px] text-foreground-muted truncate">Assigned Operator</p>
+              {driverName ? (
+                <p className="text-sm font-bold text-foreground truncate">{driverName}</p>
+              ) : (
+                <p className="text-sm italic text-foreground-muted">No driver assigned</p>
+              )}
+              <p className="text-[11px] text-foreground-muted truncate">{driverName ? "Assigned Operator" : "Awaiting assignment"}</p>
             </div>
           </CardContent>
         </Card>

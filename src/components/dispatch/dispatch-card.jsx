@@ -237,7 +237,7 @@ export function DispatchCard({
         <div className="flex items-center gap-2.5 px-3 py-2 min-w-0">
           <Users className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
           {driverNameStr ? (
-            <p className="text-xs font-semibold text-foreground truncate capitalize">{driverNameStr.toLowerCase()}</p>
+            <p className="text-xs font-semibold text-foreground truncate">{driverNameStr.trim()}</p>
           ) : (
             <p className="text-xs font-semibold text-warning">Driver unassigned</p>
           )}
