@@ -74,6 +74,11 @@ function todayIsoDate() {
  * The caller supplies the incident columns it read inside its transaction;
  * nothing here touches the database.
  *
+ * Cost is deliberately booked at 0: the driver-reported expense_amount is a
+ * *claim*, not an invoice. Booking it straight into cost made an unverified
+ * number flow into fleet-cost analytics; instead the claim travels in remarks
+ * where staff see and replace it with the real figure.
+ *
  * @param {{
  *   incident_id: number|string,
  *   description?: string|null,
@@ -91,15 +96,18 @@ function todayIsoDate() {
  * }}
  */
 export function buildEmergencyMaintenancePayload(incident) {
-  const rawCost = Number(incident.expense_amount);
-  const cost = Number.isFinite(rawCost) && rawCost > 0 ? rawCost : 0;
+  const rawClaim = Number(incident.expense_amount);
+  const claimed = Number.isFinite(rawClaim) && rawClaim > 0 ? rawClaim : null;
   return {
     maintenance_date: todayIsoDate(),
     maintenance_type: EMERGENCY_TYPE,
     description: `Emergency repair generated from Incident #${incident.incident_id}: ${incident.description || ""}`,
-    cost,
+    // Real cost lands here after the work, via the maintenance register.
+    cost: 0,
     status: EMERGENCY_STATUS,
     priority: EMERGENCY_PRIORITY,
-    remarks: `Incident Type: ${incident.incident_type || "Unknown"}`,
+    remarks:
+      `Incident Type: ${incident.incident_type || "Unknown"}` +
+      (claimed != null ? ` | Driver-reported expense claim: ₱${claimed.toLocaleString("en-PH")} (unverified — confirm against actual invoice)` : ""),
   };
 }

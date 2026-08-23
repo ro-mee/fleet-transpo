@@ -148,6 +148,20 @@ export default function IncidentsPage() {
               ₱{Number(row.expense_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} Expense
             </span>
           )}
+          {Array.isArray(row.assistance_needed) && row.assistance_needed.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {row.assistance_needed.map((need) => (
+                <span
+                  key={need}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-warning bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5"
+                  title="Assistance requested by the driver"
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  {need}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       ),
     },

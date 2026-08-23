@@ -84,18 +84,27 @@ describe("buildEmergencyMaintenancePayload", () => {
     expect(payload.priority).toBe("High");
     expect(payload.description).toContain("Incident #7");
     expect(payload.remarks).toContain("breakdown");
-    expect(payload.cost).toBe(1500);
     expect(payload.maintenance_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it("defaults missing or invalid expense to zero cost", () => {
-    expect(buildEmergencyMaintenancePayload({ incident_id: 1 }).cost).toBe(0);
-    expect(
-      buildEmergencyMaintenancePayload({ incident_id: 1, expense_amount: "-5" }).cost
-    ).toBe(0);
-    expect(
-      buildEmergencyMaintenancePayload({ incident_id: 1, expense_amount: "abc" }).cost
-    ).toBe(0);
+  it("books cost at zero and carries the driver claim in remarks for review", () => {
+    const payload = buildEmergencyMaintenancePayload({
+      incident_id: 1,
+      expense_amount: "1500",
+    });
+    // The claim must never silently become booked cost.
+    expect(payload.cost).toBe(0);
+    expect(payload.remarks).toContain("expense claim: ₱1,500");
+    expect(payload.remarks).toContain("unverified");
+  });
+
+  it("omits the claim note when there is no valid expense", () => {
+    const empty = buildEmergencyMaintenancePayload({ incident_id: 2 });
+    const junk = buildEmergencyMaintenancePayload({ incident_id: 3, expense_amount: "abc" });
+    expect(empty.cost).toBe(0);
+    expect(empty.remarks).not.toContain("claim");
+    expect(junk.cost).toBe(0);
+    expect(junk.remarks).not.toContain("claim");
   });
 
   it("exposes the fixed audit text used by the endpoint", () => {
