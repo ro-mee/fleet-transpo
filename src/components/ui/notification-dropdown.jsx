@@ -205,7 +205,7 @@ export function NotificationDropdown() {
                 <Bell className="w-6 h-6" />
               </div>
               <p className="text-sm font-bold text-foreground">No notifications</p>
-              <p className="text-xs text-foreground-secondary">You're all caught up!</p>
+              <p className="text-xs text-foreground-secondary">You&apos;re all caught up!</p>
             </div>
           ) : (
             recent.map((notif) => {

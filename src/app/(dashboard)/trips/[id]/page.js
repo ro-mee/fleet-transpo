@@ -80,19 +80,31 @@ export default function TripDetailPage() {
   });
 
   const latestDriverLoc = locations.length > 0 ? locations[locations.length - 1] : null;
-  const driverLiveCoords = latestDriverLoc?.latitude && latestDriverLoc?.longitude
-    ? [Number(latestDriverLoc.latitude), Number(latestDriverLoc.longitude)]
-    : null;
+  const driverLiveCoords = useMemo(
+    () =>
+      latestDriverLoc?.latitude && latestDriverLoc?.longitude
+        ? [Number(latestDriverLoc.latitude), Number(latestDriverLoc.longitude)]
+        : null,
+    [latestDriverLoc]
+  );
 
-  const routeOrigin = driverLiveCoords
-    ? [driverLiveCoords[1], driverLiveCoords[0]]
-    : (trip?.routes
-      ? [Number(trip.routes.origin_longitude), Number(trip.routes.origin_latitude)]
-      : [null, null]);
+  const routeOrigin = useMemo(
+    () =>
+      driverLiveCoords
+        ? [driverLiveCoords[1], driverLiveCoords[0]]
+        : trip?.routes
+          ? [Number(trip.routes.origin_longitude), Number(trip.routes.origin_latitude)]
+          : [null, null],
+    [driverLiveCoords, trip]
+  );
 
-  const routeDest = trip?.routes
-    ? [Number(trip.routes.destination_longitude), Number(trip.routes.destination_latitude)]
-    : [null, null];
+  const routeDest = useMemo(
+    () =>
+      trip?.routes
+        ? [Number(trip.routes.destination_longitude), Number(trip.routes.destination_latitude)]
+        : [null, null],
+    [trip]
+  );
 
   const hasRouteCoords =
     (driverLiveCoords || trip?.routes) &&

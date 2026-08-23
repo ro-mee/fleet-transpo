@@ -131,6 +131,7 @@ export default function AddUserPage() {
     defaultValues: { email: "", password: "", first_name: "", last_name: "", role_id: "" },
   });
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form manages its own subscription store
   const selectedRoleId = form.watch("role_id");
 
   const createMutation = useMutation({

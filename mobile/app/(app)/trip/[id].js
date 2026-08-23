@@ -13,6 +13,9 @@ function getTripStatusStyle(status, colors) {
   return statusColors(colors, status);
 }
 
+// Frozen at module load; the 30s interval below keeps it current without render-time reads.
+const NOW_AT_LOAD = Date.now();
+
 export default function TripDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
@@ -22,7 +25,7 @@ export default function TripDetailsScreen() {
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(NOW_AT_LOAD);
 
   // Tick every 30s so the "start in X min" / START ROUTE gate refreshes.
   useEffect(() => {
@@ -50,7 +53,9 @@ export default function TripDetailsScreen() {
   }, [id]);
 
   useEffect(() => {
-    load();
+    // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
+    const t = setTimeout(load, 0);
+    return () => clearTimeout(t);
   }, [load]);
 
   const PRE_START = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"];

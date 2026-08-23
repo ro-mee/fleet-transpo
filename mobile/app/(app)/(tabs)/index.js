@@ -38,6 +38,9 @@ const ON_LIGHT_INK = "#103A30";
  * actions, and an SOS FAB. Same data + RBAC logic as the prior build; the
  * visual layer (hero gradient, floating cards, micro-motion) is upgraded.
  */
+// Frozen at module load so the GPS-age caption never calls Date.now() during render.
+const NOW_MS_AT_LOAD = Date.now();
+
 export default function Home() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -55,12 +58,19 @@ export default function Home() {
   const [odometerInput, setOdometerInput] = useState("");
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
-  const [nowMs, setNowMs] = useState(Date.now());
+  const [nowMs, setNowMs] = useState(NOW_MS_AT_LOAD);
   // Incident reports that permanently failed to deliver offline. Surfaced
   // globally — a driver must not have to open Activity Logs to learn that an
   // emergency report never reached dispatch.
   const [deadLetterCount, setDeadLetterCount] = useState(0);
   const [retryingDead, setRetryingDead] = useState(false);
+
+  // Keep the GPS-age caption ticking without reading Date.now() during render.
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const first = setTimeout(tick, 0);
+    return () => clearTimeout(first);
+  }, []);
 
   const activeTrip = trips.find((t) => activeStatuses.includes(t.trip_status));
   const pendingTrips = trips.filter((t) => !activeStatuses.includes(t.trip_status));
@@ -231,7 +241,7 @@ export default function Home() {
   // Relative seconds are recomputed on render — the card re-renders often
   // enough (focus, polling, actions) to keep a caption honest.
   const lastSentAgeS = tracking.lastSentAt
-    ? Math.max(0, Math.round((Date.now() - new Date(tracking.lastSentAt).getTime()) / 1000))
+    ? (nowMs ? Math.max(0, Math.round((nowMs - new Date(tracking.lastSentAt).getTime()) / 1000)) : 0)
     : null;
   const trackingChipText = tracking.error
     ? "Location not sending — will retry"
@@ -254,10 +264,10 @@ export default function Home() {
     isPreStart && windowOpen && nextTrip?.pre_trip_status === "Passed";
 
   // ── Section entrance motion (runs once after first load) ──
-  const heroAnim = useRef(new Animated.Value(0)).current;
-  const tripAnim = useRef(new Animated.Value(0)).current;
-  const statsAnim = useRef(new Animated.Value(0)).current;
-  const quickAnim = useRef(new Animated.Value(0)).current;
+  const [heroAnim] = useState(() => new Animated.Value(0));
+  const [tripAnim] = useState(() => new Animated.Value(0));
+  const [statsAnim] = useState(() => new Animated.Value(0));
+  const [quickAnim] = useState(() => new Animated.Value(0));
   const didIntro = useRef(false);
   const [launchComplete, setLaunchComplete] = useState(false);
 

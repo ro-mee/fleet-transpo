@@ -44,19 +44,23 @@ export function DateTimePicker({
 
   // Keep internal state synced when value prop changes externally
   React.useEffect(() => {
-    if (!value) {
-      setSelectedDate(null);
-      return;
-    }
-    const d = new Date(value);
-    if (!isNaN(d.getTime())) {
-      setSelectedDate(d);
-      setViewDate(d);
-      const h = d.getHours() % 12;
-      setHour(h === 0 ? 12 : h);
-      setMinute(d.getMinutes());
-      setPeriod(d.getHours() >= 12 ? "PM" : "AM");
-    }
+    // Deferred one tick: external-value sync without sync setState in the effect body.
+    const t = setTimeout(() => {
+      if (!value) {
+        setSelectedDate(null);
+        return;
+      }
+      const d = new Date(value);
+      if (!isNaN(d.getTime())) {
+        setSelectedDate(d);
+        setViewDate(d);
+        const h = d.getHours() % 12;
+        setHour(h === 0 ? 12 : h);
+        setMinute(d.getMinutes());
+        setPeriod(d.getHours() >= 12 ? "PM" : "AM");
+      }
+    }, 0);
+    return () => clearTimeout(t);
   }, [value]);
 
   // Helper to commit datetime state & fire onChange

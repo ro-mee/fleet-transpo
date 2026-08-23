@@ -39,6 +39,7 @@ export function SidebarProvider({ children }) {
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem(STORAGE_KEY);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional post-hydration promote: avoids SSR/client markup mismatch
       if (stored && MODE_VALUES.includes(stored)) setModeState(stored);
     } catch {
       // Blocked storage shouldn't break the shell.

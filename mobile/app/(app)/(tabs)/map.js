@@ -56,13 +56,16 @@ function haversineKm(latA, lonA, latB, lonB) {
   return R * c;
 }
 
-// Max km a single GPS segment (≤3s apart) can plausibly be before we treat it
-// as a jump/glitch and drop it. ~400m/3s ≈ 480 km/h, far above any vehicle.
+// Max km a single GPS segment (â‰¤3s apart) can plausibly be before we treat it
+// as a jump/glitch and drop it. ~400m/3s â‰ˆ 480 km/h, far above any vehicle.
 const MAX_SEGMENT_KM = 0.4;
 // Segments shorter than this while effectively stationary are GPS jitter and
 // would inflate km while parked; only counted when the vehicle is actually
 // moving (speed > 1 m/s).
 const MIN_MOVING_SEGMENT_KM = 0.02;
+
+// Frozen at module load; interval below keeps it current without render-time reads.
+const NOW_AT_LOAD = Date.now();
 
 export default function MapTab() {
   const router = useRouter();
@@ -77,7 +80,7 @@ export default function MapTab() {
   const [permRetry, setPermRetry] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [routeData, setRouteData] = useState(null);
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(NOW_AT_LOAD);
   const mapRef = useRef(null);
 
   // Refs for background GPS sync loop
@@ -85,7 +88,7 @@ export default function MapTab() {
   const lastGpsSync = useRef(0);
 
   // Bottom Sheet Animation State
-  const panY = useRef(new Animated.Value(SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60)).current; // -60 for tab bar approx
+  const [panY] = useState(() => new Animated.Value(SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60)); // -60 for tab bar approx
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -118,6 +121,7 @@ export default function MapTab() {
   }, [panY]);
 
   const panResponder = useRef(
+    // eslint-disable-next-line react-hooks/refs -- RN gesture responder reads live drag refs; created once via lazy state
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dy) > 5,
@@ -171,8 +175,8 @@ export default function MapTab() {
 
   // Background tracking, driven by AppState so there is never overlap with the
   // foreground watcher (no double-counted km, no duplicate GPS posts):
-  //   background + active trip → start the headless task
-  //   foreground              → stop it and merge the km it accumulated
+  //   background + active trip â†’ start the headless task
+  //   foreground              â†’ stop it and merge the km it accumulated
   const appState = useRef(AppState.currentState);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -352,13 +356,16 @@ export default function MapTab() {
 
   // Countdown tick: re-renders every 30s while a pre-start trip is showing,
   // so the departure-window gate flips when the window opens.
+  // Stable primitive dep: re-run only when the pre-start status itself changes.
+  const activeTripStatus = activeTrip?.trip_status;
+
   useEffect(() => {
-    if (!activeTrip || !["Assigned", "Pending", "Approved", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"].includes(activeTrip.trip_status)) return;
+    if (!activeTripStatus || !["Assigned", "Pending", "Approved", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"].includes(activeTripStatus)) return;
     const t = setInterval(() => setNow(Date.now()), 30000);
     return () => clearInterval(t);
-  }, [activeTrip?.trip_status]);
+  }, [activeTripStatus]);
 
-  // Permission denied — an honest dead-end with a way out, not a loader that
+  // Permission denied â€” an honest dead-end with a way out, not a loader that
   // never resolves.
   if (permissionDenied) {
     return (
@@ -436,7 +443,7 @@ export default function MapTab() {
                 Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Driver'}
               </Text>
               <Text style={[styles.idleSubtext, { color: colors.onSurfaceVariant }]}>
-                You are on duty • Waiting for assignments
+                You are on duty â€¢ Waiting for assignments
               </Text>
             </View>
           </View>
@@ -459,7 +466,7 @@ export default function MapTab() {
 
 
   // Departure-window gate for the START ROUTE button. When earliest_start is
-  // null (no scheduled departure / no ETA) the window is open — fail-open.
+  // null (no scheduled departure / no ETA) the window is open â€” fail-open.
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -508,7 +515,7 @@ export default function MapTab() {
         </View>
       )}
 
-      {/* Floating restore pill — appears when bottom sheet is hidden */}
+      {/* Floating restore pill â€” appears when bottom sheet is hidden */}
       {activeTrip && isMinimized && (
         <Pressable
           onPress={() => snapToMinimized(false)}
@@ -568,7 +575,8 @@ export default function MapTab() {
             </Pressable>
           </View>
 
-          <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
+          {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
+      <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
             <Pressable onPress={() => snapTo(!isExpandedRef.current)}>
               {/* Drag Handle */}
               <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant }]} />
@@ -580,7 +588,7 @@ export default function MapTab() {
                 </View>
                 <View style={styles.locationTextWrapper}>
                   <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
-                    {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
+                    {preDeparture && `NEXT TRIP Â· ${pickupAt || "TBD"}`}
                     {!preDeparture && isPending && "PICK UP LOCATION"}
                     {(isDriverAccepted && !preDeparture) && "EN ROUTE TO PICKUP"}
                     {isState1 && "EN ROUTE TO PICKUP"}
@@ -590,7 +598,7 @@ export default function MapTab() {
                   </Text>
                   <Text style={[styles.locationName, { color: colors.onSurface }]} numberOfLines={1}>
                     {preDeparture
-                      ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
+                      ? `${activeTrip.origin || "Pickup"} â†’ ${activeTrip.destination || "Destination"}`
                       : destName}
                   </Text>
                 </View>
@@ -640,7 +648,7 @@ export default function MapTab() {
             </Pressable>
           </View>
 
-          {/* Action Button — outside panResponder zone so SwipeButton doesn't conflict */}
+          {/* Action Button â€” outside panResponder zone so SwipeButton doesn't conflict */}
           {preDeparture ? (
             <Pressable 
               style={({ pressed }) => [
@@ -722,7 +730,7 @@ export default function MapTab() {
                       // live == loaded mileage, so distance = endOdo - startOdo
                       // equals totalKm exactly. If another device advanced the
                       // mileage mid-trip, the derived distance includes that extra
-                      // km — safe (never rejected), just slightly inflated.
+                      // km â€” safe (never rejected), just slightly inflated.
                       let freshMileage = null;
                       try {
                         const fresh = await api.get("/api/mobile/driver/trips");

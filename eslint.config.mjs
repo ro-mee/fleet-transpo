@@ -62,6 +62,27 @@ const eslintConfig = defineConfig([
       globals: { __DEV__: "readonly" },
     },
   },
+
+  // Deliberate rule policies (kept as config, not per-line suppressions):
+  {
+    files: ["src/**/*.{js,jsx}"],
+    rules: {
+      // The dashboard intentionally renders plain <img> for arbitrary remote
+      // sources (Supabase-signed URLs, OCR previews, receipt scans). Migrating
+      // to next/image requires remotePatterns infra + layout rework; until that
+      // happens the heuristic warning is noise, not signal.
+      "@next/next/no-img-element": "off",
+    },
+  },
+  {
+    files: ["mobile/**/*.{js,jsx}"],
+    rules: {
+      // React Native <Image> has no `alt` attribute — accessibility is
+      // expressed with accessible/accessibilityLabel props the HTML-oriented
+      // jsx-a11y schema does not know about.
+      "jsx-a11y/alt-text": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

@@ -119,7 +119,7 @@ export function RoleDashboard({ role, employee }) {
     queryFn: () => getTrips(),
     enabled: q.includes("trips"),
   });
-  const trips = tripsData.rows ?? [];
+  const trips = useMemo(() => tripsData.rows ?? [], [tripsData]);
   const { data: activeTrips = [] } = useQuery({
     queryKey: ["trips-active"],
     queryFn: () => getActiveTrips(),

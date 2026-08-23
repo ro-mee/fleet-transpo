@@ -300,7 +300,7 @@ export function StatusPill({ label, status, tone = "neutral" }) {
  */
 export function PulsingDot({ color, size = 8, style }) {
   const { colors } = useTheme();
-  const pulse = useRef(new Animated.Value(1)).current;
+  const [pulse] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -343,7 +343,7 @@ export function PulsingDot({ color, size = 8, style }) {
  */
 export function CountUpText({ value, style, duration = 600 }) {
   const { colors } = useTheme();
-  const anim = useRef(new Animated.Value(0)).current;
+  const [anim] = useState(() => new Animated.Value(0));
   const [shown, setShown] = useState(0);
 
   useEffect(() => {
@@ -496,7 +496,7 @@ export function SectionHeading({ children, style }) {
 /** MD3 loading skeleton (shimmering block). */
 export function Skeleton({ width = "100%", height = 16, radius: round = radius.sm, style }) {
   const { colors } = useTheme();
-  const opacity = useRef(new Animated.Value(0.4)).current;
+  const [opacity] = useState(() => new Animated.Value(0.4));
 
   useEffect(() => {
     const loop = Animated.loop(

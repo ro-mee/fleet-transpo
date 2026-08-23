@@ -288,6 +288,7 @@ export default function NewDriverPage() {
     createMutation.mutate(payload);
   };
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form manages its own subscription store
   const values = form.watch();
   const isSubmitting = createMutation.isPending;
 
@@ -437,10 +438,10 @@ export default function NewDriverPage() {
               <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
                 <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
                   <IdCard className="w-4 h-4 text-blue-500" />
-                  Driver's License &amp; Duty Status
+                  Driver&apos;s License &amp; Duty Status
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Official LTO Driver's License credentials and employment status.
+                  Official LTO Driver&apos;s License credentials and employment status.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
@@ -815,7 +816,7 @@ export default function NewDriverPage() {
               <Sparkles className="w-5 h-5 text-primary" /> Driver License Extracted Data
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Review extracted fields from your driver's license scan before applying to form.
+              Review extracted fields from your driver&apos;s license scan before applying to form.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2 text-xs">

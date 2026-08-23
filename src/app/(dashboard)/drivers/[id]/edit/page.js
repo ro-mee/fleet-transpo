@@ -314,6 +314,7 @@ export default function EditDriverPage() {
     updateMutation.mutate(payload);
   };
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form manages its own subscription store
   const values = form.watch();
   const isSaving = updateMutation.isPending;
 
@@ -450,7 +451,7 @@ export default function EditDriverPage() {
                   <div className="p-2 rounded-xl bg-blue-500/10 text-blue-500">
                     <IdCard className="w-4 h-4" />
                   </div>
-                  Driver's License &amp; Duty Status
+                  Driver&apos;s License &amp; Duty Status
                 </CardTitle>
                 <CardDescription className="text-xs">
                   Official LTO License credentials and employment status.
@@ -708,7 +709,7 @@ export default function EditDriverPage() {
               <Sparkles className="w-5 h-5 text-primary" /> Driver License Extracted Data
             </DialogTitle>
             <DialogDescription className="text-xs">
-              Review extracted fields from your driver's license scan before applying.
+              Review extracted fields from your driver&apos;s license scan before applying.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2 text-xs">

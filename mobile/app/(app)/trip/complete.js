@@ -27,12 +27,12 @@ export default function TripCompleteScreen() {
   const { pickup, destination, duration, distance, leg1, leg2, startOdo, endOdo } = useLocalSearchParams();
 
   // Animation values
-  const heroScale = useRef(new Animated.Value(0.4)).current;
-  const heroOpacity = useRef(new Animated.Value(0)).current;
-  const cardTranslateY = useRef(new Animated.Value(30)).current;
-  const cardOpacity = useRef(new Animated.Value(0)).current;
-  const actionsTranslateY = useRef(new Animated.Value(20)).current;
-  const actionsOpacity = useRef(new Animated.Value(0)).current;
+  const [heroScale] = useState(() => new Animated.Value(0.4));
+  const [heroOpacity] = useState(() => new Animated.Value(0));
+  const [cardTranslateY] = useState(() => new Animated.Value(30));
+  const [cardOpacity] = useState(() => new Animated.Value(0));
+  const [actionsTranslateY] = useState(() => new Animated.Value(20));
+  const [actionsOpacity] = useState(() => new Animated.Value(0));
 
   // Modals for Note & Issue
   const [noteModalVisible, setNoteModalVisible] = useState(false);
@@ -86,7 +86,7 @@ export default function TripCompleteScreen() {
         }),
       ]),
     ]).start();
-  }, []);
+  }, [heroScale, heroOpacity, cardTranslateY, cardOpacity, actionsTranslateY, actionsOpacity]);
 
   const timeStr = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const dateStr = new Date().toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });

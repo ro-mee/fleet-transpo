@@ -40,10 +40,14 @@ export function TimePicker({
 
   // Sync back to internal state if value prop changes
   React.useEffect(() => {
-    const { hour: h, minute: m, period: p } = parseTimeString(value);
-    setHour(h);
-    setMinute(m);
-    setPeriod(p);
+    // Deferred one tick: external-value sync without sync setState in the effect body.
+    const t = setTimeout(() => {
+      const { hour: h, minute: m, period: p } = parseTimeString(value);
+      setHour(h);
+      setMinute(m);
+      setPeriod(p);
+    }, 0);
+    return () => clearTimeout(t);
   }, [value]);
 
   const commitTime = (hVal, mVal, pVal) => {

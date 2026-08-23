@@ -66,7 +66,11 @@ export default function Profile() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
+  const t = setTimeout(load, 0);
+  return () => clearTimeout(t);
+}, [load]);
 
   const currentUser = profile || user;
   const driverName =

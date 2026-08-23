@@ -41,7 +41,11 @@ export default function PersonalInformation() {
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+  // Deferred one tick: keeps mount-fetch semantics without sync setState in the effect body.
+  const t = setTimeout(load, 0);
+  return () => clearTimeout(t);
+}, [load]);
 
   const savePhone = async () => {
     if (!phone.trim()) return;

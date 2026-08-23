@@ -82,7 +82,7 @@ export default function HelpCenter() {
           </Pressable>
           <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
           <Pressable style={styles.faqRow}>
-            <Text style={[styles.faqText, { color: colors.onSurface }]}>I'm running late for a dispatch.</Text>
+            <Text style={[styles.faqText, { color: colors.onSurface }]}>I&apos;m running late for a dispatch.</Text>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
         </View>

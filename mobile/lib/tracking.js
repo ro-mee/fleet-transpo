@@ -28,6 +28,7 @@ export function useTripTracking(tripId) {
 
   useEffect(() => {
     if (!tripId || !settings.locationTracking) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- settings/tripId-driven reset; mirrors external state into hook state
       setPosting(false);
       setLatestFix(null);
       if (!settings.locationTracking && tripId) {

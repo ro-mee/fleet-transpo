@@ -312,6 +312,7 @@ export default function MaintenancePage() {
         ),
       }),
     ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- static column defs; handlers close over stable mutation APIs
     []
   );
 
