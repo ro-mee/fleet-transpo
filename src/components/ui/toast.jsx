@@ -34,8 +34,10 @@ export const toast = {
     useToastStore.getState().add({ type, title, message, duration, position }),
 };
 
-// Same motion language as the rest of the app.
-const EASE = [0.32, 0.72, 0, 1];
+// Springy pop language borrowed from the AnimatedList pattern: items scale
+// from zero with a stiff spring, and `layout` lets survivors reflow smoothly
+// when one is dismissed.
+const SPRING = { type: "spring", stiffness: 350, damping: 40 };
 
 const themeConfig = {
   info: {
@@ -107,11 +109,15 @@ function ToastItem({ t, onClose }) {
 
   return (
     <motion.div
-      initial={isBellToast ? { opacity: 0, y: -16, x: 18, scale: 0.88 } : { opacity: 0, x: 40, scale: 0.95 }}
-      animate={isBellToast ? { opacity: 1, y: 0, x: 0, scale: 1 } : { opacity: 1, x: 0, scale: 1 }}
-      exit={isBellToast ? { opacity: 0, y: -12, x: 14, scale: 0.88 } : { opacity: 0, x: 30, scale: 0.95 }}
-      transition={{ duration: 0.35, ease: EASE }}
-      style={isBellToast ? { transformOrigin: "top right" } : undefined}
+      layout
+      initial={{ scale: 0, opacity: 0 }}
+      animate={
+        isBellToast
+          ? { scale: 1, opacity: 1, originX: 1, originY: 0 }
+          : { scale: 1, opacity: 1, originY: 0 }
+      }
+      exit={{ scale: 0, opacity: 0 }}
+      transition={SPRING}
       className={cn(
         "pointer-events-auto relative flex items-start gap-3.5 rounded-[22px] p-4 backdrop-blur-xl border transition-all",
         "bg-gradient-to-r",
