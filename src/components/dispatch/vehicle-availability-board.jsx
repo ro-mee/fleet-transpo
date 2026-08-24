@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+// Vehicle half of the merged Resource Availability board
+// (/dispatch/availability). Extracted verbatim from the former
+// /fleet/availability page; owns its status tabs, search, detail dialog,
+// and refresh. The parent page supplies only the hero and the Drivers |
+// Vehicles switcher.
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api/client";
-import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/tables/data-table";
@@ -12,8 +17,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { 
-  CarFront, CheckCircle2, Navigation, Wrench, AlertTriangle, RefreshCw, Eye, Calendar, Hash, MapPin
+import {
+  CarFront, CheckCircle2, Navigation, Wrench, AlertTriangle, RefreshCw, Eye, Calendar, Hash, MapPin,
 } from "lucide-react";
 
 // Tabs mirror the canonical vehicle_status CHECK values exactly, so every
@@ -28,7 +33,7 @@ const TABS = [
   { id: "Decommissioned", label: "Out of Service", icon: AlertTriangle },
 ];
 
-export default function FleetAvailabilityBoard() {
+export function VehicleAvailabilityBoard() {
   const [tab, setTab] = useState("Available");
   const [search, setSearch] = useState("");
   const [selectedVehicle, setSelectedVehicle] = useState(null);
@@ -60,8 +65,8 @@ export default function FleetAvailabilityBoard() {
     let list = processedVehicles.filter(v => v.computedStatus === tab);
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(v => 
-        v.plate_number?.toLowerCase().includes(q) || 
+      list = list.filter(v =>
+        v.plate_number?.toLowerCase().includes(q) ||
         v.vehicle_name?.toLowerCase().includes(q) ||
         v.model?.toLowerCase().includes(q)
       );
@@ -168,25 +173,6 @@ export default function FleetAvailabilityBoard() {
 
   return (
     <div className="space-y-6">
-      <HeroHeader
-        icon={CarFront}
-        title="Fleet Availability"
-        badge="Operations"
-        description="Live view of vehicle readiness, assignments, and maintenance status."
-        actions={
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={isFetching}
-            onClick={() => refetch()}
-            className={cn(heroButtonOutlineClass)}
-            aria-label="Refresh the board"
-          >
-            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-          </Button>
-        }
-      />
-
       <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Vehicle statuses">
           {TABS.map((t) => {
@@ -213,6 +199,17 @@ export default function FleetAvailabilityBoard() {
             );
           })}
         </div>
+
+        <Button
+          variant="outline"
+          size="icon"
+          disabled={isFetching}
+          onClick={() => refetch()}
+          aria-label="Refresh vehicle availability"
+          className="shrink-0 self-start sm:self-auto cursor-pointer"
+        >
+          <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+        </Button>
 
         {/* The DataTable below owns search — a second input bound to the same
             state here only duplicated the field. */}
@@ -289,7 +286,7 @@ export default function FleetAvailabilityBoard() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-1.5 col-span-2">
                     <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5">
                       <Wrench className="w-3.5 h-3.5" /> Maintenance & Specs

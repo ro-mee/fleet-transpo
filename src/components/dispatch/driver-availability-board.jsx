@@ -1,10 +1,15 @@
 "use client";
 
-import { useState, useMemo } from "react";
+// Driver half of the merged Resource Availability board
+// (/dispatch/availability). Extracted verbatim from the former
+// /drivers/availability page; owns its status tabs, search, detail dialog,
+// and refresh. The parent page supplies only the hero and the Drivers |
+// Vehicles switcher.
+
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api/client";
-import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { DataTable } from "@/components/tables/data-table";
@@ -13,9 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { 
-  Users, CheckCircle2, Navigation, CalendarOff, Coffee, 
-  AlertTriangle, RefreshCw, Mail, Phone, Eye, User, IdCard, CheckCircle, XCircle
+import {
+  Users, CheckCircle2, Navigation, CalendarOff, Coffee,
+  AlertTriangle, RefreshCw, Mail, Phone, Eye, User, IdCard,
 } from "lucide-react";
 
 const TABS = [
@@ -26,7 +31,7 @@ const TABS = [
   { id: "Suspended", label: "Suspended", icon: AlertTriangle },
 ];
 
-export default function DriverAvailabilityBoard() {
+export function DriverAvailabilityBoard() {
   const [tab, setTab] = useState("Available");
   const [search, setSearch] = useState("");
   const [selectedDriver, setSelectedDriver] = useState(null);
@@ -48,7 +53,7 @@ export default function DriverAvailabilityBoard() {
     return drivers.map(driver => {
       let status = driver.driver_status || "Unknown";
       let activeLeave = null;
-      
+
       if (leaveRequests) {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -83,8 +88,8 @@ export default function DriverAvailabilityBoard() {
     let list = processedDrivers.filter(d => d.computedStatus === tab);
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter(d => 
-        d.license_number?.toLowerCase().includes(q) || 
+      list = list.filter(d =>
+        d.license_number?.toLowerCase().includes(q) ||
         d.employees?.first_name?.toLowerCase().includes(q) ||
         d.employees?.last_name?.toLowerCase().includes(q)
       );
@@ -198,25 +203,6 @@ export default function DriverAvailabilityBoard() {
 
   return (
     <div className="space-y-6">
-      <HeroHeader
-        icon={Users}
-        title="Driver Availability"
-        badge="Operations"
-        description="Live view of driver readiness and assignment state."
-        actions={
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={isFetching}
-            onClick={() => refetch()}
-            className={cn(heroButtonOutlineClass)}
-            aria-label="Refresh the board"
-          >
-            <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
-          </Button>
-        }
-      />
-
       <div className="flex flex-col gap-3 rounded-3xl border border-border/80 bg-surface p-3.5 sm:flex-row sm:items-center sm:justify-between shadow-xs">
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Driver statuses">
           {TABS.map((t) => {
@@ -243,6 +229,17 @@ export default function DriverAvailabilityBoard() {
             );
           })}
         </div>
+
+        <Button
+          variant="outline"
+          size="icon"
+          disabled={isFetching}
+          onClick={() => refetch()}
+          aria-label="Refresh driver availability"
+          className="shrink-0 self-start sm:self-auto cursor-pointer"
+        >
+          <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+        </Button>
       </div>
 
       {isLoading ? (
@@ -307,7 +304,7 @@ export default function DriverAvailabilityBoard() {
                       </p>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-1.5 col-span-2">
                     <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5">
                       <IdCard className="w-3.5 h-3.5" /> License Details
