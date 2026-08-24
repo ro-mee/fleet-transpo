@@ -4,16 +4,16 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tooltip } from "@/components/ui/tooltip";
-import { StatusBadge, TONE_RAIL } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { ConflictChips, ReadinessChip } from "@/components/reservations/conflict-chips";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
-import { cn, formatDateTime, formatTime } from "@/lib/utils";
+import { formatDateTime, formatTime } from "@/lib/utils";
 import {
   ArrowRight,
   Building2,
+  CalendarDays,
   CarFront,
-  Clock,
+  Crown,
   Eye,
   MapPin,
   Send,
@@ -24,13 +24,6 @@ import {
 } from "lucide-react";
 
 const isTerminal = (status) => status === L.COMPLETED || status === L.CANCELLED;
-
-const PRIORITY_RAIL = {
-  Urgent: "border-l-danger",
-  High: "border-l-warning",
-  Medium: "border-l-border",
-  Low: "border-l-border",
-};
 
 function formatPickup(value) {
   const d = new Date(value);
@@ -44,13 +37,18 @@ function formatPickup(value) {
     ...(farOut ? { year: "numeric" } : {}),
   }).format(d);
 
-  return `${date} · ${formatTime(d)}`;
+  return `${date} • ${formatTime(d)}`;
 }
 
 function driverName(driver) {
   if (!driver) return null;
   const name = [driver.first_name, driver.last_name].filter(Boolean).join(" ").trim();
   return name || `Driver #${driver.driver_id}`;
+}
+
+function guestInitials(name) {
+  const words = String(name || "Guest").trim().split(/\s+/).filter(Boolean);
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
 export function ReservationCard({
@@ -66,189 +64,206 @@ export function ReservationCard({
   const vehicle = r.vehicles || null;
   const driver = r.drivers || null;
   const hasRecommendation = Boolean(r.ai_vehicle_recommendation || r.ai_driver_recommendation);
-
   const category = r.vehiclecategories?.category_name || null;
   const vehicleClass = category || r.requested_vehicle_type || null;
-  const unresolved = !category && Boolean(r.requested_vehicle_type);
-
   const assignable = status === L.PENDING || status === L.SCHEDULED;
+  const guestName = r.guest_name || "Unnamed Guest";
+  const passengerCount = Number(r.passenger_count) || 1;
 
   return (
-    <Card
-      className={cn(
-        "border-0 border-l-4 p-6 shadow-xs rounded-3xl overflow-hidden transition-all hover:shadow-md bg-surface space-y-4 select-none",
-        conflicts.length ? TONE_RAIL.danger : PRIORITY_RAIL[r.priority] || "border-l-border"
-      )}
-    >
-      {/* ── Top Header: Identity & Statuses ── */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1.5 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
+    <Card className="space-y-4 rounded-card border-border/70 bg-surface p-4 shadow-none transition-colors hover:border-border sm:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-info-bg text-sm font-bold text-info">
+            {guestInitials(guestName)}
+          </div>
+
+          <div className="min-w-0 space-y-2">
             <Link
               href={`/reservations/${r.request_id}`}
-              className="text-lg font-extrabold text-foreground hover:text-primary transition-colors tracking-tight truncate"
+              className="block truncate text-lg font-bold tracking-tight text-foreground transition-colors hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-info"
             >
-              {r.guest_name || "Unnamed Guest"}
+              {guestName}
             </Link>
-            <span className="inline-flex items-center rounded-xl border border-border/80 bg-surface px-2.5 py-0.5 font-data text-xs font-bold text-foreground shadow-2xs">
-              {r.reservation_number || `REQ-${r.request_id}`}
-            </span>
-            <StatusBadge status={r.priority} entity="priority" className="rounded-full px-3 py-0.5 text-xs font-bold" />
-            {r.derived_priority && (
-              <StatusBadge status={r.derived_priority} entity="priority" className="rounded-full px-3 py-0.5 text-xs font-bold" />
-            )}
-            {r.is_vip && <Badge variant="warning" className="rounded-full px-3 py-0.5 text-xs font-bold">VIP</Badge>}
-            {r.is_emergency && <Badge variant="danger" className="rounded-full px-3 py-0.5 text-xs font-bold">Emergency</Badge>}
-            {vehicleClass && (
-              <Tooltip
-                content={
-                  unresolved
-                    ? `Booking asked for "${r.requested_vehicle_type}", which matched no Fleet category.`
-                    : r.vehiclecategories?.description || vehicleClass
-                }
-              >
-                <Badge variant={unresolved ? "secondary" : "info"} className="gap-1 rounded-full px-3 py-0.5 text-xs font-bold">
-                  <CarFront className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate max-w-[14rem]">{vehicleClass}</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {r.booking_reference && (
+                <Badge variant="outline" className="rounded-control font-semibold text-foreground">
+                  Ref: {r.booking_reference}
                 </Badge>
-              </Tooltip>
-            )}
+              )}
+              <Badge variant="info" className="rounded-control font-data font-semibold">
+                {r.reservation_number || `REQ-${r.request_id}`}
+              </Badge>
+              {vehicleClass && (
+                <Badge variant="info" className="gap-1 rounded-control font-semibold">
+                  <CarFront className="h-3 w-3" aria-hidden="true" />
+                  {vehicleClass}
+                </Badge>
+              )}
+              <StatusBadge status={r.priority} entity="priority" className="rounded-control font-semibold" />
+              {r.derived_priority && r.derived_priority !== r.priority && (
+                <StatusBadge status={r.derived_priority} entity="priority" className="rounded-control font-semibold" />
+              )}
+              {r.is_vip && (
+                <Badge variant="info" className="gap-1 rounded-control font-semibold">
+                  <Crown className="h-3 w-3" aria-hidden="true" />
+                  VIP Guest
+                </Badge>
+              )}
+              {r.is_emergency && (
+                <Badge variant="danger" className="rounded-control font-semibold">
+                  Emergency
+                </Badge>
+              )}
+            </div>
           </div>
-          {r.booking_reference && (
-            <p className="text-xs font-medium text-foreground-muted">
-              Ref: <span className="font-data font-bold text-foreground-secondary">{r.booking_reference}</span>
-            </p>
-          )}
         </div>
-        <div className="flex flex-row sm:flex-col items-end gap-1.5 shrink-0">
-          <StatusBadge status={status} entity="reservation" className="rounded-full px-3 py-1 text-xs font-bold" />
+
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <ReadinessChip conflicts={conflicts} hasRecommendation={hasRecommendation} status={status} />
+          <StatusBadge status={status} entity="reservation" className="rounded-control px-3 py-1 font-semibold" />
         </div>
       </div>
 
-      {/* ── Route & Pickup Time Highlight Banner ── */}
-      <div className="rounded-2xl bg-muted/40 p-3.5 border border-border/60 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2 text-xs font-bold text-foreground min-w-0">
-          <MapPin className="w-4 h-4 text-danger shrink-0" />
-          <span className="truncate max-w-[200px]">{r.pickup_location || "—"}</span>
-          <ArrowRight className="w-3.5 h-3.5 text-foreground-muted shrink-0" />
-          <MapPin className="w-4 h-4 text-success shrink-0" />
-          <span className="truncate max-w-[200px]">{r.dropoff_location || "—"}</span>
+      <div className="grid items-center gap-4 rounded-card border border-border/70 bg-surface p-4 lg:grid-cols-[minmax(0,16rem)_minmax(3rem,18rem)_minmax(0,16rem)_auto]">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-info-bg text-info">
+            <MapPin className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Pickup</p>
+            <p className="truncate text-sm font-semibold text-foreground">{r.pickup_location || "—"}</p>
+          </div>
         </div>
+
+        <div className="hidden items-center lg:flex" aria-hidden="true">
+          <span className="grow border-t border-dashed border-info/40" />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-info text-info">
+            <ArrowRight className="h-4 w-4" />
+          </span>
+          <span className="grow border-t border-dashed border-info/40" />
+        </div>
+
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-success-bg text-success">
+            <MapPin className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Destination</p>
+            <p className="truncate text-sm font-semibold text-foreground">{r.dropoff_location || "—"}</p>
+          </div>
+        </div>
+
         {r.pickup_datetime && (
-          <div className="inline-flex items-center gap-1.5 rounded-xl bg-primary/10 border border-primary/20 px-3 py-1.5 font-data text-xs font-bold text-primary shadow-2xs shrink-0">
-            <Clock className="w-3.5 h-3.5" />
+          <div className="inline-flex items-center gap-2 rounded-control bg-info-bg px-3 py-2 font-data text-xs font-semibold text-info lg:justify-self-end">
+            <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
             <span>{formatPickup(r.pickup_datetime)}</span>
           </div>
         )}
       </div>
 
-      {/* ── Resources Grid Cards (Passengers, Vehicle, Driver) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {/* Passengers Box */}
-        <div className="p-3 rounded-2xl border border-border/50 bg-surface flex items-center gap-3 shadow-2xs">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0 border border-primary/20">
-            <Users className="w-4 h-4" />
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="flex min-w-0 items-center gap-3 rounded-card border border-border/70 p-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-info-bg text-info">
+            <Users className="h-5 w-5" aria-hidden="true" />
           </div>
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Passengers</p>
-            <p className="text-xs font-bold font-data text-foreground mt-0.5">{r.passenger_count || 1} Passengers</p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Passengers</p>
+            <p className="truncate text-sm font-semibold text-foreground">
+              {passengerCount} {passengerCount === 1 ? "Passenger" : "Passengers"}
+            </p>
           </div>
         </div>
 
-        {/* Vehicle Box */}
-        <div className="p-3 rounded-2xl border border-border/50 bg-surface flex items-center gap-3 shadow-2xs">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-warning/10 text-warning shrink-0 border border-warning/20">
-            <CarFront className="w-4 h-4" />
+        <div
+          className="flex min-w-0 items-center gap-3 rounded-card border border-border/70 p-3.5"
+          title={!category && r.requested_vehicle_type ? `Requested: ${r.requested_vehicle_type}` : undefined}
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-warning-bg text-warning">
+            <CarFront className="h-5 w-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Vehicle</p>
-            {vehicle ? (
-              <p className="text-xs font-bold text-foreground mt-0.5 truncate">
-                <span className="font-data font-bold rounded-md bg-muted/60 px-1.5 py-0.5 mr-1 border border-border/60">{vehicle.plate_number}</span>
-                {vehicle.model || ""}
-              </p>
-            ) : (
-              <p className="text-xs italic font-medium text-foreground-muted mt-0.5">Unassigned</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Vehicle</p>
+            <p className="truncate text-sm font-semibold text-foreground">
+              {vehicle?.plate_number || vehicleClass || "Unassigned"}
+            </p>
+            {(vehicle?.model || (!vehicle && vehicleClass)) && (
+              <p className="truncate text-xs text-foreground-muted">{vehicle?.model || "Requested vehicle"}</p>
             )}
           </div>
         </div>
 
-        {/* Driver Box */}
-        <div className="p-3 rounded-2xl border border-border/50 bg-surface flex items-center gap-3 shadow-2xs">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-success/10 text-success shrink-0 border border-success/20">
-            <UserRound className="w-4 h-4" />
+        <div className="flex min-w-0 items-center gap-3 rounded-card border border-border/70 p-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-success-bg text-success">
+            <UserRound className="h-5 w-5" aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted">Driver</p>
-            {driver ? (
-              <p className="text-xs font-bold text-foreground mt-0.5 truncate">{driverName(driver)}</p>
-            ) : (
-              <p className="text-xs italic font-medium text-foreground-muted mt-0.5">Unassigned</p>
-            )}
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">Driver</p>
+            <p className="truncate text-sm font-semibold text-foreground">{driverName(driver) || "Unassigned"}</p>
           </div>
         </div>
       </div>
 
-      {r.special_requests && (
-        <div className="p-3 rounded-2xl border border-border/50 bg-muted/20 flex items-start gap-2.5 text-xs text-foreground-secondary">
-          <StickyNote className="w-4 h-4 text-warning shrink-0 mt-0.5" />
-          <div>
-            <span className="font-bold text-foreground">Special Requests: </span>
-            <span>{r.special_requests}</span>
-          </div>
+      {(r.special_requests || conflicts.length > 0) && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-info/30 bg-info-bg p-3.5">
+          {r.special_requests ? (
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control bg-surface text-info">
+                <StickyNote className="h-4 w-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground">Special Requests</p>
+                <p className="text-sm text-foreground-secondary">{r.special_requests}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm font-semibold text-foreground">Assignment checks</p>
+          )}
+          {conflicts.length > 0 && <ConflictChips conflicts={conflicts} className="flex flex-wrap" />}
         </div>
       )}
 
-      {conflicts.length > 0 && (
-        <div className="flex flex-wrap">
-          <ConflictChips conflicts={conflicts} />
-        </div>
-      )}
-
-      {/* ── Footer Metadata & Executive Action Buttons ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
-        <p className="flex items-center gap-2 text-xs font-medium text-foreground-muted">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 pt-3">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-foreground-muted">
           {r.source_system && (
-            <span className="inline-flex items-center gap-1 font-bold text-foreground-secondary bg-muted/50 px-2.5 py-0.5 rounded-full border border-border/60">
-              <Building2 className="w-3 h-3 text-foreground-muted" />
+            <Badge variant="secondary" className="gap-1 rounded-control font-semibold">
+              <Building2 className="h-3 w-3" aria-hidden="true" />
               {r.source_system}
-            </span>
+            </Badge>
           )}
           {r.created_at && <span>Received {formatDateTime(r.created_at)}</span>}
-        </p>
+        </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/reservations/${r.request_id}`}
-            className="inline-flex items-center gap-1.5 h-8 px-4 rounded-full border border-border/80 bg-surface text-xs font-bold text-foreground-secondary hover:border-primary/40 hover:text-foreground transition-all shadow-2xs"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            View
-          </Link>
-
-          {!isTerminal(status) && permissions.cancel && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 px-3 rounded-full text-danger hover:bg-danger/10 font-bold text-xs cursor-pointer"
-              disabled={isBusy}
-              onClick={() => onCancel?.(r)}
-            >
-              <XCircle className="w-3.5 h-3.5 mr-1" />
-              Cancel
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild variant="outline" size="sm" className="rounded-control border-info/40 text-info hover:bg-info-bg">
+            <Link href={`/reservations/${r.request_id}`}>
+              <Eye className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              View
+            </Link>
+          </Button>
 
           {assignable && permissions.assign && (
             <Button
               size="sm"
               disabled={isBusy}
               onClick={() => onAssign?.(r)}
-              className="h-8 px-4 rounded-full bg-primary text-white dark:text-slate-950 font-bold text-xs shadow-2xs hover:bg-primary/90 cursor-pointer"
+              className="rounded-control bg-info text-white hover:bg-info/90"
             >
-              <Send className="w-3.5 h-3.5 mr-1" />
-              Assign
+              <Send className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Assign Pair
+            </Button>
+          )}
+
+          {!isTerminal(status) && permissions.cancel && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-control border-danger/50 text-danger hover:bg-danger-bg"
+              disabled={isBusy}
+              onClick={() => onCancel?.(r)}
+            >
+              <XCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              Cancel
             </Button>
           )}
         </div>
@@ -259,24 +274,28 @@ export function ReservationCard({
 
 export function ReservationCardSkeleton() {
   return (
-    <Card className="border-0 border-l-4 border-l-border p-6 rounded-3xl bg-surface">
+    <Card className="rounded-card border-border/70 bg-surface p-4 shadow-none sm:p-5">
       <div className="animate-pulse space-y-4">
-        <div className="flex justify-between">
-          <div className="space-y-2">
-            <div className="h-6 w-48 rounded-xl bg-muted" />
-            <div className="h-3 w-32 rounded-lg bg-muted" />
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-muted" />
+            <div className="space-y-2">
+              <div className="h-5 w-40 rounded bg-muted" />
+              <div className="h-5 w-56 rounded-control bg-muted" />
+            </div>
           </div>
-          <div className="h-6 w-24 rounded-full bg-muted" />
+          <div className="h-7 w-24 rounded-control bg-muted" />
         </div>
-        <div className="h-10 rounded-2xl bg-muted" />
-        <div className="grid grid-cols-3 gap-3">
-          <div className="h-14 rounded-2xl bg-muted" />
-          <div className="h-14 rounded-2xl bg-muted" />
-          <div className="h-14 rounded-2xl bg-muted" />
+        <div className="h-20 rounded-card bg-muted" />
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="h-16 rounded-card bg-muted" />
+          <div className="h-16 rounded-card bg-muted" />
+          <div className="h-16 rounded-card bg-muted" />
         </div>
+        <div className="h-14 rounded-card bg-muted" />
         <div className="flex justify-between border-t border-border pt-3">
-          <div className="h-4 w-40 rounded-lg bg-muted" />
-          <div className="h-8 w-36 rounded-full bg-muted" />
+          <div className="h-5 w-44 rounded bg-muted" />
+          <div className="h-8 w-64 rounded-control bg-muted" />
         </div>
       </div>
     </Card>
