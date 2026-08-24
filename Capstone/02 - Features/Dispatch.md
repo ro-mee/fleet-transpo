@@ -118,6 +118,17 @@ schedule names via `ctx.pairings`) — a vehicle is withheld if that driver is
 schedule-blocked. `conflicts.js` surfaces the same result as a
 `DRIVER_UNAVAILABLE` finding before the user submits. The dispatch calendar
 probe renders approved leave per-day and `work_schedules` on the calendar.
+
+### Calendar UI refresh — 2026-08-23
+
+The dispatch calendar page was redesigned (visual + interaction only; data
+pipeline, overlap detection and lane math untouched): double-bezel control bar
+with pill segmented controls, jump-to-date popover, keyboard shortcuts
+(`←/→` step, `T` today, `D/W/M` views), always-visible conflict stat pill,
+auto-scroll to the current hour, sticky day/lane headers inside per-view scroll
+viewports, off-hours/weekend shading, event accent spines with Urgent/VIP dots
+(`vip` passthrough added to `dispatchToEvent`), "+N more" jumps to Day view.
+Motion is transform/opacity-only with reduced-motion fallbacks.
 → [[Driver Management]]
 
 ## Availability is decided by the window, not the status label — CONFIRMED 2026-08-15

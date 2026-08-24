@@ -23,8 +23,9 @@ dashboards render through `src/components/dashboard/role-dashboard.jsx` +
 executive boards** (`/fleet/documents`, `/drivers/performance`, `/reports/cost`,
 `/executive`) and
 endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`. The
-`/fleet/availability` + `/drivers/availability` boards were **removed 2026-08-15**
-(availability is derived from schedule-overlap, not a board page).
+`/fleet/availability` + `/drivers/availability` boards were merged **2026-08-23**
+into the dispatch module as `/dispatch/availability` (one page, Drivers |
+Vehicles tabs); management gained Vehicles visibility in the merge.
 
 **Latest changes** (the current feature wave — details in §7/§8/§9):
 
@@ -103,11 +104,11 @@ fleet-transpo/
 │   │   ├── (dashboard)/        # all app modules (no group layout; chrome from DashboardLayout)
 │   │   │   ├── dashboard/      # home KPIs, charts, live map, AI insights
 │   │   │   ├── driver/         # ★ driver portal — home, trips, profile (licenses+scan), incidents, vehicle, fuel
-│   │   │   ├── fleet/          # vehicles (+ new/[id]/edit), categories, availability, documents
-│   │   │   ├── drivers/        # list, new, [id] (detail+account), [id]/edit, availability, performance
+│   │   │   ├── fleet/          # vehicles (+ new/[id]/edit), categories, documents
+│   │   │   ├── drivers/        # list, new, [id] (detail+account), [id]/edit, performance
 │   │   │   ├── trips/          # register, active (live cards), [id]
 │   │   │   ├── reservations/   # register, queue (dispatcher workspace), new (dev mock), [id]
-│   │   │   ├── dispatch/       # kanban board, calendar, [id]
+│   │   │   ├── dispatch/       # kanban board, calendar, availability (drivers+vehicles), [id]
 │   │   │   ├── fuel/           # records (approval workflow), analytics
 │   │   │   ├── maintenance/    # records, predictive (AI)
 │   │   │   ├── incidents/      # ★ Fleet Incidents Registry (staff read-only + resolve, live map)

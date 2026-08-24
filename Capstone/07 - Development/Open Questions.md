@@ -50,7 +50,7 @@ Things that are genuinely **UNKNOWN** — not inferred, not guessed. Answering t
     57 rows now; it only grows. → [[ADR-009 Separate Mobile Auth]]
 
 12. **Do nav links point at the missing pages?**
-    `/fleet/availability` and `/drivers/availability` were **removed 2026-08-15** and their nav entries dropped; `fleet/maintenance` remains an empty directory leftover of the relocation to `/maintenance`. → [[Frontend]]
+    Resolved 2026-08-23: the two availability boards were merged into `/dispatch/availability` and nav entries updated (`workspaces.js`). The planned 2026-08-15 removal had never actually landed — pages stayed live until the merge. → [[Frontend]]
 
 13. **Which of the 13 trip statuses have ever occurred?**
     `SELECT status, count(*) FROM trips GROUP BY status` — with 2 rows, the answer is at most 2. → [[Trips]]

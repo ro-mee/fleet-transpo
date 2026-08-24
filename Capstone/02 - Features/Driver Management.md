@@ -111,6 +111,13 @@ UI: `WorkScheduleCard` on the driver detail page (schedule editor gated
 fleet_manager), `/drivers/leave` review board (fleet_manager approves),
 `/driver/schedule` self-service (view schedule, file/withdraw leave).
 
+> **Scope note (2026-08-23):** the Driver Leave Requests review board
+> (`/drivers/leave`) and Document Expiration (`/fleet/documents`) pages are
+> **hidden from navigation** (sidebar + command palette) as out-of-scope for
+> the capstone demo. The routes, APIs, and data are intact — direct URL
+> access still works for allowed roles (`permissions.js` unchanged). The
+> driver's own `/driver/schedule` entry stays visible.
+
 ## Open questions
 
 - `driverattendance` has 0 rows but is a `DRIVER_VISIBLE_SECTIONS` entry — is attendance actually implemented? **TODO:** check for a writer.

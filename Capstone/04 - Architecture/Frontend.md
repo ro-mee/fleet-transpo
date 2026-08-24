@@ -79,7 +79,7 @@ Auth surfaces (`(auth)/`) render without the dashboard chrome (the `DashboardLay
 |---|---|
 | `/maintenance` | Full CRUD register — was `/fleet/maintenance`, relocated by `9c69f08` (2026-07-30) |
 
-The standalone `/fleet/availability` and `/drivers/availability` boards (Phase 4, 2026-08-12) were **removed 2026-08-15**: availability is answered by schedule-overlap (see [[Fleet And Vehicles]] and [[Dispatch]]), and their nav entries were dropped from `workspaces.js`. The shared `StatusBoard` component is likewise no longer wired to a page.
+The standalone `/fleet/availability` and `/drivers/availability` boards were slated for removal 2026-08-15 but that never landed — both pages stayed live until **2026-08-23**, when they were merged into the dispatch module as `/dispatch/availability` (one page, Drivers | Vehicles tabs, components `driver-availability-board.jsx` / `vehicle-availability-board.jsx`). Management gained Vehicles visibility in the merge; all three backing GETs (`/api/drivers`, `/api/vehicles`, `/api/driver-leave-requests`) already allowed management. The shared `StatusBoard` component was deleted with them.
 
 The empty `src/app/(dashboard)/fleet/maintenance/` directory left behind by that
 relocation was removed 2026-08-12.
