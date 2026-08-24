@@ -248,7 +248,6 @@ export default function VehicleFormPage({ params }) {
         document_type: "OR_CR",
         document_number: orCrDoc.document_number || "OR-CR-UNSPECIFIED",
         file_url: orCrDoc.file_url || null,
-        issue_date: new Date().toISOString().split("T")[0],
       });
     }
     if (insuranceDoc.file_url || insuranceDoc.document_number || data.insurance_expiry) {
@@ -256,8 +255,9 @@ export default function VehicleFormPage({ params }) {
         document_type: "Insurance",
         document_number: insuranceDoc.document_number || "INS-POLICY-UNSPECIFIED",
         file_url: insuranceDoc.file_url || null,
-        expiration_date: data.insurance_expiry || null,
-        issue_date: new Date().toISOString().split("T")[0],
+        // The API's only expiry key is expiry_date — issue_date/expiration_date
+        // were silently dropped, leaving Insurance rows without an expiry.
+        expiry_date: data.insurance_expiry || null,
       });
     }
 
