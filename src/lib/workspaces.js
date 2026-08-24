@@ -85,9 +85,7 @@ export const WORKS = {
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Driver Leave Requests", icon: CalendarCheck },
           { href: "/drivers/performance", label: "Driver Performance & Feedback", icon: Gauge },
-          { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
         ],
       },
       {
@@ -97,6 +95,7 @@ export const WORKS = {
           { href: "/reservations/queue", label: "Request Queue", icon: Inbox },
           { href: "/dispatch", label: "Dispatch", icon: Send },
           { href: "/trips", label: "Trips", icon: ClipboardList },
+          { href: "/routes", label: "Routes", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
         ],
       },
@@ -156,10 +155,7 @@ export const WORKS = {
         label: "Fleet Operations",
         items: [
           { href: "/fleet/vehicles", label: "Vehicle Management", icon: Truck },
-
-          { href: "/fleet/documents", label: "Document Expiration", icon: ShieldCheck },
           { href: "/drivers", label: "Driver Management", icon: Users },
-          { href: "/drivers/leave", label: "Driver Leave Requests", icon: CalendarCheck },
         ],
       },
       {
@@ -194,6 +190,7 @@ export const WORKS = {
           { href: "/reservations/queue", label: "Reservation Queue", icon: Inbox },
           { href: "/dispatch", label: "Dispatch Board", icon: Send },
           { href: "/dispatch/calendar", label: "Dispatch Calendar", icon: CalendarCheck },
+          { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/trips", label: "Trips", icon: Route },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
@@ -202,11 +199,8 @@ export const WORKS = {
       {
         label: "Operations",
         items: [
-          { href: "/fleet/availability", label: "Fleet Availability", icon: Truck },
-          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
           { href: "/routes", label: "Routes", icon: Route },
           { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
-          { href: "/tracking/history", label: "Trip Timeline", icon: ClipboardList },
         ],
       },
       {
@@ -260,7 +254,7 @@ export const WORKS = {
           { href: "/reports", label: "Reports Hub", icon: BarChart3 },
           { href: "/reports/cost", label: "Financial Overview", icon: BarChart3 },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
-          { href: "/drivers/availability", label: "Driver Availability", icon: Users },
+          { href: "/dispatch/availability", label: "Resource Availability", icon: Users },
           { href: "/drivers/performance", label: "Driver Performance", icon: Gauge },
         ],
       },
@@ -268,7 +262,6 @@ export const WORKS = {
         label: "Strategic Monitoring",
         items: [
           { href: "/ai/insights", label: "AI Insights", icon: Brain },
-          { href: "/tracking/history", label: "Operational Review", icon: ClipboardList },
           { href: "/reservations", label: "Reservations Register", icon: CalendarCheck },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },

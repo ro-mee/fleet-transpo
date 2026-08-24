@@ -75,6 +75,7 @@ function setModeValue(next, event) {
   const canAnimate =
     typeof document !== "undefined" &&
     typeof document.startViewTransition === "function" &&
+    !document.hidden &&
     !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
 
   const commit = () => {
@@ -133,7 +134,10 @@ function setModeValue(next, event) {
           ],
         },
         {
-          duration: 450,
+          // 700ms matches the Magic UI AnimatedThemeToggler feel — long enough
+          // for the circle to read as a wave washing over the page, short
+          // enough to stay snappy.
+          duration: 700,
           easing: "cubic-bezier(0.22, 1, 0.36, 1)",
           pseudoElement: "::view-transition-new(root)",
         }

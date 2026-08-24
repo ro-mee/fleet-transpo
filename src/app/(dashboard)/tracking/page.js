@@ -2,7 +2,7 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { HeroHeader } from "@/components/ui/hero-header";
-import { MapPin, Route as RouteIcon, ChevronRight } from "lucide-react";
+import { MapPin, ChevronRight } from "lucide-react";
 import Link from "next/link";
 
 const modules = [
@@ -11,12 +11,6 @@ const modules = [
     description: "See every active vehicle on a real-time GPS map.",
     href: "/tracking/live-map",
     icon: MapPin,
-  },
-  {
-    title: "Route History",
-    description: "Review completed trips and their route tracking data.",
-    href: "/tracking/history",
-    icon: RouteIcon,
   },
 ];
 

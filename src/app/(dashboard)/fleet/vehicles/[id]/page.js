@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { StatusBadge } from "@/components/ui/status-badge";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { DocumentScanCard } from "@/components/ui/document-scan-card";
+import { RenewRegistrationDialog } from "@/components/vehicles/renew-registration-dialog";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { getVehicle, deleteVehicle } from "@/services/vehicle.service";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
@@ -360,6 +361,13 @@ export default function VehicleDetailPage() {
                     </div>
                     Philippine LTO Renewal
                   </CardTitle>
+                <div className="flex items-center gap-3">
+                  <RenewRegistrationDialog
+                    canManage={can("vehicles", "update")}
+                    vehicleId={vehicleId}
+                    currentExpiry={vehicle.registration_expiry ? formatDate(vehicle.registration_expiry) : null}
+                    orCrDoc={orCrDoc}
+                  />
                   <Badge
                     variant={
                       ltoSchedule.status === "Overdue"
@@ -372,6 +380,7 @@ export default function VehicleDetailPage() {
                   >
                     {ltoSchedule.status}
                   </Badge>
+                </div>
                 </div>
               </CardHeader>
               <CardContent className="p-0">

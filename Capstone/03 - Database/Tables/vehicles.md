@@ -40,7 +40,7 @@ Whether a vehicle can be used on a given day is computed from several sources, n
 | Active driver pairing | [[driver_vehicle_assignments]] |
 | Maintenance | [[Maintenance]] |
 
-The `/fleet/availability` page (with the shared `StatusBoard` component) was **removed 2026-08-15** — availability is derived, so it's surfaced via dispatch/schedule views, not a board page. → [[Frontend]]
+The `/fleet/availability` page (with the shared `StatusBoard` component) was merged **2026-08-23** into `/dispatch/availability` (Drivers | Vehicles tabs). The board is a read-only projection of `vehicle_status` — availability itself is still derived. → [[Frontend]]
 
 ## Grounding affects this table's usefulness — CONFIRMED
 

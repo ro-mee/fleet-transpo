@@ -414,8 +414,7 @@ relevant workspaces. All management-facing ones are strictly read-only.
 
 | Route | Purpose | Roles |
 |---|---|---|
-| `/fleet/availability` | Vehicles by status board | admin, system_admin, fleet_manager, dispatcher |
-| `/drivers/availability` | Drivers by duty status board | admin, system_admin, fleet_manager, dispatcher, management |
+| `/dispatch/availability` | Merged resource board (Drivers \| Vehicles by status) — replaced `/fleet/availability` + `/drivers/availability` on 2026-08-23; management gained Vehicles visibility | admin, system_admin, fleet_manager, dispatcher, management |
 | `/fleet/documents` | Document Expiration Center — driver licenses + vehicle registration/OR-CR/insurance, split into Vehicle / Driver tabs | admin, system_admin, fleet_manager |
 | `/drivers/performance` | Driver Performance Center — on-time, trips, score, cost/km | admin, system_admin, fleet_manager, management |
 | `/reports/cost` | Fleet Cost Dashboard — per-vehicle fuel/maintenance cost | admin, system_admin, fleet_manager, management |
@@ -485,7 +484,8 @@ operational modules).
 ### 9.4 Read-only operational & executive boards
 
 See §8.4. These reuse existing data with no schema changes:
-`/fleet/availability`, `/drivers/availability`, `/fleet/documents` (Vehicle /
+`/dispatch/availability` (merged Drivers + Vehicles boards, 2026-08-23),
+`/fleet/documents` (Vehicle /
 Driver tabs, incl. driver licenses + vehicle registration),
 `/drivers/performance`, `/reports/cost`, `/executive`. New endpoints:
 `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`; extended

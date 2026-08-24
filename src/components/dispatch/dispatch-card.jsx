@@ -4,16 +4,16 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
-import { StatusBadge, TONE_RAIL } from "@/components/ui/status-badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { DISPATCH_STATUS as D, TRIP_STATUS as T } from "@/lib/constants";
 import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { alertMessage } from "@/lib/scheduling/departure-alerts";
 import { haversineKm } from "@/lib/geo/distance";
-import { cn, formatDateTime, formatDistance, formatDuration, formatTime } from "@/lib/utils";
+import { cn, formatDateTime, formatDuration, formatTime } from "@/lib/utils";
 import {
   ArrowRight,
+  CalendarDays,
   CarFront,
-  ChevronDown,
   Eye,
   FileText,
   MapPin,
@@ -43,13 +43,6 @@ const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
 // in as `permissions`, and owns every mutation. This component decides only what
 // is *applicable* to the dispatch's current state; the caller decides what the
 // signed-in user is *allowed* to do.
-const PRIORITY_RAIL = {
-  Urgent: "border-l-danger",
-  High: "border-l-warning",
-  Medium: "border-l-border",
-  Low: "border-l-border",
-};
-
 function driverName(driver) {
   if (!driver) return null;
   const name = [driver.first_name, driver.last_name].filter(Boolean).join(" ").trim();
@@ -138,7 +131,6 @@ export function DispatchCard({
   const pickup = request?.pickup_location || route?.origin;
   const dropoff = request?.dropoff_location || route?.destination;
 
-  const distanceKm = num(ds.estimated_distance) ?? num(request?.estimated_distance) ?? num(route?.estimated_distance);
   const durationMin = num(ds.estimated_duration) ?? num(request?.estimated_duration);
 
   // Arrival ETA — static while the car hasn't moved, live once GPS streams in.
@@ -176,71 +168,75 @@ export function DispatchCard({
 
   const guestName = request?.guest_name || "Unnamed guest";
   const driverNameStr = driverName(driver);
-
-  const hasMeta = distanceKm != null || durationMin != null ||
-    request?.service_name || request?.requested_vehicle_type || request?.passenger_count ||
-    ds.notes || request?.special_requests;
+  const guestInitials = guestName.split(" ").slice(0, 2).map((part) => part[0]).join("").toUpperCase();
 
   return (
     <Card
       className={cn(
-        "rounded-2xl border border-border/70 bg-surface p-4 shadow-sm hover:shadow-md transition-all duration-200 border-l-[3px]",
-        progress.overdue || alert?.tone === "danger"
-          ? TONE_RAIL.danger
-          : PRIORITY_RAIL[priority] || "border-l-border"
+        "rounded-2xl border border-border/70 bg-surface p-4 shadow-xs transition-shadow duration-200 hover:shadow-sm",
+        (progress.overdue || alert?.tone === "danger") && "border-danger/40"
       )}
     >
       {/* ── HEADER: Guest + dispatch number + status ── */}
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="text-sm font-bold text-foreground tracking-tight truncate">
-              {guestName}
-            </h3>
-            {priority && priority !== "Medium" && <StatusBadge status={priority} entity="priority" />}
-          </div>
-          <div className="mt-0.5 flex items-center gap-2 text-xs text-foreground-muted">
-            <Link
-              href={`/dispatch/${ds.dispatch_id}`}
-              className="font-data font-semibold text-foreground/80 hover:text-primary transition-colors"
-            >
-              {ds.dispatch_number || `DSP-${ds.dispatch_id}`}
-            </Link>
-            {request?.reservation_number && (
-              <span className="font-data opacity-60">· {request.reservation_number}</span>
-            )}
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-info/10 text-xs font-bold text-info ring-1 ring-info/15">
+            {guestInitials}
+          </span>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-sm font-bold tracking-tight text-foreground">{guestName}</h3>
+              {priority && <StatusBadge status={priority} entity="priority" />}
+            </div>
+            <div className="mt-0.5 flex items-center gap-2 text-xs text-foreground-muted">
+              <Link href={`/dispatch/${ds.dispatch_id}`} className="font-data font-semibold transition-colors hover:text-info">
+                {ds.dispatch_number || `DSP-${ds.dispatch_id}`}
+              </Link>
+              {request?.reservation_number && <span className="font-data">· {request.reservation_number}</span>}
+            </div>
           </div>
         </div>
-        <StatusBadge status={ds.status} entity="dispatch" />
+        <div className="flex shrink-0 items-center gap-1.5">
+          <CalendarDays className="h-3.5 w-3.5 text-info" aria-hidden="true" />
+          <StatusBadge status={ds.status} entity="dispatch" />
+        </div>
       </div>
       {/* ── ROUTE ── */}
-      <div className="mt-3 flex items-center gap-2 text-xs">
-        <MapPin className="w-3.5 h-3.5 text-primary shrink-0" aria-hidden="true" />
-        <span className="font-semibold text-foreground truncate">{pickup || "—"}</span>
-        <ArrowRight className="w-3.5 h-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />
-        <span className="font-semibold text-foreground truncate">{dropoff || "—"}</span>
-      </div>
+      <div className="mt-3 rounded-xl border border-border/60 bg-hover/10 p-2">
+        <div className="flex items-center gap-2 px-1.5 pb-2 text-xs">
+          <MapPin className="h-3.5 w-3.5 shrink-0 text-info" aria-hidden="true" />
+          <span className="truncate font-semibold text-foreground">{pickup || "—"}</span>
+          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-foreground-muted" aria-hidden="true" />
+          <span className="truncate font-semibold text-foreground">{dropoff || "—"}</span>
+        </div>
 
-      {/* ── ASSIGNMENT: vehicle + driver on one line each ── */}
-      <div className="mt-3 rounded-xl border border-border/50 bg-hover/30 divide-y divide-border/40">
-        <div className="flex items-center gap-2.5 px-3 py-2 min-w-0">
-          <CarFront className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-border/60 bg-surface px-3 py-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-info/10 text-info">
+            <CarFront className="h-4 w-4" aria-hidden="true" />
+          </span>
           {vehicle ? (
-            <p className="text-xs truncate">
-              <span className="font-data font-semibold text-foreground">{vehicle.plate_number}</span>
-              {vehicle.model && <span className="text-foreground-secondary ml-1.5">{vehicle.model}</span>}
-            </p>
+            <div className="min-w-0">
+              <p className="truncate font-data text-xs font-semibold text-foreground">{vehicle.plate_number}</p>
+              <p className="truncate text-[11px] text-foreground-muted">{vehicle.model || "Vehicle"}</p>
+            </div>
           ) : (
             <p className="text-xs font-semibold text-warning">Vehicle unassigned</p>
           )}
-        </div>
-        <div className="flex items-center gap-2.5 px-3 py-2 min-w-0">
-          <Users className="w-3.5 h-3.5 text-foreground-muted shrink-0" aria-hidden="true" />
+          </div>
+          <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-border/60 bg-surface px-3 py-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Users className="h-4 w-4" aria-hidden="true" />
+          </span>
           {driverNameStr ? (
-            <p className="text-xs font-semibold text-foreground truncate">{driverNameStr.trim()}</p>
+            <div className="min-w-0">
+              <p className="truncate text-xs font-semibold text-foreground">{driverNameStr.trim()}</p>
+              <p className="text-[11px] text-foreground-muted">Driver</p>
+            </div>
           ) : (
             <p className="text-xs font-semibold text-warning">Driver unassigned</p>
           )}
+          </div>
         </div>
       </div>
 
@@ -263,7 +259,7 @@ export function DispatchCard({
       </div>
 
       {/* ── PROGRESS — only once the trip is actually moving ── */}
-      {progress.pct !== null && progress.pct > 0 && (
+      {progress.pct !== null && (
         <div className="mt-3">
           <ProgressBar value={progress.pct} tone={progress.tone} valueLabel={progress.label} />
         </div>
@@ -301,59 +297,17 @@ export function DispatchCard({
         </div>
       )}
 
-      {/* ── DETAILS — collapsed by default so the card stays scannable ── */}
-      {hasMeta && (
-        <details className="group mt-3">
-          <summary className="flex items-center gap-1 cursor-pointer list-none text-[11px] font-semibold text-foreground-muted hover:text-foreground transition-colors">
-            <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-180" aria-hidden="true" />
-            Trip details
-          </summary>
-          <div className="mt-2 space-y-2 text-xs">
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-foreground-secondary">
-              {request?.passenger_count && (
-                <span><span className="text-foreground-muted">Passengers</span> {request.passenger_count}</span>
-              )}
-              {(request?.service_name || request?.requested_vehicle_type) && (
-                <span><span className="text-foreground-muted">Service</span> {request.service_name || request.requested_vehicle_type}</span>
-              )}
-              {(distanceKm != null || durationMin != null) && (
-                <span>
-                  <span className="text-foreground-muted">Estimate</span>{" "}
-                  {[
-                    distanceKm != null ? formatDistance(distanceKm) : null,
-                    durationMin != null ? formatDuration(durationMin) : null,
-                  ].filter(Boolean).join(" · ")}
-                </span>
-              )}
-            </div>
-            {request?.special_requests && (
-              <p className="flex items-start gap-1.5 text-foreground-secondary">
-                <FileText className="mt-0.5 w-3 h-3 shrink-0 text-foreground-muted" aria-hidden="true" />
-                <span className="min-w-0">{request.special_requests}</span>
-              </p>
-            )}
-            {/* Dispatcher notes often restate the request verbatim — skip the echo. */}
-            {ds.notes && ds.notes !== request?.special_requests && (
-              <p className="flex items-start gap-1.5 text-foreground-secondary">
-                <FileText className="mt-0.5 w-3 h-3 shrink-0 text-foreground-muted" aria-hidden="true" />
-                <span className="min-w-0">{ds.notes}</span>
-              </p>
-            )}
-          </div>
-        </details>
-      )}
-
       {/* ── ACTIONS: the primary decision on the right, everything else quiet ── */}
-      <div className="mt-3 flex items-center gap-1 border-t border-border/60 pt-3">
-        <Button variant="ghost" size="sm" asChild className="text-foreground-secondary">
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <Button variant="outline" size="sm" asChild className="text-foreground-secondary">
           <Link href={`/dispatch/${ds.dispatch_id}`}>
             <Eye className="w-3.5 h-3.5 mr-1" />
-            Details
+            View Details
           </Link>
         </Button>
 
         {ds.status === D.IN_PROGRESS && permissions.dispatchRead && (
-          <Button variant="ghost" size="sm" asChild className="text-foreground-secondary">
+          <Button variant="outline" size="sm" asChild className="text-foreground-secondary">
             <Link href="/tracking/live-map">
               <Radio className="w-3.5 h-3.5 mr-1" />
               Track
@@ -363,7 +317,7 @@ export function DispatchCard({
 
         {canNotes && (
           <Button
-            variant="ghost"
+            variant="outline"
             size="sm"
             className="text-foreground-secondary"
             disabled={isBusy}
@@ -377,7 +331,7 @@ export function DispatchCard({
         <div className="ml-auto flex items-center gap-1">
           {canCancel && (
             <Button
-              variant="ghost"
+              variant="outline"
               size="sm"
               className="text-foreground-muted hover:text-danger"
               disabled={isBusy}
@@ -389,11 +343,14 @@ export function DispatchCard({
           )}
           {canAssign && (
             <Button
-              variant={isPendingReassignment || !fullyAssigned ? "default" : "outline"}
+              variant="default"
               size="sm"
               disabled={isBusy}
               onClick={() => onReassign?.(ds, "assign")}
-              className={cn(isPendingReassignment && "bg-danger hover:bg-danger/90 text-white")}
+              className={cn(
+                "bg-info text-white shadow-sm hover:bg-info/90",
+                isPendingReassignment && "bg-danger hover:bg-danger/90"
+              )}
             >
               <Shuffle className="w-3.5 h-3.5 mr-1" />
               {isPendingReassignment ? "Reassign now" : fullyAssigned ? "Reassign" : "Assign"}
@@ -407,7 +364,7 @@ export function DispatchCard({
 
 export function DispatchCardSkeleton() {
   return (
-    <Card className="rounded-2xl border-l-[3px] border-l-border p-4">
+    <Card className="rounded-2xl border border-border/70 p-4">
       <div className="animate-pulse space-y-3">
         <div className="flex justify-between">
           <div className="space-y-2">

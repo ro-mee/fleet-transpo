@@ -5,8 +5,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Dialog,
@@ -31,18 +29,19 @@ import {
 import { DISPATCH_STATUS as D } from "@/lib/constants";
 import { alertMessage } from "@/lib/scheduling/departure-alerts";
 import { cn } from "@/lib/utils";
-import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import {
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
+  GalleryVerticalEnd,
   Inbox,
   PlayCircle,
   RefreshCw,
   Search,
+  Users,
   Send,
   TriangleAlert,
   XCircle,
@@ -63,6 +62,7 @@ const PAGE_SIZE = 4;
 const REFETCH_MS = 30_000;
 
 const LANES = [
+  { id: "all", label: "All", icon: GalleryVerticalEnd, tone: "secondary" },
   { id: "pendingReassignment", status: D.PENDING_REASSIGNMENT, label: "Pending Reassignment", icon: Inbox, tone: "danger" },
   { id: "scheduled", status: D.SCHEDULED, label: "Scheduled", icon: Clock, tone: "info" },
   { id: "inProgress", status: D.IN_PROGRESS, label: "In Progress", icon: PlayCircle, tone: "warning" },
@@ -71,6 +71,7 @@ const LANES = [
 ];
 
 const LANE_EMPTY = {
+  all: "No dispatches yet.",
   pendingReassignment: "No dispatches pending reassignment.",
   scheduled: "Nothing scheduled. Approved requests appear here once dispatched from the queue.",
   inProgress: "Nothing in motion right now.",
@@ -79,10 +80,11 @@ const LANE_EMPTY = {
 };
 
 const LANE_ACTIVE = {
-  info: "border-info bg-info/10 text-info",
-  warning: "border-warning bg-warning/10 text-warning",
-  success: "border-success bg-success/10 text-success",
-  secondary: "border-border bg-hover text-foreground",
+  danger: "bg-danger text-white shadow-sm",
+  info: "bg-info text-white shadow-sm",
+  warning: "bg-warning text-white shadow-sm",
+  success: "bg-success text-white shadow-sm",
+  secondary: "bg-foreground text-surface shadow-sm",
 };
 
 // Search is client-side: by-status already returns the whole board in one query,
@@ -229,6 +231,7 @@ export default function DispatchPage() {
 
   const counts = useMemo(
     () => ({
+      all: Object.values(groups || {}).flat().length,
       pendingReassignment: groups?.pendingReassignment?.length || 0,
       scheduled: groups?.scheduled?.length || 0,
       inProgress: groups?.inProgress?.length || 0,
@@ -259,7 +262,7 @@ export default function DispatchPage() {
   }, [alerts]);
 
   const allItems = useMemo(
-    () => (groups?.[lane] || []).filter((d) => matches(d, search)),
+    () => (lane === "all" ? Object.values(groups || {}).flat() : groups?.[lane] || []).filter((d) => matches(d, search)),
     [groups, lane, search]
   );
 
@@ -270,54 +273,10 @@ export default function DispatchPage() {
     ? allItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
     : allItems;
 
-  // Summary-only: the lane chips below are the single filter control, so these
-  // cards carry counts and tones but no click behaviour.
-  const stats = useMemo(
-    () => [
-      {
-        label: "Pending Reassignment",
-        value: counts.pendingReassignment,
-        icon: Inbox,
-        tone: "danger",
-        trend: "needs urgent action",
-      },
-      {
-        label: "Scheduled",
-        value: counts.scheduled,
-        icon: Clock,
-        tone: "primary",
-        trend: "awaiting departure",
-      },
-      {
-        label: "In Progress",
-        value: counts.inProgress,
-        icon: PlayCircle,
-        tone: "warning",
-        trend: "on the road",
-      },
-      {
-        label: "Completed",
-        value: counts.completed,
-        icon: CheckCircle2,
-        tone: "success",
-        trend: "closed out",
-      },
-      {
-        label: "Cancelled",
-        value: counts.cancelled,
-        icon: XCircle,
-        tone: "secondary",
-        trend: "stood down",
-      },
-    ],
-    [counts]
-  );
-
   const searching = search.trim().length > 0;
 
   return (
     <div className="space-y-6">
-      {/* Hero Header */}
       <HeroHeader
         icon={Send}
         title="Dispatch Operations Board"
@@ -337,6 +296,12 @@ export default function DispatchPage() {
                 Request Queue
               </Link>
             </Button>
+            <Button variant="outline" asChild className={cn(heroButtonOutlineClass)}>
+              <Link href="/dispatch/availability">
+                <Users className="w-4 h-4 mr-2" />
+                Check availability
+              </Link>
+            </Button>
             <Button
               variant="outline"
               size="icon"
@@ -351,12 +316,57 @@ export default function DispatchPage() {
         }
       />
 
-      {/* KPI Cards */}
-      <StatGrid cols={5}>
-        {stats.map((s) => {
-          return <StatCard key={s.label} {...s} />;
-        })}
-      </StatGrid>
+      <section className="rounded-2xl border border-border/70 bg-surface p-4 shadow-xs">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-hover/70 p-1" role="tablist" aria-label="Dispatch status">
+            {LANES.map((l) => {
+              const LaneIcon = l.icon;
+              const active = lane === l.id;
+              const laneAlerts = alertsByLane[l.id] || 0;
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => switchLane(l.id)}
+                  className={cn(
+                    "flex h-9 shrink-0 items-center gap-2 rounded-lg px-3 text-xs font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-foreground focus-visible:ring-offset-2",
+                    active
+                      ? LANE_ACTIVE[l.tone]
+                      : "text-foreground-secondary hover:bg-surface hover:text-foreground"
+                  )}
+                >
+                  <LaneIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                  {l.label}
+                  <span className={cn(
+                    "flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 font-data text-[10px]",
+                    active ? "bg-white/20 text-current" : "bg-surface text-foreground"
+                  )}>
+                    {counts[l.id]}
+                  </span>
+                  {laneAlerts > 0 && (
+                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white" title={`${laneAlerts} departing without a full assignment`}>
+                      {laneAlerts}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="flex h-10 items-center gap-2 rounded-xl border border-border/80 bg-surface px-3 xl:w-80">
+            <Search className="h-4 w-4 shrink-0 text-foreground-muted" aria-hidden="true" />
+            <span className="sr-only">Search dispatches</span>
+            <Input
+              className="h-9 border-0 bg-transparent px-0 focus-visible:ring-0"
+              placeholder="Search dispatch, plate, driver…"
+              value={search}
+              onChange={(e) => changeSearch(e.target.value)}
+            />
+          </label>
+        </div>
+      </section>
 
       {/* Reassignment blockers — persistent until dismissed, so the reason a
           pair was rejected survives the toast and stays visible while the
@@ -420,54 +430,6 @@ export default function DispatchPage() {
         </div>
       )}
 
-      {/* Lane selector + search. */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap gap-2" role="tablist" aria-label="Dispatch status">
-          {LANES.map((l) => {
-            const LaneIcon = l.icon;
-            const active = lane === l.id;
-            const laneAlerts = alertsByLane[l.id] || 0;
-            return (
-              <button
-                key={l.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => switchLane(l.id)}
-                className={cn(
-                  'flex items-center gap-2 px-4 h-9 rounded-full text-xs font-bold border transition-all cursor-pointer',
-                  active
-                    ? LANE_ACTIVE[l.tone]
-                    : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40'
-                )}
-              >
-                <LaneIcon className="w-3.5 h-3.5" aria-hidden="true" />
-                {l.label} ({counts[l.id]})
-                {laneAlerts > 0 && (
-                  <span
-                    className="flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-bold text-white"
-                    title={`${laneAlerts} departing without a full assignment`}
-                  >
-                    {laneAlerts}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="bg-surface border border-border/80 rounded-2xl px-3 flex items-center gap-2 sm:w-72">
-          <Search className="w-4 h-4 text-foreground-muted shrink-0" aria-hidden="true" />
-          <Input
-            className="border-0 bg-transparent focus-visible:ring-0 px-0 h-9"
-            placeholder="Dispatch, guest, plate, driver, route…"
-            value={search}
-            onChange={(e) => changeSearch(e.target.value)}
-            aria-label="Search dispatches"
-          />
-        </div>
-      </div>
-
       {isError ? (
         <div className="rounded-3xl border border-danger/30 bg-danger/5 p-4">
           <div className="flex items-start gap-3">
@@ -512,8 +474,7 @@ export default function DispatchPage() {
           />
         </div>
       ) : (
-        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-          <CardContent className="p-4 space-y-3">
+        <div className="space-y-3">
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
               {items.map((d) => (
                 <DispatchCard
@@ -580,8 +541,7 @@ export default function DispatchPage() {
                 </div>
               </div>
             )}
-          </CardContent>
-        </Card>
+        </div>
       )}
 
       <DispatchEditDialog
