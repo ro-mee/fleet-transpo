@@ -32,6 +32,11 @@ export function DriverSos() {
   const { colors, type } = useTheme();
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
+  // Stable reference so an offline-queued SOS that the sync queue replays
+  // later cannot create a duplicate emergency incident server-side.
+  const [clientSubmissionId] = useState(
+    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [position] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
   const offset = useRef({ x: 0, y: 0 });
@@ -132,6 +137,7 @@ export function DriverSos() {
         longitude,
         severity: "Critical",
         incident_date: new Date().toISOString(),
+        client_submission_id: clientSubmissionId,
       });
       setOpen(false);
       AppAlert.alert(

@@ -24,7 +24,6 @@ import { CheckCircle2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { updateIncident } from "@/services/driver.service";
 import { apiFetch } from "@/lib/api/client";
-
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -69,28 +68,21 @@ export default function IncidentsPage() {
     },
   });
 
+  // Resolver context for the modal: what grounding automation did on this
+  // incident's behalf (interrupted dispatches) and any linked repairs.
+  const detailQuery = useQuery({
+    queryKey: ["incident-detail", resolveModal.incident?.incident_id],
+    queryFn: () => apiFetch(`/api/incidents/${resolveModal.incident.incident_id}`),
+    enabled: resolveModal.open && !!resolveModal.incident,
+  });
+
   const sendToMaintenanceMutation = useMutation({
-    mutationFn: async (row) => {
-      // 1. Create the Maintenance Record
-      await apiFetch("/api/vehicle-maintenance", {
-        method: "POST",
-        body: {
-          vehicle_id: row.vehicle_id,
-          maintenance_date: new Date().toISOString().split("T")[0],
-          maintenance_type: "Emergency Repair",
-          description: `Emergency repair generated from Incident #${row.incident_id}: ${row.description || ""}`,
-          cost: row.expense_amount ? parseFloat(row.expense_amount) : 0,
-          status: "In Progress",
-          priority: "High",
-          remarks: `Incident Type: ${row.incident_type || "Unknown"}`
-        }
-      });
-      // 2. Mark the Incident as Resolved
-      await updateIncident(row.incident_id, {
-        status: "Resolved",
-        actions_taken: "Sent to vehicle maintenance team for emergency repairs."
-      });
-    },
+    // One atomic server request: creates the emergency repair record AND
+    // resolves the incident in a single transaction. The old client-side
+    // two-call sequence could strand a repair record against a still-open
+    // incident, or duplicate the repair on retry.
+    mutationFn: (row) =>
+      apiFetch(`/api/incidents/${row.incident_id}/maintenance`, { method: "POST" }),
     onSuccess: () => {
       toast.success("Incident resolved and sent to Maintenance successfully!");
       queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
@@ -155,6 +147,20 @@ export default function IncidentsPage() {
             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-danger bg-danger/10 border border-danger/20 rounded px-1.5 py-0.5 mt-1.5 uppercase">
               ₱{Number(row.expense_amount).toLocaleString("en-PH", { minimumFractionDigits: 2 })} Expense
             </span>
+          )}
+          {Array.isArray(row.assistance_needed) && row.assistance_needed.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              {row.assistance_needed.map((need) => (
+                <span
+                  key={need}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-warning bg-warning/10 border border-warning/20 rounded px-1.5 py-0.5"
+                  title="Assistance requested by the driver"
+                >
+                  <AlertCircle className="w-3 h-3" />
+                  {need}
+                </span>
+              ))}
+            </div>
           )}
         </div>
       ),
@@ -231,7 +237,13 @@ export default function IncidentsPage() {
         if ((row.status || "").toLowerCase() === "pending" || (row.status || "").toLowerCase() === "open") {
           return (
             <div className="flex justify-end gap-2">
-              {row.vehicle_id && (
+              {/* Gate on the vehicle the incident itself names. The list's
+                  vehicle_id falls back to the driver's CURRENT assignment
+                  (COALESCE in the API), which may be a vehicle the incident
+                  never mentioned — routing that one to emergency repairs on
+                  an incident's say-so is how costs land on the wrong truck.
+                  The server enforces the same rule. */}
+              {row.reported_vehicle_id && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -274,7 +286,7 @@ export default function IncidentsPage() {
         icon={AlertTriangle}
         title="Fleet Incidents Registry"
         badge="Driver Reports"
-        description="Driver-reported incidents across the fleet. Read-only audit log."
+        description="Driver-reported incidents across the fleet. Resolve inline or route the vehicle to emergency repairs."
       />
 
       <StatGrid cols={4}>
@@ -331,6 +343,47 @@ export default function IncidentsPage() {
               Marking this incident as resolved will clear it from the pending alerts. Please document any actions taken.
             </DialogDescription>
           </DialogHeader>
+          {resolveModal.incident && (
+            <div className="px-6 pt-2 space-y-2">
+              {(detailQuery.data?.affected_dispatches?.length > 0 ||
+                detailQuery.data?.linked_maintenance?.length > 0) && (
+                <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
+                  {detailQuery.data.affected_dispatches?.length > 0 && (
+                    <div className="mb-2">
+                      <p className="font-bold text-foreground mb-1">
+                        Interrupted dispatches ({detailQuery.data.affected_dispatches.length})
+                      </p>
+                      {detailQuery.data.affected_dispatches.map((d) => (
+                        <div key={d.dispatch_id} className="flex items-center justify-between gap-2 py-0.5">
+                          <span className="text-foreground-secondary font-medium truncate">
+                            #{d.dispatch_number || d.dispatch_id} — {d.guest_name || "Unknown guest"}
+                          </span>
+                          <span className={`shrink-0 font-bold ${(d.dispatch_status || "").toLowerCase() === "pending reassignment" ? "text-danger" : "text-foreground-muted"}`}>
+                            {d.dispatch_status}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {detailQuery.data.linked_maintenance?.length > 0 && (
+                    <div>
+                      <p className="font-bold text-foreground mb-1">
+                        Linked repairs ({detailQuery.data.linked_maintenance.length})
+                      </p>
+                      {detailQuery.data.linked_maintenance.map((m) => (
+                        <div key={m.maintenance_id} className="flex items-center justify-between gap-2 py-0.5">
+                          <span className="text-foreground-secondary font-medium truncate">
+                            #{m.maintenance_id} — {m.maintenance_type}
+                          </span>
+                          <span className="shrink-0 font-bold text-foreground-muted">{m.status}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           <div className="p-6 pt-2">
             <p className="text-sm font-medium text-foreground mb-2">Actions Taken</p>
             <textarea
@@ -339,6 +392,11 @@ export default function IncidentsPage() {
               placeholder="e.g., Sent mechanic, Dispatched tow truck, Verified safe to drive..."
               className="w-full min-h-[100px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y"
             />
+            {!actionsTaken.trim() && (
+              <p className="text-xs font-semibold text-danger mt-1.5">
+                Documenting the actions taken is required — the reporting driver sees this.
+              </p>
+            )}
           </div>
           <DialogFooter>
             <Button
@@ -357,7 +415,7 @@ export default function IncidentsPage() {
                   });
                 }
               }}
-              disabled={resolveMutation.isPending}
+              disabled={resolveMutation.isPending || !actionsTaken.trim()}
               className="gap-2"
             >
               <CheckCircle2 className="w-4 h-4" />

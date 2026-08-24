@@ -48,6 +48,7 @@ const MT_LIST_SELECT = `
   vm.maintenance_id, vm.vehicle_id, vm.maintenance_type, vm.maintenance_date,
   vm.completed_date, vm.status, vm.priority, vm.cost, vm.service_provider,
   vm.service_center, vm.mileage_at_service, vm.description, vm.remarks, vm.created_at,
+  vm.source_incident_id,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
   END AS vehicles

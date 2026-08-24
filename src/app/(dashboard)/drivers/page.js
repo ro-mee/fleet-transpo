@@ -31,10 +31,12 @@ import {
 } from "lucide-react";
 import { exportToCSV } from "@/lib/export";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { cn } from "@/lib/utils";
 
 export default function DriversPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  const { can } = useRoleAccess();
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -208,15 +210,17 @@ export default function DriversPage() {
       render: (_, row) => (
         <div className="inline-flex items-center gap-0.5 rounded-full border border-border/80 bg-surface p-1 shadow-2xs" onClick={(e) => e.stopPropagation()}>
           {row.requires_completion ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 px-3 text-xs rounded-full font-bold border-primary/40 text-primary hover:bg-primary/10 cursor-pointer"
-              onClick={() => linkMutation.mutate(row.employee_id)}
-              disabled={linkMutation.isPending}
-            >
-              <Link2 className="w-3.5 h-3.5 mr-1" /> Complete Profile
-            </Button>
+            can("drivers", "create") && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-3 text-xs rounded-full font-bold border-primary/40 text-primary hover:bg-primary/10 cursor-pointer"
+                onClick={() => linkMutation.mutate(row.employee_id)}
+                disabled={linkMutation.isPending}
+              >
+                <Link2 className="w-3.5 h-3.5 mr-1" /> Complete Profile
+              </Button>
+            )
           ) : (
             <>
               <Tooltip content="View">
@@ -229,26 +233,30 @@ export default function DriversPage() {
                   <Eye className="w-3.5 h-3.5" />
                 </Button>
               </Tooltip>
-              <Tooltip content="Edit">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
-                  onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
-                >
-                  <Pencil className="w-3.5 h-3.5" />
-                </Button>
-              </Tooltip>
-              <Tooltip content="Archive">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
-                  onClick={() => setDeletingId(row.driver_id)}
-                >
-                  <Archive className="w-3.5 h-3.5" />
-                </Button>
-              </Tooltip>
+              {can("drivers", "update") && (
+                <Tooltip content="Edit">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-foreground-secondary hover:bg-hover hover:text-foreground cursor-pointer"
+                    onClick={() => router.push(`/drivers/${row.driver_id}/edit`)}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </Button>
+                </Tooltip>
+              )}
+              {can("drivers", "delete") && (
+                <Tooltip content="Archive">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-danger hover:bg-danger/10 hover:text-danger cursor-pointer"
+                    onClick={() => setDeletingId(row.driver_id)}
+                  >
+                    <Archive className="w-3.5 h-3.5" />
+                  </Button>
+                </Tooltip>
+              )}
             </>
           )}
         </div>
@@ -283,10 +291,12 @@ export default function DriversPage() {
               <Download className="w-4 h-4 mr-2" />
               {exporting ? "Exporting..." : "Export CSV"}
             </Button>
-            <Button onClick={() => router.push("/drivers/new")} className={cn(heroButtonPrimaryClass)}>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Driver
-            </Button>
+            {can("drivers", "create") && (
+              <Button onClick={() => router.push("/drivers/new")} className={cn(heroButtonPrimaryClass)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Driver
+              </Button>
+            )}
           </>
         }
       />

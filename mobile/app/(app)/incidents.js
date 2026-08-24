@@ -19,6 +19,17 @@ const INCIDENT_TYPES = [
   { id: "other", label: "Other Incident", icon: "ellipsis-horizontal" },
 ];
 
+// Structured help request sent as driverincidents.assistance_needed (text[]).
+// Dispatch sees these as chips next to the report instead of parsing prose.
+const ASSISTANCE_OPTIONS = [
+  "Tow Truck",
+  "Mechanic",
+  "Medical Assistance",
+  "Police",
+  "Alternative Vehicle",
+  "Fuel",
+];
+
 export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -28,9 +39,23 @@ export default function IncidentsScreen() {
   const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
   const [severity, setSeverity] = useState("medium");
+  const [assistance, setAssistance] = useState([]);
+  const [expense, setExpense] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [queuedOffline, setQueuedOffline] = useState(false);
+
+  const toggleAssistance = (option) => {
+    setAssistance((prev) =>
+      prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
+    );
+  };
+  // Stable per-screen-open reference so an offline-queued report that the sync
+  // queue replays later can never create a duplicate incident server-side
+  // (same pattern as fuel-report.js / inspection.js).
+  const [clientSubmissionId] = useState(
+    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   const handleSubmit = async () => {
     if (!type) {
@@ -40,6 +65,14 @@ export default function IncidentsScreen() {
     if (!description.trim()) {
       AppAlert.alert("Description Required", "Please provide a brief explanation of what occurred.");
       return;
+    }
+    let expenseValue = null;
+    if (expense.trim()) {
+      expenseValue = Number(expense);
+      if (!Number.isFinite(expenseValue) || expenseValue <= 0) {
+        AppAlert.alert("Invalid Expense", "Enter the amount you spent as a positive number, or leave it blank.");
+        return;
+      }
     }
     try {
       setSubmitting(true);
@@ -81,8 +114,11 @@ export default function IncidentsScreen() {
         location: gpsLocation,
         latitude: lat,
         longitude: lng,
-        severity: ({ low: "Minor", medium: "Moderate", high: "Major" }[severity] || "Minor"),
+        severity: ({ low: "Minor", medium: "Moderate", high: "Major", critical: "Critical" }[severity] || "Minor"),
         incident_date: new Date().toISOString(),
+        client_submission_id: clientSubmissionId,
+        assistance_needed: assistance.length ? assistance : null,
+        expense_amount: expenseValue,
       });
       // apiFetch queues POSTs during network failures and resolves
       // { queued: true } — the report has NOT reached dispatch yet.
@@ -181,7 +217,7 @@ export default function IncidentsScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Severity Level</Text>
           <View style={styles.severityRow}>
-            {["low", "medium", "high"].map((s) => {
+            {["low", "medium", "high", "critical"].map((s) => {
               const selected = severity === s;
               const c =
                 s === "low"
@@ -203,18 +239,20 @@ export default function IncidentsScreen() {
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.severityText,
-                      {
-                        color: selected
-                          ? "#FFFFFF"
-                          : colors.onSurface,
-                      },
-                    ]}
-                  >
-                    {s.toUpperCase()}
-                  </Text>
+              <Text
+                style={[
+                  styles.severityText,
+                  {
+                    color: selected
+                      ? "#FFFFFF"
+                      : colors.onSurface,
+                  },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {s.toUpperCase()}
+              </Text>
                 </Pressable>
               );
             })}
@@ -253,6 +291,76 @@ export default function IncidentsScreen() {
             value={description}
             onChangeText={setDescription}
           />
+        </View>
+
+        {/* Assistance Needed (optional) */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Assistance Needed
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+            Optional — tell dispatch what help you need so they can send it with the response.
+          </Text>
+          <View style={styles.assistGrid}>
+            {ASSISTANCE_OPTIONS.map((option) => {
+              const selected = assistance.includes(option);
+              return (
+                <Pressable
+                  key={option}
+                  onPress={() => toggleAssistance(option)}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  accessibilityLabel={`${option} assistance${selected ? ", selected" : ""}`}
+                  style={({ pressed }) => [
+                    styles.assistChip,
+                    {
+                      backgroundColor: selected ? colors.primary : colors.surfaceContainerLow,
+                      borderColor: selected ? colors.primary : colors.outlineVariant + '40',
+                      opacity: pressed ? 0.85 : 1,
+                      transform: [{ scale: pressed ? 0.97 : 1 }],
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={selected ? "checkmark" : "add"}
+                    size={14}
+                    color={selected ? colors.onPrimary : colors.onSurfaceVariant}
+                  />
+                  <Text
+                    numberOfLines={1}
+                    style={[
+                      styles.assistChipText,
+                      { color: selected ? colors.onPrimary : colors.onSurface },
+                    ]}
+                  >
+                    {option}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+
+        {/* Expense (optional) */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Expense Incurred
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+            Optional — money you already spent because of this incident (e.g., towing, tire repair). Fleet staff review it before booking any cost.
+          </Text>
+          <View style={[styles.expenseRow, { borderColor: colors.outlineVariant + '50', backgroundColor: colors.surfaceContainerLow }]}>
+            <Text style={[styles.expensePrefix, { color: colors.onSurfaceVariant }]}>₱</Text>
+            <TextInput
+              style={[styles.expenseInput, { color: colors.onSurface }]}
+              placeholder="0.00"
+              placeholderTextColor={colors.outline}
+              keyboardType="decimal-pad"
+              value={expense}
+              onChangeText={setExpense}
+              accessibilityLabel="Expense amount in Philippine pesos"
+            />
+          </View>
         </View>
       </ScrollView>
 
@@ -395,6 +503,32 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     minHeight: 110,
     textAlignVertical: "top",
+  },
+  assistGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  assistChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    borderWidth: 1,
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    minHeight: TOUCH_TARGET - 10,
+  },
+  assistChipText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
+  expenseRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    minHeight: TOUCH_TARGET,
+  },
+  expensePrefix: { fontSize: 16, fontFamily: fonts.bodySemiBold, marginRight: 6 },
+  expenseInput: {
+    flex: 1,
+    fontSize: 15,
+    fontFamily: fonts.body,
+    paddingVertical: 12,
   },
   footer: {
     paddingHorizontal: 16,

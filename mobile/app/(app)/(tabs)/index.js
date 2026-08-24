@@ -20,6 +20,10 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { StatusPill, SkeletonCard, ErrorNotice, PulsingDot, CountUpText } from "../../../components/ui";
 import { Plate } from "../../../components/plate";
 import { onLaunchComplete } from "../../../lib/launch";
+import {
+  getIncidentDeadLetters,
+  retryIncidentDeadLetters,
+} from "../../../lib/sync";
 
 /**
  * Dark ink for light surfaces (the white hero CTA pill) that stays legible in
@@ -55,6 +59,11 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(NOW_MS_AT_LOAD);
+  // Incident reports that permanently failed to deliver offline. Surfaced
+  // globally — a driver must not have to open Activity Logs to learn that an
+  // emergency report never reached dispatch.
+  const [deadLetterCount, setDeadLetterCount] = useState(0);
+  const [retryingDead, setRetryingDead] = useState(false);
 
   // Keep the GPS-age caption ticking without reading Date.now() during render.
   useEffect(() => {
@@ -95,8 +104,20 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       load();
+      getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
     }, [load])
   );
+
+  const onRetryDeadLetters = async () => {
+    setRetryingDead(true);
+    try {
+      await retryIncidentDeadLetters();
+      const list = await getIncidentDeadLetters();
+      setDeadLetterCount(list.length);
+    } finally {
+      setRetryingDead(false);
+    }
+  };
 
   // Tick so the START ROUTE gate flips when a Driver Accepted trip's departure
   // window opens. Re-renders every 30s while that trip is on the card.
@@ -526,6 +547,44 @@ export default function Home() {
             </View>
           </View>
         </Animated.View>
+
+        {/* Unsent incident reports — quarantined offline, surfaced globally */}
+        {deadLetterCount > 0 && (
+          <Pressable
+            onPress={() => router.push("/submissions")}
+            accessibilityRole="button"
+            accessibilityLabel={`${deadLetterCount} unsent incident report${deadLetterCount > 1 ? "s" : ""}. Tap to review.`}
+            style={({ pressed }) => [
+              styles.deadBanner,
+              { backgroundColor: colors.errorContainer, opacity: pressed ? 0.9 : 1 },
+            ]}
+          >
+            <Ionicons name="cloud-offline" size={18} color={colors.error} />
+            <View style={styles.deadBannerText}>
+              <Text style={[type.label, { color: colors.onSurface }]}>
+                {deadLetterCount} unsent report{deadLetterCount > 1 ? "s" : ""} — dispatch not notified
+              </Text>
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                Sent while offline and could not be delivered. Tap to retry.
+              </Text>
+            </View>
+            <Pressable
+              onPress={onRetryDeadLetters}
+              disabled={retryingDead}
+              accessibilityRole="button"
+              accessibilityLabel="Retry sending unsent reports"
+              hitSlop={8}
+              style={({ pressed }) => [
+                styles.deadRetryBtn,
+                { backgroundColor: colors.error, opacity: retryingDead ? 0.6 : pressed ? 0.9 : 1 },
+              ]}
+            >
+              <Text style={[type.label, { color: colors.onError }]}>
+                {retryingDead ? "SENDING" : "RETRY"}
+              </Text>
+            </Pressable>
+          </Pressable>
+        )}
 
         <Animated.View style={fade(heroAnim)}>
             <View style={[styles.quickCard, { backgroundColor: colors.surface, borderColor: colors.surfaceContainerHigh }]}>
@@ -1218,6 +1277,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sectionTitle: {},
+  deadBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(10),
+    borderRadius: moderateScale(16),
+    borderWidth: 1,
+    borderColor: "transparent",
+    paddingHorizontal: moderateScale(14),
+    paddingVertical: moderateScale(12),
+  },
+  deadBannerText: { flex: 1, gap: 2 },
+  deadRetryBtn: {
+    minHeight: TOUCH_TARGET - 10,
+    paddingHorizontal: moderateScale(12),
+    borderRadius: moderateScale(10),
+    alignItems: "center",
+    justifyContent: "center",
+  },
   quickCard: {
     borderRadius: moderateScale(20),
     borderWidth: 1,
