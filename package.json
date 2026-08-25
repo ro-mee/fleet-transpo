@@ -60,7 +60,6 @@
     "react-leaflet": "^5.0.0",
     "recharts": "^3.10.0",
     "tailwind-merge": "^3.6.0",
-    "tesseract.js": "^7.0.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"
   },
@@ -80,7 +79,6 @@
   "allowScripts": {
     "esbuild@0.28.1": true,
     "sharp@0.34.5": true,
-    "tesseract.js@7.0.0": true,
     "unrs-resolver@1.12.2": true
   }
 }
