@@ -254,22 +254,9 @@ export async function PATCH(req) {
         driver.driver_id,
       ]);
     }
-    
-    let needsStatusSync = false;
-    if (body.license_expiry !== undefined) {
-      if (!canUpdateLicenseScan({ ...scanGate, side: "front" })) {
-        return err("License expiry is locked. You may only update it along with a new scan.", 403);
-      }
-      await query(`UPDATE drivers SET license_expiry = $1, updated_at = NOW() WHERE driver_id = $2`, [
-        body.license_expiry,
-        driver.driver_id,
-      ]);
-      needsStatusSync = true;
-    }
 
-    if (needsStatusSync) {
-      await syncDriverStatus(driver.driver_id);
-    }
+    // license_expiry is intentionally not driver-patchable: it is applied
+    // server-side from a validated front-scan via /api/driver/license-scan.
 
     return ok({ message: "Profile updated" });
   } catch (e) {
