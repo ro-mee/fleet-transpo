@@ -8,7 +8,7 @@ import { getAllIncidents } from "@/services/driver.service";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon } from "lucide-react";
+import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { HeroHeader } from "@/components/ui/hero-header";
@@ -48,6 +48,7 @@ export default function IncidentsPage() {
   const [resolveModal, setResolveModal] = useState({ open: false, incident: null });
   const [actionsTaken, setActionsTaken] = useState("");
   const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
   const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["all-incidents"],
@@ -328,6 +329,15 @@ export default function IncidentsPage() {
                 </p>
               </div>
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsMapFullscreen(true)}
+              className="gap-2 text-xs font-semibold"
+            >
+              <Maximize className="w-4 h-4" />
+              Full View
+            </Button>
           </div>
           <div className="h-[340px] w-full">
             <IncidentMap incidents={activeIncidents} />
@@ -519,7 +529,7 @@ export default function IncidentsPage() {
       {/* Full Screen Image Viewer Overlay */}
       {fullScreenImage && (
         <div 
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
           onClick={() => setFullScreenImage(null)}
         >
           <img 
@@ -527,6 +537,37 @@ export default function IncidentsPage() {
             alt="Full screen incident photo" 
             className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
           />
+        </div>
+      )}
+
+      {/* Full Screen Map Overlay */}
+      {isMapFullscreen && (
+        <div className="fixed inset-0 z-[100] bg-surface flex flex-col">
+          <div className="flex items-center justify-between border-b border-border/60 px-6 py-4 shrink-0 bg-surface/80 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-danger/10 text-danger">
+                <MapIcon className="w-4 h-4" />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Active Incident Map</p>
+                <p className="text-xs text-foreground-muted font-medium">
+                  {activeIncidents.filter((i) => i && i.latitude != null && i.longitude != null).length} active incidents plotted with GPS coordinates
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsMapFullscreen(false)}
+              className="gap-2 text-xs font-semibold"
+            >
+              <Minimize className="w-4 h-4" />
+              Exit Full View
+            </Button>
+          </div>
+          <div className="flex-1 w-full h-full relative">
+            <IncidentMap incidents={activeIncidents} />
+          </div>
         </div>
       )}
     </div>

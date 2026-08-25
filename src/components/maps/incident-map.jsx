@@ -217,10 +217,10 @@ export default function IncidentMap({ incidents = [] }) {
           100% { transform: scale(2.6); opacity: 0; }
         }
         .fleet-popup .leaflet-popup-content { margin: 0 !important; width: 100% !important; }
-        .fleet-popup .leaflet-popup-content-wrapper { padding: 0 !important; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
+        .fleet-popup .leaflet-popup-content-wrapper { background: var(--sf); padding: 0 !important; border-radius: 16px; overflow: hidden; border: 1px solid var(--br); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
         .fleet-popup p { margin: 0 !important; }
-        .fleet-popup .leaflet-popup-close-button { top: 8px !important; right: 8px !important; color: var(--foreground-muted) !important; z-index: 10; }
-        .leaflet-popup-tip { background: var(--surface); }
+        .fleet-popup .leaflet-popup-close-button { top: 8px !important; right: 8px !important; color: var(--fg-muted) !important; z-index: 10; }
+        .leaflet-popup-tip { background: var(--sf); }
       `}</style>
 
       {/* Full Screen Image Viewer Overlay */}
