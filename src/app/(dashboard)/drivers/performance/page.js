@@ -48,11 +48,15 @@ export default function DriverPerformancePage() {
   });
 
   const details = data?.details || [];
+  const avgScoreVal = data?.avgScore ?? 0;
+  const incidentsVal = details.filter((d) => d.incidents > 0).length;
+  const topRatedVal = details.filter((d) => d.rating >= 4).length;
+
   const kpis = [
     { label: "Total Drivers", value: data?.totalDrivers ?? 0, icon: Users, tone: "primary", trend: "active in fleet" },
-    { label: "Avg Performance Score", value: data?.avgScore ?? 0, icon: TrendingUp, tone: "success", trend: "overall efficiency" },
-    { label: "Drivers with Incidents", value: details.filter((d) => d.incidents > 0).length, icon: AlertTriangle, tone: "danger", trend: "requires monitoring" },
-    { label: "Top-Rated Drivers", value: details.filter((d) => d.rating >= 4).length, icon: Star, tone: "info", trend: "4.0+ rating" },
+    { label: "Avg Performance Score", value: avgScoreVal > 0 ? avgScoreVal : "—", icon: TrendingUp, tone: avgScoreVal > 0 ? "success" : "muted", trend: "overall efficiency" },
+    { label: "Drivers with Incidents", value: incidentsVal, icon: AlertTriangle, tone: incidentsVal > 0 ? "danger" : "success", trend: "requires monitoring" },
+    { label: "Top-Rated Drivers", value: topRatedVal, icon: Star, tone: topRatedVal > 0 ? "info" : "muted", trend: "4.0+ rating" },
   ];
 
   const columns = [
@@ -69,7 +73,6 @@ export default function DriverPerformancePage() {
             </div>
             <div>
               <p className="font-bold text-sm text-foreground">{val}</p>
-              <p className="text-xs text-foreground-muted font-medium">Performance scorecard</p>
             </div>
           </div>
         );
@@ -95,13 +98,13 @@ export default function DriverPerformancePage() {
       key: "on_time_rate",
       label: "On-time",
       sortable: true,
-      render: (val) => <span className="font-data font-bold text-foreground text-xs">{(Number(val || 0) * 100).toFixed(0)}%</span>,
+      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">{(Number(val || 0) * 100).toFixed(0)}%</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "total_distance",
       label: "Distance (km)",
       sortable: true,
-      render: (val) => <span className="font-data font-bold text-foreground text-xs">{Number(val || 0).toLocaleString()} km</span>,
+      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">{Number(val || 0).toLocaleString()} km</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "incidents",
@@ -120,7 +123,7 @@ export default function DriverPerformancePage() {
       key: "cost_per_km",
       label: "Cost/km",
       sortable: true,
-      render: (val) => <span className="font-data font-bold text-foreground text-xs">₱{Number(val || 0).toFixed(2)}</span>,
+      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">₱{Number(val || 0).toFixed(2)}</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "performance_score",
@@ -132,7 +135,14 @@ export default function DriverPerformancePage() {
         </span>
       ),
       sortable: true,
-      render: (val) => {
+      render: (val, row) => {
+        if (!row.total_trips || row.total_trips === 0) {
+          return (
+            <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-black font-data border-border/40 text-foreground-muted/60">
+              —
+            </Badge>
+          );
+        }
         const score = Number(val || 0);
         return (
           <Badge
@@ -208,7 +218,6 @@ export default function DriverPerformancePage() {
                 title="Driver Rankings & Scorecard"
                 description={`${details.length} drivers evaluated in current performance period.`}
                 icon={Award}
-                context="Scorecard"
                 searchPlaceholder="Search drivers by name..."
                 isLoading={isLoading}
                 onRowClick={(row) => router.push(`/drivers/${row.driver_id}`)}
