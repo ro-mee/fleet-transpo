@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getDriver, updateDriver } from "@/services/driver.service";
@@ -36,7 +36,6 @@ import {
   Zap,
   FileText,
   FileImage,
-  Sparkles,
 } from "lucide-react";
 import Link from "next/link";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -44,6 +43,10 @@ import { driverEditSchema } from "@/lib/validation/schemas";
 import { rotateBase64Image } from "@/lib/images";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { StickyActionBar } from "@/components/ui/sticky-actions";
+import { PageEntrance } from "@/components/ui/page-entrance";
+import { cn } from "@/lib/utils";
 
 export default function EditDriverPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -57,8 +60,6 @@ export default function EditDriverPage() {
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [scanReviewModalOpen, setScanReviewModalOpen] = useState(false);
 
   const { data: driver, isLoading, isError } = useQuery({
     queryKey: ["driver", id],
@@ -136,7 +137,8 @@ export default function EditDriverPage() {
         const result = reader.result;
         setLicenseImagePreview(result);
         form.setValue("license_image_url", result);
-        toast.success("Front License scan updated!");
+        toast.success("Front License scan updated! Scanning automatically...");
+        handleAiScanFront(result);
       };
       reader.readAsDataURL(file);
     }
@@ -154,7 +156,8 @@ export default function EditDriverPage() {
         const result = reader.result;
         setLicenseBackImagePreview(result);
         form.setValue("license_back_image_url", result);
-        toast.success("Back License scan updated!");
+        toast.success("Back License scan updated! Scanning automatically...");
+        handleAiScanBack(result);
       };
       reader.readAsDataURL(file);
     }
@@ -176,8 +179,33 @@ export default function EditDriverPage() {
     toast.success("Rotated Back License 90°");
   };
 
-  const handleAiScanFront = async () => {
-    const fileUrl = licenseImagePreview || form.getValues("license_image_url");
+  // Fill ONLY currently-blank form fields from an extraction result — never
+  // overwrites anything already typed. Returns how many fields were filled.
+  const fillLicenseFields = (data) => {
+    let count = 0;
+    const setIfBlank = (name, value) => {
+      if (value === null || value === undefined || String(value).trim() === "") return;
+      if (String(form.getValues(name) ?? "").trim() !== "") return;
+      form.setValue(name, value, { shouldValidate: true });
+      count += 1;
+    };
+    setIfBlank("license_number", data.license_number);
+    setIfBlank("license_expiry", data.expiration_date);
+    setIfBlank("first_name", data.first_name);
+    setIfBlank("last_name", data.last_name);
+    setIfBlank("birthdate", data.birthdate);
+    setIfBlank("sex", data.sex);
+    setIfBlank("address", data.address);
+    setIfBlank("nationality", data.nationality);
+    setIfBlank("license_class", data.license_class);
+    setIfBlank("emergency_contact_name", data.emergency_contact_name);
+    setIfBlank("emergency_contact_phone", data.emergency_contact_phone);
+    setIfBlank("emergency_contact_address", data.emergency_contact_address);
+    return count;
+  };
+
+  const handleAiScanFront = async (fileUrlOverride) => {
+    const fileUrl = fileUrlOverride || licenseImagePreview || form.getValues("license_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Front Driver's License image first.");
       return;
@@ -185,27 +213,18 @@ export default function EditDriverPage() {
 
     setIsScanningFront(true);
     try {
-      let documentText = "";
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("eng");
-        const ret = await worker.recognize(fileUrl);
-        await worker.terminate();
-        documentText = ret.data.text || "";
-      } catch (ocrErr) {
-        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
-      }
-
       const res = await scanDocumentWithAi({
         document_type: "Driver_License",
-        document_text: documentText,
         file_url: fileUrl,
       });
 
-      if (res) {
-        setScanResult(res);
-        setScanReviewModalOpen(true);
-        toast.success("Front Driver's License scanned successfully!");
+      const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
+      if (filled > 0) {
+        toast.success(`Front License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
+      } else if (res?.validation_issues?.length) {
+        toast.error(res.validation_issues[0]);
+      } else {
+        toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan driver's license");
@@ -214,8 +233,8 @@ export default function EditDriverPage() {
     }
   };
 
-  const handleAiScanBack = async () => {
-    const fileUrl = licenseBackImagePreview || form.getValues("license_back_image_url");
+  const handleAiScanBack = async (fileUrlOverride) => {
+    const fileUrl = fileUrlOverride || licenseBackImagePreview || form.getValues("license_back_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Back Driver's License image first.");
       return;
@@ -223,54 +242,24 @@ export default function EditDriverPage() {
 
     setIsScanningBack(true);
     try {
-      let documentText = "";
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("eng");
-        const ret = await worker.recognize(fileUrl);
-        await worker.terminate();
-        documentText = ret.data.text || "";
-      } catch (ocrErr) {
-        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
-      }
-
       const res = await scanDocumentWithAi({
         document_type: "Driver_License_Back",
-        document_text: documentText,
         file_url: fileUrl,
       });
 
-      if (res) {
-        setScanResult(res);
-        setScanReviewModalOpen(true);
-        toast.success("Back of Driver's License scanned successfully!");
+      const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
+      if (filled > 0) {
+        toast.success(`Back of License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
+      } else if (res?.validation_issues?.length) {
+        toast.error(res.validation_issues[0]);
+      } else {
+        toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan back of driver's license");
     } finally {
       setIsScanningBack(false);
     }
-  };
-
-  const applyAiExtractedData = () => {
-    if (!scanResult?.extracted_data) return;
-    const data = scanResult.extracted_data;
-
-    if (data.license_number) form.setValue("license_number", data.license_number);
-    if (data.expiration_date) form.setValue("license_expiry", data.expiration_date);
-    if (data.first_name) form.setValue("first_name", data.first_name);
-    if (data.last_name) form.setValue("last_name", data.last_name);
-    if (data.birthdate) form.setValue("birthdate", data.birthdate);
-    if (data.sex) form.setValue("sex", data.sex);
-    if (data.address) form.setValue("address", data.address);
-    if (data.nationality) form.setValue("nationality", data.nationality);
-    if (data.license_class) form.setValue("license_class", data.license_class);
-    if (data.emergency_contact_name) form.setValue("emergency_contact_name", data.emergency_contact_name);
-    if (data.emergency_contact_phone) form.setValue("emergency_contact_phone", data.emergency_contact_phone);
-    if (data.emergency_contact_address) form.setValue("emergency_contact_address", data.emergency_contact_address);
-
-    setScanReviewModalOpen(false);
-    toast.success("Extracted license details applied to form!");
   };
 
   const updateMutation = useMutation({
@@ -330,51 +319,46 @@ export default function EditDriverPage() {
     );
   }
 
-  return (
-    <div className="space-y-6 w-full pb-28">
-      {/* ── Top Page Banner & Header Bar ── */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 bg-surface border border-border p-5 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3.5">
-          <Button variant="outline" size="icon" className="rounded-xl shrink-0" onClick={() => router.push(`/drivers/${id}`)}>
-            <ArrowLeft className="w-5 h-5 text-foreground-secondary" />
-          </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-xl font-bold text-foreground">
-                Edit Driver: {driver.employees?.first_name} {driver.employees?.last_name}
-              </h1>
-              <span className="bg-primary/10 text-primary text-xs font-semibold px-2.5 py-0.5 rounded-full border border-primary/20">
-                Edit Profile
-              </span>
-            </div>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              Update credentials, emergency contact info, and verify attached LTO license scans.
-            </p>
-          </div>
-        </div>
+  const formActions = (
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => router.push(`/drivers/${id}`)}
+        className={cn("rounded-xl", heroButtonOutlineClass)}
+      >
+        Cancel
+      </Button>
+      <Button
+        type="button"
+        onClick={form.handleSubmit(onSubmit)}
+        disabled={isSaving}
+        className={cn("rounded-xl px-5 h-10 shadow-xs font-bold", heroButtonPrimaryClass)}
+      >
+        {isSaving ? (
+          <>
+            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Changes...
+          </>
+        ) : (
+          <>
+            <CheckCircle2 className="w-4 h-4 mr-2" /> Save Changes
+          </>
+        )}
+      </Button>
+    </>
+  );
 
-        <div className="flex items-center gap-3 shrink-0">
-          <Button type="button" variant="outline" onClick={() => router.push(`/drivers/${id}`)} className="rounded-xl">
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            onClick={form.handleSubmit(onSubmit)}
-            disabled={isSaving}
-            className="rounded-xl px-5 h-10 shadow-sm"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving Changes...
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-4 h-4 mr-2" /> Save Changes
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
+  return (
+    <PageEntrance className="space-y-6 w-full pb-28">
+      {/* ── Top Hero Header Bar ── */}
+      <HeroHeader
+        icon={IdCard}
+        title={`Edit Driver: ${driver.employees?.first_name || ""} ${driver.employees?.last_name || ""}`}
+        badge="Edit Profile"
+        description="Update credentials, emergency contact info, and verify attached LTO license scans."
+        actions={formActions}
+      />
+      <StickyActionBar>{formActions}</StickyActionBar>
 
       <form onSubmit={form.handleSubmit(onSubmit)}>
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -728,42 +712,6 @@ export default function EditDriverPage() {
           </div>
         </DialogContent>
       </Dialog>
-
-      {/* ── SCAN REVIEW MODAL ── */}
-      <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
-        <DialogContent className="max-w-lg rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" /> Driver License Extracted Data
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Review extracted fields from your driver&apos;s license scan before applying.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2 text-xs">
-            {scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0 ? (
-              <div className="space-y-2 bg-muted/30 p-4 rounded-3xl border border-border">
-                {Object.entries(scanResult.extracted_data).map(([key, val]) => (
-                  <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                    <span className="text-foreground-muted capitalize">{key.replace(/_/g, " ")}:</span>
-                    <span className="font-semibold text-foreground">{String(val || "—")}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-foreground-muted py-4 text-center">No readable fields extracted.</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl">
-              Cancel
-            </Button>
-            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl px-4">
-              Apply Extracted Data
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
+    </PageEntrance>
   );
 }

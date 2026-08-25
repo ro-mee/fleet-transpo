@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { createDriver } from "@/services/driver.service";
@@ -23,7 +23,6 @@ import {
   Eye,
   ZoomIn,
   Check,
-  Sparkles,
   Zap,
   FileText,
   FileImage,
@@ -61,8 +60,6 @@ export default function NewDriverPage() {
 
   const [isScanningFront, setIsScanningFront] = useState(false);
   const [isScanningBack, setIsScanningBack] = useState(false);
-  const [scanResult, setScanResult] = useState(null);
-  const [scanReviewModalOpen, setScanReviewModalOpen] = useState(false);
 
   const form = useForm({
     resolver: zodResolver(driverSchema),
@@ -116,7 +113,8 @@ export default function NewDriverPage() {
         const result = reader.result;
         setLicenseImagePreview(result);
         form.setValue("license_image_url", result);
-        toast.success("Front License attached! Click 'Scan & Auto-Fill Front' to extract fields.");
+        toast.success("Front License attached! Scanning automatically...");
+        handleAiScanFront(result);
       };
       reader.readAsDataURL(file);
     }
@@ -135,7 +133,8 @@ export default function NewDriverPage() {
         const result = reader.result;
         setLicenseBackImagePreview(result);
         form.setValue("license_back_image_url", result);
-        toast.success("Back of License attached! Click 'Scan & Auto-Fill Back' to extract Emergency Contact.");
+        toast.success("Back of License attached! Scanning automatically...");
+        handleAiScanBack(result);
       };
       reader.readAsDataURL(file);
     }
@@ -159,9 +158,34 @@ export default function NewDriverPage() {
     toast.success("Rotated Back License 90°");
   };
 
+  // Fill ONLY currently-blank form fields from an extraction result — never
+  // overwrites anything already typed. Returns how many fields were filled.
+  const fillLicenseFields = (data) => {
+    let count = 0;
+    const setIfBlank = (name, value) => {
+      if (value === null || value === undefined || String(value).trim() === "") return;
+      if (String(form.getValues(name) ?? "").trim() !== "") return;
+      form.setValue(name, value, { shouldValidate: true });
+      count += 1;
+    };
+    setIfBlank("license_number", data.license_number);
+    setIfBlank("license_expiry", data.expiration_date);
+    setIfBlank("first_name", data.first_name);
+    setIfBlank("last_name", data.last_name);
+    setIfBlank("birthdate", data.birthdate);
+    setIfBlank("sex", data.sex);
+    setIfBlank("address", data.address);
+    setIfBlank("nationality", data.nationality);
+    setIfBlank("license_class", data.license_class);
+    setIfBlank("emergency_contact_name", data.emergency_contact_name);
+    setIfBlank("emergency_contact_phone", data.emergency_contact_phone);
+    setIfBlank("emergency_contact_address", data.emergency_contact_address);
+    return count;
+  };
+
   // Handle Instant Front AI Document Scan
-  const handleAiScanFront = async () => {
-    const fileUrl = licenseImagePreview || form.getValues("license_image_url");
+  const handleAiScanFront = async (fileUrlOverride) => {
+    const fileUrl = fileUrlOverride || licenseImagePreview || form.getValues("license_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Front Driver's License image first.");
       return;
@@ -169,27 +193,18 @@ export default function NewDriverPage() {
 
     setIsScanningFront(true);
     try {
-      let documentText = "";
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("eng");
-        const ret = await worker.recognize(fileUrl);
-        await worker.terminate();
-        documentText = ret.data.text || "";
-      } catch (ocrErr) {
-        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
-      }
-
       const res = await scanDocumentWithAi({
         document_type: "Driver_License",
-        document_text: documentText,
         file_url: fileUrl,
       });
 
-      if (res) {
-        setScanResult(res);
-        setScanReviewModalOpen(true);
-        toast.success("Front Driver's License scanned successfully!");
+      const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
+      if (filled > 0) {
+        toast.success(`Front License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
+      } else if (res?.validation_issues?.length) {
+        toast.error(res.validation_issues[0]);
+      } else {
+        toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan driver's license");
@@ -199,8 +214,8 @@ export default function NewDriverPage() {
   };
 
   // Handle Instant Back AI Document Scan
-  const handleAiScanBack = async () => {
-    const fileUrl = licenseBackImagePreview || form.getValues("license_back_image_url");
+  const handleAiScanBack = async (fileUrlOverride) => {
+    const fileUrl = fileUrlOverride || licenseBackImagePreview || form.getValues("license_back_image_url");
     if (!fileUrl) {
       toast.error("Please upload or attach a Back Driver's License image first.");
       return;
@@ -208,55 +223,24 @@ export default function NewDriverPage() {
 
     setIsScanningBack(true);
     try {
-      let documentText = "";
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("eng");
-        const ret = await worker.recognize(fileUrl);
-        await worker.terminate();
-        documentText = ret.data.text || "";
-      } catch (ocrErr) {
-        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
-      }
-
       const res = await scanDocumentWithAi({
         document_type: "Driver_License_Back",
-        document_text: documentText,
         file_url: fileUrl,
       });
 
-      if (res) {
-        setScanResult(res);
-        setScanReviewModalOpen(true);
-        toast.success("Back of Driver's License scanned successfully!");
+      const filled = res ? fillLicenseFields(res.extracted_data || {}) : 0;
+      if (filled > 0) {
+        toast.success(`Back of License: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`);
+      } else if (res?.validation_issues?.length) {
+        toast.error(res.validation_issues[0]);
+      } else {
+        toast.error("Couldn't read new fields from the scan. Enter them manually or re-scan.");
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan back of driver's license");
     } finally {
       setIsScanningBack(false);
     }
-  };
-
-  // Apply Extracted Data from Scan Review Modal
-  const applyAiExtractedData = () => {
-    if (!scanResult?.extracted_data) return;
-    const data = scanResult.extracted_data;
-
-    if (data.license_number) form.setValue("license_number", data.license_number);
-    if (data.expiration_date) form.setValue("license_expiry", data.expiration_date);
-    if (data.first_name) form.setValue("first_name", data.first_name);
-    if (data.last_name) form.setValue("last_name", data.last_name);
-    if (data.birthdate) form.setValue("birthdate", data.birthdate);
-    if (data.sex) form.setValue("sex", data.sex);
-    if (data.address) form.setValue("address", data.address);
-    if (data.nationality) form.setValue("nationality", data.nationality);
-    if (data.license_class) form.setValue("license_class", data.license_class);
-    if (data.emergency_contact_name) form.setValue("emergency_contact_name", data.emergency_contact_name);
-    if (data.emergency_contact_phone) form.setValue("emergency_contact_phone", data.emergency_contact_phone);
-    if (data.emergency_contact_address) form.setValue("emergency_contact_address", data.emergency_contact_address);
-
-    setScanReviewModalOpen(false);
-    toast.success("Extracted license details applied to form!");
   };
 
   const onSubmit = (data) => {
@@ -805,43 +789,6 @@ export default function NewDriverPage() {
               />
             )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── SCAN REVIEW MODAL ── */}
-      <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
-        <DialogContent className="max-w-lg rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-bold flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary" /> Driver License Extracted Data
-            </DialogTitle>
-            <DialogDescription className="text-xs">
-              Review extracted fields from your driver&apos;s license scan before applying to form.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-2 text-xs">
-            {scanResult?.extracted_data &&
-            Object.keys(scanResult.extracted_data).length > 0 ? (
-              <div className="space-y-2 bg-muted/30 p-4 rounded-3xl border border-border">
-                {Object.entries(scanResult.extracted_data).map(([key, val]) => (
-                  <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5">
-                    <span className="text-foreground-muted capitalize">{key.replace(/_/g, " ")}:</span>
-                    <span className="font-semibold text-foreground">{String(val || "—")}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-foreground-muted py-4 text-center">No readable fields extracted.</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl">
-              Cancel
-            </Button>
-            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl px-4">
-              Apply Extracted Data
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageEntrance>

@@ -7,7 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createVehicle, updateVehicle, getVehicle, getVehicleCategories } from "@/services/vehicle.service";
@@ -36,7 +36,6 @@ import {
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
 import { DatePicker } from "@/components/ui/date-picker";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
@@ -63,8 +62,52 @@ export default function VehicleFormPage({ params }) {
 
   // AI Scan State
   const [scanningDocType, setScanningDocType] = useState(null);
-  const [scanResult, setScanResult] = useState(null);
-  const [scanReviewModalOpen, setScanReviewModalOpen] = useState(false);
+
+  // Fill fields from an AI extraction result. A field is only written when it
+  // is empty or still pristine (untouched by the user) — anything staff has
+  // typed always wins. Returns how many fields were filled.
+  const fillExtractedFields = (data, documentType) => {
+    if (typeof data !== "object" || data === null) return 0;
+    let count = 0;
+    const isBlank = (v) => v === null || v === undefined || String(v).trim() === "";
+    const setIfFree = (name, value) => {
+      if (isBlank(value)) return;
+      if (!isBlank(form.getValues(name)) && form.formState.dirtyFields[name]) return;
+      form.setValue(name, value, { shouldValidate: true });
+      count += 1;
+    };
+
+    setIfFree("plate_number", data.plate_number ? String(data.plate_number).toUpperCase() : null);
+    setIfFree("vehicle_name", data.vehicle_type || data.vehicle_name);
+    setIfFree("manufacturer", data.manufacturer);
+
+    if (!isBlank(data.model) || !isBlank(data.series)) {
+      const model = String(data.model || "").trim().toUpperCase();
+      const series = String(data.series || "").trim().toUpperCase();
+      const merged = series && series !== model ? `${model} ${series}`.trim() : model || series;
+      setIfFree("model", merged);
+    }
+
+    setIfFree("year", data.year != null ? Number(data.year) : null);
+    setIfFree("color", data.color);
+    setIfFree("fuel_type", data.fuel_type);
+    setIfFree("seating_capacity", data.seating_capacity != null ? Number(data.seating_capacity) : null);
+
+    if (documentType === "OR_CR" && !isBlank(data.registration_number) && isBlank(orCrDoc.document_number)) {
+      setOrCrDoc((prev) => ({ ...prev, document_number: String(data.registration_number).toUpperCase() }));
+      count += 1;
+    }
+    if (
+      documentType === "Insurance" &&
+      !isBlank(data.insurance_policy_number) &&
+      isBlank(insuranceDoc.document_number)
+    ) {
+      setInsuranceDoc((prev) => ({ ...prev, document_number: String(data.insurance_policy_number).toUpperCase() }));
+      count += 1;
+    }
+
+    return count;
+  };
 
   const handleAiScan = async (documentType, fileUrl) => {
     if (!fileUrl) {
@@ -73,67 +116,25 @@ export default function VehicleFormPage({ params }) {
     }
     setScanningDocType(documentType);
     try {
-      let documentText = "";
-      try {
-        const { createWorker } = await import("tesseract.js");
-        const worker = await createWorker("eng");
-        const ret = await worker.recognize(fileUrl);
-        await worker.terminate();
-        documentText = ret.data.text || "";
-      } catch (ocrErr) {
-        console.warn("Browser Tesseract OCR notice:", ocrErr.message);
-      }
-
       const res = await scanDocumentWithAi({
         document_type: documentType,
-        document_text: documentText,
         file_url: fileUrl,
       });
-      if (res) {
-        setScanResult(res);
-        setScanReviewModalOpen(true);
-        toast.success(`AI scanned ${documentType.replace("_", " ")} successfully!`);
+      const filled = res ? fillExtractedFields(res.extracted_data || {}, documentType) : 0;
+      if (filled > 0) {
+        toast.success(
+          `${documentType.replace("_", " ")}: auto-filled ${filled} field${filled === 1 ? "" : "s"} — please review before saving.`
+        );
+      } else if (res?.validation_issues?.length) {
+        toast.error(res.validation_issues[0]);
+      } else {
+        toast.error(`Couldn't read new fields from the ${documentType.replace("_", " ")} scan. Enter them manually.`);
       }
     } catch (err) {
       toast.error(err.message || "Failed to scan document with AI");
     } finally {
       setScanningDocType(null);
     }
-  };
-
-  const applyAiExtractedData = () => {
-    if (!scanResult?.extracted_data) return;
-    const data = scanResult.extracted_data;
-
-    // Apply document physical specifications to form (excluding Category and Status)
-    if (data.plate_number) form.setValue("plate_number", data.plate_number, { shouldValidate: true });
-    if (data.vehicle_type) form.setValue("vehicle_name", data.vehicle_type, { shouldValidate: true });
-    else if (data.vehicle_name) form.setValue("vehicle_name", data.vehicle_name, { shouldValidate: true });
-    if (data.manufacturer) form.setValue("manufacturer", data.manufacturer, { shouldValidate: true });
-    // The form has one combined "Series / Model" field. Prefer the model name and,
-    // when the OR/CR carries a distinct series value (e.g. model "HIACE" /
-    // series "COMMUTER"), append it so nothing is lost.
-    if (data.model || data.series) {
-      const model = (data.model || "").trim().toUpperCase();
-      const series = (data.series || "").trim().toUpperCase();
-      form.setValue("model", series && series !== model ? `${model} ${series}`.trim() : (model || series), {
-        shouldValidate: true,
-      });
-    }
-    if (data.year) form.setValue("year", Number(data.year), { shouldValidate: true });
-    if (data.color) form.setValue("color", data.color, { shouldValidate: true });
-    if (data.fuel_type) form.setValue("fuel_type", data.fuel_type, { shouldValidate: true });
-    if (data.seating_capacity) form.setValue("seating_capacity", Number(data.seating_capacity), { shouldValidate: true });
-
-    if (data.registration_number && scanResult.document_type === "OR_CR") {
-      setOrCrDoc((prev) => ({ ...prev, document_number: data.registration_number }));
-    }
-    if (data.insurance_policy_number && scanResult.document_type === "Insurance") {
-      setInsuranceDoc((prev) => ({ ...prev, document_number: data.insurance_policy_number }));
-    }
-
-    toast.success("Document specifications applied to form!");
-    setScanReviewModalOpen(false);
   };
 
   const { data: vehicle } = useQuery({
@@ -228,13 +229,16 @@ export default function VehicleFormPage({ params }) {
     onError: (err) => toast.error(err.message),
   });
 
-  const handleFileUpload = (e, setter) => {
+  const handleFileUpload = (e, setter, documentType) => {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
         setter((prev) => ({ ...prev, file_url: reader.result }));
-        toast.success("Document scan attached!");
+        toast.success("Document scan attached! Scanning automatically...");
+        if (documentType) {
+          handleAiScan(documentType, reader.result);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -583,7 +587,7 @@ export default function VehicleFormPage({ params }) {
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={(e) => handleFileUpload(e, setOrCrDoc)}
+                        onChange={(e) => handleFileUpload(e, setOrCrDoc, "OR_CR")}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
@@ -672,7 +676,7 @@ export default function VehicleFormPage({ params }) {
                       <input
                         type="file"
                         accept="image/*,.pdf"
-                        onChange={(e) => handleFileUpload(e, setInsuranceDoc)}
+                        onChange={(e) => handleFileUpload(e, setInsuranceDoc, "Insurance")}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                       />
                       <div className="flex flex-col items-center justify-center gap-1.5 text-xs text-foreground-secondary">
@@ -725,72 +729,6 @@ export default function VehicleFormPage({ params }) {
               <img src={previewModalUrl} alt="Document Zoom" className="max-h-[65vh] w-auto object-contain rounded-lg shadow-md" />
             )}
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* ── SCAN REVIEW MODAL ── */}
-      <Dialog open={scanReviewModalOpen} onOpenChange={setScanReviewModalOpen}>
-        <DialogContent className="max-w-md rounded-2xl p-6 border border-border shadow-xl bg-surface">
-          <div className="flex items-start gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center shrink-0">
-              <Sparkles className="w-5 h-5 text-primary" />
-            </div>
-            <div className="space-y-1">
-              <DialogTitle className="text-base font-bold text-foreground">AI Extracted Document Data</DialogTitle>
-              <DialogDescription className="text-xs text-foreground-muted">
-                Review extracted fields from your scanned document before applying to form.
-              </DialogDescription>
-            </div>
-          </div>
-
-          <div className="space-y-3 py-3 text-xs">
-            {scanResult?.extracted_data && Object.keys(scanResult.extracted_data).length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between px-1">
-                  <span className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">Extracted Details</span>
-                  {scanResult.is_ai_vision_used ? (
-                    <Badge variant="primary" className="text-[10px] px-2 py-0.5 gap-1">
-                      <Sparkles className="w-3 h-3" /> AI Vision Enhanced
-                    </Badge>
-                  ) : (
-                    <Badge variant="secondary" className="text-[10px] px-2 py-0.5">
-                      OCR Scanned
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-1 gap-2 bg-hover/30 p-3.5 rounded-3xl border border-border/60 max-h-[300px] overflow-y-auto">
-                  {Object.entries(scanResult.extracted_data)
-                    .filter(([key]) => !["category", "category_id", "status", "vehicle_status", "model"].includes(key.toLowerCase()))
-                    .map(([key, val]) => (
-                      <div key={key} className="flex items-center justify-between border-b border-border/40 pb-1.5 pt-0.5 last:border-b-0 last:pb-0">
-                        <span className="text-foreground-muted font-medium capitalize text-xs">
-                          {key.toLowerCase() === "series" ? "Series / Model" : key.replace(/_/g, " ")}:
-                        </span>
-                        <span className="font-bold text-foreground text-xs text-right font-data">
-                          {String(val || "—")}
-                        </span>
-                      </div>
-                    ))}
-                </div>
-              </div>
-            ) : (
-              <div className="p-6 text-center text-foreground-muted bg-hover/20 rounded-3xl border border-dashed border-border">
-                <p className="text-xs font-semibold text-foreground">No readable fields extracted</p>
-                <p className="text-[11px] text-foreground-muted mt-1">Please ensure the document image is clear or fill in the vehicle details manually.</p>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter className="gap-2 pt-2 border-t border-border/60">
-            <Button variant="outline" size="sm" onClick={() => setScanReviewModalOpen(false)} className="rounded-xl h-9">
-              Cancel
-            </Button>
-            <Button size="sm" onClick={applyAiExtractedData} className="rounded-xl h-9 px-4 font-medium gap-1.5 shadow-xs">
-              <CheckCircle2 className="w-4 h-4" />
-              Apply Extracted Data
-            </Button>
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </PageEntrance>
