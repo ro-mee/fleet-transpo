@@ -74,7 +74,7 @@ Vehicles tabs); management gained Vehicles visibility in the merge.
 | Forms | **react-hook-form + zod ^4** | `@/lib/validation/schemas.js` |
 | UI | **shadcn-style** — ~17 `@radix-ui/react-*`, class-variance-authority, clsx, tailwind-merge, **lucide-react**, Tailwind **v4** (CSS-first, no config file) | components in `src/components/ui/` |
 | Charts / maps | **recharts ^3**, **leaflet ^1.9 + react-leaflet ^5**, framer-motion, date-fns | live GPS map |
-| OCR / AI docs | **tesseract.js ^7** + LLM provider abstraction | license / OR-CR / insurance scanning |
+| Document scanning | **Google Gemini** structured extraction (`gemini-3.1-flash-lite`) + LLM provider abstraction | license / OR-CR / insurance / fuel-receipt scanning; tesseract.js removed 2026-08-25 |
 | Tests | **vitest ^3** | harnesses import real `src/lib` modules against the live DB |
 | Scripts | `dev`, `build`, `start`, `lint` (eslint flat config), `test`/`test:run` | |
 
@@ -146,7 +146,7 @@ fleet-transpo/
 │   │   ├── notifications/      # presentation.js (category/severity chips), target.js (per-role nav)
 │   │   ├── scheduling/         # calendar, conflicts, priority, queue-grouping, trip-progress, dispatch/trip/reservation state machines
 │   │   ├── integration/        # booking-gateway, contracts, ingest (shared writer), category-resolver, status-map
-│   │   ├── ai/                 # llm-adapter, rule-engine, dispatch-advisor, pair-scoring, predictive-maintenance, license-ocr
+│   │   ├── ai/                 # llm-adapter, rule-engine, dispatch-advisor, pair-scoring, predictive-maintenance, gemini-document
 │   │   ├── uvvrp/              # policy.js (Number Coding), uvvrp.service.js
 │   │   ├── supabase/, geo/, vehicles/, validation/
 │   ├── services/               # 28 modules: client apiFetch wrappers + server business-logic services
@@ -273,7 +273,7 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 ### 4.5 AI layer (optional LLM + rule engine)
 - **Rule engine** (`lib/ai/rule-engine.js`) is the deterministic baseline (recommendations, insights, predictive maintenance).
 - **LLM** (`lib/ai/llm-adapter.js`) adds natural-language summaries/narrations — failure-tolerant, time-budgeted (25 s), falls back to rule output.
-- `aiproviders` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (tesseract OCR → regex → optional LLM) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
+- `aiproviders` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (Gemini structured extraction via `src/lib/ai/gemini-document.js`, 12 s timeout, null-for-unreadable) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
 
 ### 4.6 Cross-origin (mobile web) — middleware + config CORS
 The Expo web/device build runs on a different origin than the Next server, so
@@ -543,8 +543,8 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `drivers/[id]/account` (PUT) ★ — **enable/reset driver login**: force driver role, set/reset bcrypt password, revoke all `mobile_refresh_tokens`.
 - `drivers/link` (POST) ★ — finalize a driver profile for an existing driver-role employee missing a `drivers` row.
 - `drivers/stats` (GET) — counts by status.
-- `driver/me` (GET/PATCH) ★ — **driver's own profile**: license, performance, trips, attendance, consent status, editable fields, visible sections; PATCH only `DRIVER_SELF_EDITABLE_FIELDS` (`phone`, `face_image_url`, `license_image_url`, `license_back_image_url`). The license scan columns are writable only while the per-side `canUpdateLicenseScan` gate passes (no scan on file yet, or license within 30 days of expiry); otherwise they 403 as view-only. License number/class/expiry remain staff-only.
-- `driver/license-scan` (POST) ★ — OCR + regex check (shared `src/lib/ai/license-ocr.js`) of a driver's own scan; returns `ok`/`unclear`, **no persistence** — an unreadable photo is never saved, so a driver retakes it until it reads clean.
+- `driver/me` (GET/PATCH) ★ — **driver's own profile**: license, performance, trips, attendance, consent status, editable fields, visible sections; PATCH only `DRIVER_SELF_EDITABLE_FIELDS` (`phone`, `face_image_url`, `license_image_url`, `license_back_image_url`). License scan columns are self-writable anytime (30-day window removed 2026-08-25); the quality gate lives in `driver/license-scan`. License number/class/expiry remain staff-only.
+- `driver/license-scan` (POST) ★ — **single-call self-service renewal**: Gemini verifies the photo is a genuine LTO card (`document_is_license_card`, fail-closed), reads key fields, and on pass **persists the scan** + applies a future-dated `license_expiry` (front side), then notifies ops staff (`system_admin`/`admin`/`fleet_manager`) best-effort. Failures write nothing — an unreadable or non-card photo is never saved. Policy: `src/lib/ai/license-scan-policy.js`.
 - `driver/me/consent` (POST) ★ — record policy acceptance; 409 on stale `policy_version`.
 - `driver/incidents` (GET/POST) ★ — driver-reported incidents (self-scoped to own trips).
 - `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting (reads `vehicleinspection`, migration 028).
@@ -788,8 +788,8 @@ personal-data screens; acceptance is append-only in `driver_consents` (migration
 IP + via captured, no UPDATE/DELETE) via `POST /api/driver/me/consent` (409 on stale
 version). The driver self-service portal spans `/driver` + subpages
 (profile/license-scan, trips, incidents, vehicle, fuel) — `GET/PATCH /api/driver/me`
-(whitelisted fields + per-side `canUpdateLicenseScan` 30-day gate),
-`POST /api/driver/license-scan` (OCR, no persistence), `GET /api/driver/trips`,
+(whitelisted fields; license scans self-serve anytime since 2026-08-25),
+`POST /api/driver/license-scan` (Gemini verify + persist + expiry auto-apply + staff notification), `GET /api/driver/trips`,
 `GET /api/driver/vehicle-inspection` (table restored by migration 028), and admin
 controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
 

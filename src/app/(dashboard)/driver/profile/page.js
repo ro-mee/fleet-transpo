@@ -17,7 +17,7 @@ import { getMyDriverProfile, updateMyDriverProfile } from "@/services/driver.ser
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { IdCard, Award, Fingerprint, Pencil, Phone, Lock, ScanLine } from "lucide-react";
+import { IdCard, Award, Fingerprint, Pencil, Phone, ScanLine } from "lucide-react";
 
 function Stat({ label, value }) {
   return (
@@ -28,13 +28,12 @@ function Stat({ label, value }) {
   );
 }
 
-// Per-side (front/back) license scan tile — view-only.
+// Per-side (front/back) license scan tile — view-only on the web.
 //
-// Drivers inspect the scan the office holds on file; they do not upload it here.
-// Scans are captured by staff on the driver record (drivers/[id]/edit) or from
-// the mobile app, and the server independently gates writes via
-// canUpdateLicenseScan. This mirrors the mobile profile's view-only treatment.
-function LicenseScanTile({ label, imageUrl, canUpload, windowDays }) {
+// Drivers inspect the scan the office holds on file; uploads happen from the
+// mobile app (License & Compliance), where Gemini verifies the card and saves
+// it self-service at any time. Staff can also replace scans on the driver record.
+function LicenseScanTile({ label, imageUrl }) {
   const [enlargeUrl, setEnlargeUrl] = useState(null);
 
   return (
@@ -51,14 +50,9 @@ function LicenseScanTile({ label, imageUrl, canUpload, windowDays }) {
           <ScanLine className="w-4 h-4" /> No {label.toLowerCase()} scan on file yet.
         </div>
       )}
-
-      {!canUpload && imageUrl ? (
-        <p className="text-[11px] text-foreground-muted flex items-center gap-1.5">
-          <Lock className="w-3.5 h-3.5" />
-          View-only. Contact your fleet administrator to update this scan
-          {windowDays ? ` (re-uploads open within ${windowDays} days of expiry)` : ""}.
-        </p>
-      ) : null}
+      <p className="text-[11px] text-foreground-muted">
+        Update your license scan anytime from the mobile app.
+      </p>
 
       <Dialog open={!!enlargeUrl} onOpenChange={() => setEnlargeUrl(null)}>
         <DialogContent className="max-w-3xl">
@@ -167,14 +161,10 @@ export default function DriverProfilePage() {
               <LicenseScanTile
                 label="Front"
                 imageUrl={profile.license.frontScanImageUrl}
-                canUpload={profile.license.canUploadFront}
-                windowDays={profile.license.reuploadWindowDays}
               />
               <LicenseScanTile
                 label="Back"
                 imageUrl={profile.license.backScanImageUrl}
-                canUpload={profile.license.canUploadBack}
-                windowDays={profile.license.reuploadWindowDays}
               />
             </div>
           </CardContent>

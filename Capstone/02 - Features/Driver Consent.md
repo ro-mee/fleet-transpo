@@ -37,9 +37,9 @@ LICENSE_REUPLOAD_WINDOW_DAYS = 30
 
 Note what a driver **cannot** edit: name, licence number, licence expiry, employment status. They can update contact details and re-upload photos of documents — the things only they can supply — and nothing that would let them misrepresent their credentials.
 
-## The 30-day re-upload window
+## The re-upload window — REMOVED 2026-08-25
 
-`canUpdateLicenseScan()` blocks licence re-scans inside a 30-day window. INFERRED: to prevent repeated re-uploads being used to churn the licence record — but the repository does not currently document why this specific window was chosen.
+The original `canUpdateLicenseScan()` 30-day pre-expiry window (no scan on file, or expiry within 30 days) was removed: a driver who physically renews early could not update the record for months, and self-service stopped halfway anyway because staff still had to fix the expiry date by hand. Re-upload is now allowed **anytime**; the quality control is the Gemini authenticity/readability gate instead of a time window. → [[ADR-012 Anytime Self-Service License Renewal]]
 
 ## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`, 2026-08-23)
 
@@ -51,15 +51,17 @@ Two consumers:
 
 The PREFERENCES toggles above it (Push Notifications, Location Tracking) remain app-level choices in `settings-context` — deliberately separate from what the OS has actually granted.
 
-## Mobile scan upload flow — CONFIRMED (`mobile/app/(app)/profile/license.js`, 2026-08-23)
+## Mobile scan upload flow — CONFIRMED (`mobile/app/(app)/profile/license.js`, updated 2026-08-25)
 
-The mobile **License & Compliance** screen implements the full self-service scan replacement:
+The mobile **License & Compliance** screen is the complete self-service renewal loop:
 
-1. Driver picks **Take Photo** (camera) or **Gallery** (`expo-image-picker`) per side (front/back).
+1. Driver picks **Take Photo** (camera) or **Gallery** (`expo-image-picker`) per side (front/back), any time.
 2. The image is resized to ≤1400 px and compressed to JPEG, then sent as a base64 data URL.
-3. `POST /api/driver/license-scan` runs the OCR gate first — an unreadable scan is shown the retake guidance and **never saved**.
-4. On pass, `PATCH /api/driver/me` with `license_image_url` / `license_back_image_url`; the server re-runs `canUpdateLicenseScan()` and rejects outside the window (**fail closed** — UI gating is cosmetic, the DB gate is authoritative).
-5. The screen shows a compliance status pill (Expired / Expires in N days within the 30-day window / Valid) computed with the same local-calendar math as `daysUntilLicenseExpiry()`, plus an explanatory hint on locked sides.
+3. `POST /api/driver/license-scan` is now the **single call**: Gemini verifies the photo genuinely shows an LTO card (`document_is_license_card`, fail-closed), reads the key fields (licence no. or surname front; contact name/phone back), and on pass **saves the scan server-side** and — for the front side — applies a future-dated `license_expiry` read off the card. Failures (not a card / unreadable / Gemini down) write nothing and return a specific retake message.
+4. Ops staff (`system_admin`/`admin`/`fleet_manager`) receive an in-app notification + best-effort push referencing the driver record, so self-updates never land silently.
+5. The screen shows a compliance status pill (Expired / Expires in N days within 30 / Valid) with local-calendar math; upload buttons are always enabled.
+
+→ [[ADR-012 Anytime Self-Service License Renewal]]
 
 ## Consent records
 

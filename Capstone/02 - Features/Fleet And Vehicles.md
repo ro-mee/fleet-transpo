@@ -46,6 +46,10 @@ Post-renewal update flow on the vehicle detail page ("Renew" button in the Phili
 
 Still true after this change: there is **no renewal history table** (previous expiry/OR number is overwritten), and a suspended driver's license renewal still has no self-serve update path (staff-only via driver edit). Also fixed 2026-08-23: `fleet/vehicles/new` was sending `issue_date`/`expiration_date` keys the API ignores — Insurance doc rows now correctly receive `expiry_date`.
 
+## Document auto-scan + auto-fill — 2026-08-25
+
+On the vehicle form (`fleet/vehicles/new`), attaching an OR/CR or Insurance file **triggers Gemini extraction automatically and fills the form directly** — no scan button press, no review modal. `handleFileUpload` fires the scan when the FileReader completes; extracted fields are written only into fields that are **empty or still pristine** (anything staff typed always wins), then a toast reports how many fields were filled. The manual "Scan & Auto-Fill" buttons remain for re-scans. PDFs are accepted end-to-end: `loadScanImage` handles `application/pdf` data URLs (Gemini reads them natively). The driver forms (`drivers/new`, `drivers/[id]/edit`) behave the same with a strict blanks-only rule. Scanning runs server-side via [[Driver Management]]'s shared `gemini-document.js` pipeline.
+
 ## Database tables used
 
 `vehicles` (20) · `vehiclecategories` · [[driver_vehicle_assignments]] · `vehicleinspection` **0 rows** · [[dispatchschedules]]

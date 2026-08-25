@@ -7,7 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusSurfaces } from "../../../lib/theme";
-import { api, apiFetch } from "../../../lib/api";
+import { api } from "../../../lib/api";
 import { AppAlert } from '../../../components/AppAlert';
 import { notify } from "../../../lib/notifications/notify";
 
@@ -39,8 +39,8 @@ function InfoRow({ label, value, colors, isLast = false }) {
   );
 }
 
-function ScanSourceButtons({ side, colors, canUpload, busy, onPick }) {
-  const disabled = !canUpload || busy !== null;
+function ScanSourceButtons({ side, colors, busy, onPick }) {
+  const disabled = busy !== null;
   const isUploading = busy === side;
   return (
     <View style={styles.sourceRow}>
@@ -51,15 +51,15 @@ function ScanSourceButtons({ side, colors, canUpload, busy, onPick }) {
         accessibilityLabel={`Take a photo of the ${side} of your license`}
         style={({ pressed }) => [
           styles.sourceBtn,
-          { backgroundColor: canUpload ? colors.primary : colors.surfaceContainerHigh, opacity: isUploading || pressed ? 0.85 : 1 },
+          { backgroundColor: colors.primary, opacity: isUploading || pressed ? 0.85 : 1 },
         ]}
       >
         {isUploading ? (
           <ActivityIndicator size="small" color={colors.onPrimary} />
         ) : (
-          <Ionicons name="camera-outline" size={16} color={canUpload ? colors.onPrimary : colors.onSurfaceVariant} />
+          <Ionicons name="camera-outline" size={16} color={colors.onPrimary} />
         )}
-        <Text style={[styles.sourceBtnText, { color: canUpload ? colors.onPrimary : colors.onSurfaceVariant }]}>
+        <Text style={[styles.sourceBtnText, { color: colors.onPrimary }]}>
           {isUploading ? "Working…" : "Take Photo"}
         </Text>
       </Pressable>
@@ -117,25 +117,22 @@ export default function LicenseInformation() {
   };
 
   const verifyAndSaveScan = async (side, dataUrl) => {
-    const check = await api.post(
+    const result = await api.post(
       "/api/driver/license-scan",
       { side, file_url: dataUrl },
       { queueOnFailure: false }
     );
-    if (!check?.ok) {
+    if (!result?.ok) {
+      const reason = result?.validation_issues?.[0];
+      const title = /does not look like|not a/i.test(reason || "") ? "Not a License Card" : "Scan Unreadable";
       AppAlert.alert(
-        "Scan Unreadable",
-        check?.validation_issues?.[0] ||
+        title,
+        reason ||
           "We could not read the license photo clearly. Retake with better lighting and keep the card flat and fully in frame."
       );
-      return false;
+      return null;
     }
-    const field = side === "front" ? "license_image_url" : "license_back_image_url";
-    await apiFetch("/api/driver/me", {
-      method: "PATCH",
-      body: JSON.stringify({ [field]: dataUrl }),
-    });
-    return true;
+    return result;
   };
 
   const handleUpload = useCallback(async (side, source) => {
@@ -163,7 +160,12 @@ export default function LicenseInformation() {
       const dataUrl = await toDataUrl(result.assets[0]);
       const saved = await verifyAndSaveScan(side, dataUrl);
       if (saved) {
-        notify.toast({ message: `License ${side} scan updated successfully.`, tone: "success" });
+        notify.toast({
+          message: saved.applied_license_expiry
+            ? `License ${side} updated — new expiry ${formatExpiry(saved.applied_license_expiry)}.`
+            : `License ${side} scan updated successfully.`,
+          tone: "success",
+        });
         await load();
       }
     } catch (e) {
@@ -182,13 +184,13 @@ export default function LicenseInformation() {
   }
 
   const license = profile?.license;
-  const reuploadDays = license?.reuploadWindowDays ?? 30;
+  const EXPIRY_WARNING_DAYS = 30;
 
   const days = daysUntilExpiry(license?.expiry);
   let status;
   if (days === null) status = { tone: "neutral", label: "No expiry on file" };
   else if (days < 0) status = { tone: "danger", label: `Expired ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"} ago` };
-  else if (days <= reuploadDays) status = { tone: "warning", label: days === 0 ? "Expires today" : `Expires in ${days} day${days === 1 ? "" : "s"}` };
+  else if (days <= EXPIRY_WARNING_DAYS) status = { tone: "warning", label: days === 0 ? "Expires today" : `Expires in ${days} day${days === 1 ? "" : "s"}` };
   else status = { tone: "success", label: "Valid" };
 
   const surfaces = statusSurfaces(colors);
@@ -244,15 +246,9 @@ export default function LicenseInformation() {
             <ScanSourceButtons
               side="front"
               colors={colors}
-              canUpload={license?.canUploadFront}
               busy={uploadingSide}
               onPick={handleUpload}
             />
-            {!license?.canUploadFront && (
-              <Text style={[styles.lockHint, { color: colors.onSurfaceVariant }]}>
-                Replacement unlocks {reuploadDays} days before expiry — contact an administrator to update it sooner.
-              </Text>
-            )}
           </View>
 
           <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
@@ -267,15 +263,9 @@ export default function LicenseInformation() {
             <ScanSourceButtons
               side="back"
               colors={colors}
-              canUpload={license?.canUploadBack}
               busy={uploadingSide}
               onPick={handleUpload}
             />
-            {!license?.canUploadBack && (
-              <Text style={[styles.lockHint, { color: colors.onSurfaceVariant }]}>
-                Replacement unlocks {reuploadDays} days before expiry — contact an administrator to update it sooner.
-              </Text>
-            )}
           </View>
 
         </View>
@@ -343,5 +333,4 @@ const styles = StyleSheet.create({
   },
   sourceBtnSecondary: { borderWidth: 1, backgroundColor: "transparent" },
   sourceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
-  lockHint: { fontSize: 12, fontFamily: fonts.body, lineHeight: 17 },
 });

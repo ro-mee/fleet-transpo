@@ -73,6 +73,8 @@ last_verified: 2026-08-22
 | Vehicle image upload trusted MIME/name and broad authenticated roles | fleet-role allowlist, 5 MB/type/signature checks, vehicle existence check, and cleanup on DB failure | upload-validation test |
 | Migration duplicates could silently grow | `db:check` validates filenames and freezes the known historical duplicate versions | included in CI |
 
+**Document scanning + self-serve renewal on Gemini — 2026-08-25:** `tesseract.js` removed entirely; licence (front/back), OR/CR, and insurance scanning uses shared Gemini structured extraction (`src/lib/ai/gemini-document.js`, server-only, `gemini-3.1-flash-lite`, null-for-unreadable). Staff forms auto-scan on upload and auto-fill blank/pristine fields directly (no review modal). Mobile drivers now have complete self-service renewal: one POST verifies the photo is a genuine LTO card, saves the scan **and** applies a future-dated expiry, notifies ops staff; the 30-day re-upload window is gone → [[ADR-012 Anytime Self-Service License Renewal]]. Suite **420 tests / 34 files**, lint clean, build green. Uncommitted at time of writing. See [[Driver Management]] · [[Driver Consent]] · [[Fleet And Vehicles]] · [[2026-08-25]].
+
 **Mobile fuel scanner — 2026-08-22 (commit `3b5dd94`):** Gemini-only server extraction, Petron/Shell brand normalization, camera crop/review, retry-safe upload, automatic vehicle-mileage odometer, direct nav-to-camera shortcut, and fuel-gauge removal. Targeted tests, Next build, and Android bundle export passed. See [[Fuel]] · [[2026-08-22]].
 
 **Audit backlog S6/S9/S11/S12 — 2026-08-22:** dedicated `MOBILE_JWT_SECRET`, drivers list closed to the driver role, SSRF guard on OCR media fetches, rightmost-XFF rate-limit keying. Suite now **374 tests / 31 files**; `verify-rbac.mjs` repaired (stale inventory from `0c0820c` deletions) and green at **72 checks**. Uncommitted at time of writing. → [[Security Audit]]
@@ -89,7 +91,7 @@ last_verified: 2026-08-22
 
 ## Environment gaps — CONFIRMED
 
-The local server environment now has Gemini configured for receipt scanning; the key remains ignored and server-only. **Still missing or intentionally unset:** `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and a live `BOOKING_GATEWAY` configuration.
+The local server environment now has Gemini configured for receipt scanning **and, since 2026-08-25, all document scanning** (licences front/back, OR/CR, insurance — `tesseract.js` removed); the key remains ignored and server-only. **Still missing or intentionally unset:** `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, and a live `BOOKING_GATEWAY` configuration.
 
 Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (fail-closed). Scheduled compliance sync never runs. See [[Environment Setup]].
 

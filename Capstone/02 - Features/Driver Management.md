@@ -24,13 +24,13 @@ Driver records, licences (with OCR), documents, availability, incidents, consent
 
 A driver **is** an employee with a `drivers` row. Credentials and `role_id` live on [[employees]]; licence, availability and performance on `drivers`. Mobile login authenticates against `employees`, then resolves a `driverId`. → [[Authentication]]
 
-## Licence OCR — CONFIRMED
+## Licence scan — Gemini extraction (replaced Tesseract 2026-08-25)
 
-`tesseract.js` ^7.0.0 + regex extraction for **Philippine LTO** licence cards, with a **6-second timeout that resolves `""`** rather than rejecting.
+`src/lib/ai/gemini-document.js` sends the licence photo to **Gemini structured output** (`gemini-3.1-flash-lite`, 12-second timeout, JSON `responseSchema`) and returns normalized fields directly — no OCR text, no regex parsing. `tesseract.js` was removed from the app entirely; scanning now happens **only server-side** in `/api/ai/scan-document` and `/api/driver/license-scan`.
 
-Resolving empty on timeout instead of throwing is the right call: OCR is a convenience that pre-fills a form. If it's slow, the user types the number. A rejection would surface an error for a feature that was only ever optional. → [[Graceful Degradation]]
+Unreadable or absent fields come back `null`, never guessed. If Gemini is unconfigured, rate-limited, or times out, the endpoint returns empty extracted data with a validation issue and the user types the details — same graceful-degradation contract as before, one fewer moving part. → [[Graceful Degradation]]
 
-`verify_ocr_timing.js` in the repo root suggests the timeout was tuned empirically.
+Model selection: env `GEMINI_DOCUMENT_MODEL` overrides, then a gemini-2.5/3.x model configured on the provider row, else `gemini-3.1-flash-lite` (the only model confirmed working + fast for this API key on 2026-08-22).
 
 ## Consent and self-service visibility — CONFIRMED
 
@@ -45,7 +45,7 @@ LICENSE_REUPLOAD_WINDOW_DAYS = 30
 
 An **allow-list**, not a deny-list. A driver can edit exactly four fields; anything new added to the table is not editable until someone deliberately adds it. That's the safe default. → [[Fail Closed By Default]]
 
-`canUpdateLicenseScan()` enforces the 30-day re-upload window — INFERRED: to stop repeated re-scans being used to churn the licence record.
+`canUpdateLicenseScan()` used to enforce a 30-day re-upload window — removed 2026-08-25: re-upload is allowed anytime, gated instead by Gemini's authenticity/readability check. → [[ADR-012 Anytime Self-Service License Renewal]]
 
 ## The Sev-1 bug — FIXED 2026-08-11
 

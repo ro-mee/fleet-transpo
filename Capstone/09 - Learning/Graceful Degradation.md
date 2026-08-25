@@ -4,8 +4,8 @@ tags: [learning, architecture, reliability]
 source:
   - src/lib/ai/
   - src/lib/integration/contracts.js
-  - src/lib/ocr/
-last_verified: 2026-08-11
+  - src/lib/fuel/gemini-receipt.js
+last_verified: 2026-08-25
 ---
 
 # Concept: Graceful Degradation
@@ -24,7 +24,7 @@ Five instances, five different fallbacks:
 | -------------------- | --------------------------------- | ----------- | ------------------------------------------------------------ |
 | LLM narration        | no API key, timeout, bad response | `null`      | scores still shown, no prose → [[AI Advisory]]               |
 | Priority translation | unknown value from Booking        | `Medium`    | ingest never blocks → [[Anti-Corruption Layer]]              |
-| OCR                  | 6-second timeout                  | `""`        | driver types the licence by hand → [[Driver Consent]]        |
+| Document scanning (Gemini) | no key, timeout (12 s), quota, bad response | empty fields + validation issue | driver types the details by hand → [[Driver Consent]] · [[Fuel]] |
 | Booking gateway      | `BOOKING_GATEWAY` unset           | mock        | Fleet works, nothing reaches Booking → [[System Boundaries]] |
 | Web dashboard queries | report API error                 | zeros / "empty" copy | **was** the dishonest one — fixed 2026-08-23 with `QueryErrorBanner`/`QueryBoundary` retry panels across reports, analytics, executive, documents, predictive, history, driver performance (see [[Reports]]) |
 
@@ -43,7 +43,7 @@ The AI adapter is written so it **cannot** throw — a failure returns `null` an
 Note the fallbacks lean **conservative**, not convenient:
 
 - Unknown priority → `Medium`, not `High`. Drift can't jump the queue.
-- OCR failure → `""`, not a half-parsed licence number. A blank field is obviously incomplete; a wrong one looks fine.
+- Document-scan failure → `null` per field, not a half-parsed licence number. A blank field is obviously incomplete; a wrong one looks fine. (The old Tesseract path had the same contract; Gemini kept it and added `validation_issues` that surface the degraded state in the review modal.)
 
 That's [[Fail Closed By Default]] applied to degradation: when unsure, produce the *less* consequential output.
 
@@ -53,7 +53,7 @@ Every one of these fallbacks is **invisible in the UI**. A dispatcher can't tell
 
 That's the trade this codebase has made, and it's the right one for an MVP — but it's why `BOOKING_GATEWAY` being unset can go unnoticed while everything *looks* fine. → [[Current State]]
 
-**INFERRED improvement:** record which fallbacks fired. [[integration_log]] already does this for ingest; the LLM and OCR paths don't.
+**INFERRED improvement:** record which fallbacks fired. [[integration_log]] already does this for ingest; the scan endpoints now at least return `validation_issues` + `scan_engine: null` when Gemini is down, but nothing persists it.
 
 ## Common mistakes
 

@@ -33,6 +33,7 @@ Existing:
 - [[2026-08-11 Phase 3 Deletion And Unification]] — same day, continued: `vehiclereservations` dropped, both ingest doors unified behind one writer, `README`/`rbac-model`/`SYSTEM` rewritten, four stale ERDs deleted. Lesson that cost the most: the test suite and lint both pass with a deleted symbol still imported
 - [[2026-08-19]] — mobile real per-leg km + odometer (Phase 1), start-odometer capture, fresh-mileage-before-complete, and background GPS tracking (Phase 2) via `expo-task-manager`. Superseded [[ADR-010 Foreground Only GPS]] with [[ADR-011 Background GPS Tracking]]. Prebuild ran; device rebuild/reinstall pending.
 - [[2026-08-22]] — security/CI hardening, Gemini-only mobile fuel receipt scanning, automatic fuel-log odometer, direct navigation camera shortcut, honest analytics empty states, and recoverable mobile location failures.
+- [[2026-08-25]] — Tesseract fully replaced by Gemini structured extraction for licence/OR-CR/insurance scanning (shared `gemini-document.js`, server-only, tesseract.js removed).
 
 ## Weekly Reviews
 

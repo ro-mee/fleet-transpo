@@ -34,7 +34,7 @@ All CONFIRMED from `package.json` unless noted.
 | Charts | recharts | ^3.10.0 | |
 | Maps | leaflet + react-leaflet | ^1.9.4 / ^5.0.0 | |
 | Routing/geo | TomTom API | | `src/lib/tomtom.js` |
-| OCR | tesseract.js | ^7.0.0 | driver licenses |
+| Document scanning | Google Gemini API | `gemini-3.1-flash-lite` | structured JSON extraction — licences, OR/CR, insurance, fuel receipts; `tesseract.js` removed 2026-08-25 |
 | Animation | framer-motion | ^12.42.2 | |
 | Dates | date-fns | ^4.4.0 | |
 | Testing | vitest | ^3.2.7 | ✅ installed — 16 files, 197 tests passing |
@@ -57,7 +57,8 @@ All CONFIRMED from `package.json` unless noted.
 |---|---|---|
 | Supabase | Postgres, storage, realtime | **Live** — project `dnxuphhxlzidvwtdqqkq` |
 | TomTom | routing / distance | Key present in `.env` |
-| OpenAI-compatible LLM | optional narration | **No key in `.env`** — always falls back |
+| OpenAI-compatible LLM | optional narration | Key via `aiproviders` / `GEMINI_API_KEY` |
+| Google Gemini | document + receipt scanning | **Live** — `GEMINI_API_KEY` in `.env.local` |
 | Booking/PMS gateway | request source | **Mock only** — `HttpBookingGateway` throws |
 
 ## Notable configuration — CONFIRMED
