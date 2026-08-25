@@ -310,50 +310,57 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
           }
         }}
       >
-        <DialogContent>
-          <DialogHeader>
-            <div className={`w-10 h-10 rounded-xl ${coveringSubstitute ? "bg-warning/10" : "bg-hover"} flex items-center justify-center mb-3`}>
-              <AlertTriangle className={`w-5 h-5 ${coveringSubstitute ? "text-warning" : "text-foreground-secondary"}`} />
+        <DialogContent className="max-w-md w-[95vw] md:w-[440px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="p-6 pb-4">
+            <div className="flex items-start gap-3.5">
+              <div className={`w-11 h-11 rounded-2xl ${coveringSubstitute ? "bg-warning/10 border-warning/30 text-warning" : "bg-muted border-border text-foreground-secondary"} border flex items-center justify-center shrink-0 shadow-2xs`}>
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="min-w-0 pt-0.5">
+                <h3 className="text-base font-bold text-foreground tracking-tight">
+                  Reassign this vehicle?
+                </h3>
+                <p className="text-xs text-foreground-secondary mt-1 leading-relaxed">
+                  {displacing?.message || "This vehicle is currently assigned to another active driver."}
+                </p>
+              </div>
             </div>
-            <DialogTitle>Reassign this vehicle?</DialogTitle>
-            <DialogDescription>
-              {displacing?.message || "This vehicle is already assigned to another driver."}
-            </DialogDescription>
-          </DialogHeader>
 
-          {coveringSubstitute && (
-            <div className="rounded-2xl border border-warning/30 bg-warning/10 px-4 py-3 text-[12.5px] text-foreground-secondary font-medium flex items-start gap-2">
-              <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                This vehicle has a <span className="font-bold text-foreground">scheduled substitute driver</span> actively
-                covering it now:{" "}
-                <span className="font-bold text-foreground">
-                  {[coveringSubstitute.first_name, coveringSubstitute.last_name].filter(Boolean).join(" ") ||
-                    `driver #${coveringSubstitute.substitute_driver_id}`}
+            {coveringSubstitute && (
+              <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" aria-hidden="true" />
+                <span className="leading-relaxed">
+                  Active substitute coverage in effect:{" "}
+                  <strong className="font-bold">
+                    {[coveringSubstitute.first_name, coveringSubstitute.last_name].filter(Boolean).join(" ") ||
+                      `driver #${coveringSubstitute.substitute_driver_id}`}
+                  </strong>
+                  {coveringSubstitute.effective_until
+                    ? ` (until ${coveringSubstitute.effective_until}).`
+                    : " (open-ended)."}{" "}
+                  Reassigning will override this temporary coverage.
                 </span>
-                {coveringSubstitute.effective_until
-                  ? ` (until ${coveringSubstitute.effective_until}).`
-                  : " (open-ended)."}{" "}
-                Reassigning will override this coverage.
-              </span>
-            </div>
-          )}
+              </div>
+            )}
+          </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setDisplacing(null); setDisplacingVehicleId(null); }}>
+          <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5">
+            <Button variant="outline" size="sm" onClick={() => { setDisplacing(null); setDisplacingVehicleId(null); }} className="text-xs h-9 px-4">
               Cancel
             </Button>
             <Button
               variant="warning"
+              size="sm"
               onClick={() => {
                 displacing && assignMutation.mutate({ otherId: displacing.otherId, force: true });
                 setDisplacing(null);
                 setDisplacingVehicleId(null);
               }}
+              className="text-xs h-9 px-4 font-semibold shadow-xs"
             >
-              Reassign
+              Reassign Vehicle
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </Card>

@@ -156,61 +156,71 @@ export default function DriverLeaveRequestsPage() {
       )}
 
       <Dialog open={!!selectedRequest} onOpenChange={(open) => !open && setSelectedRequest(null)}>
-        <DialogContent className="sm:max-w-md rounded-3xl overflow-hidden border-border/60 shadow-lg p-0">
+        <DialogContent className="max-w-lg w-[95vw] md:w-[480px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
           {selectedRequest && (
             <>
-              <div className="bg-muted/30 p-6 border-b border-border/40">
-                <DialogHeader>
-                  <DialogTitle className="text-xl font-bold flex items-center gap-2">
-                    <User className="w-5 h-5 text-primary" /> Driver & Leave Details
-                  </DialogTitle>
-                </DialogHeader>
-                <div className="mt-4 flex items-center gap-4">
-                  <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-xl font-bold">
+              <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="h-11 w-11 rounded-2xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center text-base font-bold shadow-2xs">
                     {selectedRequest.driver?.first_name?.[0]}{selectedRequest.driver?.last_name?.[0]}
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-foreground">
-                      {selectedRequest.driver?.first_name} {selectedRequest.driver?.last_name}
-                    </h3>
-                    <p className="text-sm font-medium text-foreground-secondary flex items-center gap-1.5 mt-1">
-                      <IdCard className="w-4 h-4 text-foreground-muted" /> License: <span className="font-data font-bold">{selectedRequest.driver?.license_number || "—"}</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="p-6 space-y-4 bg-surface">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Leave Type</span>
-                    <p className="font-bold text-sm text-foreground">{selectedRequest.leave_type || "—"}</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Status</span>
-                    <div>
-                      <Badge variant={selectedRequest.status === "Approved" ? "success" : selectedRequest.status === "Declined" ? "danger" : "secondary"} className="rounded-full text-xs">
+                    <div className="flex items-center gap-2">
+                      <DialogTitle className="text-base font-bold text-foreground">
+                        {selectedRequest.driver?.first_name} {selectedRequest.driver?.last_name}
+                      </DialogTitle>
+                      <Badge variant={selectedRequest.status === "Approved" ? "success" : selectedRequest.status === "Declined" ? "danger" : "secondary"} className="rounded-full text-[10px] font-bold">
                         {selectedRequest.status}
                       </Badge>
                     </div>
-                  </div>
-                  <div className="space-y-1.5 col-span-2">
-                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5">
-                      <CalendarDays className="w-3.5 h-3.5" /> Date Range
-                    </span>
-                    <p className="font-medium text-sm text-foreground bg-muted/20 p-2.5 rounded-xl border border-border/40">
-                      {fmtDate(selectedRequest.start_date)} {selectedRequest.start_time ? `(${selectedRequest.start_time})` : ""} <span className="text-border mx-1">➔</span> {fmtDate(selectedRequest.end_date)} {selectedRequest.end_time ? `(${selectedRequest.end_time})` : ""}
-                    </p>
-                  </div>
-                  <div className="space-y-1.5 col-span-2">
-                    <span className="text-xs font-semibold text-foreground-muted uppercase tracking-wider">Reason</span>
-                    <p className="font-medium text-sm text-foreground-secondary bg-muted/20 p-2.5 rounded-xl border border-border/40">
-                      {selectedRequest.reason || "No reason provided."}
+                    <p className="text-xs text-foreground-muted mt-0.5 flex items-center gap-1.5">
+                      <IdCard className="w-3.5 h-3.5" /> License: <span className="font-data font-bold text-foreground">{selectedRequest.driver?.license_number || "—"}</span>
                     </p>
                   </div>
                 </div>
               </div>
-              <div className="p-4 bg-muted/10 border-t border-border/40 flex justify-end">
-                <Button variant="outline" className="rounded-xl shadow-xs h-9 px-4 text-xs font-semibold" onClick={() => setSelectedRequest(null)}>Close</Button>
+
+              <div className="p-6 space-y-4">
+                <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                  <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3.5">
+                    <div className="grid grid-cols-2 gap-3 text-xs">
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">Leave Type</span>
+                        <p className="font-bold text-foreground text-sm">{selectedRequest.leave_type || "Standard Leave"}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">Status Code</span>
+                        <p className="font-bold text-foreground text-sm">{selectedRequest.status || "Pending"}</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-border/50">
+                      <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3 text-primary" /> Approved Date Range
+                      </span>
+                      <div className="p-2.5 rounded-xl bg-muted/40 border border-border/60 text-xs font-semibold text-foreground flex items-center justify-between">
+                        <span>{fmtDate(selectedRequest.start_date)} {selectedRequest.start_time ? `(${selectedRequest.start_time})` : ""}</span>
+                        <span className="text-primary font-bold">➔</span>
+                        <span>{fmtDate(selectedRequest.end_date)} {selectedRequest.end_time ? `(${selectedRequest.end_time})` : ""}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-2 border-t border-border/50">
+                      <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                        Reason & Notes
+                      </span>
+                      <p className="text-xs text-foreground-secondary leading-relaxed p-3 rounded-xl bg-muted/30 border border-border/60">
+                        {selectedRequest.reason || "No reason specified by driver."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex justify-end">
+                <Button variant="outline" className="h-9 px-4 text-xs font-semibold" onClick={() => setSelectedRequest(null)}>
+                  Close
+                </Button>
               </div>
             </>
           )}

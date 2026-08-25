@@ -20,7 +20,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { updateIncident } from "@/services/driver.service";
 import { apiFetch } from "@/lib/api/client";
@@ -344,85 +344,120 @@ export default function IncidentsPage() {
       </Card>
 
       <Dialog open={resolveModal.open} onOpenChange={(open) => !open && setResolveModal({ open: false, incident: null })}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Resolve Incident</DialogTitle>
-            <DialogDescription>
-              Marking this incident as resolved will clear it from the pending alerts. Please document any actions taken.
-            </DialogDescription>
-          </DialogHeader>
-          {resolveModal.incident && (
-            <div className="px-6 pt-2 space-y-2">
-              {(detailQuery.data?.affected_dispatches?.length > 0 ||
-                detailQuery.data?.linked_maintenance?.length > 0) && (
-                <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs">
-                  {detailQuery.data.affected_dispatches?.length > 0 && (
-                    <div className="mb-2">
-                      <p className="font-bold text-foreground mb-1">
-                        Interrupted dispatches ({detailQuery.data.affected_dispatches.length})
-                      </p>
-                      {detailQuery.data.affected_dispatches.map((d) => (
-                        <div key={d.dispatch_id} className="flex items-center justify-between gap-2 py-0.5">
-                          <span className="text-foreground-secondary font-medium truncate">
-                            #{d.dispatch_number || d.dispatch_id} — {d.guest_name || "Unknown guest"}
-                          </span>
-                          <span className={`shrink-0 font-bold ${(d.dispatch_status || "").toLowerCase() === "pending reassignment" ? "text-danger" : "text-foreground-muted"}`}>
-                            {d.dispatch_status}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {detailQuery.data.linked_maintenance?.length > 0 && (
-                    <div>
-                      <p className="font-bold text-foreground mb-1">
-                        Linked repairs ({detailQuery.data.linked_maintenance.length})
-                      </p>
-                      {detailQuery.data.linked_maintenance.map((m) => (
-                        <div key={m.maintenance_id} className="flex items-center justify-between gap-2 py-0.5">
-                          <span className="text-foreground-secondary font-medium truncate">
-                            #{m.maintenance_id} — {m.maintenance_type}
-                          </span>
-                          <span className="shrink-0 font-bold text-foreground-muted">{m.status}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+        <DialogContent className="max-w-2xl w-[95vw] md:w-[620px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-success/10 text-success border border-success/20 shadow-2xs">
+                <CheckCircle2 className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Resolve Incident
+                  </DialogTitle>
+                  <span className="inline-flex items-center rounded-lg border border-border bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+                    Incident #{resolveModal.incident?.incident_id}
+                  </span>
                 </div>
-              )}
-            </div>
-          )}
-          {resolveModal.incident && Array.isArray(resolveModal.incident.photo_urls) && resolveModal.incident.photo_urls.length > 0 && (
-            <div className="px-6 pt-2">
-              <p className="text-sm font-medium text-foreground mb-2">Photo Evidence</p>
-              <div className="flex gap-2 flex-wrap">
-                {resolveModal.incident.photo_urls.map((url, idx) => (
-                  <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
-                    <img src={url} alt={`Incident photo ${idx + 1}`} className="w-20 h-20 object-cover rounded-lg border border-border bg-muted/50 hover:opacity-80 transition-opacity" />
-                  </a>
-                ))}
+                <p className="text-xs text-foreground-muted mt-0.5">
+                  Record operational remedies and clear this alert from active monitoring.
+                </p>
               </div>
             </div>
-          )}
-          <div className="p-6 pt-2">
-            <p className="text-sm font-medium text-foreground mb-2">Actions Taken</p>
-            <textarea
-              value={actionsTaken}
-              onChange={(e) => setActionsTaken(e.target.value)}
-              placeholder="e.g., Sent mechanic, Dispatched tow truck, Verified safe to drive..."
-              className="w-full min-h-[100px] rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y"
-            />
-            {!actionsTaken.trim() && (
-              <p className="text-xs font-semibold text-danger mt-1.5">
-                Documenting the actions taken is required — the reporting driver sees this.
-              </p>
-            )}
           </div>
-          <DialogFooter>
+
+          <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            {resolveModal.incident && (
+              <>
+                {(detailQuery.data?.affected_dispatches?.length > 0 ||
+                  detailQuery.data?.linked_maintenance?.length > 0) && (
+                  <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                    <div className="rounded-xl bg-surface p-3.5 border border-border/50 space-y-3">
+                      {detailQuery.data.affected_dispatches?.length > 0 && (
+                        <div>
+                          <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block mb-1.5">
+                            Interrupted Dispatches ({detailQuery.data.affected_dispatches.length})
+                          </span>
+                          <div className="space-y-1">
+                            {detailQuery.data.affected_dispatches.map((d) => (
+                              <div key={d.dispatch_id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/30 border border-border/50 text-xs">
+                                <span className="text-foreground font-semibold truncate">
+                                  #{d.dispatch_number || d.dispatch_id} — {d.guest_name || "Guest"}
+                                </span>
+                                <span className={`shrink-0 text-[11px] font-bold ${(d.dispatch_status || "").toLowerCase() === "pending reassignment" ? "text-danger" : "text-foreground-muted"}`}>
+                                  {d.dispatch_status}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {detailQuery.data.linked_maintenance?.length > 0 && (
+                        <div className="pt-2 border-t border-border/50">
+                          <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block mb-1.5">
+                            Linked Maintenance ({detailQuery.data.linked_maintenance.length})
+                          </span>
+                          <div className="space-y-1">
+                            {detailQuery.data.linked_maintenance.map((m) => (
+                              <div key={m.maintenance_id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-muted/30 border border-border/50 text-xs">
+                                <span className="text-foreground font-semibold truncate">
+                                  #{m.maintenance_id} — {m.maintenance_type}
+                                </span>
+                                <span className="shrink-0 text-[11px] font-bold text-foreground-muted">{m.status}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {resolveModal.incident && Array.isArray(resolveModal.incident.photo_urls) && resolveModal.incident.photo_urls.length > 0 && (
+              <div className="space-y-1.5">
+                <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                  Incident Photo Evidence ({resolveModal.incident.photo_urls.length})
+                </span>
+                <div className="flex gap-2.5 flex-wrap">
+                  {resolveModal.incident.photo_urls.map((url, idx) => (
+                    <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
+                      <img src={url} alt={`Incident photo ${idx + 1}`} className="w-20 h-20 object-cover rounded-xl border border-border/80 bg-muted/50 hover:scale-105 transition-all shadow-xs" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-foreground">
+                  Document Actions Taken &amp; Resolution Notes <span className="text-danger">*</span>
+                </label>
+                <span className="text-[10px] font-mono text-foreground-muted">{actionsTaken.length}/500</span>
+              </div>
+              <textarea
+                value={actionsTaken}
+                onChange={(e) => setActionsTaken(e.target.value)}
+                maxLength={500}
+                placeholder="e.g., Sent mobile mechanic, dispatched replacement shuttle, passenger safely rerouted..."
+                className="w-full min-h-[90px] rounded-2xl border border-border/80 bg-surface px-3.5 py-2.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y shadow-2xs"
+              />
+              {!actionsTaken.trim() && (
+                <p className="text-[11px] font-semibold text-danger">
+                  Documenting resolution steps is required — this is stored in the audit trail.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5 shrink-0">
             <Button
               variant="outline"
               onClick={() => setResolveModal({ open: false, incident: null })}
               disabled={resolveMutation.isPending}
+              className="text-xs h-9 px-4"
             >
               Cancel
             </Button>
@@ -436,12 +471,16 @@ export default function IncidentsPage() {
                 }
               }}
               disabled={resolveMutation.isPending || !actionsTaken.trim()}
-              className="gap-2"
+              className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
             >
-              <CheckCircle2 className="w-4 h-4" />
-              {resolveMutation.isPending ? "Resolving..." : "Mark as Resolved"}
+              {resolveMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+              )}
+              Mark as Resolved
             </Button>
-          </DialogFooter>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

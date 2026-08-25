@@ -76,7 +76,7 @@ export function ConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-md w-[95vw] md:w-[440px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
         {/* Keyed by `open` so the reason textarea remounts fresh each time the
             dialog opens — no reset-in-effect. */}
         <DialogBody
@@ -126,45 +126,58 @@ function DialogBody({
 
   return (
     <>
-      <DialogHeader>
-        <div className={`w-10 h-10 rounded-xl ${config.iconBg} flex items-center justify-center mb-3`}>
-          <Icon className={`w-5 h-5 ${config.iconColor}`} />
+      <div className="p-6 pb-4">
+        <div className="flex items-start gap-3.5">
+          <div className={`w-11 h-11 rounded-2xl ${config.iconBg} border border-border/60 flex items-center justify-center shrink-0 shadow-2xs`}>
+            <Icon className={`w-5 h-5 ${config.iconColor}`} />
+          </div>
+          <div className="min-w-0 pt-0.5">
+            <h3 className="text-base font-bold text-foreground tracking-tight leading-snug">
+              {title}
+            </h3>
+            <p className="text-xs text-foreground-secondary mt-1 leading-relaxed">
+              {bodyText}
+            </p>
+          </div>
         </div>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{bodyText}</DialogDescription>
-      </DialogHeader>
-      {requireReason && (
-        <div className="space-y-1.5">
-          <label htmlFor="confirm-reason" className="text-xs font-medium text-foreground-secondary">
-            {reasonLabel} <span className="text-danger">*</span>
-          </label>
-          <textarea
-            id="confirm-reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={reasonPlaceholder}
-            rows={3}
-            maxLength={500}
-            className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 resize-none"
-          />
-          {!reason.trim() && (
-            <p className="text-[11px] text-foreground-muted">A short reason is recorded with this action.</p>
-          )}
-        </div>
-      )}
-      <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
+
+        {requireReason && (
+          <div className="mt-4 space-y-1.5 pt-3 border-t border-border/60">
+            <label htmlFor="confirm-reason" className="text-xs font-semibold text-foreground flex items-center justify-between">
+              <span>{reasonLabel} <span className="text-danger">*</span></span>
+              <span className="text-[10px] font-mono text-foreground-muted">{reason.length}/500</span>
+            </label>
+            <textarea
+              id="confirm-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={reasonPlaceholder}
+              rows={3}
+              maxLength={500}
+              className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10 resize-none shadow-2xs"
+            />
+            {!reason.trim() && (
+              <p className="text-[11px] text-foreground-muted">A short reason is recorded in the operational audit log.</p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5">
+        <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={busy} className="text-xs h-9 px-4">
           {cancelLabel}
         </Button>
         <Button
           variant={config.confirmVariant}
+          size="sm"
           onClick={handleConfirm}
           disabled={!canConfirm}
+          className="text-xs h-9 px-4 font-semibold shadow-xs"
         >
-          {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          {busy && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
           {actionLabel}
         </Button>
-      </DialogFooter>
+      </div>
     </>
   );
 }

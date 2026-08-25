@@ -1,4 +1,5 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
+import { cn } from "@/lib/utils";
 
 export function Dialog({ children, ...props }) {
   return <DialogPrimitive.Root {...props}>{children}</DialogPrimitive.Root>;
@@ -13,7 +14,10 @@ export function DialogContent({ children, className = "", ...props }) {
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="dialog-overlay fixed inset-0 bg-black/60 backdrop-blur-md z-40 transition-all duration-200 animate-in fade-in" />
       <DialogPrimitive.Content
-        className={`dialog-content fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-surface/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-border/80 p-0 z-50 max-h-[85vh] overflow-y-auto min-w-[320px] transition-all duration-200 animate-in zoom-in-95 ${className}`}
+        className={cn(
+          "dialog-content fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-surface/95 backdrop-blur-xl rounded-3xl shadow-2xl border border-border/80 p-0 z-50 max-h-[90vh] overflow-y-auto min-w-[320px] transition-all duration-200 animate-in zoom-in-95",
+          className
+        )}
         aria-describedby={undefined}
         {...props}
       >
@@ -24,12 +28,12 @@ export function DialogContent({ children, className = "", ...props }) {
 }
 
 export function DialogHeader({ children, className = "" }) {
-  return <div className={`p-6 pb-0 ${className}`}>{children}</div>;
+  return <div className={cn("p-6 pb-0", className)}>{children}</div>;
 }
 
 export function DialogTitle({ children, className = "" }) {
   return (
-    <DialogPrimitive.Title className={`text-lg font-semibold text-foreground ${className}`}>
+    <DialogPrimitive.Title className={cn("text-lg font-semibold text-foreground", className)}>
       {children}
     </DialogPrimitive.Title>
   );
@@ -37,12 +41,12 @@ export function DialogTitle({ children, className = "" }) {
 
 export function DialogDescription({ children, className = "" }) {
   return (
-    <DialogPrimitive.Description className={`text-sm text-foreground-secondary mt-1.5 ${className}`}>
+    <DialogPrimitive.Description className={cn("text-sm text-foreground-secondary mt-1.5", className)}>
       {children}
     </DialogPrimitive.Description>
   );
 }
 
 export function DialogFooter({ children, className = "" }) {
-  return <div className={`flex items-center justify-end gap-3 p-6 pt-4 ${className}`}>{children}</div>;
+  return <div className={cn("flex items-center justify-end gap-3 p-6 pt-4", className)}>{children}</div>;
 }

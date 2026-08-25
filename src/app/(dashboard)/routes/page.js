@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { Route as RouteIcon, MapPin, TriangleAlert, Plus } from "lucide-react";
+import { Route as RouteIcon, MapPin, TriangleAlert, Plus, Loader2 } from "lucide-react";
 import { createRoute, getRoutes } from "@/services/route.service";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole, can } from "@/lib/auth/role-guard";
@@ -193,89 +193,141 @@ export default function RoutesPage() {
                   Add Route
                 </Button>
               </DialogTrigger>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Add Route</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="route_name">Route Name *</Label>
-                    <Input
-                      id="route_name"
-                      value={formData.route_name}
-                      onChange={(e) => setFormData({ ...formData, route_name: e.target.value })}
-                      ref={registerField("route_name")}
-                      invalid={fieldError("route_name").invalid}
-                      placeholder="e.g. NAIA Terminal 3 → Hotel"
-                    />
-                    {fieldError("route_name").error && <p className="text-xs text-danger">{fieldError("route_name").error}</p>}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="origin">Origin *</Label>
-                    <Input
-                      id="origin"
-                      value={formData.origin}
-                      onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
-                      ref={registerField("origin")}
-                      invalid={fieldError("origin").invalid}
-                      placeholder="e.g. NAIA Terminal 3"
-                    />
-                    {fieldError("origin").error && <p className="text-xs text-danger">{fieldError("origin").error}</p>}
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="destination">Destination *</Label>
-                    <Input
-                      id="destination"
-                      value={formData.destination}
-                      onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
-                      ref={registerField("destination")}
-                      invalid={fieldError("destination").invalid}
-                      placeholder="e.g. Manila Hotel"
-                    />
-                    {fieldError("destination").error && <p className="text-xs text-danger">{fieldError("destination").error}</p>}
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <Label htmlFor="distance_km">Distance (km)</Label>
-                      <Input
-                        id="distance_km"
-                        type="number"
-                        min="0"
-                        step="0.1"
-                        value={formData.distance_km}
-                        onChange={(e) => setFormData({ ...formData, distance_km: e.target.value })}
-                        ref={registerField("distance_km")}
-                        invalid={fieldError("distance_km").invalid}
-                        placeholder="e.g. 12.5"
-                      />
-                      {fieldError("distance_km").error && <p className="text-xs text-danger">{fieldError("distance_km").error}</p>}
+              <DialogContent className="max-w-lg w-[95vw] md:w-[500px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+                <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                      <RouteIcon className="h-5 w-5" />
                     </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="estimated_duration_minutes">Duration (min)</Label>
-                      <Input
-                        id="estimated_duration_minutes"
-                        type="number"
-                        min="0"
-                        value={formData.estimated_duration_minutes}
-                        onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: e.target.value })}
-                        ref={registerField("estimated_duration_minutes")}
-                        invalid={fieldError("estimated_duration_minutes").invalid}
-                        placeholder="e.g. 35"
-                      />
-                      {fieldError("estimated_duration_minutes").error && <p className="text-xs text-danger">{fieldError("estimated_duration_minutes").error}</p>}
+                    <div>
+                      <DialogTitle className="text-base font-bold text-foreground">
+                        Add Shuttle Route
+                      </DialogTitle>
+                      <p className="text-xs text-foreground-muted mt-0.5">
+                        Define standard operational route between hotel & key destinations.
+                      </p>
                     </div>
                   </div>
+                </div>
 
-                  {formError && <p className="text-sm text-danger">{formError}</p>}
+                <form onSubmit={handleSubmit} className="p-6 space-y-4">
+                  <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                    <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="route_name" className="text-xs font-semibold text-foreground">
+                          Route Name <span className="text-danger">*</span>
+                        </Label>
+                        <Input
+                          id="route_name"
+                          value={formData.route_name}
+                          onChange={(e) => setFormData({ ...formData, route_name: e.target.value })}
+                          ref={registerField("route_name")}
+                          invalid={fieldError("route_name").invalid}
+                          placeholder="e.g. NAIA Terminal 3 → Manila Hotel"
+                          className="text-sm font-semibold h-10"
+                          autoFocus
+                        />
+                        {fieldError("route_name").error && <p className="text-xs text-danger">{fieldError("route_name").error}</p>}
+                      </div>
 
-                  <div className="flex items-center justify-end gap-3 pt-2">
-                    <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
-                    <Button type="submit" disabled={createMutation.isPending}>
-                      {createMutation.isPending ? "Creating..." : "Create Route"}
+                      {/* Origin & Destination Waypoints */}
+                      <div className="space-y-2.5 pt-1">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="origin" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-danger inline-block" />
+                            Origin Point <span className="text-danger">*</span>
+                          </Label>
+                          <Input
+                            id="origin"
+                            value={formData.origin}
+                            onChange={(e) => setFormData({ ...formData, origin: e.target.value })}
+                            ref={registerField("origin")}
+                            invalid={fieldError("origin").invalid}
+                            placeholder="e.g. NAIA Terminal 3 Arrival Bay"
+                            className="text-xs h-9"
+                          />
+                          {fieldError("origin").error && <p className="text-xs text-danger">{fieldError("origin").error}</p>}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label htmlFor="destination" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-success inline-block" />
+                            Destination Point <span className="text-danger">*</span>
+                          </Label>
+                          <Input
+                            id="destination"
+                            value={formData.destination}
+                            onChange={(e) => setFormData({ ...formData, destination: e.target.value })}
+                            ref={registerField("destination")}
+                            invalid={fieldError("destination").invalid}
+                            placeholder="e.g. Manila Hotel Main Lobby"
+                            className="text-xs h-9"
+                          />
+                          {fieldError("destination").error && <p className="text-xs text-danger">{fieldError("destination").error}</p>}
+                        </div>
+                      </div>
+
+                      {/* Distance & Duration Grid */}
+                      <div className="grid grid-cols-2 gap-3 pt-1 border-t border-border/50">
+                        <div className="space-y-1.5">
+                          <Label htmlFor="distance_km" className="text-xs font-semibold text-foreground">
+                            Distance (km)
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="distance_km"
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={formData.distance_km}
+                              onChange={(e) => setFormData({ ...formData, distance_km: e.target.value })}
+                              ref={registerField("distance_km")}
+                              invalid={fieldError("distance_km").invalid}
+                              placeholder="12.5"
+                              className="text-xs font-data font-semibold pr-10 h-9"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-foreground-muted pointer-events-none">
+                              km
+                            </span>
+                          </div>
+                          {fieldError("distance_km").error && <p className="text-xs text-danger">{fieldError("distance_km").error}</p>}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <Label htmlFor="estimated_duration_minutes" className="text-xs font-semibold text-foreground">
+                            Est. Duration (min)
+                          </Label>
+                          <div className="relative">
+                            <Input
+                              id="estimated_duration_minutes"
+                              type="number"
+                              min="0"
+                              value={formData.estimated_duration_minutes}
+                              onChange={(e) => setFormData({ ...formData, estimated_duration_minutes: e.target.value })}
+                              ref={registerField("estimated_duration_minutes")}
+                              invalid={fieldError("estimated_duration_minutes").invalid}
+                              placeholder="35"
+                              className="text-xs font-data font-semibold pr-11 h-9"
+                            />
+                            <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-foreground-muted pointer-events-none">
+                              min
+                            </span>
+                          </div>
+                          {fieldError("estimated_duration_minutes").error && <p className="text-xs text-danger">{fieldError("estimated_duration_minutes").error}</p>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {formError && <p className="text-xs font-semibold text-danger">{formError}</p>}
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2">
+                    <Button type="button" variant="outline" onClick={closeDialog} className="text-xs h-9 px-4">
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={createMutation.isPending} className="text-xs h-9 px-5 font-bold shadow-xs">
+                      {createMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                      Create Route
                     </Button>
                   </div>
                 </form>

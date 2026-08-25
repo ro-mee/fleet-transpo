@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getVehicleCategories, createCategory, updateCategory, deleteCategory } from "@/services/vehicle.service";
-import { Plus, Pencil, Archive } from "lucide-react";
+import { Plus, Pencil, Archive, Layers, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
@@ -130,58 +130,93 @@ export default function CategoriesPage() {
               Add Category
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{editingCategory ? "Edit Hotel Category" : "Add Hotel Category"}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="p-6 pt-4 space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="category_name">Category Name *</Label>
-                <Input
-                  id="category_name"
-                  value={formData.category_name}
-                  onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
-                  ref={registerField("category_name")}
-                  invalid={fieldError("category_name").invalid}
-                  placeholder="e.g. VIP Guest Transport, Guest Shuttle"
-                />
-                {fieldError("category_name").error && <p className="text-xs text-danger">{fieldError("category_name").error}</p>}
+          <DialogContent className="max-w-lg w-[95vw] md:w-[480px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+            <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <div>
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    {editingCategory ? "Edit Hotel Category" : "Add Hotel Category"}
+                  </DialogTitle>
+                  <p className="text-xs text-foreground-muted mt-0.5">
+                    Operational category classification for guest shuttle and VIP fleet.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="category_name" className="text-xs font-semibold text-foreground">
+                      Category Name <span className="text-danger">*</span>
+                    </Label>
+                    <Input
+                      id="category_name"
+                      value={formData.category_name}
+                      onChange={(e) => setFormData({ ...formData, category_name: e.target.value })}
+                      ref={registerField("category_name")}
+                      invalid={fieldError("category_name").invalid}
+                      placeholder="e.g. VIP Guest Transport, Guest Shuttle"
+                      className="text-sm font-semibold h-10"
+                      autoFocus
+                    />
+                    {fieldError("category_name").error && <p className="text-xs text-danger">{fieldError("category_name").error}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="description" className="text-xs font-semibold text-foreground">
+                      Description <span className="text-foreground-muted font-normal text-[11px]">(Optional)</span>
+                    </Label>
+                    <Input
+                      id="description"
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      ref={registerField("description")}
+                      invalid={fieldError("description").invalid}
+                      placeholder="e.g. Executive airport pickups for VIP guests"
+                      className="text-xs h-9"
+                    />
+                    {fieldError("description").error && <p className="text-xs text-danger">{fieldError("description").error}</p>}
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="seating_capacity" className="text-xs font-semibold text-foreground">
+                      Default Passenger Capacity
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="seating_capacity"
+                        type="number"
+                        min="1"
+                        value={formData.seating_capacity}
+                        onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })}
+                        ref={registerField("seating_capacity")}
+                        invalid={fieldError("seating_capacity").invalid}
+                        placeholder="e.g. 7"
+                        className="text-sm font-data font-semibold pr-14 h-10"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-foreground-muted pointer-events-none">
+                        seats
+                      </span>
+                    </div>
+                    {fieldError("seating_capacity").error && <p className="text-xs text-danger">{fieldError("seating_capacity").error}</p>}
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1.5">
-                <Label htmlFor="description">Description</Label>
-                <Input
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  ref={registerField("description")}
-                  invalid={fieldError("description").invalid}
-                  placeholder="e.g. Executive airport pickups for VIP guests"
-                />
-                {fieldError("description").error && <p className="text-xs text-danger">{fieldError("description").error}</p>}
-              </div>
+              {formError && <p className="text-xs font-semibold text-danger">{formError}</p>}
 
-              <div className="space-y-1.5">
-                <Label htmlFor="seating_capacity">Default Seating Capacity</Label>
-                <Input
-                  id="seating_capacity"
-                  type="number"
-                  min="1"
-                  value={formData.seating_capacity}
-                  onChange={(e) => setFormData({ ...formData, seating_capacity: e.target.value })}
-                  ref={registerField("seating_capacity")}
-                  invalid={fieldError("seating_capacity").invalid}
-                  placeholder="e.g. 7"
-                />
-                {fieldError("seating_capacity").error && <p className="text-xs text-danger">{fieldError("seating_capacity").error}</p>}
-              </div>
-
-              {formError && <p className="text-sm text-danger">{formError}</p>}
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <Button type="button" variant="outline" onClick={closeDialog}>Cancel</Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Saving..." : editingCategory ? "Update Category" : "Create Category"}
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <Button type="button" variant="outline" onClick={closeDialog} className="text-xs h-9 px-4">
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={isSubmitting} className="text-xs h-9 px-5 font-bold shadow-xs">
+                  {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                  {editingCategory ? "Update Category" : "Create Category"}
                 </Button>
               </div>
             </form>

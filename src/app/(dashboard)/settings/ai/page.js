@@ -717,242 +717,267 @@ export default function AiSettingsPage() {
 
       {/* ── ADD / EDIT PROVIDER DIALOG ── */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { if (!open) closeDialog(); setDialogOpen(open); }}>
-        <DialogContent className="max-w-md p-6 bg-surface border border-border rounded-2xl shadow-xl">
-          <DialogHeader className="pb-2">
-            <DialogTitle className="text-lg font-bold text-foreground">
-              {editingProvider ? "Edit Provider" : "Add Provider"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {/* Row 1: Name * | Display Name * */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="name" className="text-xs font-medium text-foreground">
-                  Name <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="my-openai"
-                  required
-                  className="h-9 text-xs rounded-xl"
-                />
+        <DialogContent className="max-w-xl w-[95vw] md:w-[580px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                <Brain className="h-5 w-5" />
               </div>
-
-              <div className="space-y-1">
-                <Label htmlFor="display_name" className="text-xs font-medium text-foreground">
-                  Display Name <span className="text-danger">*</span>
-                </Label>
-                <Input
-                  id="display_name"
-                  value={formData.display_name}
-                  onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
-                  ref={registerField("display_name")}
-                  invalid={fieldError("display_name").invalid}
-                  placeholder="My OpenAI"
-                  className="h-9 text-xs rounded-xl"
-                />
-                {fieldError("display_name").error && <p className="text-xs text-danger">{fieldError("display_name").error}</p>}
+              <div>
+                <DialogTitle className="text-base font-bold text-foreground">
+                  {editingProvider ? "Edit AI Provider" : "Add AI Provider"}
+                </DialogTitle>
+                <p className="text-xs text-foreground-muted mt-0.5">
+                  Configure LLM integration, inference endpoints, and execution limits.
+                </p>
               </div>
             </div>
+          </div>
 
-            {/* Row 2: Provider Class * */}
-            <div className="space-y-1">
-              <Label htmlFor="provider_class" className="text-xs font-medium text-foreground">
-                Provider Class <span className="text-danger">*</span>
-              </Label>
-              <select
-                id="provider_class"
-                value={formData.provider_class}
-                onChange={(e) => {
-                  setFormData({ ...formData, provider_class: e.target.value });
-                  setFetchedModelList([]);
-                }}
-                className="flex h-9 w-full rounded-3xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="" disabled>Select provider type...</option>
-                <option value="OpenAI">OpenAI</option>
-                <option value="Gemini">Google Gemini</option>
-                <option value="Anthropic">Anthropic Claude</option>
-                <option value="Groq">Groq</option>
-                <option value="DeepSeek">DeepSeek</option>
-                <option value="Custom">Custom OpenAI-Compatible</option>
-              </select>
-            </div>
+          <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            {/* Section 1: Provider Identity & Class */}
+            <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+              <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3">
+                <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                  Provider Identification
+                </span>
 
-            {/* Row 3: Base URL | Endpoint (optional) */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label htmlFor="base_url" className="text-xs font-medium text-foreground">Base URL</Label>
-                <Input
-                  id="base_url"
-                  value={formData.base_url}
-                   onChange={(e) => {
-                     setFormData({ ...formData, base_url: e.target.value });
-                     setFetchedModelList([]);
-                   }}
-                  ref={registerField("base_url")}
-                  invalid={fieldError("base_url").invalid}
-                  placeholder="https://api.openai.com/v1"
-                  className="h-9 text-xs rounded-xl font-mono"
-                />
-                {fieldError("base_url").error && <p className="text-xs text-danger">{fieldError("base_url").error}</p>}
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="name" className="text-xs font-semibold text-foreground">
+                      Internal Key <span className="text-danger">*</span>
+                    </Label>
+                    <Input
+                      id="name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      placeholder="e.g. openai-primary"
+                      required
+                      className="h-9 text-xs font-mono"
+                    />
+                  </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="endpoint_path" className="text-xs font-medium text-foreground">
-                  Endpoint <span className="text-foreground-muted font-normal">(optional)</span>
-                </Label>
-                <Input
-                  id="endpoint_path"
-                  value={formData.endpoint_path}
-                  onChange={(e) => setFormData({ ...formData, endpoint_path: e.target.value })}
-                  placeholder="/chat/completions"
-                  className="h-9 text-xs rounded-xl font-mono"
-                />
-              </div>
-            </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="display_name" className="text-xs font-semibold text-foreground">
+                      Display Name <span className="text-danger">*</span>
+                    </Label>
+                    <Input
+                      id="display_name"
+                      value={formData.display_name}
+                      onChange={(e) => setFormData({ ...formData, display_name: e.target.value })}
+                      ref={registerField("display_name")}
+                      invalid={fieldError("display_name").invalid}
+                      placeholder="e.g. OpenAI GPT-4o"
+                      className="h-9 text-xs"
+                    />
+                    {fieldError("display_name").error && <p className="text-xs text-danger">{fieldError("display_name").error}</p>}
+                  </div>
+                </div>
 
-            {/* Row 4: Model + Fetch Button */}
-            <div className="space-y-1">
-              <Label htmlFor="model_name" className="text-xs font-medium text-foreground">Model</Label>
-              <div className="flex gap-2">
-                {fetchedModelList.length > 0 ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="provider_class" className="text-xs font-semibold text-foreground">
+                    Provider Type / Architecture <span className="text-danger">*</span>
+                  </Label>
                   <select
-                    id="model_name"
-                    value={formData.model_name}
-                    onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
-                    className="flex h-9 w-full rounded-3xl border border-border bg-surface px-3 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                    id="provider_class"
+                    value={formData.provider_class}
+                    onChange={(e) => {
+                      setFormData({ ...formData, provider_class: e.target.value });
+                      setFetchedModelList([]);
+                    }}
+                    className="flex h-9 w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
-                    {fetchedModelList.map((m) => (
-                      <option key={m} value={m}>{m}</option>
-                    ))}
+                    <option value="" disabled>Select provider type...</option>
+                    <option value="OpenAI">OpenAI</option>
+                    <option value="Gemini">Google Gemini</option>
+                    <option value="Anthropic">Anthropic Claude</option>
+                    <option value="Groq">Groq</option>
+                    <option value="DeepSeek">DeepSeek</option>
+                    <option value="Custom">Custom OpenAI-Compatible</option>
                   </select>
-                ) : (
-                  <Input
-                    id="model_name"
-                    value={formData.model_name}
-                    onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
-                    ref={registerField("model_name")}
-                    invalid={fieldError("model_name").invalid}
-                    placeholder="gpt-4o-mini"
-                    className="h-9 text-xs rounded-xl font-mono flex-1"
-                  />
-                )}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleFetchModels}
-                  disabled={fetchingModels}
-                  className="h-9 px-3 text-xs flex items-center gap-1.5"
-                >
-                  {fetchingModels ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Download className="w-3.5 h-3.5" />
-                  )}
-                  Fetch
-                </Button>
-              </div>
-              {fieldError("model_name").error && <p className="text-xs text-danger">{fieldError("model_name").error}</p>}
-              {fetchedModelList.length > 0 && (
-                <p className="text-[11px] text-foreground-muted">{fetchedModelList.length} model(s) available — select from dropdown</p>
-              )}
-            </div>
-
-            {/* Row 5: API Key (with Password Visibility Toggle 👁️) */}
-            <div className="space-y-1">
-              <Label htmlFor="api_key" className="text-xs font-medium text-foreground">API Key</Label>
-              <div className="relative">
-                <Input
-                  id="api_key"
-                  type={showApiKey ? "text" : "password"}
-                  value={formData.api_key}
-                  onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
-                  placeholder="sk-..."
-                  className="h-9 text-xs rounded-xl pr-9 font-mono"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowApiKey(!showApiKey)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors"
-                >
-                  {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
+                </div>
               </div>
             </div>
 
-            {/* Row 6: Temperature | Max Tokens | Timeout (s) */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="space-y-1">
-                <Label htmlFor="temperature" className="text-[11px] font-medium text-foreground">Temperature</Label>
-                <Input
-                  id="temperature"
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="2"
-                  value={formData.temperature}
-                  onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
-                  ref={registerField("temperature")}
-                  invalid={fieldError("temperature").invalid}
-                  className="h-9 text-xs rounded-xl font-mono"
-                />
-                {fieldError("temperature").error && <p className="text-xs text-danger">{fieldError("temperature").error}</p>}
-              </div>
+            {/* Section 2: Connection & Models */}
+            <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+              <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3">
+                <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                  Connection &amp; Credentials
+                </span>
 
-              <div className="space-y-1">
-                <Label htmlFor="max_tokens" className="text-[11px] font-medium text-foreground">Max Tokens</Label>
-                <Input
-                  id="max_tokens"
-                  type="number"
-                  value={formData.max_tokens}
-                  onChange={(e) => setFormData({ ...formData, max_tokens: e.target.value })}
-                  ref={registerField("max_tokens")}
-                  invalid={fieldError("max_tokens").invalid}
-                  className="h-9 text-xs rounded-xl font-mono"
-                />
-                {fieldError("max_tokens").error && <p className="text-xs text-danger">{fieldError("max_tokens").error}</p>}
-              </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="base_url" className="text-xs font-semibold text-foreground">Base URL</Label>
+                    <Input
+                      id="base_url"
+                      value={formData.base_url}
+                      onChange={(e) => {
+                        setFormData({ ...formData, base_url: e.target.value });
+                        setFetchedModelList([]);
+                      }}
+                      ref={registerField("base_url")}
+                      invalid={fieldError("base_url").invalid}
+                      placeholder="https://api.openai.com/v1"
+                      className="h-9 text-xs font-mono"
+                    />
+                    {fieldError("base_url").error && <p className="text-xs text-danger">{fieldError("base_url").error}</p>}
+                  </div>
 
-              <div className="space-y-1">
-                <Label htmlFor="timeout_seconds" className="text-[11px] font-medium text-foreground">Timeout (s)</Label>
-                <Input
-                  id="timeout_seconds"
-                  type="number"
-                  value={formData.timeout_seconds}
-                  onChange={(e) => setFormData({ ...formData, timeout_seconds: e.target.value })}
-                  ref={registerField("timeout_seconds")}
-                  invalid={fieldError("timeout_seconds").invalid}
-                  className="h-9 text-xs rounded-xl font-mono"
-                />
-                {fieldError("timeout_seconds").error && <p className="text-xs text-danger">{fieldError("timeout_seconds").error}</p>}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="endpoint_path" className="text-xs font-semibold text-foreground">
+                      Endpoint <span className="text-foreground-muted font-normal text-[11px]">(Optional)</span>
+                    </Label>
+                    <Input
+                      id="endpoint_path"
+                      value={formData.endpoint_path}
+                      onChange={(e) => setFormData({ ...formData, endpoint_path: e.target.value })}
+                      placeholder="/chat/completions"
+                      className="h-9 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="api_key" className="text-xs font-semibold text-foreground">API Secret Key</Label>
+                  <div className="relative">
+                    <Input
+                      id="api_key"
+                      type={showApiKey ? "text" : "password"}
+                      value={formData.api_key}
+                      onChange={(e) => setFormData({ ...formData, api_key: e.target.value })}
+                      placeholder="sk-..."
+                      className="h-9 text-xs pr-9 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground-muted hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      {showApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Model Selection */}
+                <div className="space-y-1.5 pt-1">
+                  <Label htmlFor="model_name" className="text-xs font-semibold text-foreground">Model Name</Label>
+                  <div className="flex gap-2">
+                    {fetchedModelList.length > 0 ? (
+                      <select
+                        id="model_name"
+                        value={formData.model_name}
+                        onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
+                        className="flex h-9 w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      >
+                        {fetchedModelList.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input
+                        id="model_name"
+                        value={formData.model_name}
+                        onChange={(e) => setFormData({ ...formData, model_name: e.target.value })}
+                        ref={registerField("model_name")}
+                        invalid={fieldError("model_name").invalid}
+                        placeholder="e.g. gpt-4o-mini, gemini-2.5-flash"
+                        className="h-9 text-xs font-mono flex-1"
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleFetchModels}
+                      disabled={fetchingModels}
+                      className="h-9 px-3 text-xs flex items-center gap-1.5 shrink-0"
+                    >
+                      {fetchingModels ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Download className="w-3.5 h-3.5" />
+                      )}
+                      Fetch Models
+                    </Button>
+                  </div>
+                  {fieldError("model_name").error && <p className="text-xs text-danger">{fieldError("model_name").error}</p>}
+                </div>
               </div>
             </div>
 
-            {/* Row 7: Set as default provider Checkbox */}
-            <div className="pt-1">
-              <label className="flex items-center gap-2 text-xs text-foreground cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={formData.is_default}
-                  onChange={(e) => setFormData({ ...formData, is_default: e.target.checked })}
-                  className="rounded border-border w-4 h-4 accent-primary"
-                />
-                Set as default provider
-              </label>
+            {/* Section 3: Telemetry & Limits */}
+            <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+              <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3">
+                <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                  Hyperparameters &amp; Limits
+                </span>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="space-y-1">
+                    <Label htmlFor="temperature" className="text-[11px] font-medium text-foreground">Temperature</Label>
+                    <Input
+                      id="temperature"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="2"
+                      value={formData.temperature}
+                      onChange={(e) => setFormData({ ...formData, temperature: e.target.value })}
+                      ref={registerField("temperature")}
+                      invalid={fieldError("temperature").invalid}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="max_tokens" className="text-[11px] font-medium text-foreground">Max Tokens</Label>
+                    <Input
+                      id="max_tokens"
+                      type="number"
+                      value={formData.max_tokens}
+                      onChange={(e) => setFormData({ ...formData, max_tokens: e.target.value })}
+                      ref={registerField("max_tokens")}
+                      invalid={fieldError("max_tokens").invalid}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label htmlFor="timeout_seconds" className="text-[11px] font-medium text-foreground">Timeout (s)</Label>
+                    <Input
+                      id="timeout_seconds"
+                      type="number"
+                      value={formData.timeout_seconds}
+                      onChange={(e) => setFormData({ ...formData, timeout_seconds: e.target.value })}
+                      ref={registerField("timeout_seconds")}
+                      invalid={fieldError("timeout_seconds").invalid}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-border/50">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-foreground cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={formData.is_default}
+                      onChange={(e) => setFormData({ ...formData, is_default: e.target.checked })}
+                      className="rounded border-border w-4 h-4 accent-primary"
+                    />
+                    Set as active default AI provider
+                  </label>
+                </div>
+              </div>
             </div>
 
-            {/* Footer Actions: Cancel | Save */}
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-              <Button type="button" variant="ghost" onClick={closeDialog} className="h-9 text-xs">
+            <div className="px-1 pt-1 flex items-center justify-end gap-2.5">
+              <Button type="button" variant="outline" onClick={closeDialog} className="text-xs h-9 px-4">
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting} className="h-9 text-xs px-5">
-                {isSubmitting ? "Saving..." : "Save"}
+              <Button type="submit" disabled={isSubmitting} className="text-xs h-9 px-5 font-bold shadow-xs">
+                {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                {editingProvider ? "Update Provider" : "Save Provider"}
               </Button>
             </div>
           </form>

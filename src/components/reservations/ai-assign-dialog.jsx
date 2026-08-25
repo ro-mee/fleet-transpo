@@ -55,29 +55,27 @@ export function AiAssignDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-xl p-4 sm:p-6 w-[95vw] sm:max-w-5xl max-h-[95vh] flex flex-col overflow-hidden">
-        <DialogHeader className="pb-4 border-b border-border/60">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-11 h-11 rounded-2xl bg-info/10 text-info ring-1 ring-info/15 flex items-center justify-center shrink-0">
-                <Sparkles className="w-5 h-5" strokeWidth={1.75} />
-              </div>
-              <div className="min-w-0">
-                <DialogTitle className="text-lg font-bold text-foreground">AI-Assisted Assignment</DialogTitle>
-                <DialogDescription className="text-xs text-foreground-secondary mt-0.5 flex items-center gap-1.5 flex-wrap">
-                  Assign resources to
-                  <span className="inline-flex items-center rounded-md bg-hover border border-border/70 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
-                    {r.reservation_number || `REQ-#${r.request_id}`}
-                  </span>
-                  via the Smart Dispatch recommendation
-                </DialogDescription>
-              </div>
+      <DialogContent className="max-w-5xl w-[95vw] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl max-h-[92vh] flex flex-col">
+        <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-11 h-11 rounded-2xl bg-info/10 text-info border border-info/20 flex items-center justify-center shrink-0 shadow-2xs">
+              <Sparkles className="w-5 h-5" strokeWidth={1.75} />
             </div>
-            <StatusBadge status={r.priority} entity="priority" />
+            <div className="min-w-0">
+              <DialogTitle className="text-base font-bold text-foreground">AI-Assisted Assignment</DialogTitle>
+              <p className="text-xs text-foreground-muted mt-0.5 flex items-center gap-1.5 flex-wrap">
+                Assign resources to
+                <span className="inline-flex items-center rounded-lg bg-muted border border-border/70 px-1.5 py-0.5 font-mono text-[11px] font-bold text-foreground">
+                  {r.reservation_number || `REQ-#${r.request_id}`}
+                </span>
+                via Smart Dispatch recommendation
+              </p>
+            </div>
           </div>
-        </DialogHeader>
+          <StatusBadge status={r.priority} entity="priority" />
+        </div>
 
-        <div className="py-2 flex-1 overflow-y-auto pr-1 -mr-1 grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+        <div className="p-6 flex-1 overflow-y-auto grid grid-cols-1 lg:grid-cols-2 gap-5">
           {/* Left Column: Request Details */}
           <div className="space-y-3.5 flex flex-col">
             {/* Guest & Source Header */}
