@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDriver, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
 import { licenseExpired } from "@/lib/drivers/compliance";
 import { DetailSkeleton } from "@/components/ui/skeleton";
+import { RenewLicenseDialog } from "@/components/drivers/renew-license-dialog";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
 import { useRoleAccess } from "@/hooks/use-role-access";
@@ -385,16 +386,23 @@ export default function DriverDetailPage() {
                       </div>
                       License &amp; Credentials
                     </CardTitle>
-                    {licenseImage && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-colors"
-                        onClick={() => setPreviewModalUrl(licenseImage)}
-                      >
-                        <ZoomIn className="w-3.5 h-3.5 mr-1.5" /> View Scan
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      <RenewLicenseDialog 
+                        canManage={can("drivers", "update")} 
+                        driverId={driver.driver_id}
+                        currentExpiry={driver.license_expiry ? formatDate(driver.license_expiry) : null}
+                      />
+                      {licenseImage && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs font-semibold text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-xl transition-colors"
+                          onClick={() => setPreviewModalUrl(licenseImage)}
+                        >
+                          <ZoomIn className="w-3.5 h-3.5 mr-1.5" /> View Scan
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent className="p-0">

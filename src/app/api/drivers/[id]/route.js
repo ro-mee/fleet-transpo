@@ -4,6 +4,7 @@ import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePh
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
+import { syncDriverStatus } from "@/services/status.service";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -295,6 +296,9 @@ export async function PUT(req, { params }) {
         console.warn("license-renewal reinstatement skipped:", complianceErr?.message || complianceErr);
       }
     }
+    
+    // Always sync driver status immediately after updates to ensure compliance suspensions are applied instantly if the license is expired.
+    await syncDriverStatus(id);
 
     // Fetch updated driver via raw SQL query to guarantee clean response
     const fetchSql = `

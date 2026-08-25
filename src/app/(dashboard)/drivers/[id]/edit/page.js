@@ -512,33 +512,7 @@ export default function EditDriverPage() {
                     <input id="years_of_experience" type="number" min="0" {...form.register("years_of_experience")} className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 font-data" />
                   </FloatingField>
 
-                  <Controller
-                    control={form.control}
-                    name="driver_status"
-                    render={({ field }) => (
-                      <FloatingField label="Duty Status" icon={UserCheck} className="md:col-span-2">
-                        <Select value={field.value} onValueChange={field.onChange}>
-                          <SelectTrigger className="w-full bg-transparent border-0 h-auto p-0 focus:ring-0 focus:ring-offset-0 shadow-none text-xs font-semibold text-foreground py-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Available">Available</SelectItem>
-                            <SelectItem value="On Trip">On Trip</SelectItem>
-                            <SelectItem value="Off Duty">Off Duty</SelectItem>
-                            <SelectItem value="On Leave">On Leave</SelectItem>
-                            <SelectItem value="Suspended">Suspended</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {form.watch("driver_status") === "Suspended" && (
-                          <p className="text-[11px] text-foreground-muted font-medium mt-1 leading-relaxed">
-                            {driver?.suspension_reason === "license_expired"
-                              ? "Suspended automatically for an expired license — saving a future expiry date reinstates the driver automatically."
-                              : "Manual suspensions are never lifted automatically — flip back to Available here when ready."}
-                          </p>
-                        )}
-                      </FloatingField>
-                    )}
-                  />
+
                 </div>
               </CardContent>
             </Card>
