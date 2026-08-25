@@ -85,16 +85,18 @@ export function StickyActionBar({ children, className }) {
         className={cn(
           "fixed inset-x-0 bottom-0 z-30 flex justify-center px-4 pb-5 pointer-events-none",
           "transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]",
-          show ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0"
+          show ? "translate-y-0 opacity-100" : "translate-y-4 opacity-0 pointer-events-none"
         )}
       >
         <div
           className={cn(
-            "pointer-events-auto flex items-center gap-3 rounded-full border border-border/70 bg-surface/85 px-4 py-2.5",
-            "shadow-[0_24px_48px_-32px_rgba(17,24,39,0.45)] backdrop-blur-xl",
+            "pointer-events-auto relative flex items-center gap-3 rounded-full border border-border/80 dark:border-white/12 bg-surface/95 dark:bg-zinc-900/95 px-4 py-2.5",
+            "shadow-[0_20px_50px_rgba(0,0,0,0.18),0_4px_12px_rgba(0,0,0,0.08)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.7),0_0_0_1px_rgba(255,255,255,0.08)] backdrop-blur-2xl",
             className
           )}
         >
+          {/* Top specular reflection gleam */}
+          <div className="absolute top-0 inset-x-6 h-[1px] bg-gradient-to-r from-transparent via-white/80 dark:via-white/20 to-transparent pointer-events-none" />
           {modifiedChildren}
         </div>
       </div>

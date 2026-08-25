@@ -75,6 +75,7 @@ const ENTITY_MAPS = {
     pending: "warning",
     approved: "success",
     rejected: "danger",
+    fulfilled: "success",
     completed: "success",
   },
   dispatch: {

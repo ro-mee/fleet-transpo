@@ -41,10 +41,10 @@ const SPRING = { type: "spring", stiffness: 350, damping: 40 };
 
 const themeConfig = {
   info: {
-    gradient: "from-sky-500/15 via-sky-500/5 to-white/90 dark:to-zinc-900/95",
-    border: "border-sky-500/30",
-    glow: "shadow-[0_8px_30px_rgb(14,165,233,0.12)]",
-    iconBg: "bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400",
+    gradient: "from-sky-500/[0.08] via-sky-500/[0.03] to-transparent dark:from-sky-500/[0.15] dark:via-sky-500/[0.04]",
+    border: "border-sky-500/30 dark:border-sky-500/40",
+    glow: "shadow-[0_12px_36px_-6px_rgba(14,165,233,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(14,165,233,0.35)]",
+    iconBg: "bg-sky-50 dark:bg-sky-950/60 border border-sky-500/30 text-sky-600 dark:text-sky-400",
     defaultTitle: "Information",
     icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -55,10 +55,10 @@ const themeConfig = {
     ),
   },
   success: {
-    gradient: "from-emerald-500/15 via-emerald-500/5 to-white/90 dark:to-zinc-900/95",
-    border: "border-emerald-500/30",
-    glow: "shadow-[0_8px_30px_rgb(16,185,129,0.12)]",
-    iconBg: "bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+    gradient: "from-emerald-500/[0.08] via-emerald-500/[0.03] to-transparent dark:from-emerald-500/[0.15] dark:via-emerald-500/[0.04]",
+    border: "border-emerald-500/30 dark:border-emerald-500/40",
+    glow: "shadow-[0_12px_36px_-6px_rgba(16,185,129,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(16,185,129,0.35)]",
+    iconBg: "bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
     defaultTitle: "Success",
     icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -68,10 +68,10 @@ const themeConfig = {
     ),
   },
   warning: {
-    gradient: "from-amber-500/15 via-amber-500/5 to-white/90 dark:to-zinc-900/95",
-    border: "border-amber-500/30",
-    glow: "shadow-[0_8px_30px_rgb(245,158,11,0.12)]",
-    iconBg: "bg-amber-500/15 border border-amber-500/30 text-amber-600 dark:text-amber-400",
+    gradient: "from-amber-500/[0.08] via-amber-500/[0.03] to-transparent dark:from-amber-500/[0.15] dark:via-amber-500/[0.04]",
+    border: "border-amber-500/30 dark:border-amber-500/40",
+    glow: "shadow-[0_12px_36px_-6px_rgba(245,158,11,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(245,158,11,0.35)]",
+    iconBg: "bg-amber-50 dark:bg-amber-950/60 border border-amber-500/30 text-amber-600 dark:text-amber-400",
     defaultTitle: "Warning",
     icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -82,10 +82,10 @@ const themeConfig = {
     ),
   },
   error: {
-    gradient: "from-rose-500/15 via-rose-500/5 to-white/90 dark:to-zinc-900/95",
-    border: "border-rose-500/30",
-    glow: "shadow-[0_8px_30px_rgb(244,63,94,0.12)]",
-    iconBg: "bg-rose-500/15 border border-rose-500/30 text-rose-600 dark:text-rose-400",
+    gradient: "from-rose-500/[0.08] via-rose-500/[0.03] to-transparent dark:from-rose-500/[0.15] dark:via-rose-500/[0.04]",
+    border: "border-rose-500/30 dark:border-rose-500/40",
+    glow: "shadow-[0_12px_36px_-6px_rgba(244,63,94,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(244,63,94,0.35)]",
+    iconBg: "bg-rose-50 dark:bg-rose-950/60 border border-rose-500/30 text-rose-600 dark:text-rose-400",
     defaultTitle: "Error",
     icon: (
       <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -119,7 +119,9 @@ function ToastItem({ t, onClose }) {
       exit={{ scale: 0, opacity: 0 }}
       transition={SPRING}
       className={cn(
-        "pointer-events-auto relative flex items-start gap-3.5 rounded-[22px] p-4 backdrop-blur-xl border transition-all",
+        "pointer-events-auto relative flex items-start gap-3.5 rounded-[20px] p-4 border transition-all",
+        // Solid background base guarantees 100% opacity & zero bleed-through on black/dark surfaces
+        "bg-white dark:bg-zinc-900/98 backdrop-blur-2xl",
         "bg-gradient-to-r",
         config.gradient,
         config.border,
@@ -127,7 +129,7 @@ function ToastItem({ t, onClose }) {
       )}
     >
       {/* Top Specular Reflection Gleam */}
-      <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/60 dark:via-white/20 to-transparent pointer-events-none" />
+      <div className="absolute top-0 left-6 right-6 h-[1px] bg-gradient-to-r from-transparent via-white/80 dark:via-white/20 to-transparent pointer-events-none" />
 
       {/* Modern Soft Square / Pill Icon Container */}
       <div className={cn("flex-shrink-0 w-11 h-11 rounded-[14px] flex items-center justify-center shadow-xs", config.iconBg)}>
@@ -136,11 +138,11 @@ function ToastItem({ t, onClose }) {
 
       {/* Text Copy */}
       <div className="min-w-0 flex-1 pt-0.5">
-        <h4 className="text-[14px] font-extrabold text-foreground tracking-tight leading-tight">
+        <h4 className="text-[14px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight leading-tight">
           {t.title || config.defaultTitle}
         </h4>
         {t.message && (
-          <p className="mt-1 text-[13px] font-normal leading-relaxed text-foreground-secondary/90">
+          <p className="mt-1 text-[13px] font-medium leading-relaxed text-zinc-600 dark:text-zinc-300">
             {t.message}
           </p>
         )}
@@ -150,9 +152,9 @@ function ToastItem({ t, onClose }) {
       <button
         onClick={onClose}
         aria-label="Dismiss notification"
-        className="flex-shrink-0 -mr-1 -mt-1 w-7 h-7 rounded-full flex items-center justify-center text-foreground-muted hover:text-foreground hover:bg-black/5 dark:hover:bg-white/10 transition-colors cursor-pointer"
+        className="flex-shrink-0 -mr-1 -mt-1 w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
       >
-        <X className="h-4 w-4 stroke-[1.75]" />
+        <X className="h-4 w-4 stroke-[2]" />
       </button>
     </motion.div>
   );
