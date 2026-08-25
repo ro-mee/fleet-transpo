@@ -15,7 +15,7 @@ export async function GET(req) {
              i.vehicle_id as reported_vehicle_id,
              i.trip_id, i.incident_type, i.incident_date,
              i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
-             i.actions_taken, i.created_at, i.assistance_needed, i.expense_amount,
+             i.actions_taken, i.created_at, i.assistance_needed, i.expense_amount, i.photo_urls,
              COALESCE(v.plate_number, av.plate_number) as plate_number,
              CASE WHEN d.driver_id IS NULL THEN NULL ELSE
                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)

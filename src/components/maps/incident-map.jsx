@@ -147,6 +147,17 @@ export default function IncidentMap({ incidents = [] }) {
                         </div>
                       )}
 
+                      {/* Photos */}
+                      {Array.isArray(inc.photo_urls) && inc.photo_urls.length > 0 && (
+                        <div className="flex gap-1.5 mt-2 overflow-x-auto pb-0.5 hide-scrollbar">
+                          {inc.photo_urls.map((url, idx) => (
+                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 block">
+                              <img src={url} alt={`Incident ${idx + 1}`} className="w-12 h-12 rounded object-cover border border-border/40 shadow-xs" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Footer/Meta */}
                       <div className="pt-2 mt-1 border-t border-border/40 flex flex-col gap-0.5">
                         <p className="font-data text-[11px] font-semibold text-foreground-secondary flex items-center justify-between">
