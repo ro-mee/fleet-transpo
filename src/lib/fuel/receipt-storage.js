@@ -1,25 +1,22 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { v4 as uuidv4 } from "uuid";
-
-const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
+import { validateImage } from "@/lib/uploads/validator";
 
 export async function storeFuelReceipt(file, driverId, folder = "") {
   if (!file || typeof file === "string") {
     throw new Error("A valid receipt image file is required.");
   }
 
-  const contentType = file.type || "image/jpeg";
-  if (!ALLOWED_IMAGE_TYPES.has(contentType)) {
-    throw new Error("Receipt must be a JPEG, PNG, WebP, HEIC, or HEIF image.");
-  }
-  if (file.size > MAX_RECEIPT_BYTES) {
-    throw new Error("Receipt image must be 10 MB or smaller.");
+  const fileBuffer = await file.arrayBuffer();
+  const validation = validateImage(file, new Uint8Array(fileBuffer));
+  
+  if (validation.error) {
+    throw new Error(validation.error);
   }
 
-  const fileBuffer = await file.arrayBuffer();
+  const contentType = validation.contentType;
   const suppliedExt = file.name?.split(".").pop()?.toLowerCase();
-  const fallbackExt = contentType.split("/").pop()?.replace("jpeg", "jpg") || "jpg";
+  const fallbackExt = validation.extension || "jpg";
   const safeFolder = String(folder || "").replace(/^\/+|\/+$/g, "");
   const fileName = [driverId, safeFolder, `${uuidv4()}.${suppliedExt || fallbackExt}`].filter(Boolean).join("/");
   const supabase = createAdminClient();

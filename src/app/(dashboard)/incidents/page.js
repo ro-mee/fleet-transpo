@@ -47,6 +47,7 @@ export default function IncidentsPage() {
 
   const [resolveModal, setResolveModal] = useState({ open: false, incident: null });
   const [actionsTaken, setActionsTaken] = useState("");
+  const [fullScreenImage, setFullScreenImage] = useState(null);
 
   const { data = [], isLoading, isError, error, refetch } = useQuery({
     queryKey: ["all-incidents"],
@@ -242,31 +243,28 @@ export default function IncidentsPage() {
       key: "actions",
       label: "",
       render: (_, row) => {
-        if ((row.status || "").toLowerCase() === "pending" || (row.status || "").toLowerCase() === "open") {
-          return (
-            <div className="flex justify-end gap-2">
-              {/* Gate on the vehicle the incident itself names. The list's
-                  vehicle_id falls back to the driver's CURRENT assignment
-                  (COALESCE in the API), which may be a vehicle the incident
-                  never mentioned — routing that one to emergency repairs on
-                  an incident's say-so is how costs land on the wrong truck.
-                  The server enforces the same rule. */}
-              {row.reported_vehicle_id && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs font-semibold text-danger border-danger/30 hover:bg-danger/5 hover:text-danger hover:border-danger"
-                  onClick={() => {
-                    if (confirm(`Send vehicle to maintenance? This will also mark the incident as resolved.`)) {
-                      sendToMaintenanceMutation.mutate(row);
-                    }
-                  }}
-                  disabled={sendToMaintenanceMutation.isPending}
-                >
-                  <Wrench className="w-3.5 h-3.5" />
-                  {sendToMaintenanceMutation.isPending ? "Sending..." : "Send to Maintenance"}
-                </Button>
-              )}
+        const isPending = (row.status || "").toLowerCase() === "pending" || (row.status || "").toLowerCase() === "open";
+        
+        return (
+          <div className="flex justify-end gap-2">
+            {isPending && row.reported_vehicle_id && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 text-xs font-semibold text-danger border-danger/30 hover:bg-danger/5 hover:text-danger hover:border-danger"
+                onClick={() => {
+                  if (confirm(`Send vehicle to maintenance? This will also mark the incident as resolved.`)) {
+                    sendToMaintenanceMutation.mutate(row);
+                  }
+                }}
+                disabled={sendToMaintenanceMutation.isPending}
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                {sendToMaintenanceMutation.isPending ? "Sending..." : "Send to Maintenance"}
+              </Button>
+            )}
+            
+            {isPending && (
               <Button
                 variant="outline"
                 size="sm"
@@ -280,10 +278,22 @@ export default function IncidentsPage() {
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 Resolve
               </Button>
-            </div>
-          );
-        }
-        return null;
+            )}
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs font-semibold text-foreground-secondary hover:text-foreground hover:bg-surface"
+              onClick={() => {
+                setActionsTaken(row.actions_taken || "");
+                setResolveModal({ open: true, incident: row });
+              }}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              View
+            </Button>
+          </div>
+        );
       },
     },
   ];
@@ -353,14 +363,16 @@ export default function IncidentsPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <DialogTitle className="text-base font-bold text-foreground">
-                    Resolve Incident
+                    {resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved" ? "Incident Details" : "Resolve Incident"}
                   </DialogTitle>
                   <span className="inline-flex items-center rounded-lg border border-border bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
                     Incident #{resolveModal.incident?.incident_id}
                   </span>
                 </div>
                 <p className="text-xs text-foreground-muted mt-0.5">
-                  Record operational remedies and clear this alert from active monitoring.
+                  {resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved" 
+                    ? "Review the details of this closed incident." 
+                    : "Record operational remedies and clear this alert from active monitoring."}
                 </p>
               </div>
             </div>
@@ -420,11 +432,19 @@ export default function IncidentsPage() {
                 <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
                   Incident Photo Evidence ({resolveModal.incident.photo_urls.length})
                 </span>
-                <div className="flex gap-2.5 flex-wrap">
+                <div className="flex gap-4 flex-wrap justify-center py-2">
                   {resolveModal.incident.photo_urls.map((url, idx) => (
-                    <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
-                      <img src={url} alt={`Incident photo ${idx + 1}`} className="w-20 h-20 object-cover rounded-xl border border-border/80 bg-muted/50 hover:scale-105 transition-all shadow-xs" />
-                    </a>
+                    <button 
+                      key={idx} 
+                      onClick={(e) => { e.preventDefault(); setFullScreenImage(url); }}
+                      className="group relative focus:outline-none overflow-hidden rounded-2xl shadow-md border-2 border-border/80 hover:border-primary/50 transition-all cursor-pointer"
+                    >
+                      <img src={url} alt={`Incident photo ${idx + 1}`} className="w-40 h-40 object-cover bg-muted/50 group-hover:scale-105 transition-transform duration-300" />
+                      <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center text-white p-2">
+                        <Eye className="w-6 h-6 mb-1.5 drop-shadow-md" />
+                        <span className="text-[11px] font-bold text-center leading-tight drop-shadow-md px-2">Click To View Full Version</span>
+                      </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -433,21 +453,31 @@ export default function IncidentsPage() {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-foreground">
-                  Document Actions Taken &amp; Resolution Notes <span className="text-danger">*</span>
+                  Document Actions Taken &amp; Resolution Notes {!(resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved") && <span className="text-danger">*</span>}
                 </label>
-                <span className="text-[10px] font-mono text-foreground-muted">{actionsTaken.length}/500</span>
+                {!(resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved") && (
+                  <span className="text-[10px] font-mono text-foreground-muted">{actionsTaken.length}/500</span>
+                )}
               </div>
-              <textarea
-                value={actionsTaken}
-                onChange={(e) => setActionsTaken(e.target.value)}
-                maxLength={500}
-                placeholder="e.g., Sent mobile mechanic, dispatched replacement shuttle, passenger safely rerouted..."
-                className="w-full min-h-[90px] rounded-2xl border border-border/80 bg-surface px-3.5 py-2.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y shadow-2xs"
-              />
-              {!actionsTaken.trim() && (
-                <p className="text-[11px] font-semibold text-danger">
-                  Documenting resolution steps is required — this is stored in the audit trail.
-                </p>
+              {resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved" ? (
+                <div className="w-full min-h-[90px] rounded-2xl border border-border/80 bg-surface px-3.5 py-2.5 text-xs text-foreground shadow-2xs whitespace-pre-wrap">
+                  {actionsTaken || "No actions documented."}
+                </div>
+              ) : (
+                <>
+                  <textarea
+                    value={actionsTaken}
+                    onChange={(e) => setActionsTaken(e.target.value)}
+                    maxLength={500}
+                    placeholder="e.g., Sent mobile mechanic, dispatched replacement shuttle, passenger safely rerouted..."
+                    className="w-full min-h-[90px] rounded-2xl border border-border/80 bg-surface px-3.5 py-2.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y shadow-2xs"
+                  />
+                  {!actionsTaken.trim() && (
+                    <p className="text-[11px] font-semibold text-danger">
+                      Documenting resolution steps is required — this is stored in the audit trail.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -459,30 +489,46 @@ export default function IncidentsPage() {
               disabled={resolveMutation.isPending}
               className="text-xs h-9 px-4"
             >
-              Cancel
+              {resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved" ? "Close" : "Cancel"}
             </Button>
-            <Button
-              onClick={() => {
-                if (resolveModal.incident) {
-                  resolveMutation.mutate({
-                    id: resolveModal.incident.incident_id,
-                    payload: { status: "Resolved", actions_taken: actionsTaken }
-                  });
-                }
-              }}
-              disabled={resolveMutation.isPending || !actionsTaken.trim()}
-              className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-            >
-              {resolveMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-              ) : (
-                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-              )}
-              Mark as Resolved
-            </Button>
+            {!(resolveModal.incident && (resolveModal.incident.status || "").toLowerCase() === "resolved") && (
+              <Button
+                onClick={() => {
+                  if (resolveModal.incident) {
+                    resolveMutation.mutate({
+                      id: resolveModal.incident.incident_id,
+                      payload: { status: "Resolved", actions_taken: actionsTaken }
+                    });
+                  }
+                }}
+                disabled={resolveMutation.isPending || !actionsTaken.trim()}
+                className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+              >
+                {resolveMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                )}
+                Mark as Resolved
+              </Button>
+            )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Full Screen Image Viewer Overlay */}
+      {fullScreenImage && (
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          onClick={() => setFullScreenImage(null)}
+        >
+          <img 
+            src={fullScreenImage} 
+            alt="Full screen incident photo" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 }

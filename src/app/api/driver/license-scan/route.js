@@ -4,6 +4,9 @@ import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { query } from "@/lib/db";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
 import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
+import { validateBase64Image } from "@/lib/uploads/validator";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { v4 as uuidv4 } from "uuid";
 
 /**
  * POST /api/driver/license-scan
@@ -43,12 +46,16 @@ export async function POST(req) {
       return err("file_url must be the captured scan image.", 400);
     }
 
+    const validation = validateBase64Image(body.file_url);
+    if (validation.error) {
+      return err(validation.error, 400);
+    }
+
     let scanned = {};
     try {
-      const { buffer, contentType } = await loadScanImage(body.file_url);
       const { extractedData } = await scanDocumentWithGemini(
-        buffer,
-        contentType,
+        validation.buffer,
+        validation.contentType,
         side === "back" ? "Driver_License_Back" : "Driver_License"
       );
       scanned = extractedData;
@@ -79,8 +86,35 @@ export async function POST(req) {
     }
 
     const imageColumn = side === "back" ? "license_back_image_url" : "license_image_url";
+    
+    // Upload image to Supabase
+    const supabase = createAdminClient();
+    const fileName = `${session.user.driverId}/${uuidv4()}.${validation.extension}`;
+    
+    const { error: uploadError } = await supabase.storage
+      .from("driver-licenses")
+      .upload(fileName, validation.buffer, {
+        contentType: validation.contentType,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("Supabase license upload error:", uploadError);
+      return err("Failed to securely store license image.", 500);
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from("driver-licenses")
+      .getPublicUrl(fileName);
+      
+    const imageUrl = publicUrlData?.publicUrl;
+
+    if (!imageUrl) {
+      return err("Failed to generate URL for license image.", 500);
+    }
+
     const setClauses = [`${imageColumn} = $1`, "updated_at = NOW()"];
-    const params = [body.file_url];
+    const params = [imageUrl];
     if (verdict.applyExpiry) {
       params.push(verdict.expiryDate);
       setClauses.push(`license_expiry = $${params.length}`);
