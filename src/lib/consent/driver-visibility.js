@@ -40,7 +40,7 @@ export const DRIVER_VISIBLE_SECTIONS = [
 // The license scan columns are whitelisted here but the PATCH handler gates each
 // side individually via canUpdateLicenseScan — a side is only writable when it
 // has no scan on file yet or the license is inside the re-upload window.
-export const DRIVER_SELF_EDITABLE_FIELDS = ["phone", "face_image_url", "license_image_url", "license_back_image_url"];
+export const DRIVER_SELF_EDITABLE_FIELDS = ["phone", "face_image_url", "license_image_url", "license_back_image_url", "license_expiry"];
 
 // How many days before a license expiry a driver may re-upload their scan.
 // Mirrors the repo's `expiring30` bucket used by the documents expiry report.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import { getMyDriverProfile, updateMyDriverProfile } from "@/services/driver.ser
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { IdCard, Award, Fingerprint, Pencil, Phone, Lock, ScanLine } from "lucide-react";
+import { IdCard, Award, Fingerprint, Pencil, Phone, Lock, ScanLine, Upload } from "lucide-react";
 
 function Stat({ label, value }) {
   return (
@@ -28,17 +28,75 @@ function Stat({ label, value }) {
   );
 }
 
-// Per-side (front/back) license scan tile — view-only.
-//
-// Drivers inspect the scan the office holds on file; they do not upload it here.
-// Scans are captured by staff on the driver record (drivers/[id]/edit) or from
-// the mobile app, and the server independently gates writes via
-// canUpdateLicenseScan. This mirrors the mobile profile's view-only treatment.
-function LicenseScanTile({ label, imageUrl, canUpload, windowDays }) {
+// Per-side (front/back) license scan tile
+function LicenseScanTile({ label, imageUrl, canUpload, windowDays, side, onUploadSuccess }) {
   const [enlargeUrl, setEnlargeUrl] = useState(null);
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      // 1. Convert to Base64
+      const reader = new FileReader();
+      const base64Url = await new Promise((resolve, reject) => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      // 2. Validate with AI (OCR)
+      const scanRes = await fetch("/api/driver/license-scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ side, file_url: base64Url }),
+      });
+      const scanData = await scanRes.json();
+      if (!scanRes.ok || !scanData.ok) {
+        throw new Error(scanData.validation_issues?.[0] || "Could not read license cleanly.");
+      }
+
+      // 3. Save to profile
+      const field = side === "front" ? "license_image_url" : "license_back_image_url";
+      const payload = { [field]: base64Url };
+      
+      if (side === "front" && scanData.extracted_data?.expiration_date) {
+        payload.license_expiry = scanData.extracted_data.expiration_date;
+      }
+
+      const updateRes = await fetch("/api/driver/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!updateRes.ok) {
+        const errData = await updateRes.json();
+        throw new Error(errData.error || "Failed to update profile");
+      }
+
+      toast.success(`${label} scan uploaded and analyzed successfully!`);
+      if (onUploadSuccess) onUploadSuccess();
+    } catch (err) {
+      toast.error(err.message || "Failed to upload scan");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
 
   return (
     <div className="space-y-2">
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+      />
       {imageUrl ? (
         <DocumentScanCard
           title={`${label} Scan`}
@@ -47,8 +105,9 @@ function LicenseScanTile({ label, imageUrl, canUpload, windowDays }) {
           onPreview={setEnlargeUrl}
         />
       ) : (
-        <div className="p-3 rounded-xl bg-muted/30 border border-dashed border-border text-xs text-foreground-muted flex items-center gap-2">
-          <ScanLine className="w-4 h-4" /> No {label.toLowerCase()} scan on file yet.
+        <div className="p-3 rounded-xl bg-muted/30 border border-dashed border-border text-xs text-foreground-muted flex flex-col items-center justify-center gap-2 h-32">
+          <ScanLine className="w-6 h-6 text-foreground-muted/60" />
+          <span>No {label.toLowerCase()} scan on file yet.</span>
         </div>
       )}
 
@@ -59,6 +118,23 @@ function LicenseScanTile({ label, imageUrl, canUpload, windowDays }) {
           {windowDays ? ` (re-uploads open within ${windowDays} days of expiry)` : ""}.
         </p>
       ) : null}
+
+      {canUpload && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-xs h-8"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+        >
+          {uploading ? "Analyzing..." : (
+            <>
+              <Upload className="w-3 h-3 mr-2" />
+              {imageUrl ? `Update ${label} Scan` : `Upload ${label} Scan`}
+            </>
+          )}
+        </Button>
+      )}
 
       <Dialog open={!!enlargeUrl} onOpenChange={() => setEnlargeUrl(null)}>
         <DialogContent className="max-w-3xl">
@@ -166,15 +242,19 @@ export default function DriverProfilePage() {
               </p>
               <LicenseScanTile
                 label="Front"
+                side="front"
                 imageUrl={profile.license.frontScanImageUrl}
                 canUpload={profile.license.canUploadFront}
                 windowDays={profile.license.reuploadWindowDays}
+                onUploadSuccess={() => queryClient.invalidateQueries({ queryKey: ["driver-me"] })}
               />
               <LicenseScanTile
                 label="Back"
+                side="back"
                 imageUrl={profile.license.backScanImageUrl}
                 canUpload={profile.license.canUploadBack}
                 windowDays={profile.license.reuploadWindowDays}
+                onUploadSuccess={() => queryClient.invalidateQueries({ queryKey: ["driver-me"] })}
               />
             </div>
           </CardContent>

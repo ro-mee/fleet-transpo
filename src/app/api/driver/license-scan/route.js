@@ -56,7 +56,7 @@ export async function POST(req) {
     const hasKeyFields =
       side === "back"
         ? Boolean(extractedData.emergency_contact_name || extractedData.emergency_contact_phone)
-        : Boolean(extractedData.license_number || extractedData.last_name);
+        : Boolean(extractedData.license_number || extractedData.last_name) && Boolean(extractedData.expiration_date);
 
     return ok({
       side,
@@ -67,7 +67,7 @@ export async function POST(req) {
         hasKeyFields
           ? []
           : [
-              "Could not read the license photo clearly. Please retake with better lighting and keep the card flat and in frame.",
+              "Could not clearly read the expiration date or license details. Please retake the photo with better lighting, keeping the card flat and in frame.",
             ],
       driver_id: session.user.driverId,
     });

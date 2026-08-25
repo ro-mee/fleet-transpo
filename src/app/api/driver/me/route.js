@@ -1,7 +1,8 @@
-import { query } from "@/lib/db";
+import { query, transaction } from "@/lib/db";
 import { requireAuth, requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePhone, isUrl, isBase64DataUrl } from "@/lib/validation/helpers";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
+import { syncDriverStatus } from "@/services/status.service";
 import {
   DRIVER_SELF_EDITABLE_FIELDS,
   DRIVER_VISIBLE_SECTIONS,
@@ -223,6 +224,7 @@ export async function PATCH(req) {
       face_image_url: { type: "url", label: "Face image URL" },
       license_image_url: { type: "base64Url", label: "License front scan" },
       license_back_image_url: { type: "base64Url", label: "License back scan" },
+      license_expiry: { type: "date", label: "License expiry" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -276,6 +278,22 @@ export async function PATCH(req) {
         isBase64DataUrl(body.license_back_image_url) ? body.license_back_image_url : null,
         driver.driver_id,
       ]);
+    }
+    
+    let needsStatusSync = false;
+    if (body.license_expiry !== undefined) {
+      if (!canUpdateLicenseScan({ ...scanGate, side: "front" })) {
+        return err("License expiry is locked. You may only update it along with a new scan.", 403);
+      }
+      await query(`UPDATE drivers SET license_expiry = $1, updated_at = NOW() WHERE driver_id = $2`, [
+        body.license_expiry,
+        driver.driver_id,
+      ]);
+      needsStatusSync = true;
+    }
+
+    if (needsStatusSync) {
+      await syncDriverStatus(driver.driver_id);
     }
 
     return ok({ message: "Profile updated" });

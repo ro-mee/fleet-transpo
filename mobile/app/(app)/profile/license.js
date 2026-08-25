@@ -131,9 +131,15 @@ export default function LicenseInformation() {
       return false;
     }
     const field = side === "front" ? "license_image_url" : "license_back_image_url";
+    const payload = { [field]: dataUrl };
+    
+    if (side === "front" && check.extracted_data?.expiration_date) {
+      payload.license_expiry = check.extracted_data.expiration_date;
+    }
+
     await apiFetch("/api/driver/me", {
       method: "PATCH",
-      body: JSON.stringify({ [field]: dataUrl }),
+      body: JSON.stringify(payload),
     });
     return true;
   };
