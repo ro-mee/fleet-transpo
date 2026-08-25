@@ -120,12 +120,31 @@ function setModeValue(next, event) {
     Math.max(y, window.innerHeight - y)
   );
 
+  // Temporarily disable all CSS transitions so the View Transition API captures
+  // the exact final state (fully dark or fully light) instead of capturing
+  // elements mid-way through their Tailwind `transition-colors` animations.
+  const css = document.createElement("style");
+  css.appendChild(
+    document.createTextNode(
+      `* {
+       -webkit-transition: none !important;
+       -moz-transition: none !important;
+       -o-transition: none !important;
+       -ms-transition: none !important;
+       transition: none !important;
+      }`
+    )
+  );
+  document.head.appendChild(css);
+
   const transition = document.startViewTransition(() => {
     commit();
   });
 
   transition.ready
     .then(() => {
+      // Re-enable CSS transitions now that the new state is captured.
+      document.head.removeChild(css);
       document.documentElement.animate(
         {
           clipPath: [
@@ -145,6 +164,9 @@ function setModeValue(next, event) {
     })
     .catch(() => {
       // Graceful fallback if transition is cancelled
+      if (document.head.contains(css)) {
+        document.head.removeChild(css);
+      }
     });
 }
 
