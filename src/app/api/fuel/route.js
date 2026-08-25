@@ -13,11 +13,18 @@ const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "manageme
 // fuel review page renders + the join fields it needs, instead of `fr.*` and
 // full `row_to_json(v.*)` / `row_to_json(e.*)`.
 const FUEL_LIST_SELECT = `
-  fr.fuel_record_id, fr.fuel_date, fr.fuel_type, fr.liters, fr.amount,
+  fr.fuel_record_id, fr.fuel_date, fr.fuel_type, fr.receipt_fuel_type, fr.liters, fr.amount,
   fr.price_per_liter, fr.odometer, fr.station_name, fr.status,
   fr.receipt_url, fr.rejection_reason, fr.created_at,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
-    json_build_object('plate_number', v.plate_number, 'vehicle_name', v.vehicle_name)
+    json_build_object(
+      'plate_number', v.plate_number,
+      'vehicle_name', v.vehicle_name,
+      'fuel_type', v.fuel_type,
+      'fuel_level', v.fuel_level,
+      'tank_capacity_l', v.tank_capacity_l,
+      'mileage', v.mileage
+    )
   END AS vehicles,
   CASE WHEN d.driver_id IS NULL THEN NULL ELSE
     json_build_object('driver_id', d.driver_id, 'license_number', d.license_number,

@@ -71,6 +71,38 @@ Anything else stays `Pending` with its reasons in `policy_reasons`. Drivers cann
 
 **Manager ladder (for exceptions).**
 
+| `gemini-receipt.js` | Structured extraction and strict field normalization (now incl. `fuel_type`) |
+| `/api/fuel/requests` | Driver-submitted consolidated refill requests + policy auto-authorization + manager approval ladder |
+| `/api/fuel/allocations` | Monthly per-vehicle budget plus tank capacity / efficiency profile |
+| `request-policy.js` | Pure decision core: recommendation math, variance check, fuel-policy evaluation, tank/type checks |
+| `fuelstations` | Table **dropped** in an earlier migration; still appears in both stale ERDs → [[DOC ERDs Missing Core Table]] |
+
+## Fuel request lifecycle — three-value model — VERIFIED 2026-08-25
+
+The refill decision separates three numbers so the manager sees *why*, not just an amount (external review adopted 2026-08-25):
+
+| Value | Formula | Example (60 L tank · 25% · 160 km @ 8 km/L) |
+|---|---|---|
+| **Minimum safe refill** | `forecast_consumption + reserve − current`, floored at 0 | **11 L** |
+| **Preferred target** | `min(tank, max(90% tank, consumption + reserve)) − current` | **39 L** (to 54 L) |
+| **Maximum allowed** | `tank_capacity × (1 − reported level)` | **45 L** |
+
+The 90% target is deliberately kept as a *preferred* operating level to reduce repeated refueling stops — it is displayed next to the minimum, never instead of it.
+
+### Approval: policy auto-authorization + manager ladder — VERIFIED 2026-08-25
+
+**Auto-authorization (strict conditions, all server-computed).** At request creation `evaluateFuelPolicy()` approves instantly (`status='Approved'`, `approved_by=NULL`, `auto_authorized: true` in the snapshot) only when **all** hold:
+
+- a positive recommendation exists,
+- no fuel variance was detected,
+- the forecast fits inside the tank (no range warning),
+- minimum safe ≤ recommendation,
+- the monthly budget covers the recommended liters.
+
+Anything else stays `Pending` with its reasons in `policy_reasons`. Drivers cannot influence any input — `requested_liters` is always the server's own recommendation. Auto-authorized requests immediately count as committed against the budget. The audit trail logs action `auto-authorize` vs plain `create`.
+
+**Manager ladder (for exceptions).**
+
 1. `approved < minimum_safe_liters` → blocked unless an override reason is provided (schedule changed / cancelled trip / emergency)
 2. `minimum ≤ approved ≤ recommended` → normal
 3. `approved > recommended` → reason required
@@ -81,12 +113,18 @@ Anything else stays `Pending` with its reasons in `policy_reasons`. Drivers cann
 
 The plan table shows per-vehicle utilization: normal under 80%, amber "Near budget limit" ≥ 80%, red "Budget exceeded" > 100% with review required. Vocabulary is deliberately *budget/target*, not *allowance*.
 
-### Transaction validation
+### Transaction validation & verification studio
 
 At receipt submission (`POST /api/mobile/fuel`), beyond actual ≤ authorized and allocation-month checks:
 
 - **Impossible-quantity check** — estimated current level + claimed liters must fit the tank, else 409
-- **Fuel-type mismatch flag** — Gemini now extracts the product line (`fuel_type`); it is stored in `fuelrecords.receipt_fuel_type` (migration 067) and compared to the vehicle's fuel type in the verification modal. Flag-only, never blocking: receipts often omit the product, and "Diesel Max"-style product names normalize to Diesel/Gasoline/Gasoline≈Petrol synonyms or null.
+- **Fuel-type mismatch flag** — Gemini extracts the product line (`fuel_type`); stored in `fuelrecords.receipt_fuel_type` (migration 067) and compared to the vehicle's fuel type in the verification studio. Flag-only, never blocking: receipts often omit the product, and "Diesel Max"-style product names normalize to Diesel/Gasoline/Gasoline≈Petrol synonyms or null.
+- **High-End Receipt Verification Studio (`ReceiptVerificationModal`)** — provides a dedicated thermal-receipt inspection workspace:
+  - 🔄 90° image rotation for mobile pump photos
+  - 🌓 Thermal paper contrast booster (clarifies faint blue/purple/grey thermal print)
+  - 🔍 Fluid zoom, pan, and fullscreen inspection dialog
+  - 🛡️ Three-check automated audit cockpit (Fuel Type Compatibility, Tank Space Plausibility, and Math Consistency)
+  - ⚡ Quick-reason rejection dialog (`RejectClaimDialog`) with single-click preset chips.
 
 ### Gauge photo evidence + AI-assisted level read — VERIFIED 2026-08-25 (build)
 

@@ -51,6 +51,10 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { LIMITS } from "@/lib/validation";
 import { fuelTypeMismatch } from "@/lib/fuel/request-policy";
+import { ReceiptVerificationModal } from "@/components/fuel/receipt-verification-modal";
+import { RejectClaimDialog } from "@/components/fuel/reject-claim-dialog";
+import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
+import { ConfigureAllocationDialog } from "@/components/fuel/configure-allocation-dialog";
 
 const rejectSchema = {
   rejection_reason: { required: true, maxLength: 500, label: "Rejection reason" },
@@ -467,6 +471,18 @@ export default function FuelPage() {
     if (!isValid) return;
   };
 
+  const handleOpenEdit = (rec) => {
+    setEditRecord(rec);
+    setEditForm({
+      station_name: rec.station_name || "",
+      liters: rec.liters != null ? String(rec.liters) : "",
+      amount: rec.amount != null ? String(rec.amount) : "",
+      price_per_liter: rec.price_per_liter != null ? String(rec.price_per_liter) : "",
+      odometer: rec.odometer != null ? String(rec.odometer) : "",
+      fuel_date: rec.fuel_date ? String(rec.fuel_date).substring(0, 10) : "",
+    });
+  };
+
   const handleEditSubmit = (e) => {
     e.preventDefault();
     if (!editRecord) return;
@@ -833,343 +849,230 @@ export default function FuelPage() {
         </CardContent>
       </Card>
 
-      {/* ── SIDE-BY-SIDE RECEIPT INSPECTION & VERIFICATION MODAL ── */}
-      <Dialog open={!!configureAllocation} onOpenChange={(open) => !open && setConfigureAllocation(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Configure {configureAllocation?.plate_number}</DialogTitle>
-          </DialogHeader>
-          {configureAllocation ? (
-            <div className="space-y-4 pt-2">
-              <p className="text-sm text-foreground-secondary">
-                These values drive every recommendation for this vehicle during the current month.
-              </p>
-              <div className="space-y-1.5">
-                <Label htmlFor="monthly_allocation">Monthly fuel budget (L)</Label>
-                <Input id="monthly_allocation" type="number" min="0.01" step="0.01" value={allocationForm.allocated_liters} onChange={(event) => setAllocationForm({ ...allocationForm, allocated_liters: event.target.value })} />
-                <p className="text-xs text-foreground-muted">Already used or committed: {(Number(configureAllocation.consumed_liters || 0) + Number(configureAllocation.committed_liters || 0)).toFixed(1)} L</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="tank_capacity">Tank capacity (L)</Label>
-                  <Input id="tank_capacity" type="number" min="0.01" max="1000" step="0.01" value={allocationForm.tank_capacity_l} onChange={(event) => setAllocationForm({ ...allocationForm, tank_capacity_l: event.target.value })} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="fuel_efficiency">Efficiency (km/L)</Label>
-                  <Input id="fuel_efficiency" type="number" min="0.01" max="100" step="0.01" value={allocationForm.fuel_efficiency_kmpl} onChange={(event) => setAllocationForm({ ...allocationForm, fuel_efficiency_kmpl: event.target.value })} />
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setConfigureAllocation(null)}>Cancel</Button>
-                <Button onClick={submitAllocation} disabled={saveAllocationMutation.isPending}>
-                  {saveAllocationMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Save monthly plan
-                </Button>
-              </div>
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
+      {/* ── CONFIGURE MONTHLY ALLOCATION MODAL ── */}
+      <ConfigureAllocationDialog
+        open={!!configureAllocation}
+        onOpenChange={(open) => {
+          if (!open) setConfigureAllocation(null);
+        }}
+        vehicle={configureAllocation}
+        form={allocationForm}
+        setForm={setAllocationForm}
+        onSubmit={submitAllocation}
+        isPending={saveAllocationMutation.isPending}
+      />
 
       <Dialog open={!!reviewRequest} onOpenChange={(open) => !open && setReviewRequest(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Review fuel request #{reviewRequest?.fuel_request_id}</DialogTitle>
-          </DialogHeader>
-          {reviewRequest ? (
-            <div className="space-y-4 pt-2">
-              <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm">
-                <p className="font-semibold">{reviewRequest.first_name} {reviewRequest.last_name}</p>
-                <p className="text-foreground-secondary">{reviewRequest.plate_number} · {reviewRequest.trip_id ? `Trip #${reviewRequest.trip_id}` : "Vehicle assignment"}</p>
-                {reviewRequest.purpose ? <p className="mt-2 text-foreground-secondary">{reviewRequest.purpose}</p> : null}
+        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                <FileText className="h-5 w-5" />
               </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <DialogTitle className="text-base font-bold text-foreground">
+                    Review Fuel Request
+                  </DialogTitle>
+                  <span className="inline-flex items-center rounded-lg border border-border bg-muted px-2 py-0.5 font-mono text-xs font-bold text-foreground">
+                    Request #{reviewRequest?.fuel_request_id}
+                  </span>
+                </div>
+                <p className="text-xs text-foreground-muted mt-0.5">
+                  Evaluate driver refill request against consumption policy & budget.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {reviewRequest ? (
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              {/* Driver & Trip Info Card */}
+              <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                <div className="rounded-xl bg-surface p-3.5 border border-border/50 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-foreground-muted block">Driver</span>
+                      <p className="font-bold text-foreground text-sm">{reviewRequest.first_name} {reviewRequest.last_name}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary border border-primary/20">
+                      <Truck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-foreground-muted block">Vehicle & Purpose</span>
+                      <p className="font-bold text-foreground font-mono text-xs">
+                        {reviewRequest.plate_number} • {reviewRequest.trip_id ? `Trip #${reviewRequest.trip_id}` : "Vehicle assignment"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {reviewRequest.gauge_photo_url ? (
-                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-2">
+                <div className="flex items-center gap-3 rounded-2xl border border-border/80 bg-muted/30 p-3">
                   <img
                     src={reviewRequest.gauge_photo_url}
                     alt="Fuel gauge evidence"
-                    className="h-16 w-24 cursor-zoom-in rounded-lg border border-border object-cover"
+                    className="h-16 w-24 cursor-zoom-in rounded-xl border border-border/80 object-cover shadow-xs"
                     onClick={() => setZoomReceiptUrl(reviewRequest.gauge_photo_url)}
                   />
-                  <p className="text-xs text-foreground-muted">
-                    Gauge photo attached by driver
-                    {reviewRequest.calculation_snapshot?.gauge_scan ? ` · AI read ~${reviewRequest.calculation_snapshot.gauge_scan.estimated_level_percent}%` : " (not machine-read)"}
-                  </p>
+                  <div className="text-xs">
+                    <span className="font-bold text-foreground block">Fuel Gauge Photo Evidence</span>
+                    <p className="text-foreground-secondary text-[11px] mt-0.5">
+                      Attached by driver
+                      {reviewRequest.calculation_snapshot?.gauge_scan ? ` • AI read ~${reviewRequest.calculation_snapshot.gauge_scan.estimated_level_percent}%` : " (driver manual read)"}
+                    </p>
+                  </div>
                 </div>
               ) : null}
-              {reviewFacts.variance?.variance_detected ? (
-                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+
+              {reviewFacts?.variance?.variance_detected ? (
+                <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                   <p>
-                    <span className="font-bold">Fuel variance detected — review recommended.</span>{" "}
-                    Expected ≈{reviewFacts.variance.expected_liters} L remaining based on the previous report and trips since, but the driver reports {reviewRequest.current_fuel_level_percent}%.
+                    <strong className="font-bold">Fuel variance detected:</strong> Expected ≈{reviewFacts.variance.expected_liters} L remaining from previous report & trips, but driver reported {reviewRequest.current_fuel_level_percent}%.
                   </p>
                 </div>
               ) : null}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3"><span className="text-foreground-muted">Minimum safe refill</span><p className="mt-1 font-data font-bold">{reviewFacts.minSafe != null ? `${reviewFacts.minSafe.toFixed(2)} L` : "—"}</p><p className="mt-0.5 text-[10px] text-foreground-muted">Forecast use + emergency reserve</p></div>
-                <div className="rounded-xl border border-border/60 bg-muted/30 p-3"><span className="text-foreground-muted">Preferred target</span><p className="mt-1 font-data font-bold">{reviewFacts.target} L</p><p className="mt-0.5 text-[10px] text-foreground-muted">Fewer refueling stops</p></div>                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Tank space left</span><p className="mt-1 font-data font-bold">{reviewFacts.tankSpace != null ? `${reviewFacts.tankSpace.toFixed(2)} L` : "—"}</p></div>
-                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Budget remaining</span><p className="mt-1 font-data font-bold">{reviewFacts.remaining ?? "—"} L</p></div>
-                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Current fuel</span><p className="mt-1 font-data font-bold">{reviewRequest.current_fuel_level_percent}% · {reviewRequest.calculation_snapshot?.current_liters ?? "—"} L</p><p className="mt-0.5 text-[10px] text-foreground-muted">{reviewRequest.calculation_snapshot?.gauge_scan ? `Gauge scan read ~${reviewRequest.calculation_snapshot.gauge_scan.estimated_level_percent}%` : "Driver-reported"}</p></div>
-                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">24h forecast</span><p className="mt-1 font-data font-bold">{reviewRequest.forecast_distance_km} km · ≈{reviewRequest.calculation_snapshot?.forecast_consumption_liters ?? "—"} L</p></div>
+
+              {/* 6-Tile Policy Matrix */}
+              <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                <div className="rounded-xl bg-surface p-3.5 border border-border/50 space-y-2">
+                  <span className="text-[10px] font-bold text-foreground-muted uppercase tracking-wider block">
+                    Replenishment Policy Factors
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                    <div className="rounded-xl border border-border/70 bg-muted/40 p-2.5">
+                      <span className="text-[10px] font-medium text-foreground-muted block">Min Safe Refill</span>
+                      <p className="font-data font-bold text-foreground text-sm mt-0.5">{reviewFacts?.minSafe != null ? `${reviewFacts.minSafe.toFixed(2)} L` : "—"}</p>
+                      <p className="text-[9px] text-foreground-muted mt-0.5">Forecast + reserve</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-emerald-500/10 dark:bg-emerald-500/15 border-emerald-500/20 p-2.5">
+                      <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 block">Preferred Target</span>
+                      <p className="font-data font-bold text-emerald-600 dark:text-emerald-300 text-sm mt-0.5">{reviewFacts?.target} L</p>
+                      <p className="text-[9px] text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">Fewer refuel stops</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-muted/40 p-2.5">
+                      <span className="text-[10px] font-medium text-foreground-muted block">Tank Space Left</span>
+                      <p className="font-data font-bold text-foreground text-sm mt-0.5">{reviewFacts?.tankSpace != null ? `${reviewFacts.tankSpace.toFixed(2)} L` : "—"}</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-muted/40 p-2.5">
+                      <span className="text-[10px] font-medium text-foreground-muted block">Budget Remaining</span>
+                      <p className="font-data font-bold text-foreground text-sm mt-0.5">{reviewFacts?.remaining ?? "—"} L</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-muted/40 p-2.5">
+                      <span className="text-[10px] font-medium text-foreground-muted block">Current Fuel</span>
+                      <p className="font-data font-bold text-foreground text-sm mt-0.5">{reviewRequest.current_fuel_level_percent}% · {reviewRequest.calculation_snapshot?.current_liters ?? "—"} L</p>
+                    </div>
+
+                    <div className="rounded-xl border border-border/70 bg-muted/40 p-2.5">
+                      <span className="text-[10px] font-medium text-foreground-muted block">24h Forecast</span>
+                      <p className="font-data font-bold text-foreground text-sm mt-0.5">{reviewRequest.forecast_distance_km} km · ≈{reviewRequest.calculation_snapshot?.forecast_consumption_liters ?? "—"} L</p>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="approved_liters">Approved allocation (liters)</Label>
-                <Input
-                  id="approved_liters"
-                  type="number"
-                  min="0.01"
-                  step="0.01"
-                  value={approvedLiters}
-                  onChange={(event) => setApprovedLiters(event.target.value)}
-                />
-                <p className="text-xs text-foreground-muted">Below the minimum safe refill or above the monthly available requires an override reason.</p>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="request_notes">Review notes / override reason</Label>
-                <Input
-                  id="request_notes"
-                  maxLength={500}
-                  value={requestNotes}
-                  onChange={(event) => setRequestNotes(event.target.value)}
-                  placeholder="Required when rejecting, approving below minimum, or exceeding the budget"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => setReviewRequest(null)}>Cancel</Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => submitRequestReview("Rejected")}
-                  disabled={reviewRequestMutation.isPending}
-                >
-                  Reject
-                </Button>
-                <Button
-                  onClick={() => submitRequestReview("Approved")}
-                  disabled={reviewRequestMutation.isPending}
-                >
-                  {reviewRequestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                  Approve allocation
-                </Button>
+
+              {/* Approval Inputs */}
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1.5">
+                  <Label htmlFor="approved_liters" className="text-xs font-semibold text-foreground">
+                    Approved Refill Liters *
+                  </Label>
+                  <Input
+                    id="approved_liters"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={approvedLiters}
+                    onChange={(event) => setApprovedLiters(event.target.value)}
+                    className="text-base font-data font-bold h-10"
+                  />
+                  <p className="text-[11px] text-foreground-muted">
+                    Approving below min safe ({reviewFacts?.minSafe?.toFixed(1) || "—"} L) or above remaining budget requires an override reason.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="request_notes" className="text-xs font-semibold text-foreground">
+                    Review Notes / Override Reason
+                  </Label>
+                  <Input
+                    id="request_notes"
+                    maxLength={500}
+                    value={requestNotes}
+                    onChange={(event) => setRequestNotes(event.target.value)}
+                    placeholder="Required when rejecting, approving below minimum, or exceeding budget"
+                    className="text-xs"
+                  />
+                </div>
               </div>
             </div>
           ) : null}
-        </DialogContent>
-      </Dialog>
 
-      <Dialog open={!!inspectRecord} onOpenChange={() => setInspectRecord(null)}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" />
-              Receipt Verification — Claim #{inspectRecord?.fuel_record_id}
-            </DialogTitle>
-          </DialogHeader>
-
-          {inspectRecord && (
-            <div className="space-y-6 pt-2">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                {/* LEFT: Receipt Image Scan Box (5 Columns) */}
-                <div className="lg:col-span-5 space-y-3">
-                  <span className="text-xs font-semibold text-foreground uppercase tracking-wider block">
-                    Scanned Fuel Receipt Scan
-                  </span>
-
-                  {inspectRecord.receipt_url ? (
-                    <div className="rounded-xl overflow-hidden border border-border bg-black/5 relative group aspect-[3/4] flex items-center justify-center">
-                      <img
-                        src={inspectRecord.receipt_url}
-                        alt="Fuel Receipt Scan"
-                        className="w-full h-full object-contain p-2"
-                      />
-                      <div
-                        className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-medium gap-1.5 cursor-pointer"
-                        onClick={() => setZoomReceiptUrl(inspectRecord.receipt_url)}
-                      >
-                        <ZoomIn className="w-4 h-4" /> Full Screen Scan Zoom
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="rounded-3xl border-2 border-dashed border-border p-8 text-center bg-muted/20 aspect-[3/4] flex flex-col items-center justify-center text-foreground-muted">
-                      <FileText className="w-8 h-8 mb-2 opacity-50" />
-                      <p className="text-xs font-medium">No receipt scan photo attached</p>
-                    </div>
-                  )}
-                </div>
-
-                {/* RIGHT: Driver Submission Details (7 Columns) */}
-                <div className="lg:col-span-7 space-y-4">
-                  <span className="text-xs font-semibold text-foreground uppercase tracking-wider block">
-                    Driver Claim Details
-                  </span>
-
-                  <div className="p-4 rounded-xl bg-muted/30 border border-border space-y-3">
-                    <div className="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <span className="text-foreground-muted flex items-center gap-1">
-                          <User className="w-3.5 h-3.5 text-primary" /> Driver Name:
-                        </span>
-                        <p className="font-semibold text-foreground text-sm mt-0.5">
-                          {inspectRecord.drivers?.employees
-                            ? `${inspectRecord.drivers.employees.first_name} ${inspectRecord.drivers.employees.last_name}`
-                            : "—"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <span className="text-foreground-muted flex items-center gap-1">
-                          <Truck className="w-3.5 h-3.5 text-primary" /> Vehicle Plate:
-                        </span>
-                        <p className="font-semibold text-foreground text-sm font-mono mt-0.5">
-                          {inspectRecord.vehicles?.plate_number || "—"} ({inspectRecord.vehicles?.vehicle_name})
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3 text-xs pt-2 border-t border-border">
-                      <div>
-                        <span className="text-foreground-muted flex items-center gap-1">
-                          <MapPin className="w-3.5 h-3.5 text-primary" /> Gas Station:
-                        </span>
-                        <p className="font-medium text-foreground mt-0.5">{inspectRecord.station_name || "—"}</p>
-                      </div>
-
-                      <div>
-                        <span className="text-foreground-muted">Refuel Date:</span>
-                        <p className="font-medium text-foreground mt-0.5">
-                          {inspectRecord.fuel_date ? formatDate(inspectRecord.fuel_date) : "—"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border text-center">
-                      <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[11px] text-foreground-muted block">Liters (L)</span>
-                        <span className="text-sm font-bold text-foreground">{inspectRecord.liters || 0} L</span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[11px] text-foreground-muted block">Price / Liter</span>
-                        <span className="text-sm font-bold text-foreground">
-                          {inspectRecord.price_per_liter ? formatCurrency(inspectRecord.price_per_liter) : "—"}
-                        </span>
-                      </div>
-                      <div className="p-2 rounded-lg bg-surface border border-border">
-                        <span className="text-[11px] text-foreground-muted block">Total Claim</span>
-                        <span className="text-sm font-bold text-success">{formatCurrency(inspectRecord.amount)}</span>
-                      </div>
-                    </div>
-
-                    {inspectRecord.rejection_reason && (
-                      <div className="p-3 rounded-lg bg-danger/10 border border-danger/20 text-xs text-danger space-y-1">
-                        <span className="font-semibold flex items-center gap-1">
-                          <AlertTriangle className="w-3.5 h-3.5" /> Rejection Note:
-                        </span>
-                        <p>{inspectRecord.rejection_reason}</p>
-                      </div>
-                    )}
-
-                    {(() => {
-                      const vehicle = inspectRecord.vehicles || {};
-                      const tank = Number(vehicle.tank_capacity_l);
-                      const level = Number(vehicle.fuel_level);
-                      const liters = Number(inspectRecord.liters);
-                      const estimated = Number.isFinite(tank) && Number.isFinite(level) ? tank * (level / 100) : null;
-                      const tankOk = estimated == null || !Number.isFinite(liters) ? null : liters + estimated <= tank;
-                      const mismatch = fuelTypeMismatch(vehicle.fuel_type, inspectRecord.receipt_fuel_type);
-                      return (
-                        <div className="space-y-1.5 text-xs pt-2 border-t border-border">
-                          <p className="font-semibold text-foreground">Automatic checks</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1">
-                            <span className={mismatch ? "text-danger font-semibold" : "text-foreground-muted"}>
-                              {inspectRecord.receipt_fuel_type
-                                ? mismatch
-                                  ? `⚠ Fuel type: receipt says ${inspectRecord.receipt_fuel_type}, vehicle uses ${vehicle.fuel_type || "unspecified"}`
-                                  : `Fuel type: ${inspectRecord.receipt_fuel_type} –`
-                                : "Fuel type: not stated on receipt"}
-                            </span>
-                            <span className={tankOk === false ? "text-danger font-semibold" : "text-foreground-muted"}>
-                              {tankOk == null
-                                ? "Tank capacity check: unavailable"
-                                : tankOk
-                                  ? `Tank capacity check: passed – (${estimated.toFixed(1)} L current + ${liters} L ≤ ${tank} L)`
-                                  : `⚠ Impossible fuel quantity — only about ${(tank - estimated).toFixed(1)} L of space left`}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-
-                  {/* Verification Decision Buttons */}
-                  <div className="p-4 rounded-3xl border border-border bg-surface space-y-3">
-                    <span className="text-xs font-semibold text-foreground block">Verification Decision</span>
-                    <div className="flex items-center gap-3">
-                      <Button
-                        className="flex-1 bg-success hover:bg-success/90 text-white h-10 text-xs font-semibold"
-                        onClick={() => handleApprove(inspectRecord)}
-                        disabled={updateStatusMutation.isPending}
-                      >
-                        <CheckCircle2 className="w-4 h-4 mr-1.5" /> Approve Receipt Claim
-                      </Button>
-
-                      <Button
-                        variant="destructive"
-                        className="flex-1 h-10 text-xs font-semibold"
-                        onClick={() => openRejectPrompt(inspectRecord)}
-                        disabled={updateStatusMutation.isPending}
-                      >
-                        <XCircle className="w-4 h-4 mr-1.5" /> Reject Claim
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── REJECTION REASON PROMPT DIALOG ── */}
-      <Dialog open={rejectDialogOpen} onOpenChange={setRejectDialogOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center gap-2 text-danger">
-              <AlertTriangle className="w-5 h-5" /> Reject Fuel Receipt Claim
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4 pt-2">
-            <p className="text-xs text-foreground-secondary">
-              Please enter a reason for rejecting this driver refuel claim (e.g. <i>&quot;Unreadable image scan&quot;</i>, <i>&quot;Amount mismatch on receipt&quot;</i>).
-            </p>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="rejection_reason">Rejection Note / Reason *</Label>
-              <Input
-                id="rejection_reason"
-                value={rejectionReason}
-                onChange={(e) => setRejectionReason(e.target.value)}
-                ref={registerRejectField("rejection_reason")}
-                invalid={rejectFieldError("rejection_reason").invalid}
-                placeholder="e.g. Receipt amount does not match total claimed"
-              />
-              {rejectFieldError("rejection_reason").error && (
-                <p className="text-xs text-danger">{rejectFieldError("rejection_reason").error}</p>
-              )}
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2">
-              <Button variant="outline" onClick={() => setRejectDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleRejectConfirm} disabled={updateStatusMutation.isPending}>
-                {updateStatusMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
-                Confirm Rejection
-              </Button>
-            </div>
+          <div className="px-6 py-3.5 border-t border-border/70 bg-surface/90 backdrop-blur-md flex items-center justify-end gap-2.5 shrink-0">
+            <Button variant="outline" onClick={() => setReviewRequest(null)} className="text-xs h-9 px-4">
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => submitRequestReview("Rejected")}
+              disabled={reviewRequestMutation.isPending}
+              className="text-xs h-9 px-4 font-semibold"
+            >
+              Reject
+            </Button>
+            <Button
+              onClick={() => submitRequestReview("Approved")}
+              disabled={reviewRequestMutation.isPending}
+              className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              {reviewRequestMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+              Approve Refill
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ── HIGH-END RECEIPT VERIFICATION MODAL ── */}
+      <ReceiptVerificationModal
+        open={!!inspectRecord}
+        onOpenChange={(open) => {
+          if (!open) setInspectRecord(null);
+        }}
+        record={inspectRecord}
+        onApprove={handleApprove}
+        onReject={openRejectPrompt}
+        onEdit={(rec) => {
+          setInspectRecord(null);
+          handleOpenEdit(rec);
+        }}
+        onFullscreenZoom={(url) => setZoomReceiptUrl(url)}
+        isActionPending={updateStatusMutation.isPending}
+      />
+
+      {/* ── REJECTION REASON PROMPT DIALOG ── */}
+      <RejectClaimDialog
+        open={rejectDialogOpen}
+        onOpenChange={setRejectDialogOpen}
+        record={targetRejectRecord}
+        rejectionReason={rejectionReason}
+        setRejectionReason={setRejectionReason}
+        onConfirm={handleRejectConfirm}
+        isPending={updateStatusMutation.isPending}
+        fieldError={rejectFieldError}
+        registerField={registerRejectField}
+      />
 
       {/* ── EDIT FUEL LOG DIALOG ── */}
       <Dialog
@@ -1178,102 +1081,145 @@ export default function FuelPage() {
           if (!open) setEditRecord(null);
         }}
       >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold">Edit Fuel Log Details</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="max-w-lg w-[95vw] md:w-[500px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                <Fuel className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-foreground">
+                  Edit Fuel Record
+                </DialogTitle>
+                <p className="text-xs text-foreground-muted mt-0.5">
+                  Update refuel volume, claimed costs, and odometer telemetry.
+                </p>
+              </div>
+            </div>
+          </div>
 
           {editRecord && (
-            <form onSubmit={handleEditSubmit} className="space-y-4 pt-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="station_name">Gas Station Name</Label>
-                <Input
-                  id="station_name"
-                  defaultValue={editRecord.station_name || ""}
-                  onChange={(e) => setEditForm({ ...editForm, station_name: e.target.value })}
-                  ref={registerEditField("station_name")}
-                  invalid={editFieldError("station_name").invalid}
-                  placeholder="Petron, Shell, Caltex..."
-                />
-                {editFieldError("station_name").error && <p className="text-xs text-danger">{editFieldError("station_name").error}</p>}
+            <form onSubmit={handleEditSubmit} className="p-6 space-y-4">
+              <div className="rounded-2xl bg-muted/40 p-1.5 border border-border/80 shadow-2xs">
+                <div className="rounded-xl bg-surface p-4 border border-border/50 space-y-3.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="station_name" className="text-xs font-semibold text-foreground">
+                      Gas Station Name
+                    </Label>
+                    <Input
+                      id="station_name"
+                      defaultValue={editRecord.station_name || ""}
+                      onChange={(e) => setEditForm({ ...editForm, station_name: e.target.value })}
+                      ref={registerEditField("station_name")}
+                      invalid={editFieldError("station_name").invalid}
+                      placeholder="Petron, Shell, Caltex..."
+                      className="text-xs h-9"
+                    />
+                    {editFieldError("station_name").error && <p className="text-xs text-danger">{editFieldError("station_name").error}</p>}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="liters" className="text-xs font-semibold text-foreground">
+                        Volume (Liters) <span className="text-danger">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="liters"
+                          type="number"
+                          step="0.01"
+                          defaultValue={editRecord.liters || ""}
+                          onChange={(e) => setEditForm({ ...editForm, liters: e.target.value })}
+                          ref={registerEditField("liters")}
+                          invalid={editFieldError("liters").invalid}
+                          className="text-sm font-data font-semibold pr-9 h-10"
+                        />
+                        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-foreground-muted pointer-events-none">
+                          L
+                        </span>
+                      </div>
+                      {editFieldError("liters").error && <p className="text-xs text-danger">{editFieldError("liters").error}</p>}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="amount" className="text-xs font-semibold text-foreground">
+                        Total Amount (₱) <span className="text-danger">*</span>
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="amount"
+                          type="number"
+                          step="0.01"
+                          defaultValue={editRecord.amount || ""}
+                          onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                          ref={registerEditField("amount")}
+                          invalid={editFieldError("amount").invalid}
+                          className="text-sm font-data font-bold text-emerald-600 dark:text-emerald-400 pl-7 h-10"
+                        />
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-emerald-600 dark:text-emerald-400 pointer-events-none">
+                          ₱
+                        </span>
+                      </div>
+                      {editFieldError("amount").error && <p className="text-xs text-danger">{editFieldError("amount").error}</p>}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="price_per_liter" className="text-xs font-semibold text-foreground">
+                        Unit Price (₱/L)
+                      </Label>
+                      <Input
+                        id="price_per_liter"
+                        type="number"
+                        step="0.01"
+                        defaultValue={editRecord.price_per_liter || ""}
+                        onChange={(e) => setEditForm({ ...editForm, price_per_liter: e.target.value })}
+                        ref={registerEditField("price_per_liter")}
+                        invalid={editFieldError("price_per_liter").invalid}
+                        className="text-xs font-data h-9"
+                      />
+                      {editFieldError("price_per_liter").error && <p className="text-xs text-danger">{editFieldError("price_per_liter").error}</p>}
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="odometer" className="text-xs font-semibold text-foreground">
+                        Odometer (km)
+                      </Label>
+                      <Input
+                        id="odometer"
+                        type="number"
+                        defaultValue={editRecord.odometer || ""}
+                        onChange={(e) => setEditForm({ ...editForm, odometer: e.target.value })}
+                        ref={registerEditField("odometer")}
+                        invalid={editFieldError("odometer").invalid}
+                        className="text-xs font-data h-9"
+                      />
+                      {editFieldError("odometer").error && <p className="text-xs text-danger">{editFieldError("odometer").error}</p>}
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="fuel_date" className="text-xs font-semibold text-foreground">
+                      Refuel Date <span className="text-danger">*</span>
+                    </Label>
+                    <DatePicker
+                      id="fuel_date"
+                      label="Refuel Date *"
+                      value={editForm.fuel_date !== undefined ? editForm.fuel_date : (editRecord.fuel_date ? editRecord.fuel_date.substring(0, 10) : "")}
+                      onChange={(val) => setEditForm({ ...editForm, fuel_date: val })}
+                    />
+                    {editFieldError("fuel_date").error && <p className="text-xs text-danger">{editFieldError("fuel_date").error}</p>}
+                  </div>
+                </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="liters">Liters (L) *</Label>
-                  <Input
-                    id="liters"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editRecord.liters || ""}
-                    onChange={(e) => setEditForm({ ...editForm, liters: e.target.value })}
-                    ref={registerEditField("liters")}
-                    invalid={editFieldError("liters").invalid}
-                  />
-                  {editFieldError("liters").error && <p className="text-xs text-danger">{editFieldError("liters").error}</p>}
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="amount">Total Amount (₱) *</Label>
-                  <Input
-                    id="amount"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editRecord.amount || ""}
-                    onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
-                    ref={registerEditField("amount")}
-                    invalid={editFieldError("amount").invalid}
-                  />
-                  {editFieldError("amount").error && <p className="text-xs text-danger">{editFieldError("amount").error}</p>}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label htmlFor="price_per_liter">Unit Price (₱/L)</Label>
-                  <Input
-                    id="price_per_liter"
-                    type="number"
-                    step="0.01"
-                    defaultValue={editRecord.price_per_liter || ""}
-                    onChange={(e) => setEditForm({ ...editForm, price_per_liter: e.target.value })}
-                    ref={registerEditField("price_per_liter")}
-                    invalid={editFieldError("price_per_liter").invalid}
-                  />
-                  {editFieldError("price_per_liter").error && <p className="text-xs text-danger">{editFieldError("price_per_liter").error}</p>}
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="odometer">Odometer (km)</Label>
-                  <Input
-                    id="odometer"
-                    type="number"
-                    defaultValue={editRecord.odometer || ""}
-                    onChange={(e) => setEditForm({ ...editForm, odometer: e.target.value })}
-                    ref={registerEditField("odometer")}
-                    invalid={editFieldError("odometer").invalid}
-                  />
-                  {editFieldError("odometer").error && <p className="text-xs text-danger">{editFieldError("odometer").error}</p>}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor="fuel_date">Refuel Date *</Label>
-                <DatePicker
-                  id="fuel_date"
-                  label="Refuel Date *"
-                  value={editForm.fuel_date !== undefined ? editForm.fuel_date : (editRecord.fuel_date ? editRecord.fuel_date.substring(0, 10) : "")}
-                  onChange={(val) => setEditForm({ ...editForm, fuel_date: val })}
-                />
-                {editFieldError("fuel_date").error && <p className="text-xs text-danger">{editFieldError("fuel_date").error}</p>}
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2 border-t border-border">
-                <Button type="button" variant="outline" onClick={() => setEditRecord(null)}>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <Button type="button" variant="outline" onClick={() => setEditRecord(null)} className="text-xs h-9 px-4">
                   Cancel
                 </Button>
-                <Button type="submit" disabled={editMutation.isPending}>
-                  {editMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
+                <Button type="submit" disabled={editMutation.isPending} className="text-xs h-9 px-5 font-bold shadow-xs">
+                  {editMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
                   Update Fuel Record
                 </Button>
               </div>
@@ -1282,25 +1228,14 @@ export default function FuelPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ── RECEIPT FULL ZOOM MODAL ── */}
-      <Dialog open={!!zoomReceiptUrl} onOpenChange={() => setZoomReceiptUrl(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" /> Full Resolution Scanned Receipt
-            </DialogTitle>
-          </DialogHeader>
-          <div className="p-2 flex items-center justify-center max-h-[75vh] overflow-auto bg-black/5 rounded-3xl border border-border">
-            {zoomReceiptUrl && (
-              <img
-                src={zoomReceiptUrl}
-                alt="Fuel Receipt Full Zoom"
-                className="max-h-[70vh] w-auto object-contain rounded-lg shadow-md"
-              />
-            )}
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* ── FULLSCREEN RECEIPT ZOOM DIALOG ── */}
+      <FullscreenReceiptDialog
+        open={!!zoomReceiptUrl}
+        onOpenChange={(open) => {
+          if (!open) setZoomReceiptUrl(null);
+        }}
+        receiptUrl={zoomReceiptUrl}
+      />
 
       {/* ── ROW APPROVE CONFIRMATION DIALOG ── */}
       <ConfirmDialog
