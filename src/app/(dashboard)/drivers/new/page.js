@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
+import { SelectItem } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { createDriver } from "@/services/driver.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
@@ -485,13 +486,26 @@ export default function NewDriverPage() {
                     />
                   </FloatingField>
 
-                    <FloatingSelect label="Initial Duty Status" icon={UserCheck} className="md:col-span-2" id="driver_status" {...form.register("driver_status")}>
-                      <option value="Available">Available (Ready for Dispatch)</option>
-                      <option value="On Trip">On Trip</option>
-                      <option value="Off Duty">Off Duty (Resting)</option>
-                      <option value="On Leave">On Leave</option>
-                      <option value="Suspended">Suspended</option>
-                    </FloatingSelect>
+                    <Controller
+                      control={form.control}
+                      name="driver_status"
+                      render={({ field }) => (
+                        <FloatingSelect
+                          label="Initial Duty Status"
+                          icon={UserCheck}
+                          className="md:col-span-2"
+                          id="driver_status"
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <SelectItem value="Available">Available (Ready for Dispatch)</SelectItem>
+                          <SelectItem value="On Trip">On Trip</SelectItem>
+                          <SelectItem value="Off Duty">Off Duty (Resting)</SelectItem>
+                          <SelectItem value="On Leave">On Leave</SelectItem>
+                          <SelectItem value="Suspended">Suspended</SelectItem>
+                        </FloatingSelect>
+                      )}
+                    />
                 </div>
               </CardContent>
             </Card>

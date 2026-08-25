@@ -71,6 +71,7 @@ export async function POST(req) {
       assistance_needed: { label: "Assistance needed" },
       expense_amount: { type: "positiveNumber", label: "Expense amount" },
       client_submission_id: { maxLength: 64, label: "Submission reference" },
+      photo_urls: { label: "Photo URLs" },
     });
     if (!isValidObject(errors)) return errValidation(errors);
 
@@ -92,7 +93,7 @@ export async function POST(req) {
       const { rows: duplicate } = await query(
         `SELECT incident_id, incident_type, incident_date, description, location,
                 latitude, longitude, severity, status, created_at, vehicle_id,
-                assistance_needed, expense_amount
+                assistance_needed, expense_amount, photo_urls
            FROM driverincidents
           WHERE driver_id = $1 AND client_submission_id = $2 AND deleted_at IS NULL
           LIMIT 1`,
@@ -121,15 +122,15 @@ export async function POST(req) {
       `INSERT INTO driverincidents
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
           description, location, latitude, longitude, severity, assistance_needed,
-          expense_amount, client_submission_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          expense_amount, client_submission_id, photo_urls)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        ON CONFLICT (driver_id, client_submission_id)
          WHERE deleted_at IS NULL AND client_submission_id IS NOT NULL
        DO NOTHING
        RETURNING incident_id, incident_type, incident_date, description, location,
-                 latitude, longitude, severity, status, created_at, vehicle_id, assistance_needed, expense_amount`,
+                 latitude, longitude, severity, status, created_at, vehicle_id, assistance_needed, expense_amount, photo_urls`,
       [driver.driver_id, body.vehicle_id || driver.assigned_vehicle_id || null, body.trip_id || null, body.incident_type,
-       incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null, clientSubmissionId]
+       incidentDate, body.description, body.location || null, latitude, longitude, severity, body.assistance_needed || null, body.expense_amount || null, clientSubmissionId, body.photo_urls || []]
     );
 
     // Lost an insert race against a concurrent replay of the same submission:
@@ -138,7 +139,7 @@ export async function POST(req) {
       const { rows: existing } = await query(
         `SELECT incident_id, incident_type, incident_date, description, location,
                 latitude, longitude, severity, status, created_at, vehicle_id,
-                assistance_needed, expense_amount
+                assistance_needed, expense_amount, photo_urls
            FROM driverincidents
           WHERE driver_id = $1 AND client_submission_id = $2 AND deleted_at IS NULL
           LIMIT 1`,

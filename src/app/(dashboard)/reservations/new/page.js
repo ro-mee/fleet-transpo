@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
+import { SelectItem } from "@/components/ui/select";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
@@ -257,11 +258,11 @@ export default function MockInjectorPage() {
               icon={Layers}
               id="source_system"
               value={form.source_system}
-              onChange={(e) => set("source_system", e.target.value)}
+              onValueChange={(val) => set("source_system", val)}
             >
-              <option value="PMS">PMS (Hotel Front Office)</option>
-              <option value="POS">POS (Restaurant / Concierge)</option>
-              <option value="Web">Web Booking Portal</option>
+              <SelectItem value="PMS">PMS (Hotel Front Office)</SelectItem>
+              <SelectItem value="POS">POS (Restaurant / Concierge)</SelectItem>
+              <SelectItem value="Web">Web Booking Portal</SelectItem>
             </FloatingSelect>
 
             <FloatingField label="Booking Reference" icon={FileText}>
@@ -289,13 +290,13 @@ export default function MockInjectorPage() {
               icon={MapPin}
               id="pickup_location"
               value={form.pickup_location}
-              onChange={(e) => set("pickup_location", e.target.value)}
+              onValueChange={(val) => set("pickup_location", val)}
+              placeholder="Select Pickup Location"
             >
-              <option value="">Select Pickup Location</option>
               {locations.map((loc) => (
-                <option key={loc.location_id} value={loc.name}>
+                <SelectItem key={loc.location_id} value={loc.name}>
                   {loc.name}
-                </option>
+                </SelectItem>
               ))}
             </FloatingSelect>
 
@@ -304,13 +305,13 @@ export default function MockInjectorPage() {
               icon={MapPin}
               id="dropoff_location"
               value={form.dropoff_location}
-              onChange={(e) => set("dropoff_location", e.target.value)}
+              onValueChange={(val) => set("dropoff_location", val)}
+              placeholder="Select Dropoff Location"
             >
-              <option value="">Select Dropoff Location</option>
               {locations.map((loc) => (
-                <option key={loc.location_id} value={loc.name}>
+                <SelectItem key={loc.location_id} value={loc.name}>
                   {loc.name}
-                </option>
+                </SelectItem>
               ))}
             </FloatingSelect>
 
@@ -340,13 +341,13 @@ export default function MockInjectorPage() {
               icon={CarFront}
               id="requested_vehicle_type"
               value={form.requested_vehicle_type}
-              onChange={(e) => set("requested_vehicle_type", e.target.value)}
+              onValueChange={(val) => set("requested_vehicle_type", val)}
+              placeholder="Any Category"
             >
-              <option value="">Any Category</option>
               {categories.map((c) => (
-                <option key={c.category_id} value={c.category_name}>
+                <SelectItem key={c.category_id} value={c.category_name}>
                   {c.category_name}
-                </option>
+                </SelectItem>
               ))}
             </FloatingSelect>
 

@@ -1,8 +1,10 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform,  } from 'react-native';
+import { useState, useEffect as _unused } from "react";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image,  } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
+import { useEffect } from 'react';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
@@ -45,6 +47,60 @@ export default function IncidentsScreen() {
   const [showSuccess, setShowSuccess] = useState(false);
   const [queuedOffline, setQueuedOffline] = useState(false);
 
+  const [vehicleId, setVehicleId] = useState(null);
+  const [vehiclePlate, setVehiclePlate] = useState("");
+  const [photos, setPhotos] = useState([]);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const me = await api.get("/api/mobile/driver/me");
+        if (me.activeTrip?.vehicle_id) {
+          setVehicleId(me.activeTrip.vehicle_id);
+          setVehiclePlate(me.activeTrip.plate_number);
+        } else if (me.recentTrip?.vehicle_id) {
+          setVehicleId(me.recentTrip.vehicle_id);
+          setVehiclePlate(me.recentTrip.plate_number);
+        }
+      } catch(e) { }
+    }
+    if (!tripId) {
+      loadData();
+    }
+  }, [tripId]);
+
+  const pickImage = async (useCamera = true) => {
+    if (photos.length >= 3) {
+      AppAlert.alert("Limit Reached", "You can only attach up to 3 photos.");
+      return;
+    }
+    try {
+      const options = {
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.7,
+      };
+      let result;
+      if (useCamera) {
+        const { status } = await ImagePicker.requestCameraPermissionsAsync();
+        if (status !== 'granted') return;
+        result = await ImagePicker.launchCameraAsync(options);
+      } else {
+        result = await ImagePicker.launchImageLibraryAsync(options);
+      }
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setPhotos([...photos, result.assets[0]]);
+      }
+    } catch (error) {
+      console.warn(error);
+    }
+  };
+
+  const removePhoto = (index) => {
+    setPhotos(photos.filter((_, i) => i !== index));
+  };
+
+
   const toggleAssistance = (option) => {
     setAssistance((prev) =>
       prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
@@ -77,6 +133,28 @@ export default function IncidentsScreen() {
     try {
       setSubmitting(true);
       setQueuedOffline(false);
+      setUploadingPhotos(true);
+      
+      const uploadedUrls = [];
+      for (const photo of photos) {
+        const formData = new FormData();
+        formData.append("photo", {
+          uri: photo.uri,
+          name: photo.uri.split("/").pop() || "photo.jpg",
+          type: "image/jpeg",
+        });
+        try {
+          const uploadRes = await api.post("/api/driver/incidents/upload", formData, {
+            headers: { "Content-Type": "multipart/form-data" },
+          });
+          if (uploadRes && uploadRes.photo_url) {
+            uploadedUrls.push(uploadRes.photo_url);
+          }
+        } catch(err) {
+          console.warn("Failed to upload photo", err);
+        }
+      }
+      setUploadingPhotos(false);
       
       let gpsLocation = "GPS Location unavailable";
       let lat = null;
@@ -109,6 +187,7 @@ export default function IncidentsScreen() {
 
       const result = await api.post("/api/driver/incidents", {
         trip_id: tripId ? parseInt(tripId, 10) : null,
+        vehicle_id: vehicleId,
         incident_type: type,
         description,
         location: gpsLocation,
@@ -119,6 +198,7 @@ export default function IncidentsScreen() {
         client_submission_id: clientSubmissionId,
         assistance_needed: assistance.length ? assistance : null,
         expense_amount: expenseValue,
+        photo_urls: uploadedUrls.length ? uploadedUrls : undefined,
       });
       // apiFetch queues POSTs during network failures and resolves
       // { queued: true } — the report has NOT reached dispatch yet.
@@ -165,6 +245,23 @@ export default function IncidentsScreen() {
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
+        
+        {/* Vehicle Selection */}
+        {!tripId && vehiclePlate && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+              Vehicle
+            </Text>
+            <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+              You are reporting this incident for this vehicle.
+            </Text>
+            <View style={{ backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40', borderWidth: 1, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center' }}>
+              <Ionicons name="car-outline" size={24} color={colors.primary} style={{ marginRight: 12 }} />
+              <Text style={{ flex: 1, color: colors.onSurface, fontSize: 16, fontWeight: 'bold' }}>{vehiclePlate}</Text>
+            </View>
+          </View>
+        )}
+
         {/* Incident Type */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
@@ -362,6 +459,39 @@ export default function IncidentsScreen() {
             />
           </View>
         </View>
+      
+        {/* Photo Evidence */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
+            Photo Evidence (Optional)
+          </Text>
+          <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
+            Attach up to 3 photos of the damage or incident scene.
+          </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 8 }}>
+            {photos.map((photo, index) => (
+              <View key={index} style={{ position: 'relative' }}>
+                <Image source={{ uri: photo.uri }} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerHighest }} />
+                <Pressable onPress={() => removePhoto(index)} style={{ position: 'absolute', top: -8, right: -8, backgroundColor: colors.error, borderRadius: 12, padding: 4, zIndex: 10 }}>
+                  <Ionicons name="close" size={16} color={colors.onError} />
+                </Pressable>
+              </View>
+            ))}
+            {photos.length < 3 && (
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <Pressable onPress={() => pickImage(true)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="camera-outline" size={32} color={colors.onSurfaceVariant} />
+                  <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Camera</Text>
+                </Pressable>
+                <Pressable onPress={() => pickImage(false)} style={{ width: 100, height: 100, borderRadius: 12, backgroundColor: colors.surfaceContainerLow, borderWidth: 1, borderColor: colors.outlineVariant + '50', borderStyle: 'dashed', justifyContent: 'center', alignItems: 'center' }}>
+                  <Ionicons name="image-outline" size={32} color={colors.onSurfaceVariant} />
+                  <Text style={{ fontSize: 10, color: colors.onSurfaceVariant, marginTop: 4 }}>Gallery</Text>
+                </Pressable>
+              </View>
+            )}
+          </View>
+        </View>
+
       </ScrollView>
 
       {/* Submit Footer */}
@@ -388,7 +518,7 @@ export default function IncidentsScreen() {
           ]}
         >
           <Text style={[styles.submitBtnText, { color: colors.onError }]}>
-            {submitting ? "Sending Alert..." : "Send Emergency Report"}
+            {uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
           </Text>
           <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
             <Ionicons name="radio" size={17} color={colors.onError} />

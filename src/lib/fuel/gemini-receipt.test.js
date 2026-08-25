@@ -18,12 +18,26 @@ describe("Gemini fuel receipt output", () => {
       amount: 1760,
       fuel_date: "2024-10-01",
       fuel_type: null,
+      fuel_time: null,
+      transaction_id: null,
+      payment_method: null,
     });
   });
 
   it("rejects guessed or invalid values", () => {
     expect(normalizeGeminiFuelReceipt({ station_name: "ERJ GASOLINE STATION", liters: "many", amount: 0, fuel_date: "2026-02-30" }))
-      .toEqual({ station_name: null, liters: null, price_per_liter: null, amount: null, fuel_date: null, fuel_type: null });
+      .toEqual({ station_name: null, liters: null, price_per_liter: null, amount: null, fuel_date: null, fuel_type: null, fuel_time: null, transaction_id: null, payment_method: null });
+  });
+
+  it("keeps the extra receipt metadata as trimmed strings", () => {
+    const result = normalizeGeminiFuelReceipt({
+      fuel_time: "14:32",
+      transaction_id: "  TXN-99182  ",
+      payment_method: "Cash",
+    });
+    expect(result.fuel_time).toBe("14:32");
+    expect(result.transaction_id).toBe("TXN-99182");
+    expect(result.payment_method).toBe("Cash");
   });
 
   it("normalizes the stated fuel product to a canonical label", () => {

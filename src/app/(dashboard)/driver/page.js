@@ -70,6 +70,25 @@ export default function DriverHomePage() {
           description="Welcome to your Driver Workspace. Pick a module below to get started."
         />
 
+        {profile.driverStatus === "Suspended" && (
+          <Link href="/driver/profile">
+            <Card className="border-danger/30 shadow-xs rounded-3xl overflow-hidden bg-danger/10 hover:bg-danger/15 transition-colors cursor-pointer">
+              <CardContent className="p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-danger/20 text-danger shrink-0">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-bold text-danger">Account Suspended</p>
+                  <p className="text-xs text-danger/80 font-medium">
+                    Your driver license may be expired or missing. Click here to upload a new license and resume driving.
+                  </p>
+                </div>
+                <ChevronRight className="w-5 h-5 text-danger/50" />
+              </CardContent>
+            </Card>
+          </Link>
+        )}
+
         <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
             <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">

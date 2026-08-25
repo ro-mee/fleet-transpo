@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,7 @@ import {
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
+import { SelectItem } from "@/components/ui/select";
 import { DatePicker } from "@/components/ui/date-picker";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { cn } from "@/lib/utils";
@@ -413,14 +414,25 @@ export default function VehicleFormPage({ params }) {
               </CardHeader>
               <CardContent className="pt-4 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2">
-                  <FloatingSelect label="Vehicle Category" icon={Tag} id="category_id" {...form.register("category_id")}>
-                      <option value="">Select category</option>
-                      {categories.map((cat) => (
-                        <option key={cat.category_id} value={cat.category_id}>
-                          {cat.category_name}
-                        </option>
-                      ))}
-                    </FloatingSelect>
+                  <Controller
+                    control={form.control}
+                    name="category_id"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Vehicle Category"
+                        icon={Tag}
+                        value={field.value?.toString() || ""}
+                        onValueChange={(val) => field.onChange(val ? Number(val) : "")}
+                        placeholder="Select category"
+                      >
+                        {categories.map((cat) => (
+                          <SelectItem key={cat.category_id} value={cat.category_id.toString()}>
+                            {cat.category_name}
+                          </SelectItem>
+                        ))}
+                      </FloatingSelect>
+                    )}
+                  />
 
                   <FloatingField label="Fuel Type" icon={Zap}>
                     <input
@@ -441,14 +453,25 @@ export default function VehicleFormPage({ params }) {
                     />
                   </FloatingField>
 
-                  <FloatingSelect label="Status" icon={AlertCircle} id="vehicle_status" {...form.register("vehicle_status")}>
-                      <option value="Available">Available</option>
-                      <option value="In Use">In Use</option>
-                      <option value="Under Maintenance">Under Maintenance</option>
-                      <option value="Out of Service">Out of Service</option>
-                      <option value="Reserved">Reserved</option>
-                      <option value="Registration Expired">Registration Expired</option>
-                    </FloatingSelect>
+                  <Controller
+                    control={form.control}
+                    name="vehicle_status"
+                    render={({ field }) => (
+                      <FloatingSelect
+                        label="Status"
+                        icon={AlertCircle}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                      >
+                        <SelectItem value="Available">Available</SelectItem>
+                        <SelectItem value="In Use">In Use</SelectItem>
+                        <SelectItem value="Under Maintenance">Under Maintenance</SelectItem>
+                        <SelectItem value="Out of Service">Out of Service</SelectItem>
+                        <SelectItem value="Reserved">Reserved</SelectItem>
+                        <SelectItem value="Registration Expired">Registration Expired</SelectItem>
+                      </FloatingSelect>
+                    )}
+                  />
                 </div>
               </CardContent>
             </Card>

@@ -50,6 +50,7 @@ export default function Home() {
 
   const [trips, setTrips] = useState([]);
   const [activeStatuses, setActiveStatuses] = useState([]);
+  const [driverProfile, setDriverProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
@@ -87,12 +88,14 @@ export default function Home() {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const [data, active] = await Promise.all([
+      const [data, active, me] = await Promise.all([
         api.get("/api/mobile/driver/trips"),
         getActiveStatuses(),
+        api.get("/api/driver/me"),
       ]);
       setTrips(Array.isArray(data) ? data : []);
       setActiveStatuses(active);
+      setDriverProfile(me);
     } catch (e) {
       setError(e.message || "Could not load your trips.");
     } finally {
@@ -402,6 +405,19 @@ export default function Home() {
           />
         }
       >
+        {driverProfile?.driverStatus === "Suspended" && (
+          <Pressable onPress={() => router.push("/profile")} style={[styles.suspendedBanner, { backgroundColor: colors.errorContainer, paddingTop: insets.top + 16 }]}>
+            <View style={styles.suspendedBannerContent}>
+              <Ionicons name="alert-circle" size={24} color={colors.onErrorContainer} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.suspendedTitle, { color: colors.onErrorContainer }]}>Account Suspended</Text>
+                <Text style={[styles.suspendedDesc, { color: colors.onErrorContainer }]}>Your driver license may be expired or missing. Tap here to upload a new license.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.onErrorContainer} />
+            </View>
+          </Pressable>
+        )}
+
         {/* ─── Hero / Trip Detail Panel ─── */}
         <Animated.View style={fade(heroAnim)}>
           <View style={[styles.heroShell, { borderColor: colors.primary + '35' }]}>

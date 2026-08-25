@@ -9,7 +9,7 @@ import {
 } from "recharts";
 import {
   Activity, AlertTriangle, ArrowDownToLine, Award, BarChart3, Calendar, CarFront,
-  CircleDollarSign, Droplets, FileSpreadsheet, Fuel, Gauge, PhilippinePeso,
+  Droplets, FileSpreadsheet, Fuel, Gauge, PhilippinePeso,
   Layers, RefreshCw, ShieldCheck, Sparkles, TrendingUp, Users, Wrench, Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -378,7 +378,7 @@ function FuelReport({ query, trend, categories }) {
           tone="info"
         />
         <StatCard
-          icon={CircleDollarSign}
+          icon={PhilippinePeso}
           label="Fuel spend"
           value={money(report.totalCost)}
           valueNote="Selected window"
@@ -602,7 +602,7 @@ function MaintenanceReport({ query, data, due }) {
     <>
       <StatGrid cols={3}>
         <StatCard
-          icon={CircleDollarSign}
+          icon={PhilippinePeso}
           label="Maintenance spend"
           value={money(totalSpend)}
           valueNote="Selected window total"
