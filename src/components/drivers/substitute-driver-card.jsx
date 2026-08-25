@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -189,18 +190,18 @@ export function SubstituteDriverCard({ id, canManage = false }) {
               </Select>
 
               <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
-                    From
-                  </label>
-                  <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider text-foreground-muted">
-                    Until (optional)
-                  </label>
-                  <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
-                </div>
+                <DatePicker
+                  id="from"
+                  label="From"
+                  value={from}
+                  onChange={(val) => setFrom(val || "")}
+                />
+                <DatePicker
+                  id="until"
+                  label="Until (optional)"
+                  value={until}
+                  onChange={(val) => setUntil(val || "")}
+                />
               </div>
 
               <Input

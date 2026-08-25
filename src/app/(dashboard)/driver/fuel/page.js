@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/tables/data-table";
 import { HeroHeader } from "@/components/ui/hero-header";
@@ -135,25 +137,29 @@ export default function DriverFuelPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <p className="md:col-span-3 text-[11px] text-foreground-muted">* required</p>
                 <div>
-                  <Label htmlFor="fuel_date">Refuel Date *</Label>
-                  <Input id="fuel_date" type="date" max={todayStr} value={form.fuel_date}
-                    onChange={(e) => {
+                  <DatePicker
+                    id="fuel_date"
+                    label="Refuel Date *"
+                    value={form.fuel_date}
+                    onChange={(val) => {
                       setDateError("");
-                      setForm({ ...form, fuel_date: e.target.value });
-                    }} />
+                      setForm({ ...form, fuel_date: val });
+                    }}
+                  />
                   {dateError && (
                     <p className="mt-1 text-[11px] text-danger">{dateError}</p>
                   )}
                 </div>
                 <div>
                   <Label htmlFor="fuel_type">Fuel Type *</Label>
-                  <select id="fuel_type" value={form.fuel_type}
-                    onChange={(e) => setForm({ ...form, fuel_type: e.target.value })}
-                    className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-sm text-foreground cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                    {Object.values(FUEL_TYPE).map((type) => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
-                  </select>
+                  <Select value={form.fuel_type} onValueChange={(val) => setForm({ ...form, fuel_type: val })}>
+                    <SelectTrigger className="mt-1 h-9 w-full rounded-xl border border-border bg-surface text-sm font-medium"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.values(FUEL_TYPE).map((type) => (
+                        <SelectItem key={type} value={type}>{type}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor="station_name">Gas Station</Label>

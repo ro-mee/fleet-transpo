@@ -22,7 +22,7 @@ import {
   ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge,
   CalendarDays, Wrench, Shield, FileText, ZoomIn, IdCard,
   Car, Tag, Calendar, ShieldAlert, CheckCircle2, FileImage, Sparkles,
-  DollarSign, Hash, Layers, Users, Activity, Camera, Loader2
+  PhilippinePeso, Hash, Layers, Users, Activity, Camera, Loader2
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
@@ -330,7 +330,7 @@ export default function VehicleDetailPage() {
                     <span className="text-sm font-semibold text-foreground">{vehicle.purchase_date ? formatDate(vehicle.purchase_date) : "—"}</span>
                   </div>
                   <div className="p-5 flex flex-col gap-1.5 hover:bg-muted/10 transition-colors">
-                    <span className="text-xs font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5"><DollarSign className="w-3.5 h-3.5" /> Purchase Price</span>
+                    <span className="text-xs font-bold text-foreground-muted uppercase tracking-wider flex items-center gap-1.5"><PhilippinePeso className="w-3.5 h-3.5" /> Purchase Price</span>
                     <span className="text-sm font-semibold text-foreground">{vehicle.purchase_price ? formatCurrency(vehicle.purchase_price) : "—"}</span>
                   </div>
                 </div>

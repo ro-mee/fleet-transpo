@@ -58,14 +58,13 @@ function PolicyForm({ policy, queryClient }) {
     <div className="space-y-5">
       <div className="flex items-center gap-3">
         <Label className="w-32 font-semibold text-xs">Policy State</Label>
-        <select
-          value={form.enabled ? "yes" : "no"}
-          onChange={(e) => setForm({ ...form, enabled: e.target.value === "yes" })}
-          className="h-9 rounded-3xl border border-border/80 bg-surface px-3 text-xs font-medium"
-        >
-          <option value="yes">Enabled</option>
-          <option value="no">Disabled</option>
-        </select>
+        <Select value={form.enabled ? "yes" : "no"} onValueChange={(val) => setForm({ ...form, enabled: val === "yes" })}>
+          <SelectTrigger className="w-32 h-9 rounded-3xl border-border/80 text-xs font-medium"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="yes">Enabled</SelectItem>
+            <SelectItem value="no">Disabled</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="flex items-center gap-3">

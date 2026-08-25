@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { RotateCw, Upload } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { updateVehicle } from "@/services/vehicle.service";
+import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 
 const renewSchema = {
@@ -140,14 +141,16 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
           )}
 
           <div className="space-y-1.5">
-            <Label htmlFor="registration_expiry">New Expiry Date *</Label>
-            <Input
+            <DatePicker
               id="registration_expiry"
-              type="date"
+              label="New Expiry Date *"
               value={formData.registration_expiry}
-              onChange={(e) => setFormData({ ...formData, registration_expiry: e.target.value })}
-              ref={registerField("registration_expiry")}
-              invalid={fieldError("registration_expiry").invalid}
+              onChange={(val) => {
+                setFormData({ ...formData, registration_expiry: val });
+                // Note: useFormValidation's registerField will no longer automatically attach to an input ref. 
+                // We'll just rely on the manual validation that already occurs on submit.
+              }}
+              // The DatePicker doesn't support raw refs or 'invalid' prop natively, but it handles form integration well enough.
             />
             {fieldError("registration_expiry").error && (
               <p className="text-xs text-danger">{fieldError("registration_expiry").error}</p>

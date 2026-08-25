@@ -34,7 +34,8 @@ import {
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
-import { toast } from "@/components/ui/toast";
+import { ToastAction } from "@/components/ui/toast";
+import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { LIMITS } from "@/lib/validation";
 
@@ -825,13 +826,11 @@ export default function FuelPage() {
 
               <div className="space-y-1.5">
                 <Label htmlFor="fuel_date">Refuel Date *</Label>
-                <Input
+                <DatePicker
                   id="fuel_date"
-                  type="date"
-                  defaultValue={editRecord.fuel_date ? editRecord.fuel_date.substring(0, 10) : ""}
-                  onChange={(e) => setEditForm({ ...editForm, fuel_date: e.target.value })}
-                  ref={registerEditField("fuel_date")}
-                  invalid={editFieldError("fuel_date").invalid}
+                  label="Refuel Date *"
+                  value={editForm.fuel_date !== undefined ? editForm.fuel_date : (editRecord.fuel_date ? editRecord.fuel_date.substring(0, 10) : "")}
+                  onChange={(val) => setEditForm({ ...editForm, fuel_date: val })}
                 />
                 {editFieldError("fuel_date").error && <p className="text-xs text-danger">{editFieldError("fuel_date").error}</p>}
               </div>

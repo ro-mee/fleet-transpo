@@ -1,5 +1,6 @@
 import { AlertCircle, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Select, SelectTrigger, SelectValue, SelectContent } from "@/components/ui/select";
 
 /**
  * Double-bezel shell shared by every floating form control.
@@ -78,17 +79,18 @@ export function FloatingField({ icon, label, required, error, hint, children, cl
   );
 }
 
-export function FloatingSelect({ icon, label, required, error, hint, className, children, ...props }) {
+export function FloatingSelect({ icon, label, required, error, hint, className, children, value, onValueChange, disabled, placeholder }) {
   return (
     <FloatingShell icon={icon} label={label} required={required} error={error} hint={hint} className={className}>
       <div className="w-full pt-1 text-sm font-semibold text-foreground relative">
-        <select
-          {...props}
-          className="w-full appearance-none bg-transparent text-xs font-semibold text-foreground focus:outline-hidden py-1 cursor-pointer pr-7"
-        >
-          {children}
-        </select>
-        <ChevronDown className="w-3.5 h-3.5 text-foreground-muted pointer-events-none absolute right-0 top-1/2 -translate-y-1/2" />
+        <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+          <SelectTrigger className="w-full border-0 bg-transparent p-0 h-auto focus:ring-0 focus:ring-offset-0 text-xs font-semibold shadow-none rounded-none data-[placeholder]:text-foreground-muted/60 pr-2">
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            {children}
+          </SelectContent>
+        </Select>
       </div>
     </FloatingShell>
   );

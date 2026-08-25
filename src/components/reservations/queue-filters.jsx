@@ -3,6 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectTrigger,
@@ -154,15 +155,11 @@ export function QueueFilters({ filters, onChange, resultCount, isFetching }) {
           ]}
         />
         <div className="min-w-0">
-          <label className="text-xs font-medium text-foreground-secondary" htmlFor="q-pickup-date">
-            Pickup Date
-          </label>
-          <Input
+          <DatePicker
             id="q-pickup-date"
-            type="date"
-            className="mt-1 h-9"
+            label="Pickup Date"
             value={filters.pickup_date}
-            onChange={(e) => set("pickup_date")(e.target.value)}
+            onChange={(val) => set("pickup_date")(val || "")}
           />
         </div>
         <FilterSelect
