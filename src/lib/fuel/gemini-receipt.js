@@ -15,8 +15,11 @@ function validDate(value) {
 }
 
 function stationBrand(text) {
+  if (!text) return null;
   if (/\b(?:SHELL|SKY\s*E?WIN)\b/i.test(text)) return "SHELL";
-  return text.match(/\b(PETRON|CALTEX|PHOENIX|SEAOIL|UNIOIL|CLEANFUEL)\b/i)?.[1].toUpperCase() || null;
+  const known = text.match(/\b(PETRON|CALTEX|PHOENIX|SEAOIL|UNIOIL|CLEANFUEL)\b/i);
+  if (known) return known[1].toUpperCase();
+  return text.trim();
 }
 
 export function normalizeGeminiFuelReceipt(data = {}) {
@@ -27,6 +30,10 @@ export function normalizeGeminiFuelReceipt(data = {}) {
     price_per_liter: validNumber(data.price_per_liter, 10000),
     amount: validNumber(data.amount, 1000000),
     fuel_date: validDate(data.fuel_date),
+    fuel_time: typeof data.fuel_time === "string" ? data.fuel_time : null,
+    fuel_type: typeof data.fuel_type === "string" ? data.fuel_type : null,
+    transaction_id: typeof data.transaction_id === "string" ? data.transaction_id : null,
+    payment_method: typeof data.payment_method === "string" ? data.payment_method : null,
   };
 }
 
@@ -61,9 +68,13 @@ export async function scanFuelReceiptWithGemini(fileBuffer, contentType) {
             text: `Read this Philippine fuel receipt and return only the requested fields.
 - station_name: fuel brand only, such as PETRON or SHELL; never return the dealer/operator name. Treat Skyewin Prime Resources receipts as SHELL
 - fuel_date: transaction date as YYYY-MM-DD
+- fuel_time: transaction time as HH:MM
+- fuel_type: type of fuel (e.g. Regular, Premium, Diesel)
 - liters: fuel quantity/volume only
 - price_per_liter: pump/unit price per liter
 - amount: final amount paid or TOTAL INVOICE after discounts; do not use Sale Total when a discounted final invoice is present
+- transaction_id: receipt or transaction number
+- payment_method: payment method (e.g. Cash, Card, Fleet Card)
 Use null for unreadable or absent values. For Petron table rows, interpret Description / Qty / Price / Amount as liters / price_per_liter / amount. Do not calculate or guess unreadable values.`,
           },
         ],
@@ -78,8 +89,12 @@ Use null for unreadable or absent values. For Petron table rows, interpret Descr
             price_per_liter: { type: "NUMBER", nullable: true },
             amount: { type: "NUMBER", nullable: true },
             fuel_date: { type: "STRING", nullable: true },
+            fuel_time: { type: "STRING", nullable: true },
+            fuel_type: { type: "STRING", nullable: true },
+            transaction_id: { type: "STRING", nullable: true },
+            payment_method: { type: "STRING", nullable: true },
           },
-          required: ["station_name", "liters", "price_per_liter", "amount", "fuel_date"],
+          required: ["station_name", "liters", "price_per_liter", "amount", "fuel_date", "fuel_time", "fuel_type", "transaction_id", "payment_method"],
         },
       },
     });

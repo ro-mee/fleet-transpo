@@ -3,11 +3,12 @@ import { useColorScheme, LayoutAnimation, UIManager, Platform } from "react-nati
 import { palettes, typeFor, statusSurfaces, elevationFor, m3 } from "./theme";
 import { useSettings } from "./settings-context";
 
-if (
-  Platform.OS === 'android' &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
+if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
+  // Suppress warning in New Architecture which doesn't require this flag
+  const isFabric = global?.nativeFabricUIManager != null;
+  if (!isFabric) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+  }
 }
 
 const ThemeContext = createContext(null);

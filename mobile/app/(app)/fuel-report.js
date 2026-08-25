@@ -18,7 +18,7 @@ export default function FuelReport() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
-  const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
+  const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate, receiptUrl: pReceiptUrl } = useLocalSearchParams();
   const { colors } = useTheme();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
@@ -26,12 +26,18 @@ export default function FuelReport() {
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
   const [liters, setLiters] = useState(pLiters || "");
+  const [extractedData, setExtractedData] = useState(null);
+  const [extractedFuelType, setExtractedFuelType] = useState("");
+  const [extractedTime, setExtractedTime] = useState("");
+  const [extractedTxnId, setExtractedTxnId] = useState("");
+  const [extractedPaymentMethod, setExtractedPaymentMethod] = useState("");
   const [cost, setCost] = useState(pCost || "");
   const [pricePerLiter, setPricePerLiter] = useState("");
   const [station, setStation] = useState(pStation || "");
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
-  const [receiptUrl, setReceiptUrl] = useState(null);
+  const [receiptUrl, setReceiptUrl] = useState(pReceiptUrl || null);
+  const [scanStage, setScanStage] = useState(0);
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
   const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
@@ -87,6 +93,11 @@ export default function FuelReport() {
     setLiters(pLiters || "");
     setCost(pCost || "");
     setPricePerLiter("");
+    setExtractedData(null);
+    setExtractedFuelType("");
+    setExtractedTime("");
+    setExtractedTxnId("");
+    setExtractedPaymentMethod("");
     setStation(pStation || "");
     setFuelDate(pFuelDate || new Date().toISOString());
   };
@@ -131,6 +142,17 @@ export default function FuelReport() {
     setReceiptUrl(null);
     setReceiptAsset(null);
   };
+
+  useEffect(() => {
+    let timer;
+    if (scanning && entryMethod === "scan") {
+      setScanStage(0);
+      timer = setInterval(() => {
+        setScanStage(s => (s + 1) % 6);
+      }, 1500); // Wait 1.5s between stages for readability
+    }
+    return () => clearInterval(timer);
+  }, [scanning, entryMethod]);
 
   const openReceiptCamera = async (purpose = "scan") => {
     if (Platform.OS === "web") {
@@ -239,6 +261,12 @@ export default function FuelReport() {
       if (d.price_per_liter) setPricePerLiter(String(d.price_per_liter));
       if (d.station_name) setStation(d.station_name);
       if (d.fuel_date) setFuelDate(d.fuel_date);
+      if (d.fuel_time) setExtractedTime(d.fuel_time);
+      if (d.fuel_type) setExtractedFuelType(d.fuel_type);
+      if (d.transaction_id) setExtractedTxnId(d.transaction_id);
+      if (d.payment_method) setExtractedPaymentMethod(d.payment_method);
+      setExtractedData(d);
+      
       if (Object.values(d).some(Boolean)) {
         AppAlert.alert(
           receiptUploaded ? "Receipt Scanned" : "Scan Incomplete",
@@ -337,6 +365,8 @@ export default function FuelReport() {
         amount: parsedCost,
         station_name: station || "Unspecified",
         fuel_date: fuelDate,
+        fuel_type: extractedFuelType || undefined,
+        price_per_liter: Number(pricePerLiter) || undefined,
         receipt_url: receiptUrl,
         client_submission_id: submissionId,
       };
@@ -386,7 +416,28 @@ export default function FuelReport() {
 
         {!capturedReceipt ? (
           <>
-            <View pointerEvents="none" style={styles.receiptGuide}>
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
+              <View style={{ width: '100%', height: '100%', position: 'absolute', backgroundColor: 'rgba(0,0,0,0.4)' }} />
+              <View style={{ 
+                width: moderateScale(280), 
+                height: moderateScale(400), 
+                borderWidth: 2, 
+                borderColor: '#fff', 
+                borderRadius: 16,
+                backgroundColor: 'transparent',
+                justifyContent: 'center',
+                alignItems: 'center',
+                shadowColor: '#000',
+                shadowOpacity: 0.5,
+                shadowRadius: 10,
+                elevation: 5
+              }}>
+                <View style={{ position: 'absolute', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 }}>
+                  <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: 2 }}>FUEL RECEIPT</Text>
+                </View>
+              </View>
+            </View>
+            <View pointerEvents="none" style={[styles.receiptGuide, { bottom: moderateScale(140) }]}>
               <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
             </View>
             <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 20 }]}>
@@ -613,33 +664,65 @@ export default function FuelReport() {
               </View>
             </View>
 
-            <View style={styles.fieldRow}>
+            {scanning && entryMethod === "scan" ? (
+              <View style={{ padding: moderateScale(24), alignItems: 'center', justifyContent: 'center', height: moderateScale(300) }}>
+                <ActivityIndicator size="large" color={colors.primary} style={{ marginBottom: moderateScale(16) }} />
+                <Text style={{ fontSize: moderateScale(16), color: colors.primary, fontWeight: '700' }}>
+                  {[
+                    "Analyzing receipt image...",
+                    "Detecting station name...",
+                    "Extracting fuel volume and cost...",
+                    "Finding transaction date & time...",
+                    "Identifying fuel type...",
+                    "Finalizing details..."
+                  ][scanStage]}
+                </Text>
+                <Text style={{ fontSize: moderateScale(14), color: colors.onSurfaceVariant, marginTop: moderateScale(8), textAlign: 'center' }}>
+                  Gemini Flash is analyzing the receipt fields in real-time...
+                </Text>
+              </View>
+            ) : (
+              <>
+                {Boolean(liters && cost && pricePerLiter && Math.abs((Number(liters) * Number(pricePerLiter)) - Number(cost)) > 1.0) && (
+                  <View style={{ backgroundColor: '#fff3cd', padding: 12, borderRadius: 8, marginBottom: 16, flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="warning-outline" size={20} color="#856404" />
+                    <Text style={{ color: '#856404', marginLeft: 8, flex: 1 }}>⚠ Some receipt values may need verification. Volume × Price/L does not match the detected total.</Text>
+                  </View>
+                )}
+
+                <View style={styles.fieldRow}>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>VOLUME (L)</Text>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  VOLUME (L) {extractedData?.liters ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
                 <TextInput
                   style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
                   placeholder="e.g. 45.5"
                   placeholderTextColor={colors.outline}
                   keyboardType="decimal-pad"
                   value={liters}
-                  onChangeText={(value) => { setLiters(value); setPricePerLiter(""); }}
+                  onChangeText={(value) => { setLiters(value); }}
                 />
               </View>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>TOTAL COST (₱)</Text>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  TOTAL COST (₱) {extractedData?.amount ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
                 <TextInput
                   style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
                   placeholder="e.g. 3500"
                   placeholderTextColor={colors.outline}
                   keyboardType="decimal-pad"
                   value={cost}
-                  onChangeText={(value) => { setCost(value); setPricePerLiter(""); }}
+                  onChangeText={(value) => { setCost(value); }}
                 />
               </View>
             </View>
 
             <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>STATION NAME</Text>
+              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                STATION NAME {extractedData?.station_name ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+              </Text>
               <TextInput
                 style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
                 placeholder="e.g. Shell NLEX"
@@ -648,10 +731,25 @@ export default function FuelReport() {
                 onChangeText={setStation}
               />
             </View>
+            
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                FUEL TYPE {extractedData?.fuel_type ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+              </Text>
+              <TextInput
+                style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                placeholder="e.g. Regular, Diesel"
+                placeholderTextColor={colors.outline}
+                value={extractedFuelType}
+                onChangeText={setExtractedFuelType}
+              />
+            </View>
 
             <View style={styles.fieldRow}>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>REFUEL DATE</Text>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  REFUEL DATE {extractedData?.fuel_date ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
                 <TextInput
                   style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
                   placeholder="YYYY-MM-DD"
@@ -661,18 +759,61 @@ export default function FuelReport() {
                 />
               </View>
               <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>PRICE / LITER</Text>
-                <View style={[styles.input, styles.readOnlyInput, { borderColor: colors.outlineVariant, backgroundColor: colors.surfaceContainerHighest }]}>
-                  <Text style={{ color: colors.onSurface }}>
-                    {Number(pricePerLiter) > 0
-                      ? `₱${Number(pricePerLiter).toFixed(2)}`
-                      : Number(liters) > 0 && Number(cost) > 0
-                        ? `₱${(Number(cost) / Number(liters)).toFixed(2)}`
-                        : "—"}
-                  </Text>
-                </View>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  PRICE / LITER {extractedData?.price_per_liter ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                  placeholder="e.g. 50.00"
+                  placeholderTextColor={colors.outline}
+                  keyboardType="decimal-pad"
+                  value={pricePerLiter}
+                  onChangeText={setPricePerLiter}
+                />
               </View>
             </View>
+
+            <View style={styles.fieldRow}>
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  TIME {extractedData?.fuel_time ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                  placeholder="HH:MM"
+                  placeholderTextColor={colors.outline}
+                  value={extractedTime}
+                  onChangeText={setExtractedTime}
+                />
+              </View>
+              <View style={[styles.fieldGroup, { flex: 1 }]}>
+                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                  PAYMENT {extractedData?.payment_method ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+                </Text>
+                <TextInput
+                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                  placeholder="e.g. Card, Cash"
+                  placeholderTextColor={colors.outline}
+                  value={extractedPaymentMethod}
+                  onChangeText={setExtractedPaymentMethod}
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>
+                TRANSACTION ID {extractedData?.transaction_id ? <Text style={{color: '#28a745'}}>✓</Text> : (entryMethod === 'scan' ? <Text style={{color: '#dc3545'}}>⚠</Text> : '')}
+              </Text>
+              <TextInput
+                style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                placeholder="e.g. TXN-12345"
+                placeholderTextColor={colors.outline}
+                value={extractedTxnId}
+                onChangeText={setExtractedTxnId}
+              />
+            </View>
+              </>
+            )}
 
             <View style={styles.evidenceBlock}>
               <View style={styles.evidenceHeader}>

@@ -22,6 +22,8 @@ const WRITABLE_COLUMNS = [
   "fuel_date",
   "receipt_url",
   "client_submission_id",
+  "fuel_type",
+  "price_per_liter",
 ];
 
 const ACTIVE_TRIP_STATUSES = [
@@ -121,6 +123,11 @@ export async function POST(req) {
       [session.user.driverId, body.client_submission_id]
     );
     if (duplicate[0]) return ok(duplicate[0]);
+    
+    // Set fallback defaults if not provided in body
+    if (body.price_per_liter === undefined) body.price_per_liter = Number((amount / liters).toFixed(2));
+    if (body.fuel_type === undefined) body.fuel_type = trip.fuel_type || "Unspecified";
+
     for (const key of WRITABLE_COLUMNS) {
       if (body[key] !== undefined) {
         columns.push(key);
@@ -128,11 +135,9 @@ export async function POST(req) {
       }
     }
 
-    columns.push("price_per_liter", "odometer", "fuel_type", "vehicle_id", "trip_id", "driver_id", "created_by", "status");
+    columns.push("odometer", "vehicle_id", "trip_id", "driver_id", "created_by", "status");
     values.push(
-      Number((amount / liters).toFixed(2)),
       trip.mileage,
-      trip.fuel_type || "Unspecified",
       trip.vehicle_id,
       trip.trip_id,
       session.user.driverId,
