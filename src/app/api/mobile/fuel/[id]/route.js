@@ -1,6 +1,8 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { toCalendarDay } from "@/lib/dates";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
+import { fuelAllocationError } from "@/lib/fuel/request-policy";
 
 const WRITABLE_COLUMNS = [
   "station_name",
@@ -8,6 +10,7 @@ const WRITABLE_COLUMNS = [
   "amount",
   "fuel_date",
   "receipt_url",
+  "receipt_fuel_type",
 ];
 
 const SUBMITTED_STATUS = "Pending";
@@ -22,9 +25,11 @@ export async function PUT(req, { params }) {
 
     // Verify ownership and status
     const { rows: existing } = await query(
-      `SELECT fr.fuel_record_id, fr.status, fr.liters, fr.amount
+      `SELECT fr.fuel_record_id, fr.status, fr.liters, fr.amount, fr.fuel_date, fr.fuel_request_id,
+              r.approved_liters, r.allocation_month
          FROM fuelrecords fr
          JOIN vehicles v ON v.vehicle_id = fr.vehicle_id AND v.deleted_at IS NULL
+         LEFT JOIN fuelrequests r ON r.fuel_request_id = fr.fuel_request_id
         WHERE fr.fuel_record_id = $1 AND fr.driver_id = $2 AND fr.deleted_at IS NULL`,
       [id, session.user.driverId]
     );
@@ -43,10 +48,26 @@ export async function PUT(req, { params }) {
     if (!isOwnedFuelReceiptUrl(body.receipt_url, session.user.driverId)) return err("The receipt photo is not a valid upload for this driver", 400);
     if (body.liters !== undefined && (!Number.isFinite(Number(body.liters)) || Number(body.liters) <= 0)) return err("liters must be a positive number", 400);
     if (Number(body.liters) > 1000) return err("liters exceeds the maximum allowed per fuel report", 400);
+    if (existing[0].fuel_request_id) {
+      const allocationError = fuelAllocationError(
+        existing[0].approved_liters,
+        body.liters ?? existing[0].liters
+      );
+      if (allocationError) return err(allocationError, 400);
+      const receiptDay = toCalendarDay(body.fuel_date ?? existing[0].fuel_date);
+      if (!receiptDay || receiptDay.slice(0, 7) !== toCalendarDay(existing[0].allocation_month).slice(0, 7)) {
+        return err("The receipt date must be within the fuel request's allocation month", 409);
+      }
+    }
     if (body.amount !== undefined && (!Number.isFinite(Number(body.amount)) || Number(body.amount) <= 0)) return err("amount must be a positive number", 400);
     if (Number(body.amount) > 1000000) return err("amount exceeds the maximum allowed per fuel report", 400);
     if (body.fuel_date !== undefined && Number.isNaN(new Date(body.fuel_date).getTime())) return err("fuel_date must be a valid date", 400);
     if (body.station_name !== undefined && String(body.station_name).length > 255) return err("station_name is too long", 400);
+  if (body.receipt_fuel_type !== undefined) {
+    body.receipt_fuel_type = typeof body.receipt_fuel_type === "string" && body.receipt_fuel_type.trim()
+      ? body.receipt_fuel_type.trim().slice(0, 50)
+      : null;
+  }
     const updates = [];
     const values = [];
     let idx = 1;

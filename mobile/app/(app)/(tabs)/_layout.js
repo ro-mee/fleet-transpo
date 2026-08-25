@@ -86,7 +86,7 @@ export default function TabsLayout() {
               <Pressable 
                 onPress={() => router.push({ pathname: "/fuel-report", params: { scan: "1" } })}
                 accessibilityRole="button"
-                accessibilityLabel="Scan fuel receipt"
+                accessibilityLabel="Scan fuel gauge or receipt"
                 style={({ pressed }) => ({
                   top: -15,
                   width: 56,

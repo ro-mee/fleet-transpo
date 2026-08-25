@@ -266,6 +266,7 @@ CREATE TABLE driverincidents (
   assistance_needed text[],
   expense_amount numeric(12,2),
   client_submission_id varchar(64),
+  photo_urls text[] DEFAULT '{}'::text[],
   CONSTRAINT chk_driverincidents_status CHECK (((status)::text = ANY ((ARRAY['Open'::character varying, 'Resolved'::character varying])::text[]))),
   CONSTRAINT driverincidents_pkey PRIMARY KEY (incident_id)
 );
@@ -323,6 +324,21 @@ CREATE TABLE employees (
   CONSTRAINT employees_email_key UNIQUE (email)
 );
 
+CREATE TABLE fuelallocations (
+  allocation_id integer DEFAULT nextval('fuelallocations_allocation_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  allocation_month date NOT NULL,
+  allocated_liters numeric(12,2) NOT NULL,
+  created_by integer,
+  updated_by integer,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT fuelallocations_allocated_liters_check CHECK ((allocated_liters > (0)::numeric)),
+  CONSTRAINT fuelallocations_allocation_month_check CHECK ((allocation_month = (date_trunc('month'::text, (allocation_month)::timestamp with time zone))::date)),
+  CONSTRAINT fuelallocations_pkey PRIMARY KEY (allocation_id),
+  CONSTRAINT fuelallocations_vehicle_id_allocation_month_key UNIQUE (vehicle_id, allocation_month)
+);
+
 CREATE TABLE fuelrecords (
   fuel_record_id integer DEFAULT nextval('fuelrecords_fuel_record_id_seq'::regclass) NOT NULL,
   vehicle_id integer NOT NULL,
@@ -346,8 +362,39 @@ CREATE TABLE fuelrecords (
   approved_by integer,
   approved_at timestamptz,
   client_submission_id varchar(64),
+  fuel_request_id integer,
+  receipt_fuel_type text,
   CONSTRAINT chk_fuel_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Completed'::character varying])::text[]))),
   CONSTRAINT fuelrecords_pkey PRIMARY KEY (fuel_record_id)
+);
+
+CREATE TABLE fuelrequests (
+  fuel_request_id integer DEFAULT nextval('fuelrequests_fuel_request_id_seq'::regclass) NOT NULL,
+  vehicle_id integer NOT NULL,
+  driver_id integer NOT NULL,
+  trip_id integer,
+  requested_liters numeric(10,2) NOT NULL,
+  approved_liters numeric(10,2),
+  purpose text,
+  status varchar(20) DEFAULT 'Pending'::character varying NOT NULL,
+  review_notes text,
+  approved_by integer,
+  approved_at timestamptz,
+  fulfilled_at timestamptz,
+  client_submission_id varchar(64),
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  current_fuel_level_percent numeric(5,2),
+  recommended_liters numeric(10,2),
+  forecast_distance_km numeric(10,2),
+  allocation_month date NOT NULL,
+  calculation_snapshot jsonb,
+  gauge_photo_url text,
+  CONSTRAINT chk_fuelrequest_approved_liters CHECK (((approved_liters IS NULL) OR ((approved_liters > (0)::numeric) AND (approved_liters <= (1000)::numeric)))),
+  CONSTRAINT chk_fuelrequest_current_level CHECK (((current_fuel_level_percent IS NULL) OR ((current_fuel_level_percent >= (0)::numeric) AND (current_fuel_level_percent <= (100)::numeric)))),
+  CONSTRAINT fuelrequests_requested_liters_check CHECK (((requested_liters > (0)::numeric) AND (requested_liters <= (1000)::numeric))),
+  CONSTRAINT fuelrequests_status_check CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Fulfilled'::character varying])::text[]))),
+  CONSTRAINT fuelrequests_pkey PRIMARY KEY (fuel_request_id)
 );
 
 CREATE TABLE gpstracking (
@@ -778,7 +825,11 @@ CREATE TABLE vehicles (
   updated_by integer,
   service_interval_km integer,
   service_interval_days integer,
+  tank_capacity_l numeric(10,2),
+  fuel_efficiency_kmpl numeric(8,2),
+  CONSTRAINT chk_vehicle_fuel_efficiency CHECK (((fuel_efficiency_kmpl IS NULL) OR ((fuel_efficiency_kmpl > (0)::numeric) AND (fuel_efficiency_kmpl <= (100)::numeric)))),
   CONSTRAINT chk_vehicle_status CHECK (((vehicle_status)::text = ANY ((ARRAY['Available'::character varying, 'Reserved'::character varying, 'In Use'::character varying, 'Under Maintenance'::character varying, 'Decommissioned'::character varying])::text[]))),
+  CONSTRAINT chk_vehicle_tank_capacity CHECK (((tank_capacity_l IS NULL) OR ((tank_capacity_l > (0)::numeric) AND (tank_capacity_l <= (1000)::numeric)))),
   CONSTRAINT vehicles_pkey PRIMARY KEY (vehicle_id),
   CONSTRAINT vehicles_plate_number_key UNIQUE (plate_number)
 );
@@ -817,12 +868,20 @@ ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (crea
 ALTER TABLE employees ADD CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id) REFERENCES roles(role_id);
 ALTER TABLE employees ADD CONSTRAINT employees_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE employees ADD CONSTRAINT employees_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE fuelrecords ADD CONSTRAINT fk_fuelrecords_fuel_request FOREIGN KEY (fuel_request_id) REFERENCES fuelrequests(fuel_request_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
+ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
+ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE mobile_refresh_tokens ADD CONSTRAINT mobile_refresh_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
@@ -908,6 +967,10 @@ CREATE INDEX idx_employees_role ON public.employees USING btree (role_id);
 CREATE INDEX idx_employees_status ON public.employees USING btree (status);
 CREATE INDEX idx_fuel_date ON public.fuelrecords USING btree (fuel_date);
 CREATE INDEX idx_fuel_vehicle ON public.fuelrecords USING btree (vehicle_id);
+CREATE INDEX idx_fuelallocations_month ON public.fuelallocations USING btree (allocation_month, vehicle_id);
+CREATE INDEX idx_fuelrequests_allocation_month ON public.fuelrequests USING btree (allocation_month, vehicle_id);
+CREATE INDEX idx_fuelrequests_driver_created ON public.fuelrequests USING btree (driver_id, created_at DESC);
+CREATE INDEX idx_fuelrequests_status_created ON public.fuelrequests USING btree (status, created_at DESC);
 CREATE INDEX idx_integration_event ON public.integration_log USING btree (event_type);
 CREATE INDEX idx_integration_external ON public.integration_log USING btree (external_booking_id);
 CREATE INDEX idx_integration_status ON public.integration_log USING btree (status);
@@ -976,6 +1039,9 @@ CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments US
 CREATE UNIQUE INDEX uq_dva_active_vehicle ON public.driver_vehicle_assignments USING btree (vehicle_id) WHERE (assigned_until IS NULL);
 CREATE UNIQUE INDEX uq_dws_driver_day ON public.driver_work_schedules USING btree (driver_id, day_of_week);
 CREATE UNIQUE INDEX uq_fuelrecords_driver_submission ON public.fuelrecords USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));
+CREATE UNIQUE INDEX uq_fuelrecords_fuel_request ON public.fuelrecords USING btree (fuel_request_id) WHERE (fuel_request_id IS NOT NULL);
+CREATE UNIQUE INDEX uq_fuelrequests_driver_submission ON public.fuelrequests USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
+CREATE UNIQUE INDEX uq_fuelrequests_open_vehicle ON public.fuelrequests USING btree (vehicle_id) WHERE ((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying])::text[]));
 CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots USING btree (request_id) WHERE (is_consumed = false);
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);

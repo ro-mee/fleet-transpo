@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 const MAX_RECEIPT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
 
-export async function storeFuelReceipt(file, driverId) {
+export async function storeFuelReceipt(file, driverId, folder = "") {
   if (!file || typeof file === "string") {
     throw new Error("A valid receipt image file is required.");
   }
@@ -20,7 +20,8 @@ export async function storeFuelReceipt(file, driverId) {
   const fileBuffer = await file.arrayBuffer();
   const suppliedExt = file.name?.split(".").pop()?.toLowerCase();
   const fallbackExt = contentType.split("/").pop()?.replace("jpeg", "jpg") || "jpg";
-  const fileName = `${driverId}/${uuidv4()}.${suppliedExt || fallbackExt}`;
+  const safeFolder = String(folder || "").replace(/^\/+|\/+$/g, "");
+  const fileName = [driverId, safeFolder, `${uuidv4()}.${suppliedExt || fallbackExt}`].filter(Boolean).join("/");
   const supabase = createAdminClient();
 
   const { error: uploadError } = await supabase.storage
@@ -52,12 +53,20 @@ export async function storeFuelReceipt(file, driverId) {
 }
 
 export function isOwnedFuelReceiptUrl(value, driverId) {
+  return isOwnedFuelImageUrl(value, driverId);
+}
+
+export function isOwnedFuelImageUrl(value, driverId, folder = "") {
   try {
     const url = new URL(value);
     const storageUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL);
     const path = decodeURIComponent(url.pathname);
+    const safeFolder = String(folder || "").replace(/^\/+|\/+$/g, "");
+    const driverPath = safeFolder
+      ? `/storage/v1/object/sign/fuel-receipts/${driverId}/${safeFolder}/`
+      : `/storage/v1/object/sign/fuel-receipts/${driverId}/`;
     return url.host === storageUrl.host
-      && path.includes(`/storage/v1/object/sign/fuel-receipts/${driverId}/`)
+      && path.includes(driverPath)
       && Boolean(url.searchParams.get("token"));
   } catch {
     return false;

@@ -13,7 +13,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
-import { getFuelRecords, updateFuelRecord, updateFuelStatus, deleteFuelRecord } from "@/services/fuel.service";
+import {
+  getFuelRecords,
+  getFuelAllocations,
+  getFuelRequests,
+  reviewFuelRequest,
+  saveFuelAllocation,
+  updateFuelRecord,
+  updateFuelStatus,
+  deleteFuelRecord,
+} from "@/services/fuel.service";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
 import {
   Fuel,
@@ -31,12 +40,16 @@ import {
   MapPin,
   User,
   Truck,
+  ClipboardList,
+  Gauge,
+  Settings2,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { LIMITS } from "@/lib/validation";
+import { fuelTypeMismatch } from "@/lib/fuel/request-policy";
 
 const rejectSchema = {
   rejection_reason: { required: true, maxLength: 500, label: "Rejection reason" },
@@ -50,6 +63,24 @@ const editFuelSchema = {
   odometer: { type: "positiveNumber", label: "Odometer" },
   fuel_date: { required: true, type: "date", label: "Refuel date" },
 };
+
+function requestReviewFacts(request) {
+  const snap = request?.calculation_snapshot || {};
+  const current = Number(request?.current_fuel_level_percent);
+  const tank = Number(request?.tank_capacity_l);
+  const minSafe = snap.minimum_safe_liters != null
+    ? Number(snap.minimum_safe_liters)
+    : [snap.forecast_consumption_liters, snap.reserve_liters, snap.current_liters].every((v) => v != null)
+      ? Math.max(0, Number(snap.forecast_consumption_liters) + Number(snap.reserve_liters) - Number(snap.current_liters))
+      : null;
+  return {
+    minSafe,
+    target: request?.recommended_liters || request?.requested_liters,
+    tankSpace: Number.isFinite(current) && Number.isFinite(tank) ? tank * (1 - current / 100) : null,
+    remaining: snap.monthly_remaining_liters ?? null,
+    variance: snap.fuel_variance || null,
+  };
+}
 
 export default function FuelPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
@@ -77,6 +108,11 @@ export default function FuelPage() {
   const [archivingRecord, setArchivingRecord] = useState(null);
   const [approvingRecord, setApprovingRecord] = useState(null);
   const [exporting, setExporting] = useState(false);
+  const [reviewRequest, setReviewRequest] = useState(null);
+  const [approvedLiters, setApprovedLiters] = useState("");
+  const [requestNotes, setRequestNotes] = useState("");
+  const [configureAllocation, setConfigureAllocation] = useState(null);
+  const [allocationForm, setAllocationForm] = useState({ allocated_liters: "", tank_capacity_l: "", fuel_efficiency_kmpl: "" });
 
   // Reject Prompt State
   const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
@@ -114,6 +150,20 @@ export default function FuelPage() {
   const records = data.rows || [];
   const total = data.total || 0;
   const counts = data.counts || { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 };
+
+  const { data: requestData = { rows: [], counts: {} }, isLoading: requestsLoading } = useQuery({
+    queryKey: ["fuel-requests"],
+    queryFn: () => getFuelRequests(),
+    refetchInterval: 30_000,
+  });
+  const fuelRequests = requestData.rows || [];
+
+  const { data: allocationData = { rows: [] }, isLoading: allocationsLoading } = useQuery({
+    queryKey: ["fuel-allocations"],
+    queryFn: () => getFuelAllocations(),
+    refetchInterval: 30_000,
+  });
+  const fuelAllocations = allocationData.rows || [];
 
   // Export needs the whole (filtered) set, not just the current page.
   const handleExport = async () => {
@@ -175,11 +225,93 @@ export default function FuelPage() {
     onError: (err) => toast.error(err.message || "Failed to archive record"),
   });
 
+  const reviewRequestMutation = useMutation({
+    mutationFn: reviewFuelRequest,
+    onSuccess: (_, variables) => {
+      toast.success(`Fuel request ${variables.status.toLowerCase()}`);
+      queryClient.invalidateQueries({ queryKey: ["fuel-requests"] });
+      setReviewRequest(null);
+      setRequestNotes("");
+    },
+    onError: (error) => toast.error(error.message || "Could not review fuel request"),
+  });
+
+  const openRequestReview = (request) => {
+    setReviewRequest(request);
+    setApprovedLiters(String(request.recommended_liters || request.requested_liters));
+    setRequestNotes("");
+  };
+
+  const submitRequestReview = (status) => {
+    if (status === "Rejected" && !requestNotes.trim()) {
+      toast.error("Enter a reason before rejecting the request");
+      return;
+    }
+    const litersValue = Number(approvedLiters);
+    if (status === "Approved" && (!Number.isFinite(litersValue) || litersValue <= 0)) {
+      toast.error("Enter the approved liters");
+      return;
+    }
+    if (status === "Approved") {
+      const facts = requestReviewFacts(reviewRequest);
+      const remaining = Number(facts.remaining);
+      if (!requestNotes.trim() && facts.minSafe != null && litersValue < facts.minSafe) {
+        toast.error(`At least ${facts.minSafe.toFixed(2)} L covers the forecast consumption plus reserve — add an override reason to approve less`);
+        return;
+      }
+      if (!requestNotes.trim() && litersValue > Number(facts.target || 0)) {
+        toast.error("Add a reason when approving above the recommendation");
+        return;
+      }
+      if (!requestNotes.trim() && Number.isFinite(remaining) && litersValue > remaining) {
+        toast.error(`This exceeds the monthly fuel budget by ${(litersValue - remaining).toFixed(2)} L — add an override reason to proceed`);
+        return;
+      }
+    }
+    reviewRequestMutation.mutate({
+      fuel_request_id: reviewRequest.fuel_request_id,
+      status,
+      approved_liters: status === "Approved" ? litersValue : undefined,
+      review_notes: requestNotes.trim() || undefined,
+    });
+  };
+
+  const saveAllocationMutation = useMutation({
+    mutationFn: saveFuelAllocation,
+    onSuccess: () => {
+      toast.success("Monthly fuel budget saved");
+      queryClient.invalidateQueries({ queryKey: ["fuel-allocations"] });
+      queryClient.invalidateQueries({ queryKey: ["fuel-requests"] });
+      setConfigureAllocation(null);
+    },
+    onError: (error) => toast.error(error.message || "Could not save the monthly fuel budget"),
+  });
+
+  const openAllocationSetup = (row) => {
+    setConfigureAllocation(row);
+    setAllocationForm({
+      allocated_liters: String(row.allocated_liters || ""),
+      tank_capacity_l: String(row.tank_capacity_l || ""),
+      fuel_efficiency_kmpl: String(row.fuel_efficiency_kmpl || ""),
+    });
+  };
+
+  const submitAllocation = () => {
+    const values = Object.fromEntries(Object.entries(allocationForm).map(([key, value]) => [key, Number(value)]));
+    if (Object.values(values).some((value) => !Number.isFinite(value) || value <= 0)) {
+      toast.error("Enter valid positive values for the monthly limit, tank capacity, and efficiency");
+      return;
+    }
+    saveAllocationMutation.mutate({ vehicle_id: configureAllocation.vehicle_id, ...values });
+  };
+
   // Stats come from the server-side counts (whole set, not the current page).
   const pendingCount = counts.pending;
   const approvedCount = counts.approved;
   const rejectedCount = counts.rejected;
   const totalCost = counts.approvedCost;
+
+  const reviewFacts = reviewRequest ? requestReviewFacts(reviewRequest) : null;
 
   const columns = [
     {
@@ -377,9 +509,9 @@ export default function FuelPage() {
       {/* ── Page Header ── */}
       <HeroHeader
         icon={Fuel}
-        title="Fuel Receipt Audit & Review"
+        title="Fuel Management"
         badge="Operations"
-        description="Verify scanned driver fuel receipts and approve or reject claims."
+        description="Set monthly vehicle limits, approve forecasted replenishment, and verify the receipts that consume each budget."
         actions={
           <Button
             variant="outline"
@@ -394,6 +526,153 @@ export default function FuelPage() {
       />
 
       {/* ── Metric Cards ── */}
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-muted/20 flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Gauge className="h-4.5 w-4.5 text-primary" /> Monthly Vehicle Fuel Plan
+            </CardTitle>
+            <p className="mt-1 text-xs text-foreground-secondary">
+              Configure each vehicle once per month; approved receipts consume the available liters.
+            </p>
+          </div>
+          <Badge variant="secondary" className="rounded-full">
+            {fuelAllocations.filter((row) => !row.allocation_id).length} unconfigured
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border/60 bg-muted/10 text-[11px] uppercase tracking-wider text-foreground-muted">
+                <tr>
+                    <th className="px-5 py-3 font-bold">Vehicle</th>
+                    <th className="px-5 py-3 font-bold">Fuel profile</th>
+                    <th className="px-5 py-3 font-bold">Monthly budget</th>
+                    <th className="px-5 py-3 font-bold">Used / committed</th>
+                    <th className="px-5 py-3 font-bold">Utilization</th>
+                  <th className="px-5 py-3 text-right font-bold">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {allocationsLoading ? (
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-foreground-muted">Loading monthly allocations…</td></tr>
+                ) : fuelAllocations.length === 0 ? (
+                  <tr><td colSpan={6} className="px-5 py-8 text-center text-foreground-muted">No active vehicles found.</td></tr>
+                ) : fuelAllocations.map((row) => (
+                  <tr key={row.vehicle_id} className="bg-surface hover:bg-muted/20">
+                    <td className="px-5 py-3">
+                      <p className="font-data text-xs font-bold">{row.plate_number}</p>
+                      <p className="text-xs text-foreground-muted">{row.vehicle_name}</p>
+                    </td>
+                    <td className="px-5 py-3 text-xs">
+                      {row.tank_capacity_l && row.fuel_efficiency_kmpl
+                        ? `${row.tank_capacity_l} L tank · ${row.fuel_efficiency_kmpl} km/L`
+                        : <span className="text-warning">Profile required</span>}
+                    </td>
+                    <td className="px-5 py-3 font-data font-bold">{row.allocated_liters ? `${row.allocated_liters} L` : "—"}</td>
+                    <td className="px-5 py-3 font-data text-xs">{Number(row.consumed_liters || 0).toFixed(1)} / {Number(row.committed_liters || 0).toFixed(1)} L</td>
+                    <td className="px-5 py-3">
+                      {row.allocated_liters ? (() => {
+                        const alloc = Number(row.allocated_liters);
+                        const used = Number(row.consumed_liters || 0) + Number(row.committed_liters || 0);
+                        const pct = Math.round((used / alloc) * 100);
+                        const over = pct > 100;
+                        const fill = over ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-success";
+                        return (
+                          <div className="w-28">
+                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className={cn("h-full rounded-full", fill)} style={{ width: `${Math.min(100, pct)}%` }} />
+                            </div>
+                            <p className={cn("mt-1 text-[10px] font-bold", over ? "text-danger" : pct >= 80 ? "text-warning" : "text-foreground-muted")}>
+                              {over ? "Budget exceeded" : pct >= 80 ? "Near budget limit" : `${pct}% used`}
+                              {" · "}{Number(row.remaining_liters || 0).toFixed(1)} L left
+                            </p>
+                          </div>
+                        );
+                      })() : "—"}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      <Button size="sm" variant="outline" onClick={() => openAllocationSetup(row)}>
+                        <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Configure
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
+        <CardHeader className="border-b border-border/60 bg-muted/20 flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ClipboardList className="h-4.5 w-4.5 text-primary" /> Fuel Requests & Allocation History
+            </CardTitle>
+            <p className="mt-1 text-xs text-foreground-secondary">
+              Recommendations cover the vehicle&apos;s next 24 hours and refill toward a safe operating level.
+            </p>
+          </div>
+          <Badge variant="warning" className="rounded-full">
+            {requestData.counts?.pending || 0} pending
+          </Badge>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b border-border/60 bg-muted/10 text-[11px] uppercase tracking-wider text-foreground-muted">
+                <tr>
+                  <th className="px-5 py-3 font-bold">Driver / Source</th>
+                  <th className="px-5 py-3 font-bold">Vehicle</th>
+                  <th className="px-5 py-3 font-bold">Fuel / Forecast</th>
+                  <th className="px-5 py-3 font-bold">Recommended</th>
+                  <th className="px-5 py-3 font-bold">Authorized</th>
+                  <th className="px-5 py-3 font-bold">Status</th>
+                  <th className="px-5 py-3 text-right font-bold">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/50">
+                {requestsLoading ? (
+                  <tr><td colSpan={7} className="px-5 py-8 text-center text-foreground-muted">Loading fuel requests…</td></tr>
+                ) : fuelRequests.length === 0 ? (
+                  <tr><td colSpan={7} className="px-5 py-8 text-center text-foreground-muted">No fuel requests yet.</td></tr>
+                ) : fuelRequests.map((request) => (
+                  <tr key={request.fuel_request_id} className="bg-surface hover:bg-muted/20">
+                    <td className="px-5 py-3">
+                      <p className="font-semibold text-foreground">{request.first_name} {request.last_name}</p>
+                      <p className="text-xs text-foreground-muted">{request.trip_id ? `Trip #${request.trip_id}` : "Vehicle assignment"}</p>
+                    </td>
+                    <td className="px-5 py-3 font-data text-xs font-bold">{request.plate_number}</td>
+                    <td className="px-5 py-3 text-xs">
+                      <p className="font-data font-bold">{request.current_fuel_level_percent ?? "—"}% current</p>
+                      <p className="text-foreground-muted">{request.forecast_distance_km ?? "—"} km / 24h</p>
+                    </td>
+                    <td className="px-5 py-3 font-data font-bold">{request.recommended_liters || request.requested_liters} L</td>
+                    <td className="px-5 py-3 font-data">{request.approved_liters ? `${request.approved_liters} L` : "—"}</td>
+                    <td className="px-5 py-3">
+                      <StatusBadge status={request.status} entity="fuel" />
+                      {request.status === "Approved" && request.calculation_snapshot?.auto_authorized ? (
+                        <span className="ml-1.5 inline-flex items-center rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-success">
+                          Within policy
+                        </span>
+                      ) : null}
+                    </td>
+                    <td className="px-5 py-3 text-right">
+                      {request.status === "Pending" ? (
+                        <Button size="sm" onClick={() => openRequestReview(request)}>Review</Button>
+                      ) : (
+                        <span className="text-xs text-foreground-muted">Reviewed</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {(() => {
           const t = TONE_MAP.primary;
@@ -554,6 +833,129 @@ export default function FuelPage() {
       </Card>
 
       {/* ── SIDE-BY-SIDE RECEIPT INSPECTION & VERIFICATION MODAL ── */}
+      <Dialog open={!!configureAllocation} onOpenChange={(open) => !open && setConfigureAllocation(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Configure {configureAllocation?.plate_number}</DialogTitle>
+          </DialogHeader>
+          {configureAllocation ? (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-foreground-secondary">
+                These values drive every recommendation for this vehicle during the current month.
+              </p>
+              <div className="space-y-1.5">
+                <Label htmlFor="monthly_allocation">Monthly fuel budget (L)</Label>
+                <Input id="monthly_allocation" type="number" min="0.01" step="0.01" value={allocationForm.allocated_liters} onChange={(event) => setAllocationForm({ ...allocationForm, allocated_liters: event.target.value })} />
+                <p className="text-xs text-foreground-muted">Already used or committed: {(Number(configureAllocation.consumed_liters || 0) + Number(configureAllocation.committed_liters || 0)).toFixed(1)} L</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="tank_capacity">Tank capacity (L)</Label>
+                  <Input id="tank_capacity" type="number" min="0.01" max="1000" step="0.01" value={allocationForm.tank_capacity_l} onChange={(event) => setAllocationForm({ ...allocationForm, tank_capacity_l: event.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="fuel_efficiency">Efficiency (km/L)</Label>
+                  <Input id="fuel_efficiency" type="number" min="0.01" max="100" step="0.01" value={allocationForm.fuel_efficiency_kmpl} onChange={(event) => setAllocationForm({ ...allocationForm, fuel_efficiency_kmpl: event.target.value })} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setConfigureAllocation(null)}>Cancel</Button>
+                <Button onClick={submitAllocation} disabled={saveAllocationMutation.isPending}>
+                  {saveAllocationMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Save monthly plan
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!reviewRequest} onOpenChange={(open) => !open && setReviewRequest(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Review fuel request #{reviewRequest?.fuel_request_id}</DialogTitle>
+          </DialogHeader>
+          {reviewRequest ? (
+            <div className="space-y-4 pt-2">
+              <div className="rounded-2xl border border-border bg-muted/20 p-4 text-sm">
+                <p className="font-semibold">{reviewRequest.first_name} {reviewRequest.last_name}</p>
+                <p className="text-foreground-secondary">{reviewRequest.plate_number} · {reviewRequest.trip_id ? `Trip #${reviewRequest.trip_id}` : "Vehicle assignment"}</p>
+                {reviewRequest.purpose ? <p className="mt-2 text-foreground-secondary">{reviewRequest.purpose}</p> : null}
+              </div>
+              {reviewRequest.gauge_photo_url ? (
+                <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/20 p-2">
+                  <img
+                    src={reviewRequest.gauge_photo_url}
+                    alt="Fuel gauge evidence"
+                    className="h-16 w-24 cursor-zoom-in rounded-lg border border-border object-cover"
+                    onClick={() => setZoomReceiptUrl(reviewRequest.gauge_photo_url)}
+                  />
+                  <p className="text-xs text-foreground-muted">
+                    Gauge photo attached by driver
+                    {reviewRequest.calculation_snapshot?.gauge_scan ? ` · AI read ~${reviewRequest.calculation_snapshot.gauge_scan.estimated_level_percent}%` : " (not machine-read)"}
+                  </p>
+                </div>
+              ) : null}
+              {reviewFacts.variance?.variance_detected ? (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>
+                    <span className="font-bold">Fuel variance detected — review recommended.</span>{" "}
+                    Expected ≈{reviewFacts.variance.expected_liters} L remaining based on the previous report and trips since, but the driver reports {reviewRequest.current_fuel_level_percent}%.
+                  </p>
+                </div>
+              ) : null}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3"><span className="text-foreground-muted">Minimum safe refill</span><p className="mt-1 font-data font-bold">{reviewFacts.minSafe != null ? `${reviewFacts.minSafe.toFixed(2)} L` : "—"}</p><p className="mt-0.5 text-[10px] text-foreground-muted">Forecast use + emergency reserve</p></div>
+                <div className="rounded-xl border border-border/60 bg-muted/30 p-3"><span className="text-foreground-muted">Preferred target</span><p className="mt-1 font-data font-bold">{reviewFacts.target} L</p><p className="mt-0.5 text-[10px] text-foreground-muted">Fewer refueling stops</p></div>                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Tank space left</span><p className="mt-1 font-data font-bold">{reviewFacts.tankSpace != null ? `${reviewFacts.tankSpace.toFixed(2)} L` : "—"}</p></div>
+                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Budget remaining</span><p className="mt-1 font-data font-bold">{reviewFacts.remaining ?? "—"} L</p></div>
+                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">Current fuel</span><p className="mt-1 font-data font-bold">{reviewRequest.current_fuel_level_percent}% · {reviewRequest.calculation_snapshot?.current_liters ?? "—"} L</p><p className="mt-0.5 text-[10px] text-foreground-muted">{reviewRequest.calculation_snapshot?.gauge_scan ? `Gauge scan read ~${reviewRequest.calculation_snapshot.gauge_scan.estimated_level_percent}%` : "Driver-reported"}</p></div>
+                <div className="rounded-xl bg-muted/30 p-3"><span className="text-foreground-muted">24h forecast</span><p className="mt-1 font-data font-bold">{reviewRequest.forecast_distance_km} km · ≈{reviewRequest.calculation_snapshot?.forecast_consumption_liters ?? "—"} L</p></div>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="approved_liters">Approved allocation (liters)</Label>
+                <Input
+                  id="approved_liters"
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={approvedLiters}
+                  onChange={(event) => setApprovedLiters(event.target.value)}
+                />
+                <p className="text-xs text-foreground-muted">Below the minimum safe refill or above the monthly available requires an override reason.</p>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="request_notes">Review notes / override reason</Label>
+                <Input
+                  id="request_notes"
+                  maxLength={500}
+                  value={requestNotes}
+                  onChange={(event) => setRequestNotes(event.target.value)}
+                  placeholder="Required when rejecting, approving below minimum, or exceeding the budget"
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setReviewRequest(null)}>Cancel</Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => submitRequestReview("Rejected")}
+                  disabled={reviewRequestMutation.isPending}
+                >
+                  Reject
+                </Button>
+                <Button
+                  onClick={() => submitRequestReview("Approved")}
+                  disabled={reviewRequestMutation.isPending}
+                >
+                  {reviewRequestMutation.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Approve allocation
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!inspectRecord} onOpenChange={() => setInspectRecord(null)}>
         <DialogContent className="max-w-4xl">
           <DialogHeader>
@@ -664,6 +1066,37 @@ export default function FuelPage() {
                         <p>{inspectRecord.rejection_reason}</p>
                       </div>
                     )}
+
+                    {(() => {
+                      const vehicle = inspectRecord.vehicles || {};
+                      const tank = Number(vehicle.tank_capacity_l);
+                      const level = Number(vehicle.fuel_level);
+                      const liters = Number(inspectRecord.liters);
+                      const estimated = Number.isFinite(tank) && Number.isFinite(level) ? tank * (level / 100) : null;
+                      const tankOk = estimated == null || !Number.isFinite(liters) ? null : liters + estimated <= tank;
+                      const mismatch = fuelTypeMismatch(vehicle.fuel_type, inspectRecord.receipt_fuel_type);
+                      return (
+                        <div className="space-y-1.5 text-xs pt-2 border-t border-border">
+                          <p className="font-semibold text-foreground">Automatic checks</p>
+                          <div className="flex flex-wrap gap-x-4 gap-y-1">
+                            <span className={mismatch ? "text-danger font-semibold" : "text-foreground-muted"}>
+                              {inspectRecord.receipt_fuel_type
+                                ? mismatch
+                                  ? `⚠ Fuel type: receipt says ${inspectRecord.receipt_fuel_type}, vehicle uses ${vehicle.fuel_type || "unspecified"}`
+                                  : `Fuel type: ${inspectRecord.receipt_fuel_type} –`
+                                : "Fuel type: not stated on receipt"}
+                            </span>
+                            <span className={tankOk === false ? "text-danger font-semibold" : "text-foreground-muted"}>
+                              {tankOk == null
+                                ? "Tank capacity check: unavailable"
+                                : tankOk
+                                  ? `Tank capacity check: passed – (${estimated.toFixed(1)} L current + ${liters} L ≤ ${tank} L)`
+                                  : `⚠ Impossible fuel quantity — only about ${(tank - estimated).toFixed(1)} L of space left`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {/* Verification Decision Buttons */}

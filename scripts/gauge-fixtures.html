@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Fuel gauge fixture generator</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #111; color: #eee; padding: 24px; }
+  canvas { border: 1px solid #444; margin: 6px; background: #000; }
+  button { font-size: 16px; padding: 10px 18px; margin-bottom: 16px; cursor: pointer; }
+  p { max-width: 720px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>Synthetic fuel gauge fixtures</h1>
+<p>
+  Renders gauges at known levels with deterministic needle angles, tick marks, E/F labels,
+  a red zone, plus two digital bar variants — then downloads every PNG named by its true
+  level (e.g. <code>25.png</code>). Feed the folder to
+  <code>node scripts/verify-gauge-scan.mjs &lt;folder&gt;</code> to measure scan accuracy.
+  Analog needle gauges are deliberately rendered at slightly rotated dashboards for realism.
+</p>
+<button id="download">Download all PNGs</button>
+<div id="grid"></div>
+
+<script>
+const LEVELS = [0, 10, 25, 40, 50, 60, 75, 90, 100];
+const STYLES = ["needle", "needle-tilted", "digital"];
+
+function drawNeedle(ctx, size, level, tiltDeg) {
+  const cx = size / 2, cy = size / 2 + size * 0.28, r = size * 0.38;
+  const start = Math.PI - 0.35;
+  const end = 0.35;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  if (tiltDeg) ctx.rotate((tiltDeg * Math.PI) / 180);
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, start, end);
+  ctx.strokeStyle = "#ddd";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  ctx.beginPath();
+  ctx.arc(0, 0, r, end, Math.PI / 3);
+  ctx.strokeStyle = "#d33";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  ctx.fillStyle = "#fff";
+  ctx.font = `${Math.round(size * 0.07)}px sans-serif`;
+  ctx.textAlign = "center";
+  ctx.fillText("E", Math.cos(start) * r * 1.12, Math.sin(start) * r * 1.12 + 4);
+  ctx.fillText("F", Math.cos(end) * r * 1.12, Math.sin(end) * r * 1.12 + 4);
+
+  for (let i = 0; i <= 4; i++) {
+    const a = start + ((end - start) * i) / 4;
+    ctx.beginPath();
+    ctx.moveTo(Math.cos(a) * r * 0.92, Math.sin(a) * r * 0.92);
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    ctx.strokeStyle = "#aaa";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  const angle = start + (end - start) * (level / 100);
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(Math.cos(angle) * r * 0.88, Math.sin(angle) * r * 0.88);
+  ctx.strokeStyle = "#f33";
+  ctx.lineWidth = 4;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawDigital(ctx, size, level) {
+  const segments = 10;
+  const lit = Math.round((level / 100) * segments);
+  const w = size * 0.08, gap = size * 0.02, x0 = size * 0.09, y = size * 0.46;
+  ctx.fillStyle = "#fff";
+  ctx.font = `${Math.round(size * 0.08)}px sans-serif`;
+  ctx.fillText("E", size * 0.03, y + w);
+  ctx.fillText("F", size * 0.9, y + w);
+  for (let i = 0; i < segments; i++) {
+    ctx.fillStyle = i < lit ? "#3f6" : "#233";
+    ctx.fillRect(x0 + i * (w + gap), y, w, w * 1.6);
+  }
+}
+
+function render(style, level) {
+  const size = 320;
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  canvas.title = `${style}-${level}`;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, size, size);
+  if (style === "digital") drawDigital(ctx, size, level);
+  else drawNeedle(ctx, size, level, style === "needle-tilted" ? 8 : 0);
+  return { canvas, name: `${style}_${level}.png` };
+}
+
+const grid = document.getElementById("grid");
+const images = [];
+for (const style of STYLES) {
+  for (const level of LEVELS) {
+    const { canvas, name } = render(style, level);
+    grid.appendChild(canvas);
+    images.push({ canvas, name });
+  }
+}
+
+document.getElementById("download").addEventListener("click", () => {
+  for (const { canvas, name } of images) {
+    const link = document.createElement("a");
+    link.download = name;
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+  }
+});
+</script>
+</body>
+</html>

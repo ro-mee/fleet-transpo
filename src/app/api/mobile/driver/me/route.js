@@ -56,6 +56,17 @@ export async function GET(req) {
       [session.user.driverId]
     );
 
+    const { rows: assignmentRows } = await query(
+      `SELECT a.vehicle_id, v.plate_number, v.model
+         FROM driver_vehicle_assignments a
+         JOIN vehicles v ON v.vehicle_id = a.vehicle_id AND v.deleted_at IS NULL
+        WHERE a.driver_id = $1 AND a.assigned_from <= CURRENT_DATE
+          AND (a.assigned_until IS NULL OR a.assigned_until >= CURRENT_DATE)
+        ORDER BY a.assigned_from DESC
+        LIMIT 1`,
+      [session.user.driverId]
+    );
+
     return ok({
       employeeId: me.employee_id,
       email: me.email,
@@ -75,6 +86,7 @@ export async function GET(req) {
         : null,
       activeTrip: activeRows[0] ?? null,
       recentTrip: recentRows[0] ?? null,
+      assignedVehicle: assignmentRows[0] ?? null,
     });
   } catch (e) {
     return handleError(e);

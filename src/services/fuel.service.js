@@ -30,3 +30,19 @@ export async function deleteFuelRecord(id) {
 export async function getFuelAnalytics() {
   return apiFetch("/api/fuel/analytics");
 }
+
+export async function getFuelRequests(filters = {}) {
+  return apiFetch(`/api/fuel/requests${buildQuery(filters)}`);
+}
+
+export async function reviewFuelRequest(request) {
+  return apiFetch("/api/fuel/requests", { method: "PUT", body: request });
+}
+
+export async function getFuelAllocations(filters = {}) {
+  return apiFetch(`/api/fuel/allocations${buildQuery(filters)}`);
+}
+
+export async function saveFuelAllocation(allocation) {
+  return apiFetch("/api/fuel/allocations", { method: "PUT", body: allocation });
+}

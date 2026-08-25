@@ -29,11 +29,20 @@ export default function FuelReport() {
   const [cost, setCost] = useState(pCost || "");
   const [pricePerLiter, setPricePerLiter] = useState("");
   const [station, setStation] = useState(pStation || "");
+  const [receiptFuelType, setReceiptFuelType] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [receiptUrl, setReceiptUrl] = useState(null);
   const [receiptAsset, setReceiptAsset] = useState(null);
   const [submittedRecord, setSubmittedRecord] = useState(null);
+  const [fuelRequests, setFuelRequests] = useState([]);
+  const [loadingRequests, setLoadingRequests] = useState(true);
+  const [fuelLevelPercent, setFuelLevelPercent] = useState("");
+  const [gaugePhotoUrl, setGaugePhotoUrl] = useState("");
+  const [gaugeScanEstimate, setGaugeScanEstimate] = useState(null);
+  const [gaugeBusy, setGaugeBusy] = useState(false);
+  const [requestPurpose, setRequestPurpose] = useState("");
+  const [requestingFuel, setRequestingFuel] = useState(false);
   const [fuelDate, setFuelDate] = useState(pFuelDate || new Date().toISOString());
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraPurpose, setCameraPurpose] = useState("scan");
@@ -43,6 +52,8 @@ export default function FuelReport() {
   const [capturing, setCapturing] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [submissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const [initialRequestSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}-req`);
+  const requestSubmissionId = useRef(initialRequestSubmissionId);
   const cameraRef = useRef(null);
   const scanInFlight = useRef(false);
   const autoScanStarted = useRef(false);
@@ -51,18 +62,18 @@ export default function FuelReport() {
     (async () => {
       try {
         const data = await api.get("/api/mobile/driver/trips?status=all");
+        let selected = null;
         if (Array.isArray(data) && data.length > 0) {
           if (paramTripId) {
-            const found = data.find((t) => String(t.trip_id) === String(paramTripId));
-            if (found) {
-              setAssignedTrip(found);
-              return;
-            }
+            selected = data.find((t) => String(t.trip_id) === String(paramTripId)) || null;
           }
-          // Prioritize active or pending assigned trips
-          const activeOrPending = data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || data[0];
-          setAssignedTrip(activeOrPending);
+          selected ||= data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || null;
         }
+        if (!selected) {
+          const me = await api.get("/api/mobile/driver/me");
+          selected = me?.assignedVehicle ? { ...me.assignedVehicle, trip_id: null } : null;
+        }
+        setAssignedTrip(selected);
       } catch (e) {
         // Fallback gracefully
       } finally {
@@ -72,6 +83,90 @@ export default function FuelReport() {
   }, [paramTripId]);
 
   const activeTripId = paramTripId || (assignedTrip?.trip_id ? String(assignedTrip.trip_id) : null);
+  const activeVehicleId = assignedTrip?.vehicle_id ? String(assignedTrip.vehicle_id) : null;
+  const hasAssignedVehicle = Boolean(activeVehicleId || activeTripId);
+  const currentFuelRequest = fuelRequests.find(
+    (request) => (activeVehicleId
+      ? String(request.vehicle_id) === activeVehicleId
+      : String(request.trip_id) === String(activeTripId)) && ["Pending", "Approved"].includes(request.status)
+  );
+  const latestFuelRequest = fuelRequests.find((request) => activeVehicleId
+    ? String(request.vehicle_id) === activeVehicleId
+    : String(request.trip_id) === String(activeTripId));
+  const canLogFuel = Boolean(id) || currentFuelRequest?.status === "Approved";
+
+  const loadFuelRequests = useCallback(async () => {
+    if (!hasAssignedVehicle || id) {
+      setLoadingRequests(false);
+      return;
+    }
+    try {
+      const data = await api.get("/api/fuel/requests");
+      const rows = data?.rows || [];
+      setFuelRequests(rows);
+      const latest = rows.find((request) => activeVehicleId
+        ? String(request.vehicle_id) === activeVehicleId
+        : String(request.trip_id) === String(activeTripId));
+      if (latest?.status === "Rejected" && latest.client_submission_id === requestSubmissionId.current) {
+        requestSubmissionId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}-req`;
+      }
+    } catch (error) {
+      console.warn("Could not load fuel requests:", error.message);
+    } finally {
+      setLoadingRequests(false);
+    }
+  }, [activeTripId, activeVehicleId, hasAssignedVehicle, id]);
+
+  useEffect(() => {
+    const initial = setTimeout(loadFuelRequests, 0);
+    const poll = setInterval(loadFuelRequests, 15_000);
+    return () => {
+      clearTimeout(initial);
+      clearInterval(poll);
+    };
+  }, [loadFuelRequests]);
+
+  const requestFuel = async () => {
+    const value = Number(String(fuelLevelPercent).replace(/,/g, ""));
+    if (!hasAssignedVehicle) {
+      AppAlert.alert("No Assigned Vehicle", "A fuel request needs a vehicle currently assigned to you.");
+      return;
+    }
+    if (!Number.isFinite(value) || value < 0 || value > 100) {
+      AppAlert.alert("Invalid Fuel Level", "Enter the dashboard fuel level from 0 to 100%.");
+      return;
+    }
+    if (!gaugePhotoUrl) {
+      AppAlert.alert("Gauge Photo Required", "Attach a photo of the dashboard fuel gauge with every request.");
+      return;
+    }
+    try {
+      setRequestingFuel(true);
+      const row = await api.post("/api/fuel/requests", {
+        ...(activeTripId ? { trip_id: Number(activeTripId) } : {}),
+        current_fuel_level_percent: value,
+        purpose: requestPurpose.trim() || undefined,
+        gauge_photo_url: gaugePhotoUrl,
+        ...(gaugeScanEstimate != null ? { gauge_scan_estimate: gaugeScanEstimate } : {}),
+        client_submission_id: requestSubmissionId.current,
+      });
+      setFuelRequests((current) => [{
+        ...row,
+        trip_id: row?.trip_id || (activeTripId ? Number(activeTripId) : null),
+        status: row?.status || "Pending",
+      }, ...current]);
+      setRequestPurpose("");
+      setFuelLevelPercent("");
+      resetGaugeEvidence();
+      AppAlert.alert("Request Submitted", row?.queued
+        ? "Your request is queued and will sync when you are online."
+        : "Wait for fleet approval before purchasing fuel.");
+    } catch (error) {
+      AppAlert.alert("Unable to Request Fuel", error.message || "Please try again.");
+    } finally {
+      setRequestingFuel(false);
+    }
+  };
 
   const closeFuelReport = () => {
     if (router.canGoBack()) {
@@ -81,14 +176,21 @@ export default function FuelReport() {
     }
   };
 
-  const canSubmit = Boolean(liters && cost && receiptUrl) && !scanning && !submitting;
+  const canSubmit = canLogFuel && Boolean(liters && cost && receiptUrl) && !scanning && !submitting;
 
   const resetDetails = () => {
     setLiters(pLiters || "");
     setCost(pCost || "");
     setPricePerLiter("");
     setStation(pStation || "");
+    setReceiptFuelType("");
     setFuelDate(pFuelDate || new Date().toISOString());
+  };
+
+  const resetGaugeEvidence = () => {
+    setGaugePhotoUrl("");
+    setGaugeScanEstimate(null);
+    setGaugeBusy(false);
   };
 
   const pickReceipt = async () => {
@@ -124,6 +226,60 @@ export default function FuelReport() {
     return formData;
   };
 
+  const createGaugeFormData = (asset) => {
+    const formData = new FormData();
+    formData.append('kind', 'gauge');
+    formData.append('image', {
+      uri: asset.uri,
+      name: asset.fileName || 'gauge.jpg',
+      type: asset.mimeType || 'image/jpeg',
+    });
+    return formData;
+  };
+
+  const scanGaugePhoto = async (url) => {
+    try {
+      const result = await api.post("/api/mobile/fuel/gauge-scan", { gauge_url: url }, { queueOnFailure: false });
+      const estimate = result?.extracted_data?.estimated_level_percent;
+      if (Number.isFinite(estimate)) {
+        setGaugeScanEstimate(estimate);
+        if (!fuelLevelPercent) {
+          setFuelLevelPercent(String(estimate));
+          AppAlert.alert("Gauge Scanned", `We read about ${estimate}% from the photo. Confirm or adjust the number before requesting.`);
+        } else {
+          AppAlert.alert("Gauge Photo Attached", `The photo reads about ${estimate}%. Your entered level was kept.`);
+        }
+        return;
+      }
+      setGaugeScanEstimate(null);
+      AppAlert.alert("Gauge Photo Attached", "Could not read the gauge clearly — enter the fuel level manually.");
+    } catch {
+      setGaugeScanEstimate(null);
+      AppAlert.alert("Scan Unavailable", "The gauge could not be scanned automatically. Enter the fuel level manually.");
+    }
+  };
+
+  const attachGaugePhoto = async (asset) => {
+    if (!asset) return;
+    try {
+      setGaugeBusy(true);
+      const upload = await api.post("/api/mobile/fuel/upload", createGaugeFormData(asset));
+      const url = upload?.gauge_url;
+      if (!url) throw new Error("Upload did not complete.");
+      setGaugePhotoUrl(url);
+      await scanGaugePhoto(url);
+    } catch (e) {
+      setGaugePhotoUrl("");
+      AppAlert.alert("Upload Error", e.message || "Could not attach the gauge photo.");
+    } finally {
+      setGaugeBusy(false);
+    }
+  };
+
+  const openGaugeCamera = () => {
+    openReceiptCamera("gauge");
+  };
+
   const startManualEntry = () => {
     resetDetails();
     setEntryMethod("manual");
@@ -150,12 +306,18 @@ export default function FuelReport() {
   };
 
   useEffect(() => {
-    if (autoScan !== "1" || autoScanStarted.current || cameraPermission === null) return;
+    if (autoScan !== "1" || autoScanStarted.current || cameraPermission === null || !hasAssignedVehicle) return;
     autoScanStarted.current = true;
-    openReceiptCamera("scan");
+    // Contextual shortcut: an approved request goes straight to receipt
+    // capture; everyone else lands in the gauge camera to build their request.
+    if (canLogFuel) {
+      openReceiptCamera("scan");
+      return;
+    }
+    openReceiptCamera("gauge");
     // The shortcut should launch once per screen mount, after camera permissions load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoScan, cameraPermission]);
+  }, [autoScan, cameraPermission, canLogFuel, hasAssignedVehicle]);
 
   const closeReceiptCamera = () => {
     setCameraOpen(false);
@@ -170,6 +332,14 @@ export default function FuelReport() {
       setCapturing(true);
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.65 });
       if (photo?.uri) {
+        if (cameraPurpose === "gauge") {
+          const context = ImageManipulator.manipulate(photo.uri);
+          if ((photo.width || 0) > 1200) context.resize({ width: 1200, height: null });
+          const rendered = await context.renderAsync();
+          const saved = await rendered.saveAsync({ compress: 0.72, format: SaveFormat.JPEG });
+          setCapturedReceipt({ ...saved, fileName: "gauge.jpg", mimeType: "image/jpeg" });
+          return;
+        }
         const crop = receiptCropRect(photo, cameraLayout);
         if (!crop) throw new Error("Camera frame dimensions are unavailable.");
         const context = ImageManipulator.manipulate(photo.uri).crop(crop);
@@ -238,6 +408,7 @@ export default function FuelReport() {
       if (d.amount) setCost(String(d.amount));
       if (d.price_per_liter) setPricePerLiter(String(d.price_per_liter));
       if (d.station_name) setStation(d.station_name);
+      setReceiptFuelType(typeof d.fuel_type === "string" ? d.fuel_type : "");
       if (d.fuel_date) setFuelDate(d.fuel_date);
       if (Object.values(d).some(Boolean)) {
         AppAlert.alert(
@@ -271,6 +442,10 @@ export default function FuelReport() {
     const asset = capturedReceipt;
     const purpose = cameraPurpose;
     closeReceiptCamera();
+    if (purpose === "gauge") {
+      await attachGaugePhoto(asset);
+      return;
+    }
     setReceiptUrl(null);
     setReceiptAsset(asset);
     if (purpose === "upload") {
@@ -309,6 +484,7 @@ export default function FuelReport() {
 
   const returnToOptions = () => {
     resetDetails();
+    resetGaugeEvidence();
     setMode("overview");
     setEntryMethod(null);
     setReceiptUrl(null);
@@ -322,6 +498,10 @@ export default function FuelReport() {
     }
     if (!receiptUrl) {
       AppAlert.alert("Receipt Photo Required", "Add a receipt photo from your camera or gallery so the entered details can be verified.");
+      return;
+    }
+    if (!canLogFuel) {
+      AppAlert.alert("Approval Required", "Wait for your fuel request to be approved before submitting a receipt.");
       return;
     }
     const parsedLiters = Number(liters.replace(/,/g, ""));
@@ -340,12 +520,14 @@ export default function FuelReport() {
         receipt_url: receiptUrl,
         client_submission_id: submissionId,
       };
+      if (receiptFuelType) payload.receipt_fuel_type = receiptFuelType;
 
       let res;
       if (id) {
         res = await api.put(`/api/mobile/fuel/${id}`, payload);
       } else {
         payload.trip_id = activeTripId && activeTripId !== "undefined" ? parseInt(activeTripId, 10) : null;
+        payload.fuel_request_id = currentFuelRequest?.fuel_request_id;
         res = await api.post("/api/mobile/fuel", payload);
       }
       setSubmittedRecord({ ...res, amount: res?.amount ?? payload.amount });
@@ -380,22 +562,28 @@ export default function FuelReport() {
           <Pressable onPress={closeReceiptCamera} style={styles.cameraClose} accessibilityRole="button" accessibilityLabel="Close camera">
             <Ionicons name="close" size={26} color="#fff" />
           </Pressable>
-          <Text style={styles.cameraTitle}>{capturedReceipt ? "Review receipt" : "Capture receipt"}</Text>
+          <Text style={styles.cameraTitle}>{capturedReceipt ? (cameraPurpose === "gauge" ? "Review gauge photo" : "Review receipt") : (cameraPurpose === "gauge" ? "Capture fuel gauge" : "Capture receipt")}</Text>
           <View style={styles.cameraClose} />
         </View>
 
         {!capturedReceipt ? (
           <>
-            <View pointerEvents="none" style={styles.receiptGuide}>
-              <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
-            </View>
+            {cameraPurpose === "gauge" ? (
+              <View pointerEvents="none" style={styles.receiptGuide}>
+                <Text style={styles.receiptGuideText}>Center the fuel gauge — avoid the temperature or RPM dials</Text>
+              </View>
+            ) : (
+              <View pointerEvents="none" style={styles.receiptGuide}>
+                <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
+              </View>
+            )}
             <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 20 }]}>
               <Pressable
                 onPress={captureReceipt}
                 disabled={!cameraReady || capturing}
                 style={[styles.shutterButton, { opacity: !cameraReady || capturing ? 0.5 : 1 }]}
                 accessibilityRole="button"
-                accessibilityLabel="Capture receipt"
+                accessibilityLabel={cameraPurpose === "gauge" ? "Capture fuel gauge" : "Capture receipt"}
               >
                 {capturing ? <ActivityIndicator color="#111" /> : <View style={styles.shutterInner} />}
               </Pressable>
@@ -552,7 +740,135 @@ export default function FuelReport() {
           </View>
         </View>
 
-        {mode === "overview" ? (
+        {!id ? (
+          <View style={[styles.requestCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]}>
+            <View style={styles.requestHeader}>
+              <View style={[styles.methodIcon, { backgroundColor: colors.primaryContainer }]}>
+                <Ionicons name="water-outline" size={24} color={colors.onPrimaryContainer} />
+              </View>
+              <View style={styles.methodCopy}>
+                <Text style={[styles.methodCardTitle, { color: colors.onSurface }]}>Vehicle fuel check</Text>
+                <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Report the dashboard level. FleetOps forecasts the next 24 hours and recommends one refill.</Text>
+              </View>
+            </View>
+
+            {loadingRequests ? (
+              <View style={styles.requestStatusRow}>
+                <ActivityIndicator size="small" color={colors.primary} />
+                <Text style={[styles.requestStatusText, { color: colors.onSurfaceVariant }]}>Checking approval…</Text>
+              </View>
+            ) : currentFuelRequest?.status === "Approved" ? (
+              <View style={[styles.requestStatusBox, { backgroundColor: statusColorForTone(colors, "success").bg }]}>
+                <Ionicons name="checkmark-circle" size={20} color={statusColorForTone(colors, "success").fg} />
+                <View style={styles.methodCopy}>
+                  <Text style={[styles.requestStatusTitle, { color: statusColorForTone(colors, "success").fg }]}>Approved: {currentFuelRequest.approved_liters} L</Text>
+                  <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>You may now refuel and submit the receipt.</Text>
+                </View>
+              </View>
+            ) : currentFuelRequest?.status === "Pending" ? (
+              <View style={[styles.requestStatusBox, { backgroundColor: colors.surfaceContainerHighest }]}>
+                <Ionicons name="time-outline" size={20} color={colors.onSurfaceVariant} />
+                <View style={styles.methodCopy}>
+                  <Text style={[styles.requestStatusTitle, { color: colors.onSurface }]}>Awaiting fleet approval</Text>
+                  <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Recommended {currentFuelRequest.recommended_liters || currentFuelRequest.requested_liters} L from your {currentFuelRequest.current_fuel_level_percent}% reading. This screen refreshes automatically.</Text>
+                </View>
+              </View>
+            ) : (
+              <>
+                {latestFuelRequest?.status === "Rejected" ? (
+                  <Text style={[styles.requestRejected, { color: colors.error }]}>Previous request rejected: {latestFuelRequest.review_notes || "No reason provided"}</Text>
+                ) : null}
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>CURRENT FUEL LEVEL (%)</Text>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                    placeholder="e.g. 25"
+                    placeholderTextColor={colors.outline}
+                    keyboardType="decimal-pad"
+                    accessibilityLabel="Current dashboard fuel level percent"
+                    value={fuelLevelPercent}
+                    onChangeText={setFuelLevelPercent}
+                  />
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>GAUGE PHOTO (REQUIRED)</Text>
+                  {gaugePhotoUrl ? (
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <Image
+                        source={{ uri: gaugePhotoUrl }}
+                        style={{ width: 96, height: 72, borderRadius: 10, borderWidth: 1, borderColor: colors.outline }}
+                        resizeMode="cover"
+                        accessibilityLabel="Attached fuel gauge photo"
+                      />
+                      <View style={{ marginLeft: 12, flex: 1 }}>
+                        <Text style={{ color: colors.onSurfaceVariant, fontSize: 12 }}>
+                          {gaugeScanEstimate != null ? `AI read ~${gaugeScanEstimate}% from this photo` : "Evidence attached"}
+                        </Text>
+                        <Pressable
+                          onPress={() => { setGaugePhotoUrl(""); setGaugeScanEstimate(null); }}
+                          accessibilityRole="button"
+                          accessibilityLabel="Remove gauge photo and retake"
+                          style={{ marginTop: 6 }}
+                        >
+                          <Text style={{ color: colors.error, fontWeight: "600" }}>Retake photo</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={openGaugeCamera}
+                      disabled={gaugeBusy}
+                      accessibilityRole="button"
+                      accessibilityLabel="Open the camera to capture the fuel gauge"
+                      style={({ pressed }) => [
+                        styles.requestButton,
+                        {
+                          minHeight: TOUCH_TARGET,
+                          paddingVertical: 12,
+                          backgroundColor: colors.surfaceContainerLowest,
+                          borderWidth: 1,
+                          borderColor: colors.outline,
+                          opacity: pressed || gaugeBusy ? 0.55 : 1,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="camera-outline" size={18} color={colors.onSurface} />
+                      <Text style={[styles.submitBtnText, { color: colors.onSurface }]}>Capture gauge with camera</Text>
+                    </Pressable>
+                  )}
+                  {gaugeBusy ? <ActivityIndicator size="small" style={{ marginTop: 8 }} /> : null}
+                </View>
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>PURPOSE (OPTIONAL)</Text>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                    placeholder="Why fuel is needed"
+                    placeholderTextColor={colors.outline}
+                    maxLength={500}
+                    accessibilityLabel="Fuel request purpose"
+                    value={requestPurpose}
+                    onChangeText={setRequestPurpose}
+                  />
+                </View>
+                <Pressable
+                  onPress={requestFuel}
+                  disabled={requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy}
+                  style={({ pressed }) => [
+                    styles.requestButton,
+                    { backgroundColor: colors.primary, opacity: pressed || requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy ? 0.55 : 1 },
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy }}
+                >
+                  {requestingFuel ? <ActivityIndicator size="small" color={colors.onPrimary} /> : <Ionicons name="send-outline" size={18} color={colors.onPrimary} />}
+                  <Text style={[styles.submitBtnText, { color: colors.onPrimary }]}>{requestingFuel ? "Submitting…" : "Request fuel"}</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {mode === "overview" && canLogFuel ? (
           <View style={styles.methodSection}>
             <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
             <Pressable
@@ -985,6 +1301,14 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.bodyMedium || fonts.body,
   },
+  requestCard: { borderRadius: 16, borderWidth: 1, padding: 16, gap: 12 },
+  requestHeader: { flexDirection: "row", alignItems: "center", gap: 12 },
+  requestStatusRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 10 },
+  requestStatusBox: { borderRadius: 12, padding: 13, flexDirection: "row", alignItems: "center", gap: 10 },
+  requestStatusTitle: { fontSize: 14, fontFamily: fonts.bodySemiBold },
+  requestStatusText: { fontSize: 13, fontFamily: fonts.body },
+  requestRejected: { fontSize: 12, lineHeight: 17, fontFamily: fonts.bodySemiBold },
+  requestButton: { minHeight: 50, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   formCard: {
     borderRadius: 16,
     borderWidth: 1,

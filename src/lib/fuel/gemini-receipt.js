@@ -19,6 +19,15 @@ function stationBrand(text) {
   return text.match(/\b(PETRON|CALTEX|PHOENIX|SEAOIL|UNIOIL|CLEANFUEL)\b/i)?.[1].toUpperCase() || null;
 }
 
+function fuelTypeLabel(value) {
+  if (typeof value !== "string") return null;
+  const text = value.trim().toLowerCase();
+  if (!text || text.length > 30) return null;
+  if (/gasoline|petrol|^gas$/.test(text)) return "Gasoline";
+  if (/diesel|diego|deisel/.test(text)) return "Diesel";
+  return null;
+}
+
 export function normalizeGeminiFuelReceipt(data = {}) {
   const station = typeof data.station_name === "string" ? data.station_name.trim().slice(0, 255) : "";
   return {
@@ -27,6 +36,7 @@ export function normalizeGeminiFuelReceipt(data = {}) {
     price_per_liter: validNumber(data.price_per_liter, 10000),
     amount: validNumber(data.amount, 1000000),
     fuel_date: validDate(data.fuel_date),
+    fuel_type: fuelTypeLabel(data.fuel_type),
   };
 }
 
@@ -64,6 +74,7 @@ export async function scanFuelReceiptWithGemini(fileBuffer, contentType) {
 - liters: fuel quantity/volume only
 - price_per_liter: pump/unit price per liter
 - amount: final amount paid or TOTAL INVOICE after discounts; do not use Sale Total when a discounted final invoice is present
+- fuel_type: the fuel product on the receipt, such as Diesel, Gasoline, or Premium; null if not stated. Do not confuse product names like "Diesel Max" with a different fuel type.
 Use null for unreadable or absent values. For Petron table rows, interpret Description / Qty / Price / Amount as liters / price_per_liter / amount. Do not calculate or guess unreadable values.`,
           },
         ],
@@ -78,8 +89,9 @@ Use null for unreadable or absent values. For Petron table rows, interpret Descr
             price_per_liter: { type: "NUMBER", nullable: true },
             amount: { type: "NUMBER", nullable: true },
             fuel_date: { type: "STRING", nullable: true },
+            fuel_type: { type: "STRING", nullable: true },
           },
-          required: ["station_name", "liters", "price_per_liter", "amount", "fuel_date"],
+          required: ["station_name", "liters", "price_per_liter", "amount", "fuel_date", "fuel_type"],
         },
       },
     });
