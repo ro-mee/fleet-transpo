@@ -44,7 +44,6 @@ import { cn } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
-import { SelectItem } from "@/components/ui/select";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
