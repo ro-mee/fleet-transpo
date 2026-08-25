@@ -162,6 +162,14 @@ export default function IncidentsPage() {
               ))}
             </div>
           )}
+          {Array.isArray(row.photo_urls) && row.photo_urls.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-info bg-info/10 border border-info/20 rounded px-1.5 py-0.5" title="View in details">
+                <Eye className="w-3 h-3" />
+                {row.photo_urls.length} Photo{row.photo_urls.length !== 1 ? "s" : ""} Attached
+              </span>
+            </div>
+          )}
         </div>
       ),
     },
@@ -382,6 +390,18 @@ export default function IncidentsPage() {
                   )}
                 </div>
               )}
+            </div>
+          )}
+          {resolveModal.incident && Array.isArray(resolveModal.incident.photo_urls) && resolveModal.incident.photo_urls.length > 0 && (
+            <div className="px-6 pt-2">
+              <p className="text-sm font-medium text-foreground mb-2">Photo Evidence</p>
+              <div className="flex gap-2 flex-wrap">
+                {resolveModal.incident.photo_urls.map((url, idx) => (
+                  <a key={idx} href={url} target="_blank" rel="noopener noreferrer">
+                    <img src={url} alt={`Incident photo ${idx + 1}`} className="w-20 h-20 object-cover rounded-lg border border-border bg-muted/50 hover:opacity-80 transition-opacity" />
+                  </a>
+                ))}
+              </div>
             </div>
           )}
           <div className="p-6 pt-2">
