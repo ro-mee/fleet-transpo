@@ -1,9 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import {
+  AnimatePresence,
+  MotionConfig,
+  motion,
+  useAnimationFrame,
+  useMotionValue,
+  useReducedMotion,
+} from "framer-motion";
 import { signIn } from "@/services/auth.service";
 import { getSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -64,6 +71,8 @@ function BrandMark({ className }) {
 }
 
 function RouteGraphic() {
+  const routePathRef = useRef(null);
+
   return (
     <svg
       viewBox="0 0 480 260"
@@ -94,6 +103,7 @@ function RouteGraphic() {
       />
 
       <motion.path
+        ref={routePathRef}
         d="M 14 196 C 84 204, 96 96, 186 96 C 276 96, 264 198, 356 196 C 408 195, 446 152, 460 88"
         stroke="url(#route-primary)"
         strokeWidth="2"
@@ -162,7 +172,45 @@ function RouteGraphic() {
         />
         <circle cx="460" cy="88" r="5" fill="var(--primary)" />
       </motion.g>
+
+      <RouteCar pathRef={routePathRef} />
     </svg>
+  );
+}
+
+const CAR_APPEAR_MS = 2500;
+const CAR_LOOP_MS = 7000;
+
+function RouteCar({ pathRef }) {
+  const reduce = useReducedMotion();
+  const x = useMotionValue(14);
+  const y = useMotionValue(196);
+  const startedAt = useRef(null);
+
+  useAnimationFrame((now) => {
+    const path = pathRef.current;
+    if (reduce || !path) return;
+    if (startedAt.current === null) startedAt.current = now;
+    // Hold at the origin until the route finishes drawing, then loop forever.
+    const raw = (now - startedAt.current - CAR_APPEAR_MS) / CAR_LOOP_MS;
+    const t = raw <= 0 ? 0 : raw % 1;
+    const point = path.getPointAtLength(t * path.getTotalLength());
+    x.set(point.x);
+    y.set(point.y);
+  });
+
+  if (reduce) return null;
+
+  return (
+    <motion.g
+      initial={{ opacity: 0, scale: 0.4 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.45, delay: CAR_APPEAR_MS / 1000, ease: EASE }}
+      style={{ x, y }}
+    >
+      <circle r="12" fill="var(--sf)" stroke="var(--primary)" strokeWidth="2" />
+      <CarFront width={14} height={14} x={-7} y={-7} color="var(--primary)" strokeWidth={2} />
+    </motion.g>
   );
 }
 
@@ -265,7 +313,7 @@ export default function LoginPage() {
             variants={item}
             className="mt-7 max-w-md text-base leading-relaxed text-foreground-secondary"
           >
-            Coordinate drivers, vehicles, and every trip — from dispatch to drop-off — in one
+            Coordinate drivers, vehicles, and every trip, from dispatch to drop-off, in one
             intelligent command center.
           </motion.p>
           <motion.div variants={item}>
@@ -333,7 +381,7 @@ export default function LoginPage() {
                       >
                         <div
                           role="alert"
-                          className="flex items-start gap-2.5 rounded-xl bg-danger-bg px-3.5 py-3 text-sm text-danger"
+                          className="flex items-start gap-2.5 rounded-[0.9rem] bg-danger-bg px-3.5 py-3 text-sm text-danger"
                         >
                           <AlertCircle className="mt-px h-4 w-4 shrink-0" strokeWidth={2} />
                           <span>{error}</span>
@@ -416,10 +464,14 @@ export default function LoginPage() {
                     disabled={loading}
                     className="group relative h-14 w-full overflow-hidden rounded-full bg-foreground text-[15px] font-semibold text-surface transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/90 hover:shadow-[0_16px_32px_-16px_rgba(0,0,0,0.45)] active:scale-[0.985] disabled:opacity-70"
                   >
-                    <span>{loading ? null : <span>Sign in</span>}</span>
+                    {!loading && <span>Sign in</span>}
                     <span
-                      className="absolute right-2 flex h-10 w-10 items-center justify-center rounded-full bg-surface/20 dark:bg-black/10 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]"
-                      opacity={loading ? 0 : 1}
+                      aria-hidden={loading || undefined}
+                      className={cn(
+                        "absolute right-2 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-surface/20 dark:bg-black/10",
+                        "transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]",
+                        loading && "pointer-events-none scale-50 opacity-0"
+                      )}
                     >
                       <ArrowRight className="h-4 w-4" strokeWidth={2} />
                     </span>
