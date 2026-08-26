@@ -93,7 +93,9 @@ function setModeValue(next, event) {
     return;
   }
 
-  // Calculate coordinates for the circular expansion
+  const isGoingDark = nextEffective === "dark";
+
+  // Calculate coordinates for the circular expansion/contraction
   let x = window.innerWidth / 2;
   let y = window.innerHeight / 2;
 
@@ -115,58 +117,30 @@ function setModeValue(next, event) {
     y = rect.top + rect.height / 2;
   }
 
-  const endRadius = Math.hypot(
-    Math.max(x, window.innerWidth - x),
-    Math.max(y, window.innerHeight - y)
-  );
-
-  // Temporarily disable all CSS transitions so the View Transition API captures
-  // the exact final state (fully dark or fully light) instead of capturing
-  // elements mid-way through their Tailwind `transition-colors` animations.
-  const css = document.createElement("style");
-  css.appendChild(
-    document.createTextNode(
-      `* {
-       -webkit-transition: none !important;
-       -moz-transition: none !important;
-       -o-transition: none !important;
-       -ms-transition: none !important;
-       transition: none !important;
-      }`
+  const endRadius = Math.ceil(
+    Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y)
     )
   );
-  document.head.appendChild(css);
+
+  const root = document.documentElement;
+  root.style.setProperty("--theme-x", `${Math.round(x)}px`);
+  root.style.setProperty("--theme-y", `${Math.round(y)}px`);
+  root.style.setProperty("--theme-r", `${endRadius}px`);
+  root.dataset.themeTransition = isGoingDark ? "expand" : "shrink";
 
   const transition = document.startViewTransition(() => {
     commit();
   });
 
-  transition.ready
-    .then(() => {
-      // Re-enable CSS transitions now that the new state is captured.
-      document.head.removeChild(css);
-      document.documentElement.animate(
-        {
-          clipPath: [
-            `circle(0px at ${x}px ${y}px)`,
-            `circle(${endRadius}px at ${x}px ${y}px)`,
-          ],
-        },
-        {
-          // 700ms matches the Magic UI AnimatedThemeToggler feel — long enough
-          // for the circle to read as a wave washing over the page, short
-          // enough to stay snappy.
-          duration: 700,
-          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-          pseudoElement: "::view-transition-new(root)",
-        }
-      );
-    })
-    .catch(() => {
-      // Graceful fallback if transition is cancelled
-      if (document.head.contains(css)) {
-        document.head.removeChild(css);
-      }
+  transition.finished
+    .catch(() => {})
+    .finally(() => {
+      delete root.dataset.themeTransition;
+      root.style.removeProperty("--theme-x");
+      root.style.removeProperty("--theme-y");
+      root.style.removeProperty("--theme-r");
     });
 }
 

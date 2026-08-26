@@ -12,15 +12,13 @@ import {
   ChevronRight,
   ChevronDown,
   CarFront,
-  Sun,
-  Moon,
   Bell,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { UserDropdown } from "@/components/ui/user-dropdown";
 import { NotificationDropdown } from "@/components/ui/notification-dropdown";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { getInitials } from "@/lib/utils";
-import { useTheme } from "@/hooks/use-theme";
 import { useSidebar } from "@/hooks/use-sidebar";
 
 const accentChip = {
@@ -363,7 +361,6 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
 export function TopNav() {
   const pathname = usePathname();
   const { signOut, user, employee, loading } = useAuth();
-  const { theme, toggle, mounted } = useTheme();
   const { collapsed, peek } = useSidebar();
 
   const workspace = getWorkspace(employee?.roles?.role_name || user?.role);
@@ -400,17 +397,7 @@ export function TopNav() {
       </div>
 
       <div className="ml-auto flex items-center gap-2 px-6">
-        <button
-          onClick={toggle}
-          className="flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
-          title={mounted ? (theme === "dark" ? "Light mode" : "Dark mode") : "Toggle theme"}
-        >
-          {mounted ? (
-            theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />
-          ) : (
-            <Sun className="h-4 w-4" />
-          )}
-        </button>
+        <ThemeToggle />
 
         <NotificationDropdown />
 
