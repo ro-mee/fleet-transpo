@@ -2,8 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
+import { useMemo } from "react";
 import { getFleetCostReport } from "@/services/report.service";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { createColumnHelper } from "@tanstack/react-table";
+import { DataTable } from "@/components/tables/data-table";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
@@ -32,6 +34,44 @@ export default function FleetCostPage() {
     { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown },
   ];
 
+  const columnHelper = createColumnHelper();
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor("plate_number", {
+        header: "Vehicle",
+        cell: (info) => (
+          <div>
+            <Link href={`/fleet/vehicles/${info.row.original.vehicle_id}`} className="font-medium text-foreground hover:underline">
+              {info.getValue()}
+            </Link>
+            <div className="text-xs text-foreground-muted">{info.row.original.vehicle || "—"}</div>
+          </div>
+        ),
+      }),
+      columnHelper.accessor("fuel_cost", {
+        header: () => <div className="text-right">Fuel</div>,
+        cell: (info) => <div className="text-right tabular-nums text-foreground">{formatCurrency(info.getValue())}</div>,
+      }),
+      columnHelper.accessor("maintenance_cost", {
+        header: () => <div className="text-right">Maintenance</div>,
+        cell: (info) => <div className="text-right tabular-nums text-foreground">{formatCurrency(info.getValue())}</div>,
+      }),
+      columnHelper.accessor("total_cost", {
+        header: () => <div className="text-right">Total Cost</div>,
+        cell: (info) => <div className="text-right tabular-nums font-medium text-foreground">{formatCurrency(info.getValue())}</div>,
+      }),
+      columnHelper.accessor("distance", {
+        header: () => <div className="text-right">Distance (km)</div>,
+        cell: (info) => <div className="text-right tabular-nums text-foreground">{Number(info.getValue()).toLocaleString()}</div>,
+      }),
+      columnHelper.accessor("cost_per_km", {
+        header: () => <div className="text-right">Cost / km</div>,
+        cell: (info) => <div className="text-right tabular-nums text-foreground">{formatCurrency(info.getValue())}</div>,
+      }),
+    ],
+    []
+  );
+
   return (
     <div className="space-y-6">
       <HeroHeader
@@ -51,59 +91,17 @@ export default function FleetCostPage() {
         </StatGrid>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Cost Per Vehicle</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="p-5">
-              <TableSkeleton rows={6} cols={6} />
-            </div>
-          ) : isError ? (
-            <div className="p-8 text-center text-sm text-foreground-secondary">
-              Could not load cost data.{" "}
-              <button onClick={() => refetch()} className="text-primary hover:underline">
-                Retry
-              </button>
-            </div>
-          ) : details.length === 0 ? (
-            <EmptyState icon={Wallet} title="No cost data" description="Fuel, maintenance and trip data will populate costs." className="py-16" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wider text-foreground-muted">
-                    <th className="px-5 py-3 font-medium">Vehicle</th>
-                    <th className="px-5 py-3 text-right font-medium">Fuel</th>
-                    <th className="px-5 py-3 text-right font-medium">Maintenance</th>
-                    <th className="px-5 py-3 text-right font-medium">Total Cost</th>
-                    <th className="px-5 py-3 text-right font-medium">Distance (km)</th>
-                    <th className="px-5 py-3 text-right font-medium">Cost / km</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {details.map((d) => (
-                    <tr key={d.vehicle_id} className="hover:bg-hover transition-colors">
-                      <td className="px-5 py-3">
-                        <Link href={`/fleet/vehicles/${d.vehicle_id}`} className="font-medium text-foreground hover:underline">
-                          {d.plate_number}
-                        </Link>
-                        <div className="text-xs text-foreground-muted">{d.vehicle || "—"}</div>
-                      </td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.fuel_cost)}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.maintenance_cost)}</td>
-                      <td className="px-5 py-3 text-right tabular-nums font-medium text-foreground">{formatCurrency(d.total_cost)}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{Number(d.distance).toLocaleString()}</td>
-                      <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.cost_per_km)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      )}
+
+      <DataTable
+        columns={columns}
+        data={details}
+        isLoading={isLoading}
+        title="Cost Per Vehicle"
+        icon={Wallet}
+        emptyTitle="No cost data"
+        emptyDescription="Fuel, maintenance and trip data will populate costs."
+      />
     </div>
   );
 }

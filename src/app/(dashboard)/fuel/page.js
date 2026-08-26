@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { DataTable } from "@/components/tables/data-table";
+import { createColumnHelper } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -443,6 +444,154 @@ export default function FuelPage() {
     },
   ];
 
+  const columnHelper = createColumnHelper();
+  
+  const allocationColumns = [
+    columnHelper.accessor("plate_number", {
+      header: "Vehicle",
+      cell: (info) => (
+        <div>
+          <p className="font-data text-xs font-bold">{info.getValue()}</p>
+          <p className="text-xs text-foreground-muted">{info.row.original.vehicle_name}</p>
+        </div>
+      ),
+    }),
+    columnHelper.display({
+      id: "profile",
+      header: "Fuel profile",
+      cell: (info) => {
+        const row = info.row.original;
+        return row.tank_capacity_l && row.fuel_efficiency_kmpl
+          ? <span className="text-xs">{`${row.tank_capacity_l} L tank · ${row.fuel_efficiency_kmpl} km/L`}</span>
+          : <span className="text-xs text-warning">Profile required</span>;
+      },
+    }),
+    columnHelper.accessor("allocated_liters", {
+      header: "Monthly budget",
+      cell: (info) => <span className="font-data font-bold">{info.getValue() ? `${info.getValue()} L` : "—"}</span>,
+    }),
+    columnHelper.display({
+      id: "used",
+      header: "Used / committed",
+      cell: (info) => {
+        const row = info.row.original;
+        return <span className="font-data text-xs">{Number(row.consumed_liters || 0).toFixed(1)} / {Number(row.committed_liters || 0).toFixed(1)} L</span>;
+      },
+    }),
+    columnHelper.display({
+      id: "utilization",
+      header: "Utilization",
+      cell: (info) => {
+        const row = info.row.original;
+        if (!row.allocated_liters) return "—";
+        const alloc = Number(row.allocated_liters);
+        const used = Number(row.consumed_liters || 0) + Number(row.committed_liters || 0);
+        const pct = Math.round((used / alloc) * 100);
+        const over = pct > 100;
+        const fill = over ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-success";
+        return (
+          <div className="w-28">
+            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className={cn("h-full rounded-full", fill)} style={{ width: `${Math.min(100, pct)}%` }} />
+            </div>
+            <p className={cn("mt-1 text-[10px] font-bold", over ? "text-danger" : pct >= 80 ? "text-warning" : "text-foreground-muted")}>
+              {over ? "Budget exceeded" : pct >= 80 ? "Near budget limit" : `${pct}% used`}
+              {" · "}{Number(row.remaining_liters || 0).toFixed(1)} L left
+            </p>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: "action",
+      header: () => <div className="text-right">Action</div>,
+      cell: (info) => (
+        <div className="text-right">
+          <Button size="sm" variant="outline" onClick={() => openAllocationSetup(info.row.original)}>
+            <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Configure
+          </Button>
+        </div>
+      ),
+    }),
+  ];
+
+  const requestColumns = [
+    columnHelper.display({
+      id: "driver",
+      header: "Driver / Source",
+      cell: (info) => {
+        const req = info.row.original;
+        return (
+          <div>
+            <p className="font-semibold text-foreground">{req.first_name} {req.last_name}</p>
+            <p className="text-xs text-foreground-muted">{req.trip_id ? `Trip #${req.trip_id}` : "Vehicle assignment"}</p>
+          </div>
+        );
+      },
+    }),
+    columnHelper.accessor("plate_number", {
+      header: "Vehicle",
+      cell: (info) => <span className="font-data text-xs font-bold">{info.getValue()}</span>,
+    }),
+    columnHelper.display({
+      id: "forecast",
+      header: "Fuel / Forecast",
+      cell: (info) => {
+        const req = info.row.original;
+        return (
+          <div className="text-xs">
+            <p className="font-data font-bold">{req.current_fuel_level_percent ?? "—"}% current</p>
+            <p className="text-foreground-muted">{req.forecast_distance_km ?? "—"} km / 24h</p>
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: "recommended",
+      header: "Recommended",
+      cell: (info) => {
+        const req = info.row.original;
+        return <span className="font-data font-bold">{req.recommended_liters || req.requested_liters} L</span>;
+      },
+    }),
+    columnHelper.accessor("approved_liters", {
+      header: "Authorized",
+      cell: (info) => <span className="font-data">{info.getValue() ? `${info.getValue()} L` : "—"}</span>,
+    }),
+    columnHelper.accessor("status", {
+      header: "Status",
+      cell: (info) => {
+        const req = info.row.original;
+        return (
+          <div>
+            <StatusBadge status={req.status} entity="fuel" />
+            {req.status === "Approved" && req.calculation_snapshot?.auto_authorized ? (
+              <span className="ml-1.5 inline-flex items-center rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-success">
+                Within policy
+              </span>
+            ) : null}
+          </div>
+        );
+      },
+    }),
+    columnHelper.display({
+      id: "action",
+      header: () => <div className="text-right">Action</div>,
+      cell: (info) => {
+        const req = info.row.original;
+        return (
+          <div className="text-right">
+            {req.status === "Pending" ? (
+              <Button size="sm" onClick={() => openRequestReview(req)}>Review</Button>
+            ) : (
+              <span className="text-xs text-foreground-muted">Reviewed</span>
+            )}
+          </div>
+        );
+      },
+    }),
+  ];
+
   const handleApprove = (rec) => {
     updateStatusMutation.mutate({ id: rec.fuel_record_id, status: "Approved" });
   };
@@ -543,152 +692,39 @@ export default function FuelPage() {
       />
 
       {/* ── Metric Cards ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-muted/20 flex-row items-center justify-between gap-4">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Gauge className="h-4.5 w-4.5 text-primary" /> Monthly Vehicle Fuel Plan
-            </CardTitle>
-            <p className="mt-1 text-xs text-foreground-secondary">
-              Configure each vehicle once per month; approved receipts consume the available liters.
-            </p>
-          </div>
+      <DataTable
+        columns={allocationColumns}
+        data={fuelAllocations}
+        isLoading={allocationsLoading}
+        title="Monthly Vehicle Fuel Plan"
+        description="Configure each vehicle once per month; approved receipts consume the available liters."
+        icon={Gauge}
+        searchable={false}
+        pageSize={5}
+        toolbar={
           <Badge variant="secondary" className="rounded-full">
             {fuelAllocations.filter((row) => !row.allocation_id).length} unconfigured
           </Badge>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border/60 bg-muted/10 text-[11px] uppercase tracking-wider text-foreground-muted">
-                <tr>
-                    <th className="px-5 py-3 font-bold">Vehicle</th>
-                    <th className="px-5 py-3 font-bold">Fuel profile</th>
-                    <th className="px-5 py-3 font-bold">Monthly budget</th>
-                    <th className="px-5 py-3 font-bold">Used / committed</th>
-                    <th className="px-5 py-3 font-bold">Utilization</th>
-                  <th className="px-5 py-3 text-right font-bold">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {allocationsLoading ? (
-                  <tr><td colSpan={6} className="px-5 py-8 text-center text-foreground-muted">Loading monthly allocations…</td></tr>
-                ) : fuelAllocations.length === 0 ? (
-                  <tr><td colSpan={6} className="px-5 py-8 text-center text-foreground-muted">No active vehicles found.</td></tr>
-                ) : fuelAllocations.map((row) => (
-                  <tr key={row.vehicle_id} className="bg-surface hover:bg-muted/20">
-                    <td className="px-5 py-3">
-                      <p className="font-data text-xs font-bold">{row.plate_number}</p>
-                      <p className="text-xs text-foreground-muted">{row.vehicle_name}</p>
-                    </td>
-                    <td className="px-5 py-3 text-xs">
-                      {row.tank_capacity_l && row.fuel_efficiency_kmpl
-                        ? `${row.tank_capacity_l} L tank · ${row.fuel_efficiency_kmpl} km/L`
-                        : <span className="text-warning">Profile required</span>}
-                    </td>
-                    <td className="px-5 py-3 font-data font-bold">{row.allocated_liters ? `${row.allocated_liters} L` : "—"}</td>
-                    <td className="px-5 py-3 font-data text-xs">{Number(row.consumed_liters || 0).toFixed(1)} / {Number(row.committed_liters || 0).toFixed(1)} L</td>
-                    <td className="px-5 py-3">
-                      {row.allocated_liters ? (() => {
-                        const alloc = Number(row.allocated_liters);
-                        const used = Number(row.consumed_liters || 0) + Number(row.committed_liters || 0);
-                        const pct = Math.round((used / alloc) * 100);
-                        const over = pct > 100;
-                        const fill = over ? "bg-danger" : pct >= 80 ? "bg-warning" : "bg-success";
-                        return (
-                          <div className="w-28">
-                            <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-                              <div className={cn("h-full rounded-full", fill)} style={{ width: `${Math.min(100, pct)}%` }} />
-                            </div>
-                            <p className={cn("mt-1 text-[10px] font-bold", over ? "text-danger" : pct >= 80 ? "text-warning" : "text-foreground-muted")}>
-                              {over ? "Budget exceeded" : pct >= 80 ? "Near budget limit" : `${pct}% used`}
-                              {" · "}{Number(row.remaining_liters || 0).toFixed(1)} L left
-                            </p>
-                          </div>
-                        );
-                      })() : "—"}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <Button size="sm" variant="outline" onClick={() => openAllocationSetup(row)}>
-                        <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Configure
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+        }
+        emptyTitle="No active vehicles found"
+      />
 
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-        <CardHeader className="border-b border-border/60 bg-muted/20 flex-row items-center justify-between gap-4">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ClipboardList className="h-4.5 w-4.5 text-primary" /> Fuel Requests & Allocation History
-            </CardTitle>
-            <p className="mt-1 text-xs text-foreground-secondary">
-              Recommendations cover the vehicle&apos;s next 24 hours and refill toward a safe operating level.
-            </p>
-          </div>
+      <DataTable
+        columns={requestColumns}
+        data={fuelRequests}
+        isLoading={requestsLoading}
+        title="Fuel Requests & Allocation History"
+        description="Recommendations cover the vehicle's next 24 hours and refill toward a safe operating level."
+        icon={ClipboardList}
+        searchable={false}
+        pageSize={5}
+        toolbar={
           <Badge variant="warning" className="rounded-full">
             {requestData.counts?.pending || 0} pending
           </Badge>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border/60 bg-muted/10 text-[11px] uppercase tracking-wider text-foreground-muted">
-                <tr>
-                  <th className="px-5 py-3 font-bold">Driver / Source</th>
-                  <th className="px-5 py-3 font-bold">Vehicle</th>
-                  <th className="px-5 py-3 font-bold">Fuel / Forecast</th>
-                  <th className="px-5 py-3 font-bold">Recommended</th>
-                  <th className="px-5 py-3 font-bold">Authorized</th>
-                  <th className="px-5 py-3 font-bold">Status</th>
-                  <th className="px-5 py-3 text-right font-bold">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {requestsLoading ? (
-                  <tr><td colSpan={7} className="px-5 py-8 text-center text-foreground-muted">Loading fuel requests…</td></tr>
-                ) : fuelRequests.length === 0 ? (
-                  <tr><td colSpan={7} className="px-5 py-8 text-center text-foreground-muted">No fuel requests yet.</td></tr>
-                ) : fuelRequests.map((request) => (
-                  <tr key={request.fuel_request_id} className="bg-surface hover:bg-muted/20">
-                    <td className="px-5 py-3">
-                      <p className="font-semibold text-foreground">{request.first_name} {request.last_name}</p>
-                      <p className="text-xs text-foreground-muted">{request.trip_id ? `Trip #${request.trip_id}` : "Vehicle assignment"}</p>
-                    </td>
-                    <td className="px-5 py-3 font-data text-xs font-bold">{request.plate_number}</td>
-                    <td className="px-5 py-3 text-xs">
-                      <p className="font-data font-bold">{request.current_fuel_level_percent ?? "—"}% current</p>
-                      <p className="text-foreground-muted">{request.forecast_distance_km ?? "—"} km / 24h</p>
-                    </td>
-                    <td className="px-5 py-3 font-data font-bold">{request.recommended_liters || request.requested_liters} L</td>
-                    <td className="px-5 py-3 font-data">{request.approved_liters ? `${request.approved_liters} L` : "—"}</td>
-                    <td className="px-5 py-3">
-                      <StatusBadge status={request.status} entity="fuel" />
-                      {request.status === "Approved" && request.calculation_snapshot?.auto_authorized ? (
-                        <span className="ml-1.5 inline-flex items-center rounded-full border border-success/25 bg-success/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-success">
-                          Within policy
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      {request.status === "Pending" ? (
-                        <Button size="sm" onClick={() => openRequestReview(request)}>Review</Button>
-                      ) : (
-                        <span className="text-xs text-foreground-muted">Reviewed</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+        }
+        emptyTitle="No fuel requests yet"
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {(() => {
