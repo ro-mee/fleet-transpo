@@ -43,6 +43,9 @@ next-env.d.ts
 .claude/skills/
 .expo/
 .agents/skills
+.codex/
+.impeccable/
+skills-lock.json
 stitch_fleetops_driver_companion/
 
 # Obsidian local configuration
