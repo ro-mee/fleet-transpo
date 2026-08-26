@@ -14,6 +14,8 @@ import { Wallet, Fuel, Wrench, TrendingDown } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { formatCurrency } from "@/lib/utils";
 
+const columnHelper = createColumnHelper();
+
 export default function FleetCostPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
 
@@ -34,7 +36,6 @@ export default function FleetCostPage() {
     { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown },
   ];
 
-  const columnHelper = createColumnHelper();
   const columns = useMemo(
     () => [
       columnHelper.accessor("plate_number", {

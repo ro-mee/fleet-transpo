@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { DatePicker } from "@/components/ui/date-picker";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,8 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+
+const columnHelper = createColumnHelper();
 
 export default function UvvrpBoardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
@@ -58,11 +61,8 @@ export default function UvvrpBoardPage() {
   const violations = useMemo(() => data?.violations || [], [data]);
   const dispatchesAffected = useMemo(() => data?.dispatchesAffected || [], [data]);
 
-  const dispatchesAffected = useMemo(() => data?.dispatchesAffected || [], [data]);
-
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const columnHelper = createColumnHelper();
   const columns = useMemo(
     () => [
       columnHelper.accessor((row) => row.plate_number || `Vehicle #${row.vehicle_id}`, {
@@ -126,7 +126,7 @@ export default function UvvrpBoardPage() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}
+            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer")}
           >
             <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isFetching && "animate-spin")} />
             Sync Real-Time
