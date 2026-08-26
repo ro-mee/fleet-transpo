@@ -1,17 +1,64 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
   ScrollView,
-  Linking
+  Linking,
+  LayoutAnimation,
+  Platform,
+  UIManager
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const FAQS = [
+  {
+    question: "What do I do in an emergency?",
+    answer: "Prioritize your safety first. If driving, pull over to a safe location. Use the 'Report Incident' button on the home screen, select 'Critical' severity, and optionally request Police or Medical assistance. This immediately notifies dispatch."
+  },
+  {
+    question: "How do I report a vehicle issue?",
+    answer: "Navigate to the home screen and tap 'Report Incident'. Select the appropriate category (e.g., Vehicle Breakdown) and attach any relevant photos. You can also specify if you need a Mechanic or Tow Truck."
+  },
+  {
+    question: "I'm running late for a dispatch.",
+    answer: "Please call the Dispatch Hotline immediately using the contact button above. This allows our coordinators to quickly adjust schedules and notify waiting passengers or clients."
+  }
+];
+
+function FAQItem({ item, colors, isLast }) {
+  const [expanded, setExpanded] = useState(false);
+
+  const toggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(!expanded);
+  };
+
+  return (
+    <View style={!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }}>
+      <Pressable style={styles.faqRow} onPress={toggle} accessibilityRole="button" accessibilityState={{ expanded }}>
+        <Text style={[styles.faqText, { color: colors.onSurface }]}>{item.question}</Text>
+        <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={16} color={colors.onSurfaceVariant} />
+      </Pressable>
+      {expanded && (
+        <View style={styles.faqAnswerContainer}>
+          <Text style={[styles.faqAnswerText, { color: colors.onSurfaceVariant }]}>
+            {item.answer}
+          </Text>
+        </View>
+      )}
+    </View>
+  );
+}
 
 export default function HelpCenter() {
   const router = useRouter();
@@ -71,20 +118,14 @@ export default function HelpCenter() {
 
         <Text style={[styles.sectionTitle, { color: colors.primary, marginTop: 8 }]}>FAQ</Text>
         <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-          <Pressable style={styles.faqRow}>
-            <Text style={[styles.faqText, { color: colors.onSurface }]}>What do I do in an emergency?</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
-          <Pressable style={styles.faqRow}>
-            <Text style={[styles.faqText, { color: colors.onSurface }]}>How do I report a vehicle issue?</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
-          <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
-          <Pressable style={styles.faqRow}>
-            <Text style={[styles.faqText, { color: colors.onSurface }]}>I&apos;m running late for a dispatch.</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-          </Pressable>
+          {FAQS.map((faq, index) => (
+            <FAQItem 
+              key={index} 
+              item={faq} 
+              colors={colors} 
+              isLast={index === FAQS.length - 1} 
+            />
+          ))}
         </View>
 
       </ScrollView>
@@ -132,5 +173,7 @@ const styles = StyleSheet.create({
   divider: { height: 1 },
   
   faqRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, minHeight: TOUCH_TARGET },
-  faqText: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
+  faqText: { fontSize: 14, fontFamily: fonts.bodyMedium, flex: 1, paddingRight: 12 },
+  faqAnswerContainer: { paddingHorizontal: 16, paddingBottom: 16, paddingTop: 4 },
+  faqAnswerText: { fontSize: 13, fontFamily: fonts.body, lineHeight: 20 },
 });
