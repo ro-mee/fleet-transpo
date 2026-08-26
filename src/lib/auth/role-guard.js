@@ -30,5 +30,5 @@ export function useRequireRole(requiredRoles) {
     }
   }, [loading, isAuthorized, router, role]);
 
-  return { authorized: isAuthorized, role };
+  return { authorized: isAuthorized, role, loading };
 }

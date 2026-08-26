@@ -6,7 +6,7 @@ import { Sidebar, TopNav } from "@/components/layout/app-shell";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, Loader2, CheckCircle, XCircle } from "lucide-react";
+import { AlertTriangle, Loader2, CheckCircle, XCircle, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { useRequireRole } from "@/hooks/use-role-access";
@@ -90,11 +90,37 @@ function RoleNotConfiguredCard({ email, router }) {
   );
 }
 
+function AccessRestrictedPanel() {
+  const router = useRouter();
+  return (
+    <div className="flex items-center justify-center min-h-[400px]">
+      <Card className="border-0 shadow-sm max-w-md w-full">
+        <CardContent className="py-12 text-center">
+          <ShieldAlert className="w-12 h-12 mx-auto mb-4 text-warning" />
+          <h2 className="text-lg font-semibold text-foreground mb-2">Access restricted</h2>
+          <p className="text-sm text-foreground-secondary mb-6">
+            Your role doesn&apos;t have permission to view this page.
+            {` `}Taking you back to the dashboard…
+          </p>
+          <Button variant="outline" onClick={() => router.replace("/dashboard")}>
+            Go to Dashboard now
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function RouteGuard({ pathname, children }) {
   const requiredRoles = getRequiredRolesForPath(pathname);
-  const { authorized } = useRequireRole(requiredRoles);
+  const { authorized, loading } = useRequireRole(requiredRoles);
 
-  if (!authorized) return null;
+  // Open paths render immediately — no blank flash while the session loads.
+  if (requiredRoles.includes("*")) return <>{children}</>;
+  if (loading) return null;
+  // Explain a denial instead of rendering a silent void while the redirect
+  // in useRequireRole fires.
+  if (!authorized) return <AccessRestrictedPanel />;
   return <>{children}</>;
 }
 
