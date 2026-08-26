@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image, Modal } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -89,6 +89,7 @@ export default function LicenseInformation() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploadingSide, setUploadingSide] = useState(null);
+  const [viewerImage, setViewerImage] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -253,12 +254,23 @@ export default function LicenseInformation() {
                 <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
-            <ScanSourceButtons
-              side="front"
-              colors={colors}
-              busy={uploadingSide}
-              onPick={handleUpload}
-            />
+            {license?.frontScanImageUrl && (
+              <Pressable onPress={() => setViewerImage(license.frontScanImageUrl)} style={styles.previewWrap}>
+                <Image source={{ uri: license.frontScanImageUrl }} style={styles.licensePreview} resizeMode="cover" />
+                <View style={styles.previewOverlay}>
+                  <Ionicons name="scan" size={20} color="#FFF" />
+                  <Text style={styles.previewText}>Tap to View</Text>
+                </View>
+              </Pressable>
+            )}
+            {(!license?.frontScanImageUrl || status.tone !== "success") && (
+              <ScanSourceButtons
+                side="front"
+                colors={colors}
+                busy={uploadingSide}
+                onPick={handleUpload}
+              />
+            )}
           </View>
 
           <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
@@ -270,16 +282,38 @@ export default function LicenseInformation() {
                 <Ionicons name="alert-circle" size={20} color={colors.warning} />
               )}
             </View>
-            <ScanSourceButtons
-              side="back"
-              colors={colors}
-              busy={uploadingSide}
-              onPick={handleUpload}
-            />
+            {license?.backScanImageUrl && (
+              <Pressable onPress={() => setViewerImage(license.backScanImageUrl)} style={styles.previewWrap}>
+                <Image source={{ uri: license.backScanImageUrl }} style={styles.licensePreview} resizeMode="cover" />
+                <View style={styles.previewOverlay}>
+                  <Ionicons name="scan" size={20} color="#FFF" />
+                  <Text style={styles.previewText}>Tap to View</Text>
+                </View>
+              </Pressable>
+            )}
+            {(!license?.backScanImageUrl || status.tone !== "success") && (
+              <ScanSourceButtons
+                side="back"
+                colors={colors}
+                busy={uploadingSide}
+                onPick={handleUpload}
+              />
+            )}
           </View>
 
         </View>
       </ScrollView>
+
+      <Modal visible={!!viewerImage} transparent={true} animationType="fade" onRequestClose={() => setViewerImage(null)}>
+        <View style={styles.viewerContainer}>
+          <Pressable style={styles.viewerCloseArea} onPress={() => setViewerImage(null)} />
+          <Image source={{ uri: viewerImage }} style={styles.viewerImage} resizeMode="contain" />
+          <Pressable onPress={() => setViewerImage(null)} style={[styles.viewerCloseBtn, { top: insets.top + 20 }]}>
+            <Ionicons name="close" size={24} color="#FFF" />
+          </Pressable>
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -343,4 +377,53 @@ const styles = StyleSheet.create({
   },
   sourceBtnSecondary: { borderWidth: 1, backgroundColor: "transparent" },
   sourceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
+
+  previewWrap: {
+    height: 140,
+    borderRadius: 8,
+    overflow: "hidden",
+    position: "relative",
+    backgroundColor: "#000",
+  },
+  licensePreview: {
+    width: "100%",
+    height: "100%",
+    opacity: 0.8,
+  },
+  previewOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.3)",
+    gap: 4,
+  },
+  previewText: {
+    color: "#FFF",
+    fontSize: 12,
+    fontFamily: fonts.bodySemiBold,
+  },
+
+  viewerContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  viewerCloseArea: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  viewerImage: {
+    width: "100%",
+    height: "80%",
+  },
+  viewerCloseBtn: {
+    position: "absolute",
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
 });
