@@ -1,11 +1,13 @@
 import { cn } from "@/lib/utils";
 
+// Chip + valueNote text render small — status tones use the AA-safe -700
+// inks instead of the base colors (~2.2-2.5:1 on white tints).
 const tones = {
   primary: { chip: "bg-primary/10 text-primary border border-primary/20", active: "border-primary bg-primary/10", trend: "bg-primary/10 text-primary" },
-  success: { chip: "bg-success/10 text-success border border-success/20", active: "border-success bg-success/10", trend: "bg-success/10 text-success" },
-  warning: { chip: "bg-warning/10 text-warning border border-warning/20", active: "border-warning bg-warning/10", trend: "bg-warning/10 text-warning" },
-  danger: { chip: "bg-danger/10 text-danger border border-danger/20", active: "border-danger bg-danger/10", trend: "bg-danger/10 text-danger" },
-  info: { chip: "bg-info/10 text-info border border-info/20", active: "border-info bg-info/10", trend: "bg-info/10 text-info" },
+  success: { chip: "bg-success/10 text-success-700 border border-success/20", active: "border-success bg-success/10", trend: "bg-success/10 text-success-700" },
+  warning: { chip: "bg-warning/10 text-warning-700 border border-warning/20", active: "border-warning bg-warning/10", trend: "bg-warning/10 text-warning-700" },
+  danger: { chip: "bg-danger/10 text-danger-700 border border-danger/20", active: "border-danger bg-danger/10", trend: "bg-danger/10 text-danger-700" },
+  info: { chip: "bg-info/10 text-info-700 border border-info/20", active: "border-info bg-info/10", trend: "bg-info/10 text-info-700" },
   neutral: { chip: "bg-hover text-foreground-secondary border border-border/60", active: "border-primary bg-primary/10", trend: "bg-hover text-foreground-secondary" },
 };
 

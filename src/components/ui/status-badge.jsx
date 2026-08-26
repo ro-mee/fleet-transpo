@@ -204,21 +204,23 @@ export function statusVariant(status, entity) {
 }
 
 // Static (compile-safe) chip classes per tone for icon rails/boxes.
+// Text halves use the AA-safe -700 inks — these render at 10-12px on tinted
+// chips, where the base status colors sit ~2.2-2.5:1 and fail WCAG 1.4.3.
 export const TONE_CHIP = {
   primary: "bg-primary/10 text-primary",
-  success: "bg-success/10 text-success",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-danger/10 text-danger",
-  info: "bg-info/10 text-info",
+  success: "bg-success/10 text-success-700",
+  warning: "bg-warning/10 text-warning-700",
+  danger: "bg-danger/10 text-danger-700",
+  info: "bg-info/10 text-info-700",
   secondary: "bg-hover text-foreground-secondary",
 };
 
 export const TONE_TEXT = {
   primary: "text-primary",
-  success: "text-success",
-  warning: "text-warning",
-  danger: "text-danger",
-  info: "text-info",
+  success: "text-success-700",
+  warning: "text-warning-700",
+  danger: "text-danger-700",
+  info: "text-info-700",
   secondary: "text-foreground-secondary",
 };
 
