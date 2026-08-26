@@ -115,8 +115,13 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
   function handleScanUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Scan must be less than 10MB");
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Scan must be less than 5MB");
+      e.target.value = "";
+      return;
+    }
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      toast.error("Scan must be a JPEG or PNG image");
       e.target.value = "";
       return;
     }
@@ -242,12 +247,12 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
                       ) : orCrDoc?.file_url ? (
                         <span className="font-medium">Replace existing scan (optional)</span>
                       ) : (
-                        <span className="font-medium">Upload PDF or Image (max 10MB)</span>
+                        <span className="font-medium">Upload JPEG or PNG (max 5MB)</span>
                       )}
                     </>
                   )}
                 </label>
-                <input id="or_cr_scan" type="file" accept="image/*,.pdf" className="hidden" onChange={handleScanUpload} />
+                <input id="or_cr_scan" type="file" accept="image/jpeg, image/png" className="hidden" onChange={handleScanUpload} />
               </div>
             </div>
           </div>

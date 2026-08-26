@@ -91,8 +91,6 @@ export default function FleetCostPage() {
         </StatGrid>
       )}
 
-      )}
-
       <DataTable
         columns={columns}
         data={details}

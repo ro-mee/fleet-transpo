@@ -157,7 +157,17 @@ export default function LicenseInformation() {
         : await ImagePicker.launchImageLibraryAsync(options);
       if (result.canceled || !result.assets?.length) return;
 
-      const dataUrl = await toDataUrl(result.assets[0]);
+      const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        AppAlert.alert("File Too Large", "Please select an image smaller than 5MB.");
+        return;
+      }
+      if (asset.mimeType && asset.mimeType !== "image/jpeg" && asset.mimeType !== "image/png") {
+        AppAlert.alert("Invalid Format", "Only JPEG and PNG images are allowed.");
+        return;
+      }
+
+      const dataUrl = await toDataUrl(asset);
       const saved = await verifyAndSaveScan(side, dataUrl);
       if (saved) {
         notify.toast({
