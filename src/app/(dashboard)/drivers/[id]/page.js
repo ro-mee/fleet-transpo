@@ -523,10 +523,11 @@ export default function DriverDetailPage() {
         {/* ── TAB 2: SHIFT & READINESS ── */}
         <TabsContent value="shifts" className="space-y-6 mt-2 focus:outline-none">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* View-only here — pairing management lives in /fleet/assignments */}
             <AssignedVehicleCard
               side="driver"
               id={Number(id)}
-              canManage={can("driver_assignments", "create")}
+              canManage={false}
             />
 
             <WorkScheduleCard

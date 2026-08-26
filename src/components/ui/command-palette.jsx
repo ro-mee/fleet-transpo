@@ -42,6 +42,7 @@ const PAGE_COMMANDS = [
   { href: "/ai/insights", label: "AI Insights" },
   { href: "/ai/predictive-maintenance", label: "AI Predictive Maintenance" },
   { href: "/fleet/vehicles", label: "Vehicle Management" },
+  { href: "/fleet/assignments", label: "Driver Assignments" },
   { href: "/drivers", label: "Drivers" },
   { href: "/drivers/performance", label: "Driver Performance" },
   { href: "/notifications", label: "Notifications" },

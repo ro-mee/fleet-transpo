@@ -24,6 +24,7 @@ export const NAV_ROLES = {
   "/driver/schedule": ["driver"],
   "/fleet": ["admin", "system_admin", "fleet_manager"],
   "/fleet/vehicles": ["admin", "system_admin", "fleet_manager"],
+  "/fleet/assignments": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/fleet/documents": ["admin", "system_admin", "fleet_manager"],
   "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
   "/reservations": ["*"],

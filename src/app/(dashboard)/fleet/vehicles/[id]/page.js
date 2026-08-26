@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,8 +20,8 @@ import { SubstituteDriverCard } from "@/components/drivers/substitute-driver-car
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import {
-  ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge,
-  CalendarDays, Wrench, Shield, FileText, ZoomIn, IdCard,
+    ArrowLeft, Pencil, Archive, Truck, Fuel, Gauge,
+    CalendarDays, Wrench, Shield, FileText, ZoomIn, IdCard, ArrowRight,
   Car, Tag, Calendar, ShieldAlert, CheckCircle2, FileImage, Sparkles,
   PhilippinePeso, Hash, Layers, Users, Activity, Camera, Loader2
 } from "lucide-react";
@@ -406,17 +407,18 @@ export default function VehicleDetailPage() {
         {/* ── RIGHT COLUMN: Custodian & Document Scans (5 Cols) ── */}
         <div className="lg:col-span-5 space-y-6">
           
-          {/* Custodial Pairing Assignment Card */}
-          <AssignedVehicleCard
-            side="vehicle"
-            id={vehicleId}
-            canManage={can("driver_assignments", "create")}
-          />
+          {/* Custodial Pairing & Substitute cards are view-only here —
+              management lives in the centralized /fleet/assignments module. */}
+          <AssignedVehicleCard side="vehicle" id={vehicleId} canManage={false} />
 
-          <SubstituteDriverCard
-            id={vehicleId}
-            canManage={can("substitute_driver_schedules", "create")}
-          />
+          <SubstituteDriverCard id={vehicleId} canManage={false} />
+
+          <Link
+            href="/fleet/assignments"
+            className="inline-flex items-center justify-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+          >
+            Manage assignments <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
 
           {/* Compliance Document Scans Card */}
           <Card className="border border-border/60 shadow-sm rounded-[24px] overflow-hidden transition-all hover:shadow-md">
