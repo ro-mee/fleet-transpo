@@ -2,14 +2,16 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
-import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import { useMemo, useState } from "react";
+import { createColumnHelper } from "@tanstack/react-table";
+import { DataTable } from "@/components/tables/data-table";
 import { getUvvrpBoard } from "@/services/uvvrp.service";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { HeroHeader } from "@/components/ui/hero-header";
 import { DatePicker } from "@/components/ui/date-picker";
 import { StatsGridSkeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
@@ -32,6 +34,8 @@ import {
   UserCheck,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+
+const columnHelper = createColumnHelper();
 
 export default function UvvrpBoardPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
@@ -59,6 +63,55 @@ export default function UvvrpBoardPage() {
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor((row) => row.plate_number || `Vehicle #${row.vehicle_id}`, {
+        id: "plate",
+        header: "Vehicle Plate",
+        cell: (info) => <span className="font-semibold text-foreground font-data">{info.getValue()}</span>,
+      }),
+      columnHelper.accessor("weekday", {
+        header: "Weekday",
+        cell: (info) => <span className="text-foreground font-medium">{info.getValue() || "—"}</span>,
+      }),
+      columnHelper.accessor("plate_digit", {
+        header: "Plate Digit",
+        cell: (info) => (
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-hover border border-border/60 text-xs font-semibold text-foreground font-data">
+            {info.getValue() ?? "—"}
+          </span>
+        ),
+      }),
+      columnHelper.accessor("scheduled_departure", {
+        header: "Scheduled Departure",
+        cell: (info) => (
+          <span className="text-xs text-foreground-secondary font-data font-medium">
+            {info.getValue() ? new Date(info.getValue()).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
+          </span>
+        ),
+      }),
+      columnHelper.accessor("action", {
+        header: "Action Taken",
+        cell: (info) => <StatusBadge status={info.getValue()} entity="dispatch" />,
+      }),
+      columnHelper.accessor("decided_by_user", {
+        header: "Authorized By",
+        cell: (info) => {
+          const user = info.getValue();
+          return user ? (
+            <span className="font-medium text-foreground flex items-center gap-1.5">
+              <UserCheck className="w-3.5 h-3.5 text-primary" />
+              {user.first_name} {user.last_name}
+            </span>
+          ) : (
+            <span className="text-foreground-muted">—</span>
+          );
+        },
+      }),
+    ],
+    []
+  );
+
   return (
     <div className="space-y-6 pb-12 w-full">
       {/* ── TOP HERO HEADER & CONTROL BAR ── */}
@@ -73,7 +126,7 @@ export default function UvvrpBoardPage() {
             size="sm"
             onClick={() => refetch()}
             disabled={isFetching}
-            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer", heroButtonOutlineClass)}
+            className={cn("rounded-2xl h-10 px-4 text-xs font-semibold cursor-pointer")}
           >
             <RefreshCw className={cn("w-3.5 h-3.5 mr-2", isFetching && "animate-spin")} />
             Sync Real-Time
@@ -266,71 +319,20 @@ export default function UvvrpBoardPage() {
       </div>
 
       {/* ── AUDIT HISTORY TABLE ── */}
-      <Card className="border-0 shadow-xs rounded-3xl overflow-hidden bg-surface">
-        <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex-row items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <AlertTriangle className="w-4 h-4 text-danger" /> Coding Violation &amp; Override Audit History
-            </CardTitle>
-            <CardDescription className="text-xs mt-0.5">
-              Historical record of dispatch attempts blocked or authorized during restriction windows.
-            </CardDescription>
-          </div>
+      <DataTable
+        columns={columns}
+        data={violations}
+        title="Coding Violation & Audit History"
+        description="Historical record of dispatch attempts blocked or authorized during restriction windows."
+        icon={AlertTriangle}
+        toolbar={
           <Badge variant="outline" className="text-xs font-semibold rounded-full px-3 py-1">
             {dispatchesAffected.length} Flagged Events
           </Badge>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          {violations.length === 0 ? (
-            <EmptyState icon={AlertTriangle} title="No coding violations recorded" description="Coding enforcement events will appear here as dispatches occur." className="py-12" />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/60 text-left text-xs font-medium uppercase tracking-wider text-foreground-muted bg-surface/50">
-                    <th className="px-5 py-3 font-medium">Vehicle Plate</th>
-                    <th className="px-5 py-3 font-medium">Weekday</th>
-                    <th className="px-5 py-3 font-medium">Plate Digit</th>
-                    <th className="px-5 py-3 font-medium">Scheduled Departure</th>
-                    <th className="px-5 py-3 font-medium">Action Taken</th>
-                    <th className="px-5 py-3 font-medium">Authorized By</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/60">
-                  {violations.map((v) => (
-                    <tr key={v.violation_id} className="hover:bg-hover/50 transition-colors align-middle">
-                      <td className="px-5 py-3.5 font-semibold text-foreground font-data">{v.plate_number || `Vehicle #${v.vehicle_id}`}</td>
-                      <td className="px-5 py-3.5 text-foreground font-medium">{v.weekday || "—"}</td>
-                      <td className="px-5 py-3.5">
-                        <span className="inline-flex h-7 w-7 items-center justify-center rounded-xl bg-hover border border-border/60 text-xs font-semibold text-foreground font-data">
-                          {v.plate_digit ?? "—"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-xs text-foreground-secondary font-data font-medium">
-                        {v.scheduled_departure ? new Date(v.scheduled_departure).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        <StatusBadge status={v.action} entity="dispatch" />
-                      </td>
-                      <td className="px-5 py-3.5 text-xs">
-                        {v.decided_by_user ? (
-                          <span className="font-medium text-foreground flex items-center gap-1.5">
-                            <UserCheck className="w-3.5 h-3.5 text-primary" />
-                            {v.decided_by_user.first_name} {v.decided_by_user.last_name}
-                          </span>
-                        ) : (
-                          <span className="text-foreground-muted">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        }
+        emptyTitle="No coding violations recorded"
+        emptyDescription="Coding enforcement events will appear here as dispatches occur."
+      />
     </div>
   );
 }

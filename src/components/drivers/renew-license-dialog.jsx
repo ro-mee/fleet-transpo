@@ -69,6 +69,11 @@ export function RenewLicenseDialog({ canManage = false, driverId, currentExpiry 
       e.target.value = "";
       return;
     }
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      toast.error("Scan must be a JPEG or PNG image");
+      e.target.value = "";
+      return;
+    }
     const reader = new FileReader();
     reader.onloadend = () => {
       setNewScanUrl(reader.result);
@@ -159,7 +164,7 @@ export function RenewLicenseDialog({ canManage = false, driverId, currentExpiry 
                     <span className="font-medium">Attach new license scan (optional)</span>
                   )}
                 </label>
-                <input id="license_scan" type="file" accept="image/*,.pdf" className="hidden" onChange={handleScanUpload} />
+                <input id="license_scan" type="file" accept="image/jpeg, image/png" className="hidden" onChange={handleScanUpload} />
               </div>
             </div>
           </div>

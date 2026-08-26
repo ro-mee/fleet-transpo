@@ -128,8 +128,12 @@ export default function EditDriverPage() {
   const handleFrontUpload = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      if (file.type !== "image/jpeg" && file.type !== "image/png") {
+        toast.error("Scan must be a JPEG or PNG image");
         return;
       }
       const reader = new FileReader();
@@ -147,8 +151,12 @@ export default function EditDriverPage() {
   const handleBackUpload = (e) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      if (file.type !== "image/jpeg" && file.type !== "image/png") {
+        toast.error("Scan must be a JPEG or PNG image");
         return;
       }
       const reader = new FileReader();
@@ -573,7 +581,7 @@ export default function EditDriverPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/*" onChange={handleFrontUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      <input type="file" accept="image/jpeg, image/png" onChange={handleFrontUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                       <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
                         <Upload className="w-4 h-4 text-primary" /> Upload Front Scan
                       </div>
@@ -640,7 +648,7 @@ export default function EditDriverPage() {
                   </div>
                   <div className="space-y-2">
                     <div className="relative border-2 border-dashed border-border rounded-xl p-3 text-center bg-muted/20 cursor-pointer">
-                      <input type="file" accept="image/*" onChange={handleBackUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      <input type="file" accept="image/jpeg, image/png" onChange={handleBackUpload} className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
                       <div className="flex items-center justify-center gap-2 text-xs text-foreground-secondary">
                         <Upload className="w-4 h-4 text-primary" /> Upload Back Scan
                       </div>

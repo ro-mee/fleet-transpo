@@ -1,7 +1,7 @@
 import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { query } from "@/lib/db";
-import { validateVehicleImage } from "@/lib/uploads/vehicle-image";
+import { validateImage } from "@/lib/uploads/validator";
 import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req, context) {
@@ -21,12 +21,8 @@ export async function POST(req, context) {
       return err("A valid image file is required.", 400);
     }
 
-    let validation = validateVehicleImage(file);
-    if (validation.error) {
-      return err(validation.error, 400);
-    }
     const fileBuffer = await file.arrayBuffer();
-    validation = validateVehicleImage(file, new Uint8Array(fileBuffer));
+    const validation = validateImage(file, new Uint8Array(fileBuffer));
     if (validation.error) return err(validation.error, 400);
 
     const { rows: vehicles } = await query(

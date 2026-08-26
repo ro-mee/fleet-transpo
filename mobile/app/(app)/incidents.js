@@ -89,7 +89,16 @@ export default function IncidentsScreen() {
         result = await ImagePicker.launchImageLibraryAsync(options);
       }
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setPhotos([...photos, result.assets[0]]);
+        const asset = result.assets[0];
+        if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+          AppAlert.alert("File Too Large", "Please select an image smaller than 5MB.");
+          return;
+        }
+        if (asset.mimeType && asset.mimeType !== "image/jpeg" && asset.mimeType !== "image/png") {
+          AppAlert.alert("Invalid Format", "Only JPEG and PNG images are allowed.");
+          return;
+        }
+        setPhotos([...photos, asset]);
       }
     } catch (error) {
       console.warn(error);

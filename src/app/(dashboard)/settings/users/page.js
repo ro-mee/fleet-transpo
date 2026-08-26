@@ -3,6 +3,8 @@
 import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { createColumnHelper } from "@tanstack/react-table";
+import { DataTable } from "@/components/tables/data-table";
 import { apiFetch } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +22,9 @@ import { cn } from "@/lib/utils";
 // in the Drivers directory). Admins can review roles and disable/enable
 // accounts. Disabling soft-deletes the employee row, which is what actually
 // blocks login (auth checks deleted_at IS NULL).
+// blocks login (auth checks deleted_at IS NULL).
+const columnHelper = createColumnHelper();
+
 export default function UsersPage() {
   useRequireRole(["admin", "system_admin"]);
   const queryClient = useQueryClient();
@@ -67,7 +72,92 @@ export default function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ["staff-users"] });
     },
     onError: (e) => toast.error(e.message || "Failed to update account"),
+    onError: (e) => toast.error(e.message || "Failed to update account"),
   });
+
+  const columns = useMemo(
+    () => [
+      columnHelper.accessor((row) => `${row.first_name} ${row.last_name}`, {
+        id: "name",
+        header: "Name",
+        cell: (info) => (
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground truncate">
+              {info.getValue()}
+              {info.row.original.position && <span className="ml-2 text-xs font-normal text-foreground-muted">{info.row.original.position}</span>}
+            </p>
+            <p className="text-xs text-foreground-muted truncate">{info.row.original.email}</p>
+          </div>
+        ),
+      }),
+      columnHelper.accessor("role_name", {
+        header: "Role",
+        cell: (info) => (
+          <Badge variant={info.getValue() === "system_admin" ? "primary" : "default"} className="capitalize">
+            {(info.getValue() || "no role").replace(/_/g, " ")}
+          </Badge>
+        ),
+      }),
+      columnHelper.accessor("deleted_at", {
+        header: "Status",
+        cell: (info) => {
+          const disabled = Boolean(info.getValue());
+          return (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className={cn("h-1.5 w-1.5 rounded-full", disabled ? "bg-transparent border border-border" : "bg-success")}
+              />
+              <span className={cn("text-xs font-medium", disabled ? "text-foreground-muted" : "text-success")}>
+                {disabled ? "Disabled" : "Active"}
+              </span>
+            </span>
+          );
+        },
+      }),
+      columnHelper.accessor("created_at", {
+        header: "Created",
+        cell: (info) => (
+          <span className="text-xs text-foreground-secondary">
+            {info.getValue() ? new Date(info.getValue()).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
+          </span>
+        ),
+      }),
+      columnHelper.display({
+        id: "actions",
+        header: "",
+        cell: (info) => {
+          const u = info.row.original;
+          const disabled = Boolean(u.deleted_at);
+          return (
+            <div className="text-right">
+              {disabled ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-full text-xs cursor-pointer"
+                  onClick={() => setTarget({ employee: u, action: "enable" })}
+                >
+                  Enable
+                </Button>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 rounded-full text-xs font-bold text-danger hover:bg-danger/10 cursor-pointer"
+                  onClick={() => setTarget({ employee: u, action: "disable" })}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
+                  Disable
+                </Button>
+              )}
+            </div>
+          );
+        },
+      }),
+    ],
+    []
+  );
 
   return (
     <div className="space-y-6 pb-12">
@@ -84,40 +174,6 @@ export default function UsersPage() {
         }
       />
 
-      {/* Summary */}
-      <div className="flex flex-wrap items-center gap-2">
-        {[
-          { id: "all", label: `All (${rows.length})` },
-          { id: "active", label: `Active (${activeCount})` },
-          { id: "inactive", label: `Disabled (${inactiveCount})` },
-        ].map((chip) => (
-          <button
-            key={chip.id}
-            onClick={() => setStatusFilter(chip.id)}
-            aria-pressed={statusFilter === chip.id}
-            className={cn(
-              "h-8 px-3 rounded-full text-xs font-semibold border transition-colors cursor-pointer",
-              statusFilter === chip.id
-                ? "bg-primary border-primary text-white dark:text-slate-950"
-                : "border-border bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
-            )}
-          >
-            {chip.label}
-          </button>
-        ))}
-        <div className="relative ml-auto w-full sm:w-72">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-foreground-muted" aria-hidden="true" />
-          <input
-            type="search"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search name or email…"
-            aria-label="Search staff accounts"
-            className="w-full h-9 pl-9 pr-3 rounded-full bg-surface border border-border text-xs font-medium text-foreground placeholder:text-foreground-muted focus:outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/10"
-          />
-        </div>
-      </div>
-
       {isError ? (
         <div
           className="flex flex-col items-center justify-center text-center px-6 py-12 rounded-2xl border border-danger/20 bg-danger-bg/40"
@@ -132,99 +188,51 @@ export default function UsersPage() {
             <RefreshCw className={cn("mr-2 h-3.5 w-3.5", isRefetching && "animate-spin")} /> Try again
           </Button>
         </div>
-      ) : isLoading ? (
-        <div className="rounded-3xl border border-border/80 bg-surface shadow-xs p-6">
-          <TableSkeleton rows={6} cols={5} />
-        </div>
-      ) : filtered.length === 0 ? (
-        <EmptyState
+      ) : (
+        <DataTable
+          columns={columns}
+          data={filtered}
+          isLoading={isLoading}
+          searchable={true}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search name or email…"
+          title="Staff Directory"
+          description="Manage roles and sign-in access."
           icon={UserCog}
-          title={rows.length === 0 ? "No staff accounts yet" : "No accounts match"}
-          description={
-            rows.length === 0
-              ? "Create the first staff account to grant dashboard access."
-              : "Try a different name, email or filter."
+          toolbar={
+            <div className="flex items-center gap-1.5 bg-muted/40 p-1 rounded-full border border-border/60">
+              {[
+                { id: "all", label: `All (${rows.length})` },
+                { id: "active", label: `Active (${activeCount})` },
+                { id: "inactive", label: `Disabled (${inactiveCount})` },
+              ].map((chip) => (
+                <button
+                  key={chip.id}
+                  onClick={() => setStatusFilter(chip.id)}
+                  aria-pressed={statusFilter === chip.id}
+                  className={cn(
+                    "px-3 py-1 rounded-full text-[11px] font-bold transition-all",
+                    statusFilter === chip.id
+                      ? "bg-surface shadow-xs text-foreground border border-border/80"
+                      : "text-foreground-muted hover:text-foreground border border-transparent cursor-pointer"
+                  )}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
           }
-          action={
+          emptyTitle={rows.length === 0 ? "No staff accounts yet" : "No accounts match"}
+          emptyDescription={rows.length === 0 ? "Create the first staff account to grant dashboard access." : "Try a different name, email or filter."}
+          emptyAction={
             rows.length === 0 ? (
               <Link href="/settings/users/new">
                 <Button size="sm"><UserPlus className="w-4 h-4 mr-2" />Add User</Button>
               </Link>
             ) : undefined
           }
-          className="py-16"
         />
-      ) : (
-        <div className="overflow-x-auto rounded-3xl border border-border/80 bg-surface shadow-xs">
-          <table className="w-full text-sm text-left border-collapse">
-            <thead>
-              <tr className="border-b border-border/60 bg-surface">
-                <th scope="col" className="px-5 py-3.5 text-[11px] font-black uppercase tracking-widest text-foreground-muted whitespace-nowrap">Name</th>
-                <th scope="col" className="px-5 py-3.5 text-[11px] font-black uppercase tracking-widest text-foreground-muted whitespace-nowrap">Role</th>
-                <th scope="col" className="px-5 py-3.5 text-[11px] font-black uppercase tracking-widest text-foreground-muted whitespace-nowrap">Status</th>
-                <th scope="col" className="px-5 py-3.5 text-[11px] font-black uppercase tracking-widest text-foreground-muted whitespace-nowrap">Created</th>
-                <th scope="col" className="px-5 py-3.5 text-[11px] font-black uppercase tracking-widest text-foreground-muted whitespace-nowrap text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {filtered.map((u) => {
-                const disabled = Boolean(u.deleted_at);
-                return (
-                  <tr key={u.employee_id} className="hover:bg-hover/30 transition-colors">
-                    <td className="px-5 py-3.5 min-w-0">
-                      <p className="text-sm font-medium text-foreground truncate">
-                        {u.first_name} {u.last_name}
-                        {u.position && <span className="ml-2 text-xs font-normal text-foreground-muted">{u.position}</span>}
-                      </p>
-                      <p className="text-xs text-foreground-muted truncate">{u.email}</p>
-                    </td>
-                    <td className="px-5 py-3.5 whitespace-nowrap">
-                      <Badge variant={u.role_name === "system_admin" ? "primary" : "default"} className="capitalize">
-                        {(u.role_name || "no role").replace(/_/g, " ")}
-                      </Badge>
-                    </td>
-                    <td className="px-5 py-3.5 whitespace-nowrap">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          aria-hidden="true"
-                          className={cn("h-1.5 w-1.5 rounded-full", disabled ? "bg-transparent border border-border" : "bg-success")}
-                        />
-                        <span className={cn("text-xs font-medium", disabled ? "text-foreground-muted" : "text-success")}>
-                          {disabled ? "Disabled" : "Active"}
-                        </span>
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-xs text-foreground-secondary whitespace-nowrap">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
-                    </td>
-                    <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      {disabled ? (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-8 rounded-full text-xs cursor-pointer"
-                          onClick={() => setTarget({ employee: u, action: "enable" })}
-                        >
-                          Enable
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 px-3 rounded-full text-xs font-bold text-danger hover:bg-danger/10 cursor-pointer"
-                          onClick={() => setTarget({ employee: u, action: "disable" })}
-                        >
-                          <AlertTriangle className="w-3.5 h-3.5 mr-1.5" />
-                          Disable
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       )}
 
       <ConfirmDialog

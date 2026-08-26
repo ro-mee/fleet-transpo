@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { rasterTileUrl } from "@/lib/tomtom";
-import { Compass, AlertTriangle } from "lucide-react";
+import { Compass, AlertTriangle, Eye } from "lucide-react";
 
 const SEVERITY_COLOR = { Critical: "#dc2626", Major: "#ef4444", Moderate: "#f97316", Minor: "#f59e0b" };
 
@@ -19,7 +19,44 @@ function FitBounds({ points }) {
   return null;
 }
 
+function MapZoomHandler({ setShowOverlay }) {
+  const map = useMap();
+  const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    map.scrollWheelZoom.disable();
+
+    const onWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (!map.scrollWheelZoom.enabled()) {
+          map.scrollWheelZoom.enable();
+        }
+        setShowOverlay(false);
+      } else {
+        if (map.scrollWheelZoom.enabled()) {
+          map.scrollWheelZoom.disable();
+        }
+        setShowOverlay(true);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => setShowOverlay(false), 1200);
+      }
+    };
+
+    const container = map.getContainer();
+    container.addEventListener('wheel', onWheel, { capture: true });
+    
+    return () => {
+      container.removeEventListener('wheel', onWheel, { capture: true });
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [map, setShowOverlay]);
+
+  return null;
+}
+
 export default function IncidentMap({ incidents = [] }) {
+  const [fullScreenImage, setFullScreenImage] = useState(null);
+  const [showZoomMessage, setShowZoomMessage] = useState(false);
   const key = process.env.NEXT_PUBLIC_TOMTOM_API_KEY || "";
 
   const points = useMemo(
@@ -45,6 +82,7 @@ export default function IncidentMap({ incidents = [] }) {
         className="h-full w-full z-0"
         style={{ height: "100%", width: "100%" }}
       >
+        <MapZoomHandler setShowOverlay={setShowZoomMessage} />
         <TileLayer
           attribution='&copy; <a href="https://developer.tomtom.com">TomTom</a>'
           url={rasterTileUrl()}
@@ -151,9 +189,16 @@ export default function IncidentMap({ incidents = [] }) {
                       {Array.isArray(inc.photo_urls) && inc.photo_urls.length > 0 && (
                         <div className="flex gap-1.5 mt-2 overflow-x-auto pb-0.5 hide-scrollbar">
                           {inc.photo_urls.map((url, idx) => (
-                            <a key={idx} href={url} target="_blank" rel="noopener noreferrer" className="shrink-0 block">
-                              <img src={url} alt={`Incident ${idx + 1}`} className="w-12 h-12 rounded object-cover border border-border/40 shadow-xs" />
-                            </a>
+                            <button 
+                              key={idx} 
+                              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setFullScreenImage(url); }}
+                              className="shrink-0 block group relative overflow-hidden rounded border border-border/40 shadow-xs cursor-pointer focus:outline-none"
+                            >
+                              <img src={url} alt={`Incident ${idx + 1}`} className="w-12 h-12 rounded object-cover bg-muted/50 group-hover:scale-105 transition-transform duration-300" />
+                              <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center text-white">
+                                <Eye className="w-4 h-4 drop-shadow-md" />
+                              </div>
+                            </button>
                           ))}
                         </div>
                       )}
@@ -209,11 +254,37 @@ export default function IncidentMap({ incidents = [] }) {
           100% { transform: scale(2.6); opacity: 0; }
         }
         .fleet-popup .leaflet-popup-content { margin: 0 !important; width: 100% !important; }
-        .fleet-popup .leaflet-popup-content-wrapper { padding: 0 !important; border-radius: 16px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
+        .fleet-popup .leaflet-popup-content-wrapper { background: var(--sf); padding: 0 !important; border-radius: 16px; overflow: hidden; border: 1px solid var(--br); box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); }
         .fleet-popup p { margin: 0 !important; }
-        .fleet-popup .leaflet-popup-close-button { top: 8px !important; right: 8px !important; color: var(--foreground-muted) !important; z-index: 10; }
-        .leaflet-popup-tip { background: var(--surface); }
+        .fleet-popup .leaflet-popup-close-button { top: 8px !important; right: 8px !important; color: var(--fg-muted) !important; z-index: 10; }
+        .leaflet-popup-tip { background: var(--sf); }
       `}</style>
+
+      {/* Zoom Message Overlay */}
+      {showZoomMessage && (
+        <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-black/20 pointer-events-none transition-opacity duration-300">
+          <p className="px-5 py-2.5 bg-surface/90 backdrop-blur-md rounded-xl text-foreground font-semibold shadow-lg text-sm text-center">
+            Use <kbd className="font-mono bg-muted/80 border border-border/50 px-1.5 py-0.5 rounded text-[11px] mx-1">ctrl</kbd> + scroll to zoom the map
+          </p>
+        </div>
+      )}
+
+      {/* Full Screen Image Viewer Overlay */}
+      {fullScreenImage && (
+        <div 
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
+          onClick={(e) => {
+            e.stopPropagation();
+            setFullScreenImage(null);
+          }}
+        >
+          <img 
+            src={fullScreenImage} 
+            alt="Full screen incident photo" 
+            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+          />
+        </div>
+      )}
     </div>
   );
 }
