@@ -23,7 +23,7 @@ Honest **UNKNOWN**s. Keeping this list is what stops an inference hardening into
 - **Whether every route calls a guard.** 113 routes. `scripts/verify-rbac.mjs` verifies the **role lists** on the routes it knows about (78 checks); nothing asserts a guard exists on all of them. → [[Authentication]]
 - **Whether the GPS endpoint appends or overwrites.** If it overwrites, there's no track history and route replay is impossible. → [[Tracking]]
 - **How the UI parses AI narration.** If it splits on `.`, an abbreviation breaks the bullets. → [[AI Advisory]]
-- **What `substitute_vehicle_schedules` is for.** 0 rows, 0 references anywhere, no migration.
+- ~~**What `substitute_vehicle_schedules` is for.**~~ **Understood 2026-08-19:** substitute-driver coverage (migration 040 + API shipped). Managed via `/fleet/assignments`. → [[Assignments]]
 - **Whether anything reads `notification_preferences`.** 0 rows. Possibly dead schema. → [[Notifications]]
 - **What's in `workflow/Fleet Management System-2026-07-27-071922.pdf`.** Never opened. If it holds the original requirements, it's the missing "why" behind several of these.
 

@@ -69,9 +69,10 @@ The floating pill label bridges the seam. `FloatingSelect` is the dropdown varia
 duty/vehicle status, role). `DatePicker` and `DateTimePicker` triggers use the same
 double-bezel tray for visual consistency.
 
-Auth surfaces (`(auth)/`) render without the dashboard chrome (the `DashboardLayout` short-circuits for those routes) and carry a premium editorial-split presentation: a branded left panel with animated route-line artwork plus a double-bezel form card. Motion respects `prefers-reduced-motion` via `MotionConfig reducedMotion="user"`; entrance states are rendered identically on server and client so hydration is safe.
-
-**Theme switching (standardized 2026-08-23):** `use-theme.js` uses the modern **View Transition API** (`document.startViewTransition`) paired with a CSS `clip-path: circle(...)` animation on `::view-transition-new(root)`. When a user toggles light/dark mode (or picks an explicit mode in `/settings/general`), the incoming theme dynamically expands outwards in a hardware-accelerated circular reveal originating directly from the button click coordinate (`(clientX, clientY)` or element rect) across 450ms (`cubic-bezier(0.22, 1, 0.36, 1)`), smoothly covering the screen with no flash. Automatically degrades to instant toggle for environments without View Transitions or when `prefers-reduced-motion: reduce` is detected.
+**Theme switching (standardized 2026-08-23, updated 2026-08-26):** `use-theme.js` uses the modern **View Transition API** (`document.startViewTransition`) paired with GPU compositor CSS keyframes (`@keyframes theme-expand`, `@keyframes theme-shrink`):
+- **Light $\rightarrow$ Dark (Night Expanding):** Injected with `@keyframes theme-expand`, the dark layer starts at Frame 0 strictly at `circle(0px at var(--theme-x) var(--theme-y))` with zero JS microtask delay, expanding outwards across 500ms (`cubic-bezier(0.4, 0, 0.2, 1)`) to eliminate any premature full-screen dark flashes.
+- **Dark $\rightarrow$ Light (Day Revealing / Reverse):** Injected with `@keyframes theme-shrink`, the darkness contracts inwards back into the button (`circle(var(--theme-r)) \rightarrow circle(0px)`), smoothly unmasking the day underneath.
+- Automatically degrades to instant toggle for environments without View Transitions or when `prefers-reduced-motion: reduce` is detected.
 
 ## Empty and missing routes — CONFIRMED
 

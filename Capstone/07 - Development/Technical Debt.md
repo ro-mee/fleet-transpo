@@ -42,7 +42,7 @@ The next cheapest items are in "Fix before anything real happens" below.
 | [[DEBT Services Folder Mixes Two Concerns]] | A refactor. Worth doing when the folder next needs touching. Phase 3 hit it: the obvious home for shared ingest code, `services/integration.service.js`, turned out to be **client-side**. |
 | `docs/` rot generally | Largely closed 2026-08-11 — `README.md`, `docs/rbac-model.md` and `SYSTEM.md` rewritten, `docs/erd/` deleted. Still open: [[DOC Mobile Tabs Documented Three Ways]]. And the fix is a snapshot, not a property → [[Documentation Rot]] |
 | Wildcard CORS in two places | Fine on a LAN, not for deployment → [[Technology Stack]] |
-| `substitute_vehicle_schedules` | **1 row**, 0 references, now declared by migration 034. The earlier "0 rows, just drop it" was wrong — dropping destroys the row, so it is a product call. |
+| ~~`substitute_vehicle_schedules`~~ | **CLOSED 2026-08-19** — shipped (migration 040, API, card); managed by `/fleet/assignments` since 2026-08-23 → [[Assignments]] |
 | 10 zero-row tables | Not debt exactly — unexercised features → [[Feature Index]] |
 | Duplicate migration numbers | `008` missing, `019` ×3. The ledger keys on filename, which makes this survivable rather than correct → [[Migrations]] |
 | 38 pre-existing UI lint errors | Largest group is 15 `set-state-in-effect` → [[Bugs]] |

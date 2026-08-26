@@ -27,6 +27,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 |---|---|---|
 | Fleet & vehicles | ✅ working (20) | [[Fleet And Vehicles]] |
 | Driver management | ✅ working — grounding stub fixed 2026-08-11 | [[Driver Management]] |
+| Driver assignments & substitutes | ✅ centralized module `/fleet/assignments` (2026-08-23); detail-page cards now view-only | [[Assignments]] |
 | Incidents | ✅ report→ground→resolve loop closed 2026-08-23 | [[Incidents]] |
 | Maintenance | ⚠ empty route dir; incident→emergency-repair path live | [[Maintenance]] |
 | Fuel | ⚠ Gemini scanner user-confirmed; post-change DB save pending | [[Fuel]] |

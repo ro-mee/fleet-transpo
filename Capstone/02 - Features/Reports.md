@@ -38,6 +38,42 @@ Failure states across the reporting surfaces now follow the shared primitives in
 
 The current report/analytics cleanup is **work in progress and uncommitted** as of 2026-08-23.
 
+### Accessibility & guardrail pass — 2026-08-26
+
+Impeccable critique scored the surface **24/40** with three P1s; all three are fixed:
+
+- **Keyboard-trapped custom date range** — `DatePicker` trigger (`src/components/ui/date-picker.jsx`) was a non-focusable `div`; it is now a real `<button>` (Radix supplies `aria-haspopup`/`aria-expanded`), with a visible focus ring, and the clear action became an overlay sibling button (`aria-label="Clear date"`, positioned where the inline icon sat) so no button nests inside another. Consumer `className` still lands on the visual box.
+- **Silent blank screen on unauthorized deep-links** — `RouteGuard` (`dashboard-layout.jsx`) rendered `null` when denied, so e.g. the `management` role tapping a plate on `/reports/cost` saw a white void before the redirect. It now renders an "Access restricted" panel (role lacks permission + "Go to Dashboard now") while `useRequireRole`'s redirect fires; `useRequireRole` additionally returns `loading`, and open (`*`) paths render immediately instead of blanking during session load.
+- **Sub-14px semantic text failing WCAG 1.4.3** — new AA ink tokens `--{success,warning,danger,info}-700` in `globals.css` (light `#047857/#b45309/#b91c1c/#1d4ed8`, dark `#34d399/#fbbf24/#f87171/#60a5fa`; Tailwind classes `text-{status}-700`). All small status chips/liters/cumulative figures on `/analytics` and `/reports` moved to `-700`. Solid-fill exceptions use palette constants that hold contrast in both themes: heatmap peak pill `bg-blue-600 text-white`, rank medal `bg-warning text-amber-950`, inverted-tooltip unit rate `text-emerald-400 dark:text-emerald-700`. Base status tokens remain for chart fills/icons (3:1 graphics rule). Drive-by: both `py-0.2` typos → `py-0.5`.
+
+Verification: eslint clean on all touched files, vitest 443/443, detector shows only the pre-existing low-impact `bounce-easing` warning. Still open from the critique (deferred by scope choice): dishonest empty states on `/analytics` (P2 #4), silent/UTC-stamped export (P2 #5), token-bypass hexes in the maintenance chart, `/reports/cost` retry-panel inconsistency, Badge component contrast (app-wide blast radius).
+
+### P1 interaction batch — 2026-08-26 (second critique: 25/40)
+
+Re-critique surfaced three new P1s; all fixed:
+
+- **Export ends in silence / lies disabled** — `exportToCSV`/`exportToJSON` (`src/lib/export.js`) now stamp filenames with the local-day helper (`toCalendarDay`) instead of `toISOString()` (the UTC+8 yesterday-filed trap), and return `{ count, filename }`. `handleExport` on `/reports` toasts `Exported N rows — <file>` on success and `Nothing recorded in this period (<from> → <to>) to export.` when the active report has zero rows (previously a silent no-op while the button looked enabled).
+- **Management dead-end via plate links** — `/reports/cost` renders plate numbers as plain text unless `can('vehicles','read')`; role 7 no longer gets bounced off `/fleet/vehicles/[id]`.
+- **Inverted custom ranges** — `DatePicker` gained optional `minDate`/`maxDate` props (out-of-range days render disabled and are rejected in `handleSelectDay`); `/reports` couples From↔To (`maxDate={customRange.to}` / `minDate={customRange.from}`) so To < From can never reach the API.
+
+### P2 batch — 2026-08-26
+
+- **Charts visible to screen readers** — every recharts surface carries `role="img"` + plain-language `aria-label` summaries: pickup-volume trend, risk donut (names each tier count), both `/analytics` fuel composed charts, all three `/reports` charts (`ChartStage` gained a `label` prop).
+- **Absence no longer dresses as health** — hero KPIs show an em-dash with neutral context while a feed has no snapshot; "Maintenance Risk Due" only takes success tone with a live prediction snapshot; empty donut swaps its pulsing green check for a static muted shield; `/analytics` fuel charts render honest `EmptyState`s instead of blank axes.
+
+### Minor-tier backlog batch — 2026-08-26
+
+- **Shared tone maps now AA** — `TONE_CHIP`/`TONE_TEXT` (`status-badge.jsx`) and `StatCard` tones render `-700` inks; fixes ~2.2:1 text at 10-12px in the AI analyst card, StatCard valueNotes, and every other consumer app-wide.
+- **DatePicker `<select>`s focusable-visible** — month/year selects swap bare `focus:outline-hidden` for a primary ring + border.
+- **URL-shareable report state** — `/reports` hydrates `report`/`range`/`from`/`to` from the query string (validated) and mirrors changes back via `history.replaceState`; a configured view is bookmarkable/shareable with no navigation cost.
+- **Heatmap readable by SRs** — grid carries `role="img"` with peak-day/average summary; `role="img"` also silences decorative padding ghosts.
+- **Scroll affordance restored** — `.scrollbar-thin` renders a slim translucent thumb instead of hiding bars entirely.
+- **"All time" echo** — analytics timeframe header prints "All time" instead of literal `1970-01-01 → 2100-01-01`.
+
+Incident note: mid-batch, `analytics/page.js` was found partially reverted to an intermediate state (P2 chart/KPI edits lost, P1 `-700` edits intact) — consistent with OneDrive sync/checkpoint interference on this OneDrive-resident repo. All edits were re-applied and marker-audited via Node (`Get-Content` misdecodes UTF-8 as cp1252 here — don't trust its display of non-ASCII). eslint clean across all touched files, vitest 443/443.
+
+Remaining known debt: hover-lift false affordance on non-clickable cards, duplicated per-page role lists vs `NAV_ROLES`, driver-dial rank badge clipping risk, heatmap cells not individually keyboard-reachable (summary label is the mitigation), Badge solid-variant contrast (app-wide blast radius).
+
 ## Who it's for
 
 The `management` role (id 7) — read + analytics, **explicitly denied lifecycle verbs**. This feature is essentially the whole reason that role exists. → [[RBAC]]

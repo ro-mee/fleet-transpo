@@ -5,15 +5,15 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-08-20
+last_verified: 2026-08-26
 ---
 
 # Migrations
 
-**51** files in `supabase/migrations/` (39 pre-existing, `033`–`035` from the
-2026-08-11 backfill, and `036`–`049` since), backed by a ledger and a checked-in
-`schema.sql`. History before 2026-08-11 is still not a faithful record — read
-[[DEBT Schema Drift From Migrations]] for what was undeclared and how it was closed.
+**73** files in `supabase/migrations/`, contiguous `001`–`069` with exactly four
+duplicated numbers (`036`, `037`, `059`, `060` — two files each, applied in
+filename order; this set is frozen by `npm run db:check`), backed by a ledger and
+a checked-in `schema.sql`.
 
 > Counted with `ls supabase/migrations/*.sql | wc -l`. This vault said "38 files"
 > for the pre-backfill state; the real number was 39. If a count here matters to
@@ -55,9 +55,9 @@ since an edited applied migration no longer describes the database.
 ## Rebuilding a database from scratch — do NOT use `db:up`
 
 `db:up` replays migration **files**. Those files cannot reproduce this database:
-the numbering is ambiguous, several were written against a schema that has since
-moved, and most are not idempotent. Against an empty ledger, `up` would try to
-replay all 42 in filename order and fail partway.
+several were written against a schema that has since moved, and most are not
+idempotent. Against an empty ledger, `up` would try to replay all 73 in filename
+order and fail partway.
 
 The path that works:
 
@@ -72,31 +72,37 @@ It is what the two scripts are built to do, not something observed working. The
 first person to try it should expect ordering problems with sequences and
 `REFERENCES` and should fix `dump-schema.mjs` rather than hand-patch the output.
 
-## Numbering is broken — CONFIRMED
+## Numbering — renumbered, then frozen — CONFIRMED 2026-08-26
 
-**`008` is missing.** Duplicated numbers:
+The numbering described below (missing `008`, `019` ×3) was **renumbered away**:
+files are now contiguous `001`–`069`. The only remaining ambiguity is four
+duplicated numbers, each with exactly two files:
 
 | Number | Copies |
 |---|---|
-| 011, 013, 014, 017, 018, 030 | ×2 |
-| **019** | **×3** |
+| 036 (`dispatch_cancel_reason` / `trip_lifecycle_status`) | ×2 |
+| 037 (`notification_preferences` / `remove_review_statuses`) | ×2 |
+| 059 (`dispatch_push_outbox` / `fuel_submission_idempotency`) | ×2 |
+| 060 (`inspection_submission_idempotency` / `remove_anon_employee_access`) | ×2 |
 
-13 of 42 files have an ambiguous position. **Survivable now** — the ledger
-keys on filename, not number — but not correct. Renumbering would mean
-rewriting applied history for cosmetic gain, so it stays. → [[ADR-008 Manual Migration Procedure]]
+This exact set is **frozen by `npm run db:check`** — the ledger keys on full
+filename precisely so the duplicates stay unambiguous. One ledger orphan exists
+as of 2026-08-26: `070_driver_licenses_bucket.sql` is recorded in
+`schema_migrations` but its file was deleted from disk; do not "fix" it by
+creating a different file under that name.
 
 ## The migrations worth reading — CONFIRMED
 
 | Migration | Why it's worth your time |
 |---|---|
 | `002_rls_policies.sql` | Header: *"⚠️ INERT AT RUNTIME — NOT THE SECURITY BOUNDARY."* Honest self-documentation. → [[Why RLS Is Not A Boundary]] |
-| `012_status_constraints.sql` | All the status CHECKs in one place: `chk_dispatch_status` (4 values, line 55), `chk_trip_status` (line 64). The live constraint had **5** values — widened by hand, never in a file. `033` closes that. → [[BUG Pending Reassignment Not In State Machine]] |
-| `033`–`035` (2026-08-11) | The backfill: dispatch status value, 4 undeclared tables, 1 undeclared column. Written to be no-ops against live |
-| `013` | Removed branch scoping — single-org decision. → [[ADR-001 Single Organization]] |
-| `016_reservation_module.sql` | The vocabulary migration: retires 015's 10 statuses, back-fills, adds `reservation_number`, normalises priority |
-| `022_remove_front_desk_roles.sql` | Removed role ids 5/6/8 → the 6 live roles. (This vault previously cited it as `022_role_system.sql`; no such file exists.) → [[DOC rbac-model Says 9 Roles]] |
-| **`023_dispatch_overlap_guard.sql`** | **The best file in the repo.** Advisory locks + a reasoned explanation of why not `EXCLUDE USING gist`. → [[TOCTOU And Advisory Locks]] |
-| `024_driverincidents.sql` | Recreates a table `005` dropped: *"The driver portal and /api/driver/incidents still reference it, so it was missing at runtime and incident reporting was broken."* |
+| `012_status_constraints.sql` | All the status CHECKs in one place: `chk_dispatch_status` (4 values at the time), `chk_trip_status`. The live constraint had **5** values — widened by hand, never in a file; now declared by `042`. → [[BUG Pending Reassignment Not In State Machine]] |
+| `042`–`046` | The reconciliation set: dispatch status value, undeclared tables (`ai_report_narratives`, `system_settings`, …), undeclared column. Written to be no-ops against live |
+| `013_drop_branches.sql` | Removed branch scoping — single-org decision. → [[ADR-001 Single Organization]] |
+| `018_reservation_module.sql` | The vocabulary migration: retires the earlier status list, back-fills, adds `reservation_number`, normalises priority (the review statuses went again in `037_remove_review_statuses`) |
+| `028_remove_front_desk_roles.sql` | Removed role ids 5/6/8 → the 6 live roles. (This vault previously cited it as `022_role_system.sql`; no such file exists.) → [[DOC rbac-model Says 9 Roles]] |
+| **`029_dispatch_overlap_guard.sql`** | **The best file in the repo.** Advisory locks + a reasoned explanation of why not `EXCLUDE USING gist`. → [[TOCTOU And Advisory Locks]] |
+| `030_driverincidents.sql` | Recreates a table `005` dropped: *"The driver portal and /api/driver/incidents still reference it, so it was missing at runtime and incident reporting was broken."* |
 | **`049_driver_work_schedule_and_leave.sql`** (2026-08-15) | Weekly schedules + leave. RLS write policies are `system_admin`+`fleet_manager` only (admin excluded). Applied **directly via pg**, see below. → [[Driver Management]] |
 
 ## 2026-08-15 — `db:up` is blocked; 049 was applied directly — RESOLVED 2026-08-20
@@ -133,6 +139,15 @@ live as a clean no-op. `db:dump` showed no drift throughout. Two fixes landed in
 Ledger now: **63 applied, 0 changed, 0 pending**; `db:up` runs again.
 `060` and `061` (anon-`employees` removal + seeded-hash invalidation) are in the
 ledger. → [[DEBT Schema Drift From Migrations]]
+
+## 2026-08-26 — ledger state
+
+`npm run db:status`: **73 files, 73 applied, 0 pending, 0 changed**. One orphan:
+`070_driver_licenses_bucket.sql` is in the ledger but missing from disk. Live
+schema per the current dump: **45 tables, 1 view, 95 FKs, 110 indexes,
+14 functions, 19 triggers**. The migration files were renumbered to contiguous
+`001`–`069` (four frozen duplicate numbers — see above). SYSTEM.md §5.1 now
+carries the full renumbered timeline.
 
 ## What `024` teaches
 

@@ -100,6 +100,8 @@ which is exactly the failure mode in [[DEBT Runtime DDL On Hot Path]] point 4.
 - **`substitute_vehicle_schedules` was declared, not dropped.** The original
   fix list said "probably drop it" on the basis of 0 rows. It has **1 row**.
   Dropping destroys data, so it stays until someone decides — [[Current State]].
+  **Resolved since:** migration 040 shipped the substitute-schedule feature and
+  the `/fleet/assignments` module (2026-08-23) now manages it — [[Assignments]].
 
 ## Fix — as originally suggested
 

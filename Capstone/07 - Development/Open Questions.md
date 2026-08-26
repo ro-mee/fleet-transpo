@@ -31,8 +31,8 @@ Things that are genuinely **UNKNOWN** — not inferred, not guessed. Answering t
 5. **What is `workflow/Fleet Management System-2026-07-27-071922.pdf`?**
    Never opened. Could be a requirements document, a defence deck, or a diagram export. If it contains the original requirements, it's the missing "why" for several decisions.
 
-6. **What is `substitute_vehicle_schedules` for?**
-   **1 row** (not 0, as this note previously said), **0 references** anywhere in `src/`, `supabase/`, or `scripts/`. Declared by migration `034` as of 2026-08-11 — so dropping it is now a deliberate product decision, not cleanup. The single row is why it was not dropped.
+6. ~~**What is `substitute_vehicle_schedules` for?**~~
+   **ANSWERED 2026-08-19:** substitute-driver coverage — which driver temporarily covers a vehicle while its custodian is unavailable (migration 040 added the API; the recommendation engine reads it). Managed via `/fleet/assignments` since 2026-08-23. → [[Assignments]]
 
 7. **Does the GPS endpoint append or overwrite?**
    If it overwrites, there is no track history and route replay is impossible. → [[Tracking]]

@@ -47,7 +47,7 @@ These are real choices with no recoverable reasoning. Recording them as open que
 1. Why do `transportation_requests` and `vehiclereservations` both exist? — **still unreconstructed, and now unreconstructable from the schema:** the table was dropped in migration 036 on 2026-08-11 rather than explained. The repository does not document why the old one was kept for twenty-two migrations. → [[DEBT vehiclereservations vs transportation_requests]]
 2. Why is RLS enabled at all if it's inert? → [[Why RLS Is Not A Boundary]]
 3. Why are notifications database triggers? → [[ADR-005 Notifications In Database Triggers]]
-4. Why is `substitute_vehicle_schedules` in the schema with **1 row** and zero references? (This note previously said zero rows — the row is why it was declared by migration 034 rather than dropped.)
+4. ~~Why is `substitute_vehicle_schedules` in the schema with **1 row** and zero references?~~ — **ANSWERED 2026-08-19:** it is substitute-driver coverage (migration 040 + API + card shipped it); now managed by the `/fleet/assignments` module. → [[Assignments]]
 
 → [[Open Questions]]
 

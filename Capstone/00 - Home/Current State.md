@@ -108,7 +108,7 @@ Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (
 ## Pending decisions
 
 - ~~whether `vehiclereservations` should be dropped or revived~~ — **DECIDED 2026-08-11: dropped**, migration 036. It had 0 rows, no writer, and its only consequence was a sync branch that never fired. → [[vehiclereservations]]
-- **UNKNOWN:** whether to keep `substitute_vehicle_schedules`. It has **1 live row** (this vault previously recorded 0) and no references in `src/`. Migration 034 declares it rather than dropping it, because dropping destroys the row and that is a product call, not a cleanup call.
+- ~~whether to keep `substitute_vehicle_schedules`~~ — **DECIDED 2026-08-19: kept and shipped** (migration 040 + `/api/substitute-driver-schedules` + SubstituteDriverCard). Now fully wired: the centralized **`/fleet/assignments` module (2026-08-23)** manages substitutes and custodial pairings. → [[Assignments]]
 - ~~whether this vault should be committed to git~~ — **CURRENT REALITY 2026-08-22:** the `Capstone/` vault files are tracked by Git, so documentation changes have repository history in addition to OneDrive backup. Do not rely on the older “untracked vault” warning.
 - ~~whether Gemini is usable for receipt scans~~ — **CONFIRMED 2026-08-22:** the configured API key and `gemini-3.1-flash-lite` produced structured image extraction. Consumer subscription and API quota remain separate concerns.
 - **UNKNOWN:** whether to renumber historical duplicate migrations. `db:check` now freezes the known set and rejects new duplicates; the ledger continues to key by full filename.

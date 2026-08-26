@@ -6,7 +6,7 @@ source:
   - src/components
   - src/hooks
   - mobile/components/ui.js
-last_verified: 2026-08-11
+last_verified: 2026-08-26
 ---
 
 # Components
@@ -14,6 +14,8 @@ last_verified: 2026-08-11
 ## Web — CONFIRMED
 
 `src/components/ui/` holds Radix UI primitives (17 packages) wrapped in the **shadcn/ui** pattern: the primitive provides behaviour and accessibility, the local wrapper provides Tailwind styling. The components are copied into the repo rather than installed, so they are yours to edit.
+
+- `ThemeToggle` (`src/components/ui/theme-toggle.jsx`): Reversible animated light/dark toggle. Features continuous spring-based orbit micro-interactions (Sun $\leftrightarrow$ Moon rotations and scale transforms) that smoothly reverse when clicked back.
 
 Styling is **Tailwind v4** — CSS-first. There is no `tailwind.config.js`; theme tokens live in CSS via `@theme`. Coming from v3, that's the main surprise.
 

@@ -68,6 +68,13 @@ See `UI UX Audit - Mobile.md` ("Changes Applied — Round 2"). Headlines: SwipeB
 - Reduced-motion: pings gated, count-up already respects OS setting; dark-mode muted text raised to ≥4.5:1.
 - `docs/design-system.md` rewritten to be canonical with shipped tokens (Inter-everywhere, ink primary, control/card radii) with provenance note.
 
+### Phase 7 — Auth surface polish (design-taste pass)
+
+- `login/page.js`: fixed dead `opacity={...}` prop on the submit arrow chip (invalid DOM attr meant the chip never hid while signing in); chip now collapses via `scale/opacity` + is vertically centered explicitly.
+- Anti-slop typography: em-dashes removed from visible login copy (hero subtext); error-alert radius aligned into the page's radius system (cards 1.75rem / inputs+alerts 0.9rem / pills full).
+- No behavior changes: validation, throttle-honesty error path, and driver-vs-staff redirect logic untouched.
+- Route graphic now has a car marker (`RouteCar`) traveling the primary path on a 7s loop: motion values + `getPointAtLength` sampling (no React state per frame), departs only after the route finishes drawing, hidden entirely under `prefers-reduced-motion`. Glyph reuses `CarFront` in a `--sf`/`--primary` chip matching the waypoint-dot language.
+
 ## Known remaining gaps (post-waves)
 
 - Per-device web session history isn't tracked (security page explains honestly).
