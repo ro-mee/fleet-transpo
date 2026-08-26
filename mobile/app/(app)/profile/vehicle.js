@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,17 +65,30 @@ export default function VehicleInformation() {
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         {vehicle ? (
           <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-            <InfoRow label="Plate Number" value={vehicle.plateNumber} colors={colors} />
+            {vehicle.imageUrl ? (
+              <Image 
+                source={{ uri: vehicle.imageUrl }} 
+                style={styles.vehicleImage} 
+                resizeMode="cover" 
+              />
+            ) : (
+              <View style={[styles.vehicleImagePlaceholder, { backgroundColor: colors.surfaceContainerLow }]}>
+                <Ionicons name="car-sport" size={48} color={colors.onSurfaceVariant} />
+              </View>
+            )}
+            <View style={styles.infoContainer}>
+              <InfoRow label="Plate Number" value={vehicle.plateNumber} colors={colors} />
             <InfoRow label="Model" value={vehicle.model} colors={colors} />
             <InfoRow label="Name" value={vehicle.name} colors={colors} />
             <InfoRow label="Capacity" value={`${vehicle.seatingCapacity} Seats`} colors={colors} />
             <InfoRow label="Status" value={vehicle.vehicleStatus} colors={colors} />
             <InfoRow 
-              label="Assigned Since" 
-              value={vehicle.assignedFrom ? new Date(vehicle.assignedFrom).toLocaleDateString() : null} 
-              colors={colors} 
-              isLast={true}
-            />
+                label="Assigned Since" 
+                value={vehicle.assignedFrom ? new Date(vehicle.assignedFrom).toLocaleDateString() : null} 
+                colors={colors} 
+                isLast={true}
+              />
+            </View>
           </View>
         ) : (
           <View style={[styles.emptyBox, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
@@ -132,4 +145,21 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold, marginTop: 8 },
   emptySubtitle: { fontSize: 14, fontFamily: fonts.body, textAlign: "center", lineHeight: 20 },
+  
+  vehicleImage: {
+    width: "100%",
+    height: 180,
+    backgroundColor: "#E2E8F0",
+  },
+  vehicleImagePlaceholder: {
+    width: "100%",
+    height: 180,
+    justifyContent: "center",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  infoContainer: {
+    paddingTop: 4,
+  },
 });

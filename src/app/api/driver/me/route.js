@@ -106,7 +106,7 @@ export async function GET(req) {
       const { rows: av } = await query(
         `SELECT a.assignment_id, a.assigned_from,
                 v.vehicle_id, v.plate_number, v.model, v.vehicle_status,
-                v.seating_capacity, v.vehicle_name
+                v.seating_capacity, v.vehicle_name, v.image_url
            FROM driver_vehicle_assignments a
            JOIN vehicles v ON v.vehicle_id = a.vehicle_id AND v.deleted_at IS NULL
           WHERE a.driver_id = $1 AND a.assigned_until IS NULL
@@ -115,6 +115,9 @@ export async function GET(req) {
         [driver.driver_id]
       );
       assignedVehicle = av[0] ?? null;
+      if (assignedVehicle) {
+        console.log("DEBUG: Assigned vehicle for driver", driver.driver_id, "has image_url:", assignedVehicle.image_url);
+      }
     } catch (e) {
       console.warn("driver assigned-vehicle lookup skipped:", e);
     }
@@ -162,6 +165,7 @@ export async function GET(req) {
             vehicleStatus: assignedVehicle.vehicle_status,
             seatingCapacity: assignedVehicle.seating_capacity,
             assignedFrom: assignedVehicle.assigned_from,
+            imageUrl: assignedVehicle.image_url,
           }
         : null,
       consent: {
