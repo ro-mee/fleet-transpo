@@ -6,6 +6,7 @@ import { AnimatePresence, MotionConfig, animate, motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { QueryErrorBanner } from "@/components/ui/query-feedback";
+import { EmptyState } from "@/components/ui/empty-state";
 import {
   getFleetUtilizationReport,
   getFuelConsumptionReport,
@@ -171,7 +172,7 @@ function ChartTooltip({ active, payload, label }) {
       {unitRate && (
         <div className="mt-2.5 flex items-center justify-between border-t border-surface/15 pt-2 text-[11px]">
           <span className="font-medium opacity-70">Unit Efficiency</span>
-          <span className="font-data font-bold text-success">₱{unitRate} / L</span>
+          <span className="font-data font-bold text-emerald-400 dark:text-emerald-700">₱{unitRate} / L</span>
         </div>
       )}
     </div>
@@ -188,10 +189,11 @@ function localDayOf(value) {
 
 /* ── KPI cards ────────────────────────────────────────────────────── */
 const KPI_TONES = {
-  success: { deltaText: "text-success", glow: "from-success/15" },
+  // Delta text renders at 12px bold — needs the AA-safe -700 ink variants.
+  success: { deltaText: "text-success-700", glow: "from-success/15" },
   primary: { deltaText: "text-foreground-secondary", glow: "from-primary/10" },
-  info: { deltaText: "text-info", glow: "from-info/15" },
-  danger: { deltaText: "text-danger", glow: "from-danger/15" },
+  info: { deltaText: "text-info-700", glow: "from-info/15" },
+  danger: { deltaText: "text-danger-700", glow: "from-danger/15" },
 };
 
 function KpiCard({ label, value, delta, deltaIcon = false, context, tone }) {
@@ -626,31 +628,33 @@ export default function AnalyticsPage() {
     return { totalCost, totalLiters, momChange, latest, prev };
   }, [monthlyCostData]);
 
+  // Absence ≠ zero: while a feed has no snapshot, KPIs show an em-dash with a
+  // neutral context instead of confidently-typeset ₱0/0% that reads as health.
   const kpis = [
     {
       label: "Total Operational Cost",
-      value: formatCurrency(fi.totalCost || 0),
+      value: financialQuery.data ? formatCurrency(fi.totalCost || 0) : "—",
       tone: "success",
-      context: "Fuel & maintenance total",
+      context: financialQuery.data ? "Fuel & maintenance total" : "Awaiting financial data",
     },
     {
       label: "Cost Per Kilometer",
-      value: formatCurrency(fi.costPerKm || 0),
+      value: financialQuery.data ? formatCurrency(fi.costPerKm || 0) : "—",
       tone: "primary",
-      context: `${formatDistance(f.totalDistance || 0)} total distance`,
+      context: financialQuery.data ? `${formatDistance(f.totalDistance || 0)} total distance` : "Awaiting financial data",
     },
     {
       label: "Fleet Utilization",
-      value: `${f.utilization || 0}%`,
+      value: fleetQuery.data ? `${f.utilization || 0}%` : "—",
       tone: "info",
-      context: `${f.totalTrips || 0} total trips completed`,
+      context: fleetQuery.data ? `${f.totalTrips || 0} total trips completed` : "Awaiting fleet activity data",
     },
     {
       label: "Maintenance Risk Due",
-      value: maintDue || 0,
-      tone: maintDue > 0 ? "danger" : "success",
-      delta: maintDue > 0 ? "Action Needed" : null,
-      context: `${maintDue || 0} vehicles need service`,
+      value: predictionQuery.data ? maintDue || 0 : "—",
+      tone: !predictionQuery.data ? "primary" : maintDue > 0 ? "danger" : "success",
+      delta: maintDue > 0 && predictionQuery.data ? "Action Needed" : null,
+      context: predictionQuery.data ? `${maintDue || 0} vehicles need service` : "No monitored vehicles yet",
     },
   ];
 
@@ -744,7 +748,7 @@ export default function AnalyticsPage() {
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.14em] text-foreground">Timeframe Period</p>
                 <p className="mt-0.5 text-[11px] font-medium text-foreground-muted">
-                  {dateBounds.from} → {dateBounds.to}
+                  {dateRange === "all" ? "All time" : `${dateBounds.from} → ${dateBounds.to}`}
                 </p>
               </div>
             </div>
@@ -818,6 +822,8 @@ export default function AnalyticsPage() {
                   exit={{ opacity: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: EASE }}
                   className="chart-h-lg"
+                  role="img"
+                  aria-label={`Pickup volume trend over the last ${dateRange === "7d" ? "7" : "14"} days, ${pickupDemandTrend.reduce((sum, d) => sum + d.requests, 0)} total requests.`}
                 >
                   <ResponsiveContainer width="100%" height="100%" debounce={200}>
                     {/* Keyed by timeframe so switching ranges visibly re-draws the series */}
@@ -887,7 +893,7 @@ export default function AnalyticsPage() {
 
                     <div className="flex items-center gap-2">
                       {calendarData.peakDayNum && calendarData.maxCount > 1 && (
-                        <div className="flex items-center gap-1 rounded-full bg-info/10 px-2.5 py-0.5 text-[10.5px] font-bold text-info ring-1 ring-info/25">
+                        <div className="flex items-center gap-1 rounded-full bg-info/10 px-2.5 py-0.5 text-[10.5px] font-bold text-info-700 ring-1 ring-info/25">
                           <Sparkles className="h-3 w-3" />
                           <span>Peak: Day {calendarData.peakDayNum} ({calendarData.maxCount} req)</span>
                         </div>
@@ -908,7 +914,11 @@ export default function AnalyticsPage() {
                   </div>
 
                   {/* Calendar 7-Column Heatmap Grid */}
-                  <div className="grid grid-cols-7 gap-1.5">
+                  <div
+                    className="grid grid-cols-7 gap-1.5"
+                    role="img"
+                    aria-label={`Pickup request calendar heatmap. Peak day ${calendarData.peakDayNum ?? "—"} with ${calendarData.maxCount ?? 0} requests, averaging ${calendarData.avgDaily ?? 0} per day.`}
+                  >
                     {calendarData.days.map((d) => {
                       if (d.isPadding) {
                         return (
@@ -952,7 +962,7 @@ export default function AnalyticsPage() {
                               className={cn(
                                 "font-bold",
                                 d.isToday
-                                  ? "rounded-md bg-primary px-1.5 py-0.2 text-[10px] font-black text-surface"
+                                  ? "rounded-md bg-primary px-1.5 py-0.5 text-[10px] font-black text-surface"
                                   : isZero
                                     ? "text-foreground-muted/70 font-medium"
                                     : "text-foreground font-extrabold"
@@ -961,8 +971,8 @@ export default function AnalyticsPage() {
                               {d.dayNumber}
                             </span>
                             {isPeak ? (
-                              <span className="flex items-center gap-0.5 text-[8.5px] font-black uppercase tracking-wider text-info bg-info/20 px-1 py-0.2 rounded-full">
-                                <Sparkles className="h-2.5 w-2.5 text-info" />
+                              <span className="flex items-center gap-0.5 text-[8.5px] font-black uppercase tracking-wider text-info-700 bg-info/20 px-1 py-0.5 rounded-full">
+                                <Sparkles className="h-2.5 w-2.5 text-info-700" />
                               </span>
                             ) : d.isToday ? (
                               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
@@ -976,12 +986,12 @@ export default function AnalyticsPage() {
                                 className={cn(
                                   "font-data text-[10px] rounded-md px-1.5 py-0.5 transition-colors",
                                   isPeak
-                                    ? "bg-info font-black text-white shadow-xs"
+                                    ? "bg-blue-600 font-black text-white shadow-xs"
                                     : isHigh
-                                      ? "bg-info/25 text-info font-bold ring-1 ring-info/30"
+                                      ? "bg-info/25 text-info-700 font-bold ring-1 ring-info/30"
                                       : isMed
-                                        ? "bg-info/20 text-info font-bold"
-                                        : "bg-info/10 text-info font-semibold"
+                                        ? "bg-info/20 text-info-700 font-bold"
+                                        : "bg-info/10 text-info-700 font-semibold"
                                 )}
                               >
                                 {d.count} <span className="text-[8.5px] opacity-80">req</span>
@@ -1012,7 +1022,7 @@ export default function AnalyticsPage() {
                         <div className="h-3.5 w-3.5 rounded border border-info/25 bg-info/10" />
                         <div className="h-3.5 w-3.5 rounded border border-info/40 bg-info/20" />
                         <div className="h-3.5 w-3.5 rounded border border-info/60 bg-info/35" />
-                        <span className="text-[10px] font-bold text-info">Peak</span>
+                        <span className="text-[10px] font-bold text-info-700">Peak</span>
                       </div>
                     </div>
                   </div>
@@ -1036,7 +1046,15 @@ export default function AnalyticsPage() {
               ) : undefined
             }
           >
-            <div className="relative flex h-[230px] items-center justify-center">
+            <div
+              role="img"
+              aria-label={
+                maintenanceRiskPie.length
+                  ? `Fleet risk distribution: ${maintenanceRiskPie.map((p) => `${p.value} ${p.name}`).join(", ")}.`
+                  : "Fleet risk distribution: no monitored vehicles."
+              }
+              className="relative flex h-[230px] items-center justify-center"
+            >
               <ResponsiveContainer width="100%" height="100%" debounce={200}>
                 <PieChart>
                   {/* Subtle background track */}
@@ -1069,15 +1087,28 @@ export default function AnalyticsPage() {
                 </PieChart>
               </ResponsiveContainer>
               <div className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-                <div className="relative mx-auto mb-1.5 flex h-9 w-9 items-center justify-center rounded-full border border-success/20 bg-success/10 text-success">
-                  <motion.span
-                    className="absolute inset-0 rounded-full border border-success/40"
-                    animate={{ scale: [1, 1.45], opacity: [0.6, 0] }}
-                    transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut" }}
-                  />
-                  <CheckCircle2 className="relative h-[18px] w-[18px]" strokeWidth={1.75} />
-                </div>
-                <p className="font-data text-4xl font-bold leading-none tracking-tight text-foreground">{riskCount}</p>
+                {maintenanceRiskPie.length === 0 ? (
+                  <>
+                    {/* Absence must not borrow the visual grammar of health:
+                        no green, no pulse until something is monitored. */}
+                    <div className="relative mx-auto mb-1.5 flex h-9 w-9 items-center justify-center rounded-full border border-border bg-hover text-foreground-muted">
+                      <ShieldCheck className="h-[18px] w-[18px]" strokeWidth={1.75} />
+                    </div>
+                    <p className="font-data text-4xl font-bold leading-none tracking-tight text-foreground-muted">0</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="relative mx-auto mb-1.5 flex h-9 w-9 items-center justify-center rounded-full border border-success/20 bg-success/10 text-success">
+                      <motion.span
+                        className="absolute inset-0 rounded-full border border-success/40"
+                        animate={{ scale: [1, 1.45], opacity: [0.6, 0] }}
+                        transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut" }}
+                      />
+                      <CheckCircle2 className="relative h-[18px] w-[18px]" strokeWidth={1.75} />
+                    </div>
+                    <p className="font-data text-4xl font-bold leading-none tracking-tight text-foreground">{riskCount}</p>
+                  </>
+                )}
                 <p className="mt-1.5 text-[9px] font-black uppercase tracking-[0.22em] text-foreground-muted">Monitored</p>
               </div>
             </div>
@@ -1100,6 +1131,9 @@ export default function AnalyticsPage() {
                   </div>
                 );
               })}
+              {maintenanceRiskPie.length === 0 && (
+                <p className="text-xs text-foreground-muted">No predictive-maintenance snapshot for this period yet.</p>
+              )}
             </div>
           </ChartCard>
           </div>
@@ -1121,17 +1155,29 @@ export default function AnalyticsPage() {
             subtitle="Liters consumed vs ₱ spend across vehicle categories"
             actions={
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="inline-flex items-center gap-1 rounded-full border border-warning/25 bg-warning/10 px-2.5 py-0.5 text-[10.5px] font-bold text-warning">
+                <span className="inline-flex items-center gap-1 rounded-full border border-warning/25 bg-warning/10 px-2.5 py-0.5 text-[10.5px] font-bold text-warning-700">
                   <Fuel className="h-3 w-3" /> {totalFuelCategoryStats.totalLiters.toLocaleString()} L
                 </span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success">
+                <span className="inline-flex items-center gap-1 rounded-full border border-success/25 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success-700">
                   {formatCurrency(totalFuelCategoryStats.totalCost)}
                 </span>
               </div>
             }
           >
             <div className="space-y-4">
-              <div className="chart-h-md">
+              {fuelByCategory.length === 0 ? (
+                <EmptyState
+                  icon={Fuel}
+                  title="No fuel records in this period"
+                  description="Driver-reported refuels will build this breakdown."
+                  className="min-h-[230px] rounded-2xl border border-border/60"
+                />
+              ) : (
+              <div
+                className="chart-h-md"
+                role="img"
+                aria-label={`Fuel volume versus expense across ${fuelByCategory.length} vehicle categories, ${dateRange === "all" ? "all time" : `${dateBounds.from} to ${dateBounds.to}`}. Total ${totalFuelCategoryStats.totalLiters.toLocaleString()} liters.`}
+              >
                 <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart key={dateRange} data={fuelByCategory} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
                     <defs>
@@ -1200,6 +1246,7 @@ export default function AnalyticsPage() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+              )}
 
               {/* Category Breakdown Chips */}
               <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
@@ -1225,7 +1272,7 @@ export default function AnalyticsPage() {
                           <span className="font-data text-sm font-black text-foreground">
                             {formatCurrency(c.cost)}
                           </span>
-                          <span className="ml-1.5 font-data text-[11px] font-semibold text-warning">
+                          <span className="ml-1.5 font-data text-[11px] font-semibold text-warning-700">
                             {c.liters.toLocaleString()} L
                           </span>
                         </div>
@@ -1258,8 +1305,8 @@ export default function AnalyticsPage() {
                   className={cn(
                     "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10.5px] font-bold",
                     Number(monthlyFuelStats.momChange) >= 0
-                      ? "border border-danger/20 bg-danger/10 text-danger"
-                      : "border border-success/20 bg-success/10 text-success"
+                      ? "border border-danger/20 bg-danger/10 text-danger-700"
+                      : "border border-success/20 bg-success/10 text-success-700"
                   )}
                 >
                   <TrendingUp className="h-3 w-3" />
@@ -1269,14 +1316,26 @@ export default function AnalyticsPage() {
                   MoM
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success">
+                <span className="inline-flex items-center gap-1 rounded-full border border-success/20 bg-success/10 px-2.5 py-0.5 text-[10.5px] font-bold text-success-700">
                   {formatCurrency(monthlyFuelStats.totalCost)}
                 </span>
               )
             }
           >
             <div className="space-y-4">
-              <div className="chart-h-md">
+              {monthlyCostData.length === 0 ? (
+                <EmptyState
+                  icon={PhilippinePeso}
+                  title="No monthly fuel history"
+                  description="Fuel records across past months will draw this trend."
+                  className="min-h-[230px] rounded-2xl border border-border/60"
+                />
+              ) : (
+              <div
+                className="chart-h-md"
+                role="img"
+                aria-label={`Monthly fuel expense and consumption, ${monthlyCostData.length} months through ${monthlyFuelStats.latest?.month || "present"}. Total ${monthlyFuelStats.totalLiters.toLocaleString()} liters, ${formatCurrency(monthlyFuelStats.totalCost)}.`}
+              >
                 <ResponsiveContainer width="100%" height="100%" debounce={200}>
                   <ComposedChart key={dateRange} data={monthlyCostData} margin={{ top: 14, right: 8, left: -6, bottom: 0 }}>
                     <defs>
@@ -1351,6 +1410,7 @@ export default function AnalyticsPage() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+              )}
 
               {/* Monthly Overview Chips */}
               <div className="grid grid-cols-1 gap-2 pt-1 sm:grid-cols-2">
@@ -1363,7 +1423,7 @@ export default function AnalyticsPage() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-extrabold text-foreground">{m.month}</span>
-                        <span className="rounded-full bg-success/10 px-2 py-0.5 font-data text-[10px] font-bold text-success">
+                        <span className="rounded-full bg-success/10 px-2 py-0.5 font-data text-[10px] font-bold text-success-700">
                           ₱{unitPrice}/L
                         </span>
                       </div>
@@ -1371,7 +1431,7 @@ export default function AnalyticsPage() {
                         <span className="font-data text-sm font-black text-foreground">
                           {formatCurrency(m.fuelCost)}
                         </span>
-                        <span className="font-data text-xs font-bold text-warning">
+                        <span className="font-data text-xs font-bold text-warning-700">
                           {m.liters.toLocaleString()} L
                         </span>
                       </div>
@@ -1396,7 +1456,7 @@ export default function AnalyticsPage() {
           title="Driver Safety & Performance Leaderboard"
           subtitle="Top-rated roster by composite safety score"
           actions={
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-[11px] font-bold text-success">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-success/20 bg-success/10 px-3 py-1 text-[11px] font-bold text-success-700">
               <Star className="h-3 w-3 fill-current" strokeWidth={1.75} /> Top Rated Roster
             </span>
           }
@@ -1417,7 +1477,7 @@ export default function AnalyticsPage() {
                     className={cn(
                       "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border font-data text-sm font-bold",
                       index === 0
-                        ? "border-warning/40 bg-gradient-to-br from-warning/25 to-warning/5 text-warning"
+                        ? "border-warning/40 bg-gradient-to-br from-warning/25 to-warning/5 text-warning-700"
                         : index === 1
                           ? "border-border/70 bg-hover text-foreground"
                           : "border-primary/25 bg-primary/10 text-primary"
@@ -1425,7 +1485,7 @@ export default function AnalyticsPage() {
                   >
                     {index + 1}
                     {index === 0 && (
-                      <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-warning text-white shadow-sm">
+                      <span className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-warning text-amber-950 shadow-sm">
                         <Award className="h-3 w-3" fill="currentColor" strokeWidth={1.75} />
                       </span>
                     )}

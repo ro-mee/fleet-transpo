@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MotionConfig, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -24,6 +24,7 @@ import {
   getFuelConsumptionReport, getMaintenanceReport,
 } from "@/services/report.service";
 import { exportToCSV } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { SERIES as CHART_COLORS } from "@/lib/chart-tokens";
@@ -88,11 +89,12 @@ function Panel({ title, description, icon: Icon, action, children, className }) 
 }
 
 const KPI_TONES = {
-  success: "from-success/15 text-success",
+  // Icon/dot accents render small on white cards — use AA-safe -700 inks.
+  success: "from-success/15 text-success-700",
   primary: "from-primary/10 text-foreground-secondary",
-  info: "from-info/15 text-info",
-  warning: "from-warning/15 text-warning",
-  danger: "from-danger/15 text-danger",
+  info: "from-info/15 text-info-700",
+  warning: "from-warning/15 text-warning-700",
+  danger: "from-danger/15 text-danger-700",
 };
 
 function StatCard({ icon: Icon, label, value, valueNote, tone = "primary" }) {
@@ -175,7 +177,7 @@ function PremiumTooltip({ active, payload, label }) {
       {unitRate && (
         <div className="mt-2.5 flex items-center justify-between border-t border-surface/15 pt-2 text-[11px]">
           <span className="font-medium opacity-70">Unit Efficiency</span>
-          <span className="font-data font-bold text-success">₱{unitRate} / L</span>
+          <span className="font-data font-bold text-emerald-400 dark:text-emerald-700">₱{unitRate} / L</span>
         </div>
       )}
     </div>
@@ -188,10 +190,46 @@ function ChartStage({ children, height = 320 }) {
 
 export default function ReportsPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
-  const [selectedReport, setSelectedReport] = useState("fleet");
-  const [preset, setPreset] = useState("month");
-  const [customRange, setCustomRange] = useState({ from: "", to: "" });
+  // Report + range hydrate from the URL so a configured view is bookmarkable,
+  // shareable, and refresh-stable instead of dying with the component.
+  const PRESET_IDS = ["today", "7d", "month", "quarter", "custom"];
+  const [selectedReport, setSelectedReport] = useState(() => {
+    if (typeof window === "undefined") return "fleet";
+    const p = new URLSearchParams(window.location.search).get("report");
+    return REPORT_TYPES.some((t) => t.id === p) ? p : "fleet";
+  });
+  const [preset, setPreset] = useState(() => {
+    if (typeof window === "undefined") return "month";
+    const p = new URLSearchParams(window.location.search).get("range");
+    return PRESET_IDS.includes(p) ? p : "month";
+  });
+  const [customRange, setCustomRange] = useState(() => {
+    if (typeof window === "undefined") return { from: "", to: "" };
+    const q = new URLSearchParams(window.location.search);
+    const from = q.get("from") || "";
+    const to = q.get("to") || "";
+    const ymd = /^\d{4}-\d{2}-\d{2}$/;
+    return ymd.test(from) && ymd.test(to) ? { from, to } : { from: "", to: "" };
+  });
   const [narrativeForce, setNarrativeForce] = useState(0);
+
+  // Mirror report/range into the URL. history.replaceState keeps this
+  // cosmetic — no navigation, no RSC refetch per interaction.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    params.set("report", selectedReport);
+    params.set("range", preset);
+    if (preset === "custom" && customRange.from && customRange.to) {
+      params.set("from", customRange.from);
+      params.set("to", customRange.to);
+    } else {
+      params.delete("from");
+      params.delete("to");
+    }
+    const qs = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${qs ? `?${qs}` : ""}`);
+  }, [selectedReport, preset, customRange]);
 
   const dateBounds = useMemo(() => {
     const now = new Date();
@@ -249,7 +287,16 @@ export default function ReportsPage() {
     if (selectedReport === "maintenance") { rows = reportData.byType || []; columns = [{ label: "Maintenance Type", key: "type" }, { label: "Records", key: "count" }, { label: "Total Expense", key: "cost" }]; }
     if (selectedReport === "drivers") { rows = reportData.topDrivers || []; columns = [{ label: "Driver Name", key: "name" }, { label: "Performance Score", key: "score" }, { label: "Completed Trips", key: "trips" }]; }
     if (selectedReport === "financial") { rows = [reportData]; columns = [{ label: "Total Cost", key: "totalCost" }, { label: "Fuel Cost", key: "fuelCost" }, { label: "Maintenance Cost", key: "maintCost" }, { label: "Cost Per Km", key: "costPerKm" }]; }
-    if (rows.length && columns) exportToCSV(rows, `report-${selectedReport}`, columns);
+    // Exporting is this page's whole job — it must never end in silence.
+    // An empty period says so; a real download confirms filename + row count.
+    const result = rows.length && columns
+      ? exportToCSV(rows, `report-${selectedReport}`, columns)
+      : { count: 0 };
+    if (!result.count) {
+      toast.warning(`Nothing recorded in this period (${dateBounds.from} → ${dateBounds.to}) to export.`);
+      return;
+    }
+    toast.success(`Exported ${result.count} rows — ${result.filename}`);
   }
 
   const presets = [{ id: "today", label: "Today" }, { id: "7d", label: "7 days" }, { id: "month", label: "This month" }, { id: "quarter", label: "Quarter" }, { id: "custom", label: "Custom" }];
@@ -270,7 +317,7 @@ export default function ReportsPage() {
             </div>
             <div className="flex max-w-full items-center gap-1 overflow-x-auto rounded-full bg-hover/70 p-1 ring-1 ring-border/60 scrollbar-thin">{presets.map((item) => <button key={item.id} type="button" onClick={() => setPreset(item.id)} aria-pressed={preset === item.id} className={cn("relative shrink-0 rounded-full px-4 py-2 text-xs font-bold transition-colors duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-surface", preset === item.id ? "text-surface" : "text-foreground-secondary hover:text-foreground")}>{preset === item.id && <motion.span layoutId="reports-timeframe-pill" className="absolute inset-0 rounded-full bg-foreground shadow-[0_2px_10px_rgba(17,24,39,0.28)]" transition={{ type: "spring", stiffness: 480, damping: 38 }} />}<span className="relative z-10">{item.label}</span></button>)}</div>
           </div>
-          {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" />{customIncomplete && <span className="text-xs font-medium text-warning">Pick both dates to set a custom range.</span>}</div>}
+          {preset === "custom" && <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-border/60 pt-4 md:justify-end"><DatePicker id="report-from" label="From" value={customRange.from} maxDate={customRange.to || undefined} onChange={(value) => setCustomRange((prev) => ({ ...prev, from: value }))} className="min-h-[38px] py-1" /><span className="text-xs font-medium text-foreground-muted">to</span><DatePicker id="report-to" label="To" value={customRange.to} minDate={customRange.from || undefined} onChange={(value) => setCustomRange((prev) => ({ ...prev, to: value }))} className="min-h-[38px] py-1" />{customIncomplete && <span className="text-xs font-medium text-warning-700">Pick both dates to set a custom range.</span>}</div>}
         </section>
 
         <nav aria-label="Report categories" className="rounded-[1.75rem] border border-border/70 bg-surface px-5 py-4 shadow-[0_1px_2px_rgba(17,24,39,0.04),0_16px_36px_-30px_rgba(17,24,39,0.25)]">
@@ -327,8 +374,8 @@ function FleetReport({ query, data }) {
         {query.isLoading ? <LoadingChart /> : data.length ? (
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-3 border-b border-border/60 pb-5 sm:grid-cols-3">
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={highestDistance?.plate}>{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info">{formatDistance(highestDistance?.distance || 0)}</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={mostTrips?.plate}>{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success">{mostTrips?.trips || 0} trips</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={highestDistance?.plate}>{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info-700">{formatDistance(highestDistance?.distance || 0)}</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={mostTrips?.plate}>{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success-700">{mostTrips?.trips || 0} trips</p></div>
               <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Average trip distance</p><p className="mt-1.5 font-data text-sm font-bold text-foreground">{averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</p><p className="mt-0.5 text-xs font-medium text-foreground-muted">Across completed trips</p></div>
             </div>
             <div className="space-y-2.5">
@@ -346,7 +393,7 @@ function FleetReport({ query, data }) {
                         <span className="absolute inset-y-0 right-2 flex items-center font-data text-[10px] font-bold text-foreground">{vehicle.distance.toLocaleString()} km</span>
                       </div>
                     </div>
-                    <div className="col-start-2 flex items-center justify-between gap-2 sm:col-start-auto sm:justify-end"><span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted sm:hidden">Completed trips</span><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 font-data text-[11px] font-bold text-success"><Zap className="h-3 w-3" strokeWidth={1.75} />{vehicle.trips} trips</span></div>
+                    <div className="col-start-2 flex items-center justify-between gap-2 sm:col-start-auto sm:justify-end"><span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted sm:hidden">Completed trips</span><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 font-data text-[11px] font-bold text-success-700"><Zap className="h-3 w-3" strokeWidth={1.75} />{vehicle.trips} trips</span></div>
                   </motion.div>
                 );
               })}
@@ -487,13 +534,13 @@ function FuelReport({ query, trend, categories }) {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-extrabold text-foreground">{m.month}</span>
-                        <span className="rounded-full bg-success/10 px-2 py-0.5 font-data text-[10px] font-bold text-success">
+                        <span className="rounded-full bg-success/10 px-2 py-0.5 font-data text-[10px] font-bold text-success-700">
                           ₱{unitPrice}/L
                         </span>
                       </div>
                       <div className="mt-2 flex items-baseline justify-between gap-2">
                         <span className="font-data text-sm font-black text-foreground">{money(m.cost)}</span>
-                        <span className="font-data text-xs font-bold text-warning">{m.liters.toLocaleString()} L</span>
+                        <span className="font-data text-xs font-bold text-warning-700">{m.liters.toLocaleString()} L</span>
                       </div>
                     </div>
                   );
@@ -631,7 +678,7 @@ function MaintenanceReport({ query, data, due }) {
         action={
           <div className="flex flex-wrap items-center gap-2">
             {topCategory && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-danger/25 bg-danger/10 px-2.5 py-0.5 text-[10.5px] font-bold text-danger">
+              <span className="inline-flex items-center gap-1 rounded-full border border-danger/25 bg-danger/10 px-2.5 py-0.5 text-[10.5px] font-bold text-danger-700">
                 <Sparkles className="h-3 w-3" /> Top: {topCategory.type} ({topShare}%)
               </span>
             )}
@@ -731,7 +778,7 @@ function MaintenanceReport({ query, data, due }) {
                         </span>
                         <span className="truncate text-xs font-extrabold text-foreground">{item.type}</span>
                       </div>
-                      <span className="rounded-full bg-rose-500/10 px-2 py-0.5 font-data text-[10px] font-bold text-rose-500 dark:bg-rose-500/20">
+                      <span className="rounded-full bg-rose-500/10 px-2 py-0.5 font-data text-[10px] font-bold text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">
                         {individualShare}%
                       </span>
                     </div>
@@ -745,7 +792,7 @@ function MaintenanceReport({ query, data, due }) {
 
                     <div className="mt-2 flex items-center justify-between text-[10px] text-foreground-muted">
                       <span>Cumulative impact</span>
-                      <span className="font-data font-bold text-purple-500">{item.cumulative}%</span>
+                      <span className="font-data font-bold text-purple-700 dark:text-purple-300">{item.cumulative}%</span>
                     </div>
 
                     <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-muted/30">

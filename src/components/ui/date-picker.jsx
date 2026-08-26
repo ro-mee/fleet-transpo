@@ -20,6 +20,8 @@ export function DatePicker({
   id,
   disabled = false,
   disablePast = false,
+  minDate = null,
+  maxDate = null,
   className,
 }) {
   const [open, setOpen] = React.useState(false);
@@ -53,6 +55,22 @@ export function DatePicker({
     }, 0);
     return () => clearTimeout(t);
   }, [value]);
+
+  // Optional range bounds (YYYY-MM-DD): days outside [minDate, maxDate] are
+  // unselectable — lets callers couple From/To so an inverted range can
+  // never reach the API.
+  const minDay = React.useMemo(() => {
+    if (!minDate) return null;
+    const d = new Date(`${minDate}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+  }, [minDate]);
+  const maxDay = React.useMemo(() => {
+    if (!maxDate) return null;
+    const d = new Date(`${maxDate}T00:00:00`);
+    return isNaN(d.getTime()) ? null : d;
+  }, [maxDate]);
+  const isOutsideRange = (dateObj) =>
+    (minDay && dateObj < minDay) || (maxDay && dateObj > maxDay);
 
   const commitDate = (dateObj) => {
     if (!dateObj) {
@@ -88,6 +106,7 @@ export function DatePicker({
       todayStart.setHours(0, 0, 0, 0);
       if (candidate < todayStart) return;
     }
+    if (isOutsideRange(candidate)) return;
     commitDate(candidate);
     setOpen(false);
   };
@@ -132,18 +151,27 @@ export function DatePicker({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
+    <div className="relative select-none group">
+      {/* Real <button> trigger: keyboard-focusable, Enter/Space activatable.
+          Radix supplies aria-haspopup/aria-expanded via asChild prop merging.
+          Consumer `className` lands on the button (the visual box) so layout
+          tweaks like min-h/py keep behaving as they did on the old div. */}
       <PopoverTrigger asChild disabled={disabled}>
-        <div
+        <button
+          type="button"
           id={id}
+          disabled={disabled}
           className={cn(
-            "relative rounded-2xl p-[5px] transition-all select-none group cursor-pointer",
+            "flex w-full items-center justify-between rounded-2xl p-[5px] text-left transition-all cursor-pointer",
             "bg-gradient-to-b from-border/70 to-border/30 ring-1 ring-border/70 hover:ring-primary/50",
             selectedDate ? "ring-primary/60" : "",
+            open && "ring-primary",
+            "focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             disabled && "opacity-50 cursor-not-allowed",
             className
           )}
         >
-          <div className="relative flex items-center justify-between bg-surface px-4 py-2 rounded-[11px] min-h-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="relative flex w-full items-center justify-between bg-surface px-4 py-2 rounded-[11px] min-h-[42px] shadow-[inset_0_1px_0_rgba(255,255,255,0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
             {/* Floating Top Pill Label */}
             <div className="-top-2.5 left-4 absolute bg-surface border border-primary/30 px-2.5 py-0.5 rounded-full text-[11px] font-bold text-primary flex items-center gap-1.5 z-10">
               <CalendarIcon className="w-3.5 h-3.5 text-primary shrink-0" />
@@ -161,25 +189,29 @@ export function DatePicker({
               </div>
             )}
 
-            {/* Right Action Button (Clear or Calendar Icon) */}
-            <div className="flex items-center gap-1">
-              {selectedDate && (
-                <button
-                  type="button"
-                  onClick={handleClear}
-                  className="p-1 rounded-lg hover:bg-danger/10 text-foreground-muted hover:text-danger transition-colors cursor-pointer"
-                  title="Clear date"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
-                <CalendarIcon className="w-4 h-4" />
-              </div>
+            {/* Calendar Icon Badge (clear lives as an overlay sibling below,
+                so we never nest a button inside this one) */}
+            <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+              <CalendarIcon className="w-4 h-4" />
             </div>
           </div>
-        </div>
+        </button>
       </PopoverTrigger>
+
+      {/* Clear action as a sibling overlay — keyboard-reachable after the
+          trigger in tab order, positioned where the inline icon used to sit. */}
+      {selectedDate && !disabled && (
+        <button
+          type="button"
+          onClick={handleClear}
+          title="Clear date"
+          aria-label="Clear date"
+          className="absolute right-[49px] top-1/2 -translate-y-1/2 z-20 rounded-lg p-1 text-foreground-muted hover:bg-danger/10 hover:text-danger transition-colors cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-danger"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+    </div>
 
       <PopoverContent align="start" className="w-[260px] p-3.5 rounded-3xl border border-border/80 shadow-lg bg-surface">
         <div className="space-y-3">
@@ -199,7 +231,7 @@ export function DatePicker({
               <select
                 value={viewDate.getMonth()}
                 onChange={handleMonthChange}
-                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
+                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary"
               >
                 {MONTHS.map((m, idx) => (
                   <option key={m} value={idx} className="bg-surface text-foreground">
@@ -211,7 +243,7 @@ export function DatePicker({
               <select
                 value={viewDate.getFullYear()}
                 onChange={handleYearChange}
-                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus:outline-hidden"
+                className="bg-hover border border-border/80 text-foreground text-xs font-bold rounded-xl px-2 py-1 cursor-pointer focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-primary focus-visible:border-primary"
               >
                 {yearOptions.map((y) => (
                   <option key={y} value={y} className="bg-surface text-foreground">
@@ -261,11 +293,11 @@ export function DatePicker({
                 new Date().getMonth() === viewDate.getMonth() &&
                 new Date().getFullYear() === viewDate.getFullYear();
 
-              // Past-date check
+              // Past-date / out-of-range check
               const dayDate = new Date(viewDate.getFullYear(), viewDate.getMonth(), d);
               const todayMidnight = new Date();
               todayMidnight.setHours(0, 0, 0, 0);
-              const isPast = disablePast && dayDate < todayMidnight;
+              const isPast = (disablePast && dayDate < todayMidnight) || isOutsideRange(dayDate);
 
               return (
                 <button

@@ -10,10 +10,16 @@ import { HeroHeader } from "@/components/ui/hero-header";
 import { StatsGridSkeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { Wallet, Fuel, Wrench, TrendingDown } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { formatCurrency } from "@/lib/utils";
 
 export default function FleetCostPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  // Plate links lead to /fleet/vehicles/[id], which excludes `management` —
+  // render plain text for roles without vehicle read access instead of
+  // punishing them with a denial-and-bounce for clicking a plausible link.
+  const { can } = useRoleAccess();
+  const canOpenVehicles = can("vehicles", "read");
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["fleet-cost"],
@@ -86,9 +92,13 @@ export default function FleetCostPage() {
                   {details.map((d) => (
                     <tr key={d.vehicle_id} className="hover:bg-hover transition-colors">
                       <td className="px-5 py-3">
-                        <Link href={`/fleet/vehicles/${d.vehicle_id}`} className="font-medium text-foreground hover:underline">
-                          {d.plate_number}
-                        </Link>
+                        {canOpenVehicles ? (
+                          <Link href={`/fleet/vehicles/${d.vehicle_id}`} className="font-medium text-foreground hover:underline">
+                            {d.plate_number}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-foreground">{d.plate_number}</span>
+                        )}
                         <div className="text-xs text-foreground-muted">{d.vehicle || "—"}</div>
                       </td>
                       <td className="px-5 py-3 text-right tabular-nums text-foreground">{formatCurrency(d.fuel_cost)}</td>
