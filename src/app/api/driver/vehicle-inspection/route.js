@@ -23,7 +23,7 @@ export async function GET(req) {
 
     const { rows } = await query(
       `SELECT i.inspection_id, i.inspection_type, i.inspection_date, i.checklist,
-              i.findings, i.severity, i.status, v.plate_number, v.vehicle_status
+              i.findings, i.severity, i.status, v.plate_number, v.vehicle_status, v.image_url
          FROM vehicleinspection i
          JOIN vehicles v ON v.vehicle_id = i.vehicle_id
         WHERE i.vehicle_id IN (

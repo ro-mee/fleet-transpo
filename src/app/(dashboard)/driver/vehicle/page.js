@@ -47,43 +47,54 @@ export default function DriverVehiclePage() {
                 className="py-8"
               />
             ) : inspection ? (
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs">
-                <div>
-                  <p className="text-foreground-muted">Vehicle</p>
-                  <p className="font-medium mt-1">{inspection.plate_number || `#${inspection.vehicle_id}`}</p>
-                </div>
-                <div>
-                  <p className="text-foreground-muted">Vehicle Status</p>
-                  <p className="mt-1">
-                    {inspection.vehicle_status ? <StatusBadge status={inspection.vehicle_status} entity="vehicle" /> : "—"}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-foreground-muted">Last Inspection</p>
-                  <p className="font-medium mt-1">{inspection.inspection_date ? formatDate(inspection.inspection_date) : "—"}</p>
-                </div>
-                <div>
-                  <p className="text-foreground-muted">Inspection Status</p>
-                  <p className="mt-1"><StatusBadge status={inspection.status} entity="vehicle" /></p>
-                </div>
-                <div className="md:col-span-2">
-                  <p className="text-foreground-muted">Inspection Type</p>
-                  <p className="font-medium mt-1">{inspection.inspection_type || "—"}</p>
-                </div>
-                <div className="md:col-span-2">
-                  <p className="text-foreground-muted">Findings</p>
-                  <p className="font-medium mt-1">{inspection.findings || "No findings"}</p>
-                </div>
-                {inspection.severity && (
-                  <div className="md:col-span-4">
-                    <p className="text-foreground-muted">Condition</p>
-                    <p className="mt-1">
-                      <StatusBadge
-                        severity={inspection.severity === "Critical" ? "danger" : inspection.severity === "Major" ? "warning" : "info"}
-                      />
-                    </p>
+              <div className="flex flex-col md:flex-row gap-6">
+                {inspection.image_url && (
+                  <div className="shrink-0">
+                    <img
+                      src={inspection.image_url}
+                      alt="Vehicle"
+                      className="w-full md:w-48 h-32 object-cover rounded-md border border-border shadow-sm"
+                    />
                   </div>
                 )}
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs flex-1">
+                  <div>
+                    <p className="text-foreground-muted">Vehicle</p>
+                    <p className="font-medium mt-1">{inspection.plate_number || `#${inspection.vehicle_id}`}</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground-muted">Vehicle Status</p>
+                    <p className="mt-1">
+                      {inspection.vehicle_status ? <StatusBadge status={inspection.vehicle_status} entity="vehicle" /> : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-foreground-muted">Last Inspection</p>
+                    <p className="font-medium mt-1">{inspection.inspection_date ? formatDate(inspection.inspection_date) : "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-foreground-muted">Inspection Status</p>
+                    <p className="mt-1"><StatusBadge status={inspection.status} entity="vehicle" /></p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-foreground-muted">Inspection Type</p>
+                    <p className="font-medium mt-1">{inspection.inspection_type || "—"}</p>
+                  </div>
+                  <div className="md:col-span-2">
+                    <p className="text-foreground-muted">Findings</p>
+                    <p className="font-medium mt-1">{inspection.findings || "No findings"}</p>
+                  </div>
+                  {inspection.severity && (
+                    <div className="md:col-span-4">
+                      <p className="text-foreground-muted">Condition</p>
+                      <p className="mt-1">
+                        <StatusBadge
+                          severity={inspection.severity === "Critical" ? "danger" : inspection.severity === "Major" ? "warning" : "info"}
+                        />
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             ) : (
               <EmptyState
