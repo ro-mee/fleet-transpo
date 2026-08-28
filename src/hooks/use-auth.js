@@ -13,7 +13,8 @@ function mapSessionToEmployee(session) {
     last_name: u.lastName,
     email: u.email,
     position: u.position,
-    status: "Active",
+    status: u.status || "Active",
+    driver_status: u.driverStatus || null,
     role_id: null,
     roles: { role_id: null, role_name: u.role, description: "" },
   };

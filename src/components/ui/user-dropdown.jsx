@@ -23,6 +23,10 @@ import {
   Check,
   ChevronRight,
   ShieldCheck,
+  CarFront,
+  Clock,
+  Calendar,
+  Ban,
 } from "lucide-react";
 
 function formatRole(role) {
@@ -43,6 +47,30 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
     : "Fleet Administrator";
   const email = employee?.email || "admin@fleet.com";
   const role = employee?.roles?.role_name || "admin";
+  const isDriver = role === "driver";
+  const statusText = isDriver ? employee?.driver_status || "Available" : employee?.status || "Active";
+
+  let statusColor = "text-success";
+  let statusBg = "bg-success";
+  let StatusIcon = ShieldCheck;
+
+  if (statusText === "On Trip") {
+    statusColor = "text-warning";
+    statusBg = "bg-warning";
+    StatusIcon = CarFront;
+  } else if (statusText === "Off Duty" || statusText === "Inactive") {
+    statusColor = "text-foreground-muted";
+    statusBg = "bg-foreground-muted";
+    StatusIcon = Clock;
+  } else if (statusText === "On Leave") {
+    statusColor = "text-foreground-muted";
+    statusBg = "bg-foreground-muted";
+    StatusIcon = Calendar;
+  } else if (statusText === "Suspended") {
+    statusColor = "text-danger";
+    statusBg = "bg-danger";
+    StatusIcon = Ban;
+  }
 
   const ChevronIcon = chevron === "up" ? ChevronUp : ChevronDown;
 
@@ -109,7 +137,7 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
                 {employee ? getInitials(name) : "FF"}
               </AvatarFallback>
             </Avatar>
-            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-success ring-2 ring-surface" />
+            <span className={cn("absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full ring-2 ring-surface", statusBg)} />
           </div>
 
           <div className="flex-1 min-w-0">
@@ -123,8 +151,8 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
               <Badge variant="outline" className="text-[11px] font-medium px-2 py-0">
                 {formatRole(role)}
               </Badge>
-              <span className="text-[11px] font-medium text-success inline-flex items-center gap-1">
-                <ShieldCheck className="w-3 h-3" /> Active
+              <span className={cn("text-[11px] font-medium inline-flex items-center gap-1", statusColor)}>
+                <StatusIcon className="w-3 h-3" /> {statusText}
               </span>
             </div>
           </div>

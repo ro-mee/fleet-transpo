@@ -23,7 +23,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("*, roles(role_name)")
+          .select("*, roles(role_name), drivers(driver_status)")
           .eq("email", email.toLowerCase())
           .is("deleted_at", null)
           .maybeSingle();
@@ -43,6 +43,8 @@ export const authOptions = {
           firstName: employee.first_name,
           lastName: employee.last_name,
           position: employee.position,
+          status: employee.status,
+          driverStatus: employee.drivers?.driver_status || null,
         };
       }
     })
@@ -55,6 +57,8 @@ export const authOptions = {
         token.firstName = user.firstName;
         token.lastName = user.lastName;
         token.position = user.position;
+        token.status = user.status;
+        token.driverStatus = user.driverStatus;
       }
       return token;
     },
@@ -64,6 +68,8 @@ export const authOptions = {
       session.user.firstName = token.firstName;
       session.user.lastName = token.lastName;
       session.user.position = token.position;
+      session.user.status = token.status;
+      session.user.driverStatus = token.driverStatus;
       return session;
     }
   },
