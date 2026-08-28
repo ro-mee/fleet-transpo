@@ -23,7 +23,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("*, roles(role_name), drivers(driver_status)")
+          .select("*, roles(role_name)")
           .eq("email", email.toLowerCase())
           .is("deleted_at", null)
           .maybeSingle();
@@ -33,6 +33,16 @@ export const authOptions = {
 
         const valid = await bcrypt.compare(password, employee.password_hash);
         if (!valid) return null;
+
+        let driverStatus = null;
+        if (employee.roles?.role_name === "driver") {
+          const { data: driverData } = await supabase
+            .from("drivers")
+            .select("driver_status")
+            .eq("employee_id", employee.employee_id)
+            .maybeSingle();
+          driverStatus = driverData?.driver_status || null;
+        }
 
         return {
           id: String(employee.employee_id),
@@ -44,7 +54,7 @@ export const authOptions = {
           lastName: employee.last_name,
           position: employee.position,
           status: employee.status,
-          driverStatus: employee.drivers?.driver_status || null,
+          driverStatus,
         };
       }
     })

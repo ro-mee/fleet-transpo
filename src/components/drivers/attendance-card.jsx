@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { formatDate, cn } from "@/lib/utils";
-import { ChevronLeft, ChevronRight, Fingerprint, Calendar, List, CheckCircle2, Clock, AlertTriangle, Timer } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Fingerprint, Calendar, List, CheckCircle2, Clock, AlertTriangle, Timer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
@@ -251,34 +251,64 @@ export function AttendanceCard({ attendance = [] }) {
               </div>
             </div>
             
-            {/* Pagination Controls */}
+            {/* ── Pagination Footer (System Standard) ── */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center text-xs font-medium">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-3 text-xs text-foreground-secondary hover:text-foreground hover:bg-muted/50 rounded-lg"
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                >
-                  ‹ Prev
-                </Button>
-                
-                <span className="text-foreground mx-4">
-                  {currentPage} <span className="text-foreground-muted mx-1">/</span> {totalPages}
+              <div className="mt-4 flex flex-col gap-3 px-2 py-4 border-t border-border/60 bg-transparent sm:flex-row sm:items-center sm:justify-between">
+                <span className="text-xs font-semibold text-foreground-secondary">
+                  Showing <span className="font-bold text-foreground">{(currentPage - 1) * rowsPerPage + 1}–{Math.min(currentPage * rowsPerPage, displayAttendance.length)}</span> of <span className="font-bold text-foreground">{displayAttendance.length}</span> entries
                 </span>
-
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 px-3 text-xs text-foreground-secondary hover:text-foreground hover:bg-muted/50 rounded-lg"
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                >
-                  Next ›
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {currentPage} of {totalPages}</span>
+                  <button
+                    aria-label="First page"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={currentPage === 1}
+                    className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  >
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    aria-label="Previous page"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                    const isActive = currentPage === page;
+                    return (
+                      <button
+                        key={page}
+                        onClick={() => setCurrentPage(page)}
+                        className={cn(
+                          "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                          isActive
+                            ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                            : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                        )}
+                      >
+                        {page}
+                      </button>
+                    );
+                  })}
+                  <button
+                    aria-label="Next page"
+                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    aria-label="Last page"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={currentPage === totalPages}
+                    className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  >
+                    <ChevronsRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             )}
           </div>

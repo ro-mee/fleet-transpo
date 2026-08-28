@@ -191,7 +191,7 @@ export function DatePicker({
 
             {/* Calendar Icon Badge (clear lives as an overlay sibling below,
                 so we never nest a button inside this one) */}
-            <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white transition-colors">
+            <div className="p-1 rounded-lg bg-primary/10 text-primary group-hover:bg-primary group-hover:text-white dark:group-hover:text-slate-950 transition-colors">
               <CalendarIcon className="w-4 h-4" />
             </div>
           </div>

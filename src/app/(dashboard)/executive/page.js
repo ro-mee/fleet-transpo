@@ -14,7 +14,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { formatCurrency, getInitials, cn } from "@/lib/utils";
-import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route, Truck, Sparkles, Brain, Award, ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
+import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route, Truck, Sparkles, Brain, Award, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpRight } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { HeroHeader } from "@/components/ui/hero-header";
 
@@ -184,31 +184,56 @@ export default function ExecutiveKpiPage() {
             </CardContent>
           </div>
 
-          {/* Clean Pagination Footer */}
-          {utilVehicles.length > 0 && (
-            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
-              <span className="text-xs font-medium text-foreground-muted font-data">
-                Page <span className="text-foreground font-semibold">{utilPage}</span> of {maxUtilPages}
+          {/* ── Pagination Footer (System Standard) ── */}
+          {utilVehicles.length > 0 && maxUtilPages > 1 && (
+            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
+              <span className="text-xs font-semibold text-foreground-secondary">
+                Showing <span className="font-bold text-foreground">{(utilPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(utilPage * ITEMS_PER_PAGE, utilVehicles.length)}</span> of <span className="font-bold text-foreground">{utilVehicles.length}</span>
               </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+              <div className="flex items-center gap-1.5">
+                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {utilPage} of {maxUtilPages}</span>
+                <button
+                  onClick={() => setUtilPage(1)}
+                  disabled={utilPage === 1}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setUtilPage((p) => Math.max(1, p - 1))}
                   disabled={utilPage === 1}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+                </button>
+                {Array.from({ length: maxUtilPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setUtilPage(p)}
+                    className={cn(
+                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                      utilPage === p
+                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
                   onClick={() => setUtilPage((p) => Math.min(maxUtilPages, p + 1))}
-                  disabled={utilPage >= maxUtilPages}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  disabled={utilPage === maxUtilPages}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+                </button>
+                <button
+                  onClick={() => setUtilPage(maxUtilPages)}
+                  disabled={utilPage === maxUtilPages}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </CardFooter>
           )}
@@ -266,31 +291,56 @@ export default function ExecutiveKpiPage() {
             </CardContent>
           </div>
 
-          {/* Clean Pagination Footer */}
-          {topDrivers.length > 0 && (
-            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
-              <span className="text-xs font-medium text-foreground-muted font-data">
-                Page <span className="text-foreground font-semibold">{driverPage}</span> of {maxDriverPages}
+          {/* ── Pagination Footer (System Standard) ── */}
+          {topDrivers.length > 0 && maxDriverPages > 1 && (
+            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
+              <span className="text-xs font-semibold text-foreground-secondary">
+                Showing <span className="font-bold text-foreground">{(driverPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(driverPage * ITEMS_PER_PAGE, topDrivers.length)}</span> of <span className="font-bold text-foreground">{topDrivers.length}</span>
               </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+              <div className="flex items-center gap-1.5">
+                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {driverPage} of {maxDriverPages}</span>
+                <button
+                  onClick={() => setDriverPage(1)}
+                  disabled={driverPage === 1}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
                   disabled={driverPage === 1}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+                </button>
+                {Array.from({ length: maxDriverPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setDriverPage(p)}
+                    className={cn(
+                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                      driverPage === p
+                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
                   onClick={() => setDriverPage((p) => Math.min(maxDriverPages, p + 1))}
-                  disabled={driverPage >= maxDriverPages}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  disabled={driverPage === maxDriverPages}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+                </button>
+                <button
+                  onClick={() => setDriverPage(maxDriverPages)}
+                  disabled={driverPage === maxDriverPages}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </CardFooter>
           )}
@@ -345,31 +395,56 @@ export default function ExecutiveKpiPage() {
             </CardContent>
           </div>
 
-          {/* Clean Pagination Footer */}
-          {insights.length > 0 && (
-            <CardFooter className="p-3 border-t border-border/60 bg-muted/10 flex items-center justify-between">
-              <span className="text-xs font-medium text-foreground-muted font-data">
-                Page <span className="text-foreground font-semibold">{insightPage}</span> of {maxInsightPages}
+          {/* ── Pagination Footer (System Standard) ── */}
+          {insights.length > 0 && maxInsightPages > 1 && (
+            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
+              <span className="text-xs font-semibold text-foreground-secondary">
+                Showing <span className="font-bold text-foreground">{(insightPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(insightPage * ITEMS_PER_PAGE, insights.length)}</span> of <span className="font-bold text-foreground">{insights.length}</span>
               </span>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+              <div className="flex items-center gap-1.5">
+                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {insightPage} of {maxInsightPages}</span>
+                <button
+                  onClick={() => setInsightPage(1)}
+                  disabled={insightPage === 1}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
                   onClick={() => setInsightPage((p) => Math.max(1, p - 1))}
                   disabled={insightPage === 1}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-xs"
+                </button>
+                {Array.from({ length: maxInsightPages }, (_, i) => i + 1).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setInsightPage(p)}
+                    className={cn(
+                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                      insightPage === p
+                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                    )}
+                  >
+                    {p}
+                  </button>
+                ))}
+                <button
                   onClick={() => setInsightPage((p) => Math.min(maxInsightPages, p + 1))}
-                  disabled={insightPage >= maxInsightPages}
-                  className="h-7 w-7 rounded-xl border-border/80 cursor-pointer"
+                  disabled={insightPage === maxInsightPages}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                 >
                   <ChevronRight className="w-3.5 h-3.5" />
-                </Button>
+                </button>
+                <button
+                  onClick={() => setInsightPage(maxInsightPages)}
+                  disabled={insightPage === maxInsightPages}
+                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                >
+                  <ChevronsRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </CardFooter>
           )}

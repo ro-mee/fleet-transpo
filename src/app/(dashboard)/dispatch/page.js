@@ -35,6 +35,8 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   Clock,
   GalleryVerticalEnd,
   Inbox,
@@ -490,54 +492,63 @@ export default function DispatchPage() {
               ))}
             </div>
 
-            {/* Pagination footer — only for Completed / Cancelled lanes */}
+            {/* ── Pagination Footer (System Standard) ── */}
             {isPaginated && totalPages > 1 && (
-              <div className="flex items-center justify-between border-t border-border/50 pt-4 mt-2">
-                <span className="text-xs text-foreground-muted font-medium">
-                  Showing{" "}
-                  <span className="font-bold text-foreground">
-                    {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, allItems.length)}
-                  </span>{" "}
-                  of <span className="font-bold text-foreground">{allItems.length}</span>
+              <div className="flex flex-col gap-3 px-2 py-4 border-t border-border/60 bg-transparent sm:flex-row sm:items-center sm:justify-between mt-2">
+                <span className="text-xs font-semibold text-foreground-secondary">
+                  Showing <span className="font-bold text-foreground">{(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, allItems.length)}</span> of <span className="font-bold text-foreground">{allItems.length}</span> entries
                 </span>
-
                 <div className="flex items-center gap-1.5">
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8 rounded-full"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {safePage} of {totalPages}</span>
+                  <button
+                    aria-label="First page"
+                    onClick={() => setPage(1)}
+                    disabled={safePage === 1}
+                    className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  >
+                    <ChevronsLeft className="w-3.5 h-3.5" />
+                  </button>
+                  <button
                     aria-label="Previous page"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={safePage === 1}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={cn(
-                        "h-8 w-8 rounded-full text-xs font-bold border transition-all cursor-pointer flex items-center justify-center",
-                        p === safePage
-                          ? "bg-primary text-white border-primary shadow-sm"
-                          : "bg-surface border-border/60 text-foreground-secondary hover:border-primary/60 hover:text-foreground"
-                      )}
-                    >
-                      {p}
-                    </button>
-                  ))}
-
-                  <Button
-                    variant="outline"
-                    size="icon"
-                    className="h-8 w-8 rounded-full"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                  </button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => {
+                    const isActive = safePage === p;
+                    return (
+                      <button
+                        key={p}
+                        onClick={() => setPage(p)}
+                        className={cn(
+                          "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
+                          isActive
+                            ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
+                            : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
+                        )}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                  <button
                     aria-label="Next page"
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    disabled={safePage === totalPages}
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                   >
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    aria-label="Last page"
+                    onClick={() => setPage(totalPages)}
+                    disabled={safePage === totalPages}
+                    className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
+                  >
+                    <ChevronsRight className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             )}

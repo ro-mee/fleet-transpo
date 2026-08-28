@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,10 +11,12 @@ import { getMyVehicleInspection } from "@/services/driver.service";
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { DriverConsentGate } from "@/components/driver/consent-gate";
-import { CarFront, TriangleAlert } from "lucide-react";
+import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
+import { CarFront, TriangleAlert, Maximize } from "lucide-react";
 
 export default function DriverVehiclePage() {
   useRequireRole(["driver"]);
+  const [zoomImageUrl, setZoomImageUrl] = useState(null);
 
   const { data: inspection, isLoading, isError } = useQuery({
     queryKey: ["driver-inspection"],
@@ -49,12 +52,19 @@ export default function DriverVehiclePage() {
             ) : inspection ? (
               <div className="flex flex-col md:flex-row gap-6">
                 {inspection.image_url && (
-                  <div className="shrink-0">
+                  <div 
+                    className="shrink-0 relative group cursor-pointer rounded-xl overflow-hidden border border-border shadow-sm w-full md:w-48 h-32"
+                    onClick={() => setZoomImageUrl(inspection.image_url)}
+                  >
                     <img
                       src={inspection.image_url}
                       alt="Vehicle"
-                      className="w-full md:w-48 h-32 object-cover rounded-md border border-border shadow-sm"
+                      className="w-full h-full object-cover"
                     />
+                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-center text-white">
+                      <Maximize className="w-5 h-5 mb-1" />
+                      <span className="text-[11px] font-bold tracking-wide">Full View</span>
+                    </div>
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs flex-1">
@@ -107,6 +117,16 @@ export default function DriverVehiclePage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* ── FULLSCREEN IMAGE ZOOM DIALOG ── */}
+      <FullscreenReceiptDialog
+        open={!!zoomImageUrl}
+        onOpenChange={(open) => {
+          if (!open) setZoomImageUrl(null);
+        }}
+        receiptUrl={zoomImageUrl}
+        title="Vehicle Full View"
+      />
     </DriverConsentGate>
   );
 }
