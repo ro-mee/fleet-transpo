@@ -351,7 +351,7 @@ CREATE TABLE fuelrecords (
   fuel_type varchar(50),
   fuel_date date NOT NULL,
   receipt_url text,
-  status varchar(50) DEFAULT 'Completed'::character varying,
+  status varchar(50) DEFAULT 'Pending'::character varying,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   deleted_at timestamptz,
@@ -364,6 +364,10 @@ CREATE TABLE fuelrecords (
   client_submission_id varchar(64),
   fuel_request_id integer,
   receipt_fuel_type text,
+  receipt_scan_data jsonb,
+  flags jsonb,
+  receipt_transaction_id varchar(64),
+  review_remarks text,
   CONSTRAINT chk_fuel_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Completed'::character varying])::text[]))),
   CONSTRAINT fuelrecords_pkey PRIMARY KEY (fuel_record_id)
 );
@@ -968,6 +972,8 @@ CREATE INDEX idx_employees_status ON public.employees USING btree (status);
 CREATE INDEX idx_fuel_date ON public.fuelrecords USING btree (fuel_date);
 CREATE INDEX idx_fuel_vehicle ON public.fuelrecords USING btree (vehicle_id);
 CREATE INDEX idx_fuelallocations_month ON public.fuelallocations USING btree (allocation_month, vehicle_id);
+CREATE INDEX idx_fuelrecords_analytics ON public.fuelrecords USING btree (vehicle_id, fuel_date, status) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_fuelrecords_receipt_txn ON public.fuelrecords USING btree (receipt_transaction_id) WHERE ((receipt_transaction_id IS NOT NULL) AND (deleted_at IS NULL));
 CREATE INDEX idx_fuelrequests_allocation_month ON public.fuelrequests USING btree (allocation_month, vehicle_id);
 CREATE INDEX idx_fuelrequests_driver_created ON public.fuelrequests USING btree (driver_id, created_at DESC);
 CREATE INDEX idx_fuelrequests_status_created ON public.fuelrequests USING btree (status, created_at DESC);
@@ -1011,6 +1017,7 @@ CREATE INDEX idx_transport_requests_fleet_status ON public.transportation_reques
 CREATE INDEX idx_transport_requests_pickup ON public.transportation_requests USING btree (pickup_datetime);
 CREATE INDEX idx_transport_requests_reservation_number ON public.transportation_requests USING btree (reservation_number);
 CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests USING btree (vehicle_id);
+CREATE INDEX idx_trips_analytics ON public.trips USING btree (vehicle_id, start_time, trip_status) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_trips_created_at ON public.trips USING btree (deleted_at, created_at DESC);
 CREATE INDEX idx_trips_date ON public.trips USING btree (start_time);
 CREATE INDEX idx_trips_driver ON public.trips USING btree (driver_id);

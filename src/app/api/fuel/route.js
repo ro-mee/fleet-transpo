@@ -16,6 +16,7 @@ const FUEL_LIST_SELECT = `
   fr.fuel_record_id, fr.fuel_date, fr.fuel_type, fr.receipt_fuel_type, fr.liters, fr.amount,
   fr.price_per_liter, fr.odometer, fr.station_name, fr.status,
   fr.receipt_url, fr.rejection_reason, fr.created_at,
+  fr.receipt_scan_data, fr.flags, fr.receipt_transaction_id,
   CASE WHEN v.vehicle_id IS NULL THEN NULL ELSE
     json_build_object(
       'plate_number', v.plate_number,

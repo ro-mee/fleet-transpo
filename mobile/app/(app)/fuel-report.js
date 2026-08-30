@@ -52,6 +52,7 @@ export default function FuelReport() {
   const [capturing, setCapturing] = useState(false);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [submissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const [receiptScanData, setReceiptScanData] = useState(null);
   const [initialRequestSubmissionId] = useState(() => `${Date.now()}-${Math.random().toString(36).slice(2)}-req`);
   const requestSubmissionId = useRef(initialRequestSubmissionId);
   const cameraRef = useRef(null);
@@ -404,6 +405,7 @@ export default function FuelReport() {
             );
             if (Object.keys(geminiData).length) {
               d = geminiData;
+              setReceiptScanData(geminiResult?.extracted_data || null);
             }
           } catch (error) {
             console.warn("Gemini receipt scan skipped:", error.message);
@@ -497,6 +499,7 @@ export default function FuelReport() {
     setEntryMethod(null);
     setReceiptUrl(null);
     setReceiptAsset(null);
+    setReceiptScanData(null);
   };
 
   const handleSubmit = async () => {
@@ -529,6 +532,7 @@ export default function FuelReport() {
         client_submission_id: submissionId,
       };
       if (receiptFuelType) payload.receipt_fuel_type = receiptFuelType;
+      if (receiptScanData) payload.receipt_scan_data = receiptScanData;
 
       let res;
       if (id) {

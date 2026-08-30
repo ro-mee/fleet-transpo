@@ -1,8 +1,9 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { toCalendarDay } from "@/lib/dates";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
 import { fuelAllocationError } from "@/lib/fuel/request-policy";
+import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 
 const WRITABLE_COLUMNS = [
   "station_name",
@@ -26,7 +27,9 @@ export async function PUT(req, { params }) {
     // Verify ownership and status
     const { rows: existing } = await query(
       `SELECT fr.fuel_record_id, fr.status, fr.liters, fr.amount, fr.fuel_date, fr.fuel_request_id,
-              r.approved_liters, r.allocation_month
+              fr.vehicle_id, fr.receipt_scan_data, fr.receipt_transaction_id,
+              r.approved_liters, r.allocation_month,
+              v.fuel_type AS vehicle_fuel_type, v.tank_capacity_l, v.fuel_level
          FROM fuelrecords fr
          JOIN vehicles v ON v.vehicle_id = fr.vehicle_id AND v.deleted_at IS NULL
          LEFT JOIN fuelrequests r ON r.fuel_request_id = fr.fuel_request_id
@@ -79,16 +82,49 @@ export async function PUT(req, { params }) {
       }
     }
 
+    const liters = Number(body.liters ?? existing[0].liters);
+    const amount = Number(body.amount ?? existing[0].amount);
+    const pricePerLiter = Number((amount / liters).toFixed(2));
+    
     if (body.liters !== undefined || body.amount !== undefined) {
-      const liters = Number(body.liters ?? existing[0].liters);
-      const amount = Number(body.amount ?? existing[0].amount);
       updates.push(`price_per_liter = $${idx++}`);
-      values.push(Number((amount / liters).toFixed(2)));
+      values.push(pricePerLiter);
     }
 
     if (updates.length === 0) {
       return err("No valid fields provided for update", 400);
     }
+    
+    const receiptScanData = body.receipt_scan_data != null && typeof body.receipt_scan_data === "object"
+      ? body.receipt_scan_data
+      : existing[0].receipt_scan_data;
+      
+    const receiptTransactionId = typeof body.receipt_transaction_id === "string"
+      ? body.receipt_transaction_id.trim().slice(0, 64) || null
+      : (body.receipt_scan_data?.transaction_id
+          ? String(body.receipt_scan_data.transaction_id).trim().slice(0, 64)
+          : existing[0].receipt_transaction_id);
+
+    const flags = computeFuelFlags({
+      receiptFuelType: body.receipt_fuel_type ?? existing[0].receipt_fuel_type,
+      vehicleFuelType: existing[0].vehicle_fuel_type,
+      pricePerLiter,
+      liters,
+      tankCapacityL: existing[0].tank_capacity_l,
+      fuelLevel: existing[0].fuel_level,
+      receiptScanData,
+      submittedValues: {
+        liters,
+        amount,
+        station_name: body.station_name ?? existing[0].station_name
+      },
+    });
+
+    updates.push(`receipt_scan_data = $${idx++}`);
+    values.push(receiptScanData ? JSON.stringify(receiptScanData) : null);
+    
+    updates.push(`receipt_transaction_id = $${idx++}`);
+    values.push(receiptTransactionId);
 
     // Automatically set status back to Pending
     updates.push(`status = $${idx++}`);
@@ -109,17 +145,42 @@ export async function PUT(req, { params }) {
     const driverParam = idx++;
     values.push(session.user.driverId);
 
-    const { rows } = await query(
-      `UPDATE fuelrecords 
-       SET ${updates.join(", ")}
-       WHERE fuel_record_id = $${idParam} AND driver_id = $${driverParam} AND status = 'Rejected'
-       RETURNING *`,
-      values
-    );
+    const updatedRecord = await withTransaction(async (tx) => {
+      // Content-based duplicate detection
+      const duplicateResult = await detectDuplicateReceipt(tx, {
+        receiptTransactionId,
+        stationName: body.station_name ?? existing[0].station_name,
+        fuelDate: body.fuel_date ?? existing[0].fuel_date,
+        liters,
+        amount,
+        vehicleId: existing[0].vehicle_id,
+        excludeDriverId: session.user.driverId,
+      });
+      if (duplicateResult.exact) {
+        const error = new Error("This receipt appears to have already been submitted");
+        error.status = 409;
+        throw error;
+      }
+      if (duplicateResult.possible) {
+        flags.possible_duplicate = true;
+      }
+      
+      updates.push(`flags = $${idx++}`);
+      values.push(Object.keys(flags).length > 0 ? JSON.stringify(flags) : null);
 
-    if (!rows[0]) return err("Fuel report is no longer rejected and cannot be resubmitted", 409);
+      const { rows } = await tx.query(
+        `UPDATE fuelrecords 
+         SET ${updates.join(", ")}
+         WHERE fuel_record_id = $${idParam} AND driver_id = $${driverParam} AND status = 'Rejected'
+         RETURNING *`,
+        values
+      );
+      return rows[0];
+    });
 
-    return ok(rows[0]);
+    if (!updatedRecord) return err("Fuel report is no longer rejected and cannot be resubmitted", 409);
+
+    return ok(updatedRecord);
   } catch (e) {
     return handleError(e);
   }

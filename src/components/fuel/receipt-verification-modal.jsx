@@ -29,6 +29,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
 import { fuelTypeMismatch } from "@/lib/fuel/request-policy";
+import { Badge } from "@/components/ui/badge";
 
 export function ReceiptVerificationModal({
   open,
@@ -96,6 +97,9 @@ export function ReceiptVerificationModal({
     calculatedTotal != null && totalAmount > 0
       ? Math.abs(calculatedTotal - totalAmount) < 2.5
       : null;
+
+  const flags = record.flags || {};
+  const scanData = record.receipt_scan_data || null;
 
   const isPending = (record.status || "Pending").toLowerCase() === "pending";
 
@@ -493,6 +497,98 @@ export function ReceiptVerificationModal({
                             {mathMatches
                               ? `${claimedLiters.toFixed(2)} L × ${formatCurrency(unitPrice)} = ${formatCurrency(totalAmount)}.`
                               : `Calculation discrepancy: ${claimedLiters.toFixed(2)} L × ${formatCurrency(unitPrice)} = ${formatCurrency(calculatedTotal)} vs claimed ${formatCurrency(totalAmount)}.`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Check 4: Duplicate Detection */}
+                    {flags.possible_duplicate && (
+                      <div className="p-2 rounded-xl border flex items-start gap-2 text-xs bg-danger/10 border-danger/20 text-danger">
+                        <div className="mt-0.5 shrink-0">
+                          <AlertTriangle className="w-3.5 h-3.5 text-danger" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[11px]">Duplicate Detection</span>
+                            <Badge variant="destructive" className="h-4 text-[9px] px-1.5 uppercase">Flagged</Badge>
+                          </div>
+                          <p className="text-[11px] mt-0.5 opacity-90">
+                            Possible duplicate: Another driver has submitted a receipt for the exact same amount and volume on this date at this station.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Check 5: Price Anomaly */}
+                    {flags.price_anomaly && (
+                      <div className="p-2 rounded-xl border flex items-start gap-2 text-xs bg-warning/10 border-warning/20 text-warning-foreground dark:text-amber-400">
+                        <div className="mt-0.5 shrink-0">
+                          <AlertTriangle className="w-3.5 h-3.5 text-warning" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[11px]">Price Anomaly</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-warning">Needs Review</span>
+                          </div>
+                          <p className="text-[11px] mt-0.5 opacity-90">
+                            The calculated price per liter ({formatCurrency(unitPrice)}) is outside the typical market range.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Check 6: Driver Edits (AI Audit) */}
+                    {flags.driver_edited && scanData && (
+                      <div className="p-2 rounded-xl border flex items-start gap-2 text-xs bg-warning/10 border-warning/20 text-warning-foreground dark:text-amber-400">
+                        <div className="mt-0.5 shrink-0">
+                          <Pencil className="w-3.5 h-3.5 text-warning" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[11px]">AI Extraction Modified</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-warning">Values Changed</span>
+                          </div>
+                          <p className="text-[11px] mt-0.5 opacity-90">
+                            The driver manually altered values that the AI extracted from the receipt:
+                          </p>
+                          <div className="mt-1.5 space-y-1 bg-surface/50 p-2 rounded-md border border-warning/20">
+                            {flags.edited_fields?.liters && (
+                              <div className="flex justify-between text-[10px]">
+                                <span>Volume:</span>
+                                <span>AI: {flags.edited_fields.liters.ai} L → Driver: {flags.edited_fields.liters.submitted} L</span>
+                              </div>
+                            )}
+                            {flags.edited_fields?.amount && (
+                              <div className="flex justify-between text-[10px]">
+                                <span>Total:</span>
+                                <span>AI: {formatCurrency(flags.edited_fields.amount.ai)} → Driver: {formatCurrency(flags.edited_fields.amount.submitted)}</span>
+                              </div>
+                            )}
+                            {flags.edited_fields?.station_name && (
+                              <div className="flex justify-between text-[10px]">
+                                <span>Station:</span>
+                                <span className="truncate max-w-[140px]">AI: {flags.edited_fields.station_name.ai} → {flags.edited_fields.station_name.submitted}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Raw AI Scan History (only shown if not edited but available) */}
+                    {!flags.driver_edited && scanData && (
+                      <div className="p-2 rounded-xl border flex items-start gap-2 text-xs bg-secondary/10 border-secondary/20 text-secondary-foreground">
+                        <div className="mt-0.5 shrink-0">
+                          <Sparkles className="w-3.5 h-3.5 text-secondary" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-[11px]">AI Extraction Perfect Match</span>
+                            <span className="text-[10px] font-semibold uppercase tracking-wider">Unmodified</span>
+                          </div>
+                          <p className="text-[11px] mt-0.5 opacity-90">
+                            The driver confirmed the AI-extracted values without changes.
                           </p>
                         </div>
                       </div>

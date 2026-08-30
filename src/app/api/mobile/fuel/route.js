@@ -2,7 +2,8 @@ import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { toCalendarDay } from "@/lib/dates";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
-import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError } from "@/lib/fuel/request-policy";
+import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError, fuelTypeMismatch } from "@/lib/fuel/request-policy";
+import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 
 /**
  * POST /api/mobile/fuel
@@ -127,6 +128,29 @@ export async function POST(req) {
       return err("Fuel can only be reported for your assigned vehicle", 403);
     }
 
+    // --- Receipt scan history: preserve original AI extraction for audit ---
+    const receiptScanData = body.receipt_scan_data != null && typeof body.receipt_scan_data === "object"
+      ? body.receipt_scan_data
+      : null;
+    const receiptTransactionId = typeof body.receipt_transaction_id === "string"
+      ? body.receipt_transaction_id.trim().slice(0, 64) || null
+      : (receiptScanData?.transaction_id
+          ? String(receiptScanData.transaction_id).trim().slice(0, 64)
+          : null);
+
+    // --- Compute deterministic anomaly flags ---
+    const pricePerLiter = Number((amount / liters).toFixed(2));
+    const flags = computeFuelFlags({
+      receiptFuelType,
+      vehicleFuelType: trip.fuel_type,
+      pricePerLiter,
+      liters,
+      tankCapacityL: trip.tank_capacity_l,
+      fuelLevel: trip.fuel_level,
+      receiptScanData,
+      submittedValues: { liters, amount, station_name: body.station_name },
+    });
+
     const columns = [];
     const values = [];
     for (const key of WRITABLE_COLUMNS) {
@@ -138,8 +162,9 @@ export async function POST(req) {
 
     columns.push("price_per_liter", "odometer", "fuel_type", "vehicle_id", "trip_id", "driver_id", "created_by", "status", "fuel_request_id");
     if (receiptFuelType) columns.push("receipt_fuel_type");
+    columns.push("receipt_scan_data", "flags", "receipt_transaction_id");
     values.push(
-      Number((amount / liters).toFixed(2)),
+      pricePerLiter,
       trip.mileage,
       trip.fuel_type || "Unspecified",
       trip.vehicle_id,
@@ -150,6 +175,11 @@ export async function POST(req) {
       fuelRequestId
     );
     if (receiptFuelType) values.push(receiptFuelType);
+    values.push(
+      receiptScanData ? JSON.stringify(receiptScanData) : null,
+      Object.keys(flags).length > 0 ? JSON.stringify(flags) : null,
+      receiptTransactionId
+    );
 
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const record = await withTransaction(async (tx) => {
@@ -190,6 +220,24 @@ export async function POST(req) {
         const error = new Error(tankError);
         error.status = 409;
         throw error;
+      }
+
+      // --- Content-based duplicate detection ---
+      const duplicateResult = await detectDuplicateReceipt(tx, {
+        receiptTransactionId,
+        stationName: body.station_name,
+        fuelDate: fuelDay,
+        liters,
+        amount,
+        vehicleId: trip.vehicle_id,
+      });
+      if (duplicateResult.exact) {
+        const error = new Error("This receipt appears to have already been submitted");
+        error.status = 409;
+        throw error;
+      }
+      if (duplicateResult.possible) {
+        flags.possible_duplicate = true;
       }
 
       const { rows } = await tx.query(
