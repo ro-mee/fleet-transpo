@@ -38,7 +38,7 @@ const FIELD_TO_COLUMN = {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
     const id = (await params).id;
     const body = await parseBody(req);
 
@@ -98,15 +98,34 @@ export async function PUT(req, { params }) {
     // amend a soft-deleted row and the recompute below would then push the
     // vehicle's schedule from a record that is supposed to be gone.
     values.push(id);
-    // Completion detection for the incident loop below needs the prior status:
-    // RETURNING only shows the after-state.
-    const beforeStatus = (await query(
+    
+    // Check prior state before allowing changes
+    const beforeRow = (await query(
       `SELECT status FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
       [values.length]
-    )).rows[0]?.status ?? null;
+    )).rows[0];
+    
+    if (!beforeRow) return err("Maintenance record not found", 404);
+    
+    const beforeStatus = beforeRow.status;
+    const isTransitioningToCompleted = body.status === 'Completed' && beforeStatus !== 'Completed';
+
+    // P1 Fix: Completed records are terminal. Cannot revert to Scheduled/In Progress,
+    // and cannot modify completed_by / completed_at.
+    if (beforeStatus === 'Completed' && body.status && body.status !== 'Completed') {
+      return err("Completed maintenance records cannot be reopened.", 409);
+    }
+    
+    if (isTransitioningToCompleted) {
+      sets.push(`completed_by = $${values.length + 1}`);
+      values.push(session.user.employeeId);
+      
+      sets.push(`completed_at = CURRENT_TIMESTAMP`);
+    }
+
     const { rows } = await query(
       `UPDATE vehiclemaintenance SET ${sets.join(", ")}
-        WHERE maintenance_id = $${values.length} AND deleted_at IS NULL RETURNING *`,
+        WHERE maintenance_id = $${isTransitioningToCompleted ? values.length - 1 : values.length} AND deleted_at IS NULL RETURNING *`,
       values
     );
     if (!rows[0]) return err("Maintenance record not found", 404);

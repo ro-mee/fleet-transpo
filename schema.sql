@@ -796,6 +796,8 @@ CREATE TABLE vehiclemaintenance (
   created_by integer,
   updated_by integer,
   source_incident_id integer,
+  completed_by integer,
+  completed_at timestamptz,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -928,6 +930,7 @@ ALTER TABLE vehicledocuments ADD CONSTRAINT vehicledocuments_vehicle_id_fkey FOR
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_completed_by_fkey FOREIGN KEY (completed_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);

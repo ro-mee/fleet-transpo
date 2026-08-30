@@ -196,6 +196,12 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
+    // P1 Fix: Force all new records to be Scheduled.
+    // Completed status can only be achieved via the PUT state-machine.
+    body.status = "Scheduled";
+    delete body.completed_by;
+    delete body.completed_at;
+
     // Build from the allowlist, not from Object.keys(body). Previously any
     // unknown body key was interpolated straight into the column list.
     // Deduplicated by column: an alias and its column name both map to one
