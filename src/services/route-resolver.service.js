@@ -1,6 +1,6 @@
 import { isId } from "@/lib/validation/helpers";
 import { estimateTrip } from "@/lib/geo/distance";
-import { buildRouteUrl, getServerKey } from "@/lib/tomtom";
+import { fetchTomTomEstimate } from "@/lib/tomtom";
 
 export const ROUTE_ESTIMATE_SOURCES = ["TomTom", "Manual", "Legacy / Unknown"];
 
@@ -266,29 +266,14 @@ export function estimateForRequest(request) {
 }
 
 async function tomTomEstimate(endpoints) {
-  if (!getServerKey() || !routeHasCoordinates({
+  if (!routeHasCoordinates({
     origin_location: endpoints?.originLocation,
     destination_location: endpoints?.destinationLocation,
   })) return null;
-
-  try {
-    const origin = [Number(endpoints.originLocation.latitude), Number(endpoints.originLocation.longitude)];
-    const destination = [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)];
-    const response = await fetch(buildRouteUrl(origin, destination), { signal: AbortSignal.timeout(15000) });
-    if (!response.ok) return null;
-    const route = (await response.json())?.routes?.[0];
-    const summary = route?.summary;
-    if (summary?.lengthInMeters == null || summary?.travelTimeInSeconds == null) return null;
-    return {
-      distanceKm: Number((Number(summary.lengthInMeters) / 1000).toFixed(1)),
-      durationMin: Math.round(Number(summary.travelTimeInSeconds) / 60),
-      confidence: "high",
-      basis: "TomTom",
-      source: "TomTom",
-    };
-  } catch {
-    return null;
-  }
+  return fetchTomTomEstimate(
+    [Number(endpoints.originLocation.latitude), Number(endpoints.originLocation.longitude)],
+    [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)]
+  );
 }
 
 /**

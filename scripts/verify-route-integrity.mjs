@@ -41,12 +41,12 @@ const client = await getPool().connect();
 try {
   await client.query("BEGIN");
   const forward = await resolveRouteForRequest(client, {
-    pickup_location: "NAIA Terminal 1",
-    dropoff_location: "NAIA Terminal 3",
+    pickup_location: "NAIA Terminal 1 - Arrivals",
+    dropoff_location: "NAIA Terminal 3 - Arrivals (Bay 9)",
   });
   const reverse = await resolveRouteForRequest(client, {
-    pickup_location: "NAIA Terminal 3",
-    dropoff_location: "NAIA Terminal 1",
+    pickup_location: "NAIA Terminal 3 - Arrivals (Bay 9)",
+    dropoff_location: "NAIA Terminal 1 - Arrivals",
   });
   check(
     Boolean(forward?.route_id && reverse?.route_id && forward.route_id !== reverse.route_id),
@@ -59,7 +59,7 @@ try {
 
 const known = await resolveRouteForRequest(
   { query },
-  { pickup_location: "NAIA Terminal 2", dropoff_location: "CoCo Star Hotel" },
+  { pickup_location: "NAIA Terminal 2 - Arrivals", dropoff_location: "CoCo Star Hotel" },
   { createMissing: false }
 );
 check(Boolean(known?.route_id), "known request leg resolves to its active directional route");

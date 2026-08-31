@@ -117,7 +117,7 @@ try {
         booking_reference: "AI-PROBE-001",
         guest_name: "AI Probe",
         pickup_location: "Main Lobby",
-        dropoff_location: "NAIA Terminal 3",
+        dropoff_location: "NAIA Terminal 3 - Arrivals (Bay 9)",
         pickup_datetime: "2026-09-01T10:00:00+08:00",
         passenger_count: 2,
         special_requests: null,

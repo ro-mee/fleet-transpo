@@ -6,6 +6,7 @@ import {
   findActiveRoute,
   ROUTE_ESTIMATE_SOURCES,
 } from "@/services/route-resolver.service";
+import { fetchTomTomEstimate } from "@/lib/tomtom";
 import { writeAudit } from "@/lib/audit";
 
 const READ_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
@@ -86,6 +87,21 @@ export async function POST(req) {
       const existing = await findActiveRoute(tx, endpoints);
       if (existing) {
         throw new RouteRequestError("An active route already exists for this direction. Deactivate it before creating a replacement.", 409);
+      }
+
+      const hasProvidedEstimate = payload.estimated_distance != null || payload.estimated_duration != null;
+      if (!hasProvidedEstimate && payload.estimate_source !== "Manual") {
+        const estimate = await fetchTomTomEstimate(
+          [Number(endpoints.originLocation.latitude), Number(endpoints.originLocation.longitude)],
+          [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)]
+        );
+        if (estimate) {
+          payload.estimated_distance = estimate.distanceKm;
+          payload.estimated_duration = estimate.durationMin;
+          payload.estimate_source = "TomTom";
+        } else if (payload.estimate_source) {
+          payload.estimate_source = null;
+        }
       }
 
       const hasEstimate = payload.estimated_distance != null || payload.estimated_duration != null;

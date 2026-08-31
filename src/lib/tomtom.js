@@ -85,6 +85,35 @@ export function buildRouteUrl(origin, destination) {
 }
 
 /**
+ * Fetch the numeric route summary used by canonical route records.
+ * Returns null when routing is unavailable so callers can keep the estimate blank.
+ */
+export async function fetchTomTomEstimate(origin, destination) {
+  const validPoint = (point) => Array.isArray(point)
+    && point.length === 2
+    && Number.isFinite(Number(point[0]))
+    && Number.isFinite(Number(point[1]))
+    && Number(point[0]) >= -90 && Number(point[0]) <= 90
+    && Number(point[1]) >= -180 && Number(point[1]) <= 180;
+  if (!getServerKey() || !validPoint(origin) || !validPoint(destination)) return null;
+  try {
+    const response = await fetch(buildRouteUrl(origin, destination), { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return null;
+    const summary = (await response.json())?.routes?.[0]?.summary;
+    if (summary?.lengthInMeters == null || summary?.travelTimeInSeconds == null) return null;
+    return {
+      distanceKm: Number((Number(summary.lengthInMeters) / 1000).toFixed(1)),
+      durationMin: Math.round(Number(summary.travelTimeInSeconds) / 60),
+      confidence: "high",
+      basis: "TomTom",
+      source: "TomTom",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Decode a Google-encoded polyline string into [[lat, lng], ...].
  * @param {string} encoded
  */

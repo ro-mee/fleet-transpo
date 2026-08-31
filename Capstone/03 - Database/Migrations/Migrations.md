@@ -5,12 +5,12 @@ tags: [database, migrations]
 source:
   - supabase/migrations
   - AGENTS.md
-last_verified: 2026-08-26
+last_verified: 2026-08-31
 ---
 
 # Migrations
 
-**73** files in `supabase/migrations/`, contiguous `001`–`069` with exactly four
+**84** files in `supabase/migrations/`, contiguous `001`–`080` with exactly four
 duplicated numbers (`036`, `037`, `059`, `060` — two files each, applied in
 filename order; this set is frozen by `npm run db:check`), backed by a ledger and
 a checked-in `schema.sql`.
@@ -142,12 +142,27 @@ ledger. → [[DEBT Schema Drift From Migrations]]
 
 ## 2026-08-26 — ledger state
 
-`npm run db:status`: **73 files, 73 applied, 0 pending, 0 changed**. One orphan:
-`070_driver_licenses_bucket.sql` is in the ledger but missing from disk. Live
-schema per the current dump: **45 tables, 1 view, 95 FKs, 110 indexes,
-14 functions, 19 triggers**. The migration files were renumbered to contiguous
-`001`–`069` (four frozen duplicate numbers — see above). SYSTEM.md §5.1 now
-carries the full renumbered timeline.
+`npm run db:status`: **73 files, 73 applied, 0 pending, 0 changed**. Live
+schema per the dump: **45 tables, 1 view, 95 FKs, 110 indexes,
+14 functions, 19 triggers**.
+
+## 2026-08-31 — Migrations 070–080 & Canonical Routes
+
+`npm run db:status`: **84 files, 84 applied, 0 pending, 0 changed**. Contiguous `001`–`080` (with the four frozen duplicates `036`, `037`, `059`, `060`).
+
+| Migration | Name | Purpose |
+|---|---|---|
+| 070 | `driver_licenses_bucket.sql` | Storage bucket creation and access policies for driver license card uploads |
+| 071 | `fuel_receipt_integrity.sql` | Enforces fuel receipt constraints and verification flags |
+| 072 | `cleanup_fuel_test_data.sql` | Cleans up test / dummy fuel entries from development |
+| 073 | `fuel_review_remarks.sql` | Adds review remarks and audit columns for staff fuel audits |
+| 074 | `vehiclemaintenance_completion_audit.sql` | Completion audit hooks for maintenance records |
+| 075 | `vehiclemaintenance_completed_at.sql` | Adds `completed_at` timestamp on `vehiclemaintenance` |
+| 076 | `routes_integrity.sql` | Enforces canonical location foreign keys (`origin_location_id`, `destination_location_id` $\rightarrow$ `locations`), uniqueness, active/retired lifecycle, and coordinate integrity |
+| 077 | `routes_direction_labels.sql` | Adds directional labels and formatting helpers |
+| 078 | `validate_routes_integrity.sql` | Validation checks on route coordinates and endpoint linkage |
+| 079 | `normalize_route_arrows.sql` | Normalizes route direction arrows (replaces `↔` with `→`) |
+| 080 | `backfill_hotel_location_identity.sql` | Backfills canonical hotel location identity so renames preserve `location_id` while moves retire legacy geography |
 
 ## What `024` teaches
 

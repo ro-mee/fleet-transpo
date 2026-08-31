@@ -161,7 +161,7 @@ const ingest = await callRoute(
       booking_reference: `HARNESS-REF-${Date.now()}`,
       guest_name: "Round Trip Harness",
       pickup_location: "Hotel Lobby",
-      dropoff_location: "NAIA Terminal 3",
+      dropoff_location: "NAIA Terminal 3 - Arrivals (Bay 9)",
       pickup_datetime: pickupAt,
       passenger_count: 2,
       priority: "Normal", // Booking's vocabulary; must normalize to Medium
@@ -488,4 +488,3 @@ if (failures.length > 0) {
 // Leave the row in place: it is a legitimate completed request, and the plan's
 // conflict/RBAC steps can reuse the vehicle and driver it exercised.
 await (await appModule("lib/db.js")).getPool().end();
-

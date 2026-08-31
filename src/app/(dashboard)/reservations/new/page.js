@@ -75,7 +75,7 @@ export default function MockInjectorPage() {
     source_system: "PMS",
     booking_reference: "",
     guest_name: "",
-    pickup_location: "NAIA Terminal 2",
+    pickup_location: "NAIA Terminal 2 - Arrivals",
     dropoff_location: "CoCo Star Hotel",
     pickup_datetime: "",
     passenger_count: 1,

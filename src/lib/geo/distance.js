@@ -1,13 +1,22 @@
 // Distance + duration estimation for transportation requests.
 //
 // Fleet maps pickup/dropoff arriving from Booking as free-text strings
-// ("NAIA Terminal 2", "CoCo Star Hotel").
-// This module resolves known airport corridors and hotel base routes against
-// exact pre-configured distances and durations.
+// ("NAIA Terminal 2 - Arrivals", "CoCo Star Hotel").
+// This module resolves known endpoint strings and hotel base routes. Canonical
+// NAIA arrivals/departures are kept in one shared list; an unspecified terminal
+// remains ad-hoc instead of silently choosing the wrong curbside point.
+
+import { NAIA_CANONICAL_LOCATIONS } from "@/lib/naia-locations";
 
 const EARTH_RADIUS_KM = 6371;
 
-// Known landmarks around CoCo Star Hotel's service area with exact route overrides.
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Known landmarks around CoCo Star Hotel's service area. Airport coordinates
+// come from the canonical location registry; route distances are calculated by
+// the resolver/TomTom when both endpoint IDs are available.
 const GAZETTEER = [
   // CoCo Star Hotel Base Location
   {
@@ -18,47 +27,12 @@ const GAZETTEER = [
     isHotel: true,
   },
 
-  // Specific NAIA Airport Terminals with exact route distance & duration overrides
-  {
-    match: /naia.*(?:terminal 1|t1|\b1\b)|terminal 1/i,
-    lat: 14.5097,
-    lng: 121.0006,
-    label: "NAIA Terminal 1",
-    distanceOverride: 5.2,
-    durationOverride: 15,
-  },
-  {
-    match: /naia.*(?:terminal 2|t2|\b2\b)|terminal 2/i,
-    lat: 14.5106,
-    lng: 121.0064,
-    label: "NAIA Terminal 2",
-    distanceOverride: 4.8,
-    durationOverride: 12,
-  },
-  {
-    match: /naia.*(?:terminal 3|t3|\b3\b)|terminal 3/i,
-    lat: 14.5205,
-    lng: 121.0152,
-    label: "NAIA Terminal 3",
-    distanceOverride: 6.1,
-    durationOverride: 18,
-  },
-  {
-    match: /naia.*(?:terminal 4|t4|\b4\b)|terminal 4/i,
-    lat: 14.5245,
-    lng: 121.0007,
-    label: "NAIA Terminal 4",
-    distanceOverride: 3.9,
-    durationOverride: 10,
-  },
-  {
-    match: /naia|ninoy aquino|airport/i,
-    lat: 14.5106,
-    lng: 121.0064,
-    label: "NAIA Terminal 2",
-    distanceOverride: 4.8,
-    durationOverride: 12,
-  },
+  ...NAIA_CANONICAL_LOCATIONS.map((location) => ({
+    match: new RegExp(escapeRegExp(location.name), "i"),
+    lat: location.latitude,
+    lng: location.longitude,
+    label: location.name,
+  })),
 
   // Metro Landmarks
   {

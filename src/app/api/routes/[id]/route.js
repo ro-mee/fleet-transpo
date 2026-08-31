@@ -7,6 +7,7 @@ import {
   resolveRouteEndpoints,
   ROUTE_ESTIMATE_SOURCES,
 } from "@/services/route-resolver.service";
+import { fetchTomTomEstimate } from "@/lib/tomtom";
 
 const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
@@ -95,6 +96,7 @@ export async function PUT(req, { params }) {
       const endpointTouched = ["origin", "destination", "origin_location_id", "destination_location_id"]
         .some((field) => Object.prototype.hasOwnProperty.call(payload, field));
       let endpoints = null;
+      let endpointChanged = false;
       if (endpointTouched) {
         endpoints = await resolveRouteEndpoints(tx, {
           origin: Object.prototype.hasOwnProperty.call(payload, "origin") ? payload.origin : current.origin,
@@ -110,6 +112,7 @@ export async function PUT(req, { params }) {
 
         const changed = Number(current.origin_location_id) !== endpoints.originLocationId
           || Number(current.destination_location_id) !== endpoints.destinationLocationId;
+        endpointChanged = changed;
         if (changed) {
           const usage = await loadRouteUsage(tx, Number(id));
           if (usage > 0) {
@@ -119,6 +122,27 @@ export async function PUT(req, { params }) {
             );
           }
         }
+      }
+
+      const hasProvidedEstimate = payload.estimated_distance != null || payload.estimated_duration != null;
+      const manualEstimate = payload.estimate_source === "Manual" || hasProvidedEstimate;
+      const missingCurrentEstimate = current.estimated_distance == null || current.estimated_duration == null;
+      if (!endpoints && !manualEstimate && missingCurrentEstimate) {
+        endpoints = await resolveRouteEndpoints(tx, {
+          origin: current.origin,
+          destination: current.destination,
+          originLocationId: current.origin_location_id,
+          destinationLocationId: current.destination_location_id,
+        });
+      }
+      if (endpoints && !manualEstimate && (endpointChanged || missingCurrentEstimate)) {
+        const estimate = await fetchTomTomEstimate(
+          [Number(endpoints.originLocation.latitude), Number(endpoints.originLocation.longitude)],
+          [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)]
+        );
+        payload.estimated_distance = estimate?.distanceKm ?? null;
+        payload.estimated_duration = estimate?.durationMin ?? null;
+        payload.estimate_source = estimate ? "TomTom" : null;
       }
 
       const assignments = [];

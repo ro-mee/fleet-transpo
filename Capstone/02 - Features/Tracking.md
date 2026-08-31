@@ -6,7 +6,7 @@ source:
   - mobile/lib/tracking.js
   - mobile/lib/background-tracking.js
   - src/app/api/mobile/driver/trips/[id]/gps/route.js
-last_verified: 2026-08-22
+last_verified: 2026-08-31
 related: ["[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
@@ -46,6 +46,24 @@ Summary: a headless task (`fleetops-background-location`) posts GPS and accumula
 **Requires a custom dev build** (not Expo Go) and, for Android production release, Play Store review with a justification.
 
 → [[Mobile Architecture]] · [[ADR-011 Background GPS Tracking]]
+
+## Trip-Scoped & Status-Aware Live GPS Architecture — 2026-08-31 (Commit `abdc001`)
+
+To prevent idle or stationary vehicles from polluting historical trip breadcrumbs and to give operators accurate visibility into active fleet movement:
+
+1. **Trip-Scoped Ping Ingestion (`src/lib/gps.js`)**:
+   - `/api/mobile/driver/gps` and `/api/mobile/driver/trips/[id]/gps` now validate trip status.
+   - Pings are strictly recorded to `gpstracking` only when a driver is actively executing an `In Progress` trip. Stationary pings from drivers parked at the depot or between trips are discarded.
+2. **Stale Connection & Disconnect Detection**:
+   - Implemented `isStaleGps()` using a 3-minute threshold (`GPS_STALE_THRESHOLD_MS = 3 * 60 * 1000`).
+   - If a vehicle in `In Progress` or `Dispatched` has not emitted a ping for > 3 minutes, its status indicator flags it as "Stale/Disconnected" with last-ping age context.
+3. **Web Live Map Overhaul (`/tracking/live-map` & `src/components/maps/live-locations-map.jsx`)**:
+   - **Status Filtering**: Interactive filter chips (*All*, *In Progress*, *Dispatched*, *Assigned*, *Stale/Disconnected*).
+   - **Color-Coded Status Markers**: Emerald for In Progress, Amber for Dispatched/Assigned, and Slate for Stale/Inactive.
+   - **Isolated Breadcrumbs**: Breadcrumb routes render exclusively for the currently selected active trip, eliminating overlapping polyline noise across the map.
+   - **Driver Telemetry Drawer**: Displays live speed, compass heading, estimated destination ETA, and connection health.
+4. **Mobile Lifecycle Synchronization**:
+   - Background tracking tasks mount and unmount strictly on active trip state transitions (`In Progress` starts the watcher; completing or cancelling a trip terminates the background task and releases wake locks).
 
 ## Database
 

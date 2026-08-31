@@ -5,8 +5,10 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { getWorkspace } from "@/lib/workspaces";
+import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { useQuery } from "@tanstack/react-query";
 import { getAllIncidents } from "@/services/driver.service";
+import { getTransportRequests } from "@/services/transport.service";
 import {
   ChevronLeft,
   ChevronRight,
@@ -62,6 +64,9 @@ export function Sidebar() {
   const visibleGroups = filterNav(workspace.nav || []);
   const homeHref = workspace.home;
   const chip = accentChip[workspace.accent] || accentChip.neutral;
+  const requestQueueVisible = visibleGroups.some((group) =>
+    (group.items || []).some((item) => item.href === "/reservations/queue")
+  );
 
   const { data: pendingIncidents = [] } = useQuery({
     queryKey: ["pending-incidents"],
@@ -70,6 +75,17 @@ export function Sidebar() {
     refetchInterval: 30000,
   });
   const pendingCount = pendingIncidents.length;
+
+  // Request records have no persisted viewed/unread flag. Pending is the
+  // current lifecycle's "received, not yet acted on" state.
+  const { data: pendingRequests } = useQuery({
+    queryKey: ["transport-requests", "sidebar-pending-count"],
+    queryFn: () => getTransportRequests({ fleet_status: L.PENDING, limit: 1 }),
+    enabled: requestQueueVisible,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+  });
+  const pendingRequestCount = Number(pendingRequests?.total) || 0;
 
   const allHrefs = useMemo(() => {
     const hrefs = [];
@@ -170,6 +186,11 @@ export function Sidebar() {
                         : "text-foreground-secondary hover:text-foreground hover:bg-hover"
                     )}
                     title={collapsed ? item.label : undefined}
+                    aria-label={
+                      item.href === "/reservations/queue" && pendingRequestCount > 0
+                        ? `${item.label}: ${pendingRequestCount} pending request${pendingRequestCount === 1 ? "" : "s"}`
+                        : undefined
+                    }
                   >
                     {active && (
                       <span className={cn(
@@ -200,6 +221,20 @@ export function Sidebar() {
                           collapsed ? "hidden group-hover:block" : "block"
                         )}>
                           {pendingCount}
+                        </span>
+                      </span>
+                    )}
+                    {item.href === "/reservations/queue" && pendingRequestCount > 0 && (
+                      <span
+                        className={cn(
+                          "rounded-full bg-warning/10 text-warning-700 ring-1 ring-warning/20 transition-all duration-300",
+                          collapsed
+                            ? "absolute top-1 right-1 h-2 w-2 p-0 ring-2 ring-sidebar group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:min-w-5 group-hover:w-auto group-hover:items-center group-hover:justify-center group-hover:px-1 group-hover:text-[11px] group-hover:font-bold group-hover:ring-0"
+                            : "ml-auto flex h-5 min-w-5 items-center justify-center px-1 text-[11px] font-bold"
+                        )}
+                      >
+                        <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>
+                          {pendingRequestCount}
                         </span>
                       </span>
                     )}

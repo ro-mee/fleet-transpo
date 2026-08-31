@@ -28,7 +28,7 @@ const MOCK_REQUESTS = [
     booking_reference: "RES-77120",
     guest_name: "Jordan Rivera",
     pickup_location: "Main Lobby",
-    dropoff_location: "NAIA Terminal 3",
+    dropoff_location: "NAIA Terminal 3 - Arrivals (Bay 9)",
     pickup_datetime: "2026-08-10T14:30:00+08:00",
     passenger_count: 3,
     // Genuine guest requests only — things Fleet must physically accommodate.

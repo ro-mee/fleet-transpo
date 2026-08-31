@@ -6,7 +6,7 @@ source:
   - src/app/api/reports
   - src/app/(dashboard)/reports
   - src/app/(dashboard)/analytics
-last_verified: 2026-08-22
+last_verified: 2026-08-31
 ---
 
 # Feature: Reports
@@ -69,6 +69,33 @@ Re-critique surfaced three new P1s; all fixed:
 - **Heatmap readable by SRs** — grid carries `role="img"` with peak-day/average summary; `role="img"` also silences decorative padding ghosts.
 - **Scroll affordance restored** — `.scrollbar-thin` renders a slim translucent thumb instead of hiding bars entirely.
 - **"All time" echo** — analytics timeframe header prints "All time" instead of literal `1970-01-01 → 2100-01-01`.
+
+### Native Excel Export & OpenXML Chart Generation — 2026-08-31 (Commit `a527f3e`)
+
+Upgraded all reporting export capabilities from simple CSV text dumps to multi-tab **native Microsoft Excel (`.xlsx`) workbooks** with embedded OpenXML charts (Bar, Line, Doughnut) powered by `exceljs` and `jszip`:
+
+- **Chart Generation Engine (`src/lib/reports/native-charts.js`)**:
+  - Injects native OpenXML DrawingML charts (`chart1.xml`, `drawing1.xml`, `[Content_Types].xml` relations) directly into the Excel workbook ZIP package without requiring headless browser rendering or Python/Java runtimes.
+  - Implemented responsive series mapping, custom color palettes (matching app branding), and clean axis labels.
+- **Multi-Tab Structured Workbooks**:
+  - `src/lib/reports/fuel-workbook.js`: Generates Fuel Consumption workbooks with KPI Summary, Monthly Spend trends, Efficiency charts, and Raw Submissions.
+  - `src/lib/reports/remaining-workbooks.js`: Generates specialized workbooks for Analytics, Driver Performance, Fleet Cost, Fleet Utilization, Incidents, Maintenance, and Trip Performance.
+  - `src/lib/reports/operational-reports.js`: Canonical server-side data computation pipeline for report aggregates.
+- **9 Dedicated Excel API Endpoints**:
+  - `GET /api/reports/analytics/excel`
+  - `GET /api/reports/driver-performance/excel`
+  - `GET /api/reports/financial/excel`
+  - `GET /api/reports/fleet-cost/excel`
+  - `GET /api/reports/fleet-utilization/excel`
+  - `GET /api/reports/fuel-consumption/excel`
+  - `GET /api/reports/incidents/excel`
+  - `GET /api/reports/maintenance/excel`
+  - `GET /api/reports/trip-performance/excel`
+- **UI Integration & Direct Action**:
+  - Added direct "Export Excel" action buttons on `/reports`, `/reports/cost`, `/analytics`, `/trips`, `/incidents`, and `/drivers/performance`.
+  - Downloads receive timestamped filenames (`FleetOps_<Report>_YYYY-MM-DD.xlsx`) with instant toast feedback.
+- **Automated Verification**:
+  - Verified via `scripts/verify-reports.mjs` and Vitest test suites (`native-charts.test.js`, `fuel-consumption.test.js`).
 
 Incident note: mid-batch, `analytics/page.js` was found partially reverted to an intermediate state (P2 chart/KPI edits lost, P1 `-700` edits intact) — consistent with OneDrive sync/checkpoint interference on this OneDrive-resident repo. All edits were re-applied and marker-audited via Node (`Get-Content` misdecodes UTF-8 as cp1252 here — don't trust its display of non-ASCII). eslint clean across all touched files, vitest 443/443.
 

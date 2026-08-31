@@ -44,10 +44,10 @@ const themeConfig = {
     gradient: "from-sky-500/[0.08] via-sky-500/[0.03] to-transparent dark:from-sky-500/[0.15] dark:via-sky-500/[0.04]",
     border: "border-sky-500/30 dark:border-sky-500/40",
     glow: "shadow-[0_12px_36px_-6px_rgba(14,165,233,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(14,165,233,0.35)]",
-    iconBg: "bg-sky-50 dark:bg-sky-950/60 border border-sky-500/30 text-sky-600 dark:text-sky-400",
+    iconBg: "bg-sky-50 dark:bg-sky-950/80 border border-sky-500/30 dark:border-sky-500/40 text-sky-600 dark:text-sky-400",
     defaultTitle: "Information",
     icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
         <line x1="12" y1="16" x2="12" y2="12" />
         <line x1="12" y1="8" x2="12.01" y2="8" />
@@ -58,10 +58,10 @@ const themeConfig = {
     gradient: "from-emerald-500/[0.08] via-emerald-500/[0.03] to-transparent dark:from-emerald-500/[0.15] dark:via-emerald-500/[0.04]",
     border: "border-emerald-500/30 dark:border-emerald-500/40",
     glow: "shadow-[0_12px_36px_-6px_rgba(16,185,129,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(16,185,129,0.35)]",
-    iconBg: "bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400",
+    iconBg: "bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-500/30 dark:border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
     defaultTitle: "Success",
     icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
         <polyline points="9 12 11 14 15 10" />
       </svg>
@@ -71,10 +71,10 @@ const themeConfig = {
     gradient: "from-amber-500/[0.08] via-amber-500/[0.03] to-transparent dark:from-amber-500/[0.15] dark:via-amber-500/[0.04]",
     border: "border-amber-500/30 dark:border-amber-500/40",
     glow: "shadow-[0_12px_36px_-6px_rgba(245,158,11,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(245,158,11,0.35)]",
-    iconBg: "bg-amber-50 dark:bg-amber-950/60 border border-amber-500/30 text-amber-600 dark:text-amber-400",
+    iconBg: "bg-amber-50 dark:bg-amber-950/80 border border-amber-500/30 dark:border-amber-500/40 text-amber-600 dark:text-amber-400",
     defaultTitle: "Warning",
     icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
         <line x1="12" y1="9" x2="12" y2="13" />
         <line x1="12" y1="17" x2="12.01" y2="17" />
@@ -85,10 +85,10 @@ const themeConfig = {
     gradient: "from-rose-500/[0.08] via-rose-500/[0.03] to-transparent dark:from-rose-500/[0.15] dark:via-rose-500/[0.04]",
     border: "border-rose-500/30 dark:border-rose-500/40",
     glow: "shadow-[0_12px_36px_-6px_rgba(244,63,94,0.2),0_4px_12px_-2px_rgba(0,0,0,0.08)] dark:shadow-[0_16px_40px_-8px_rgba(244,63,94,0.35)]",
-    iconBg: "bg-rose-50 dark:bg-rose-950/60 border border-rose-500/30 text-rose-600 dark:text-rose-400",
+    iconBg: "bg-rose-50 dark:bg-rose-950/80 border border-rose-500/30 dark:border-rose-500/40 text-rose-600 dark:text-rose-400",
     defaultTitle: "Error",
     icon: (
-      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
         <circle cx="12" cy="12" r="10" />
         <line x1="12" y1="8" x2="12" y2="12" />
         <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -121,7 +121,7 @@ function ToastItem({ t, onClose }) {
       className={cn(
         "pointer-events-auto relative flex items-start gap-3.5 rounded-[20px] p-4 border transition-all",
         // Solid background base guarantees 100% opacity & zero bleed-through on black/dark surfaces
-        "bg-white dark:bg-zinc-900/98 backdrop-blur-2xl",
+        "bg-surface backdrop-blur-2xl",
         "bg-gradient-to-r",
         config.gradient,
         config.border,
@@ -138,11 +138,11 @@ function ToastItem({ t, onClose }) {
 
       {/* Text Copy */}
       <div className="min-w-0 flex-1 pt-0.5">
-        <h4 className="text-[14px] font-bold text-zinc-900 dark:text-zinc-100 tracking-tight leading-tight">
+        <h4 className="text-[14px] font-bold text-foreground tracking-tight leading-tight">
           {t.title || config.defaultTitle}
         </h4>
         {t.message && (
-          <p className="mt-1 text-[13px] font-medium leading-relaxed text-zinc-600 dark:text-zinc-300">
+          <p className="mt-1 text-[13px] font-medium leading-relaxed text-foreground-secondary">
             {t.message}
           </p>
         )}
@@ -152,7 +152,7 @@ function ToastItem({ t, onClose }) {
       <button
         onClick={onClose}
         aria-label="Dismiss notification"
-        className="flex-shrink-0 -mr-1 -mt-1 w-7 h-7 rounded-full flex items-center justify-center text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+        className="flex-shrink-0 -mr-1 -mt-1 w-7 h-7 rounded-full flex items-center justify-center text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer"
       >
         <X className="h-4 w-4 stroke-[2]" />
       </button>

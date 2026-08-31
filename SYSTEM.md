@@ -679,9 +679,9 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `trips/[id]/status` (PUT) — state-machine transition (`canTransitionTrip`); `transition.service.js` centralizes trip/dispatch status writes with derived-resource reconciliation + audit.
 - `trips/[id]/start` (PUT) — **pre-trip inspection gate**: requires the latest per-trip `vehicleinspection` for this driver+vehicle to be `Passed`, else 400 (migration 048); also runs the work-schedule/leave window guard.
 - `trips/[id]/complete` (PUT) — odometer validation + cascade sync.
-- `trips/[id]/locations` (GET/POST) — GPS breadcrumbs.
+- `trips/[id]/locations` (GET/POST) — GPS breadcrumbs (trip-isolated route history).
 - `trips/active` (GET) — active fleet; **driver sees only own trips**.
-- `trips/latest-locations` (GET) — latest GPS per vehicle.
+- `trips/latest-locations` (GET) — latest status-aware GPS telemetry per active vehicle/trip (`src/lib/gps.js`); filters by active states (`In Progress`, `Dispatched`, `Assigned`), marks staleness with a 3-minute disconnect threshold (`GPS_STALE_THRESHOLD_MS`), and isolates breadcrumbs to active trips.
 
 ### Vehicles, maintenance, fuel
 - `vehicles/` (GET/POST), `vehicles/[id]` (GET/PUT/DELETE, archive admin-only), `vehicles/available`, `vehicles/[id]/documents`, `vehicle-documents/[id]`, `vehicle-categories/[id]`.
@@ -715,7 +715,7 @@ is the only reservation concept, and `integration/` is its only door.
 - Server side: `push.service.js` tiers every notification (`deliveryFor`: Alert/Emergency + Critical/Major/incident → loud push; Warning/Moderate → heads-up; else silent in-app only), sends via Expo Push to active tokens, deactivates `DeviceNotRegistered` tokens, and drains `push_outbox` (`flushOutbox()` after dispatch create + autocreate sync).
 
 ### Reports, AI, notifications, system, mobile
-- `reports/{maintenance,fuel-consumption,fleet-utilization,financial,driver-performance,fleet-cost}` (GET).
+- `reports/{maintenance,fuel-consumption,fleet-utilization,financial,driver-performance,fleet-cost}` (GET) + `reports/{analytics,driver-performance,financial,fleet-cost,fleet-utilization,fuel-consumption,incidents,maintenance,trip-performance}/excel` (GET) ★ — multi-tab native Excel workbooks with embedded OpenXML charts (bar, line, doughnut) powered by `src/lib/reports/{native-charts,operational-reports,fuel-workbook,remaining-workbooks}.js` and `exceljs`.
 - `documents/expiring` (GET) ★ — Document Expiration Center: aggregates `vehicles.*_expiry` + `vehicledocuments.expiry_date` + `drivers.license_expiry` with days-left/expired flags (admin, system_admin, fleet_manager).
 - `ai/recommendations`, `ai/predictive-maintenance`, `ai/insights[/[id]/dismiss]`, `ai/driver-insights`, `ai/providers[/[id]]`, `ai/providers/fetch-models`, `ai/scan-document`, `ai/logs`, `ai/instructions`.
 - `ai/report-narrative` (POST) ★ — LLM report narration over a client-computed payload: 24 h sticky cache, ≤3 forced regenerations per tab/day, deterministic rules fallback (`lib/ai/report-narrative.js`, `ai_report_narratives` table).
@@ -725,13 +725,14 @@ is the only reservation concept, and `integration/` is its only door.
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `manifest`, `status/sync`, `cron/sync` (CRON_SECRET). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
+- The active NAIA registry currently contains six canonical curbside endpoints: Terminal 1 arrivals/departures, Terminal 2 arrivals/departures, and Terminal 3 Bay 9 arrivals/departures. Terminal 4 is not an active endpoint; its legacy row/routes remain only as inactive history. Canonical endpoint coordinates are maintained in `src/lib/naia-locations.js` and seeded without fabricated distance/time estimates.
 - `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Read-only + resolve only; creation is driver-side. `incidents/[id]/maintenance` (POST) ★ — "Send to Maintenance" creates the Emergency Repair record (linked back via `source_incident_id`).
 - `settings/dispatch` (GET/PUT) ★ — smart-queue policy (`criticalMinutes`/`highMinutes`/`mediumMinutes`, `enableVipFlag`/`enableEmergencyFlag`); audit-writes `dispatch_policy` (system_admin/admin; fleet_manager read).
 - `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
 - `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
 - `uvvrp/exemptions` (GET/POST), `uvvrp/exemptions/[id]` (PUT) ★ — per-vehicle coding exemptions (category, approver, optional expiry).
 - `uvvrp/violations` (GET), `uvvrp/violations/[id]/decide` (POST) ★ — coding violation history + approve/deny pending approvals (defer-then-retry: an approved violation exempts that vehicle+date).
-- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips` (+ `pre_trip_status` per trip), `mobile/driver/trips/[id]/accept|gps`, `mobile/driver/inspections` (POST — per-trip pre-trip inspection, notifies staff on fail), `mobile/driver/submissions` (GET — activity-log/dead-letter feed), `mobile/fuel/scan|upload|gauge-scan|[id]`, `mobile/fuel` (POST receipt → fulfills the Approved request).
+- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips` (+ `pre_trip_status` per trip), `mobile/driver/trips/[id]/accept|gps` (trip-scoped GPS ping ingestion — only records live movement during `In Progress` trips), `mobile/driver/inspections` (POST — per-trip pre-trip inspection, notifies staff on fail), `mobile/driver/submissions` (GET — activity-log/dead-letter feed), `mobile/fuel/scan|upload|gauge-scan|[id]`, `mobile/fuel` (POST receipt → fulfills the Approved request).
 
 ### Client service layer (`src/services/`)
 Thin `apiFetch` wrappers per domain plus server-only business-logic services. Current modules: `ai.service, audit.service, auth.service, dispatch.service, dispatch-autocreate.service, dispatch-settings.service, driver.service, driver-assignment.service, driver-schedule.service, fuel.service, integration.service, location.service, maintenance-schedule.service, notification.service, outbound.service, priority.service, push.service, recommendation.service, report.service, reservation-events.service, reservation-lifecycle.service, route.service, route-resolver.service, search.service, settings.service, status.service, substitute-driver.service, system.service, transition.service, transport.service, trip-lifecycle.service, trip.service, uvvrp.service, vehicle.service`. Notable server-only ones: `reservation-lifecycle`, `trip-lifecycle`, `transition` (centralized trip/dispatch status writes), `status`, `outbound`, `push`, `uvvrp`, `dispatch-autocreate`, `route-resolver`.
@@ -941,7 +942,10 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
 - The database enforces one active route per directional location pair while
   retaining inactive history. Route estimates expose `TomTom`, `Manual`, or
   `Legacy / Unknown` provenance; manual estimates require an explicit TomTom
-  recalculation to change. Endpoint edits lock after dispatch/trip use.
+  recalculation to change. New or endpoint-changed routes with valid coordinates
+  automatically request a TomTom baseline; unavailable values remain blank.
+  Stored duration is labelled estimated travel time, not live ETA. Endpoint
+  edits lock after dispatch/trip use.
 - `/routes` shows Active, Navigation Ready, Needs Setup, and Used Last 30 Days
   operational KPIs. Dispatcher and management are read-only; route writes are
   restricted at both the UI and API boundary. Hotel rename preserves its location

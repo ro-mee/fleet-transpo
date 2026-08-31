@@ -155,7 +155,7 @@ export default function SettingsGeneralPage() {
   const seedNaiaMutation = useMutation({
     mutationFn: () => seedNaiaRoutes(),
     onSuccess: () => {
-      toast.success("NAIA Airport Terminal routes synced successfully!");
+      toast.success("NAIA T1–T3 arrival/departure routes synced successfully!");
       queryClient.invalidateQueries({ queryKey: ["routes"] });
     },
     onError: (err) => {
@@ -335,7 +335,7 @@ export default function SettingsGeneralPage() {
                     className="h-9 text-xs rounded-xl"
                   >
                     <Plane className="w-4 h-4 mr-1.5 text-info" />
-                    {seedNaiaMutation.isPending ? "Syncing Routes..." : "Sync All NAIA Airport Terminal Routes"}
+                    {seedNaiaMutation.isPending ? "Syncing Routes..." : "Sync NAIA T1–T3 Routes"}
                   </Button>
 
                   <div className="flex flex-col items-end gap-1">
@@ -626,7 +626,7 @@ export default function SettingsGeneralPage() {
         onOpenChange={setNaiaConfirmOpen}
         variant="warning"
         title="Re-seed NAIA routes?"
-        message="This creates and updates the NAIA airport terminal routes used for pickups and drop-offs. Existing terminal routes will be refreshed with the latest schedule."
+        message="This creates or updates the six canonical NAIA T1–T3 arrival/departure endpoints and their hotel routes. Retired terminal history is preserved; Terminal 4 is not active."
         confirmLabel="Sync routes"
         loading={seedNaiaMutation.isPending}
         onConfirm={() => {
