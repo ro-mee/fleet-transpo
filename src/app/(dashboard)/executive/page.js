@@ -268,7 +268,7 @@ export default function ExecutiveKpiPage() {
                           <div className="min-w-0">
                             <p className="text-xs font-semibold text-foreground truncate">{formattedName}</p>
                             <p className="text-[11px] text-foreground-muted font-medium font-data mt-0.5">
-                              {d.total_trips} trips · On-Time {(d.on_time_rate * 100).toFixed(0)}%
+                              {d.total_trips} trips · On-Time {d.on_time_rate == null ? "Insufficient data" : `${(d.on_time_rate * 100).toFixed(0)}%`}
                             </p>
                           </div>
                         </div>

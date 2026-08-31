@@ -8,10 +8,10 @@ import { getAllIncidents } from "@/services/driver.service";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize } from "lucide-react";
+import { AlertTriangle, Truck, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { HeroHeader } from "@/components/ui/hero-header";
+import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -23,6 +23,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { updateIncident } from "@/services/driver.service";
+import { getIncidentWorkbook } from "@/services/report.service";
+import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
@@ -299,6 +301,15 @@ export default function IncidentsPage() {
     },
   ];
 
+  const handleExcelExport = async () => {
+    try {
+      const result = await getIncidentWorkbook();
+      downloadBlob(result.blob, result.filename);
+    } catch {
+      // The registry remains usable if an export request fails.
+    }
+  };
+
   return (
     <div className="space-y-6">
       <HeroHeader
@@ -306,6 +317,12 @@ export default function IncidentsPage() {
         title="Fleet Incidents Registry"
         badge="Driver Reports"
         description="Driver-reported incidents across the fleet. Resolve inline or route the vehicle to emergency repairs."
+        actions={
+          <Button onClick={handleExcelExport} className={`h-11 rounded-full px-5 text-sm font-semibold ${heroButtonPrimaryClass}`}>
+            <Download className="mr-2 h-4 w-4" />
+            Export Incident Excel
+          </Button>
+        }
       />
 
       <StatGrid cols={4}>

@@ -25,6 +25,8 @@ loadEnvLocal();
 
 const app = (rel) => import(pathToFileURL(resolvePath(process.cwd(), "src", rel)).href);
 const { query, getPool } = await app("lib/db.js");
+const ExcelJS = (await import("exceljs")).default;
+const JSZip = (await import("jszip")).default;
 
 // The seed window. Every report is exercised over exactly this range, so a
 // figure that disagrees can be traced to a specific set of generated rows.
@@ -88,6 +90,32 @@ async function callReport(rel, params = `from=${FROM}&to=${TO}`) {
   return body;
 }
 
+async function callWorkbook(rel, params = `from=${FROM}&to=${TO}`) {
+  const mod = await app(rel);
+  const req = new Request(`http://localhost:3000/api/harness?${params}`, { method: "GET" });
+  const restore = console.error;
+  console.error = () => {};
+  let res;
+  try {
+    res = await mod.GET(req);
+  } finally {
+    console.error = restore;
+  }
+  if (res.status !== 200) throw new Error(`${rel} returned ${res.status}`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const zip = await JSZip.loadAsync(buffer);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(buffer);
+  book.__package = {
+    chartCount: zip.file(/^xl\/charts\/chart\d+\.xml$/).length,
+    drawingCount: zip.file(/^xl\/drawings\/drawing\d+\.xml$/).length,
+    mediaCount: zip.file(/^xl\/media\//).length,
+  };
+  return book;
+}
+
+const cellResult = (cell) => (cell && typeof cell.value === "object" ? cell.value.result : cell?.value);
+
 // ---------------------------------------------------------------------------
 // Independent expectations — one table per query, one column per aggregate.
 // ---------------------------------------------------------------------------
@@ -105,7 +133,7 @@ const tripAgg = await one(
           COALESCE(SUM(distance), 0) AS distance,
           COALESCE(SUM(total_cost), 0) AS total_cost,
           COUNT(*) FILTER (WHERE on_time_completion)::int AS on_time
-     FROM trips WHERE start_time >= $1 AND start_time <= $2`,
+     FROM trips WHERE deleted_at IS NULL AND start_time >= $1 AND start_time <= $2`,
   [FROM, TO]
 );
 const tripFull = await one(
@@ -113,14 +141,31 @@ const tripFull = await one(
           COALESCE(SUM(distance), 0) AS distance,
           COALESCE(SUM(total_cost), 0) AS total_cost,
           COUNT(*) FILTER (WHERE on_time_completion)::int AS on_time
-     FROM trips WHERE start_time >= $1::date AND start_time < ($2::date + 1)`,
+     FROM trips WHERE deleted_at IS NULL AND start_time >= $1::date AND start_time < ($2::date + 1)`,
   [FROM, TO]
 );
 const fuelAgg = await one(
   `SELECT COUNT(*)::int AS n,
           COALESCE(SUM(amount), 0) AS amount,
           COALESCE(SUM(liters), 0) AS liters
-     FROM fuelrecords WHERE fuel_date >= $1 AND fuel_date <= $2`,
+     FROM fuelrecords WHERE deleted_at IS NULL AND fuel_date >= $1 AND fuel_date <= $2`,
+  [FROM, TO]
+);
+const fuelReportAgg = await one(
+  `SELECT COUNT(*)::int AS n,
+          COALESCE(SUM(amount), 0) AS amount,
+          COALESCE(SUM(liters), 0) AS liters
+     FROM fuelrecords
+    WHERE deleted_at IS NULL AND status IN ('Approved', 'Completed')
+      AND fuel_date >= $1::date AND fuel_date < ($2::date + 1)`,
+  [FROM, TO]
+);
+const fuelTripAgg = await one(
+  `SELECT COUNT(*)::int AS n, COALESCE(SUM(distance), 0) AS distance
+     FROM trips
+    WHERE deleted_at IS NULL AND trip_status = 'Completed'
+      AND end_time >= ($1::date::timestamp AT TIME ZONE 'Asia/Manila')
+      AND end_time < (($2::date + 1)::timestamp AT TIME ZONE 'Asia/Manila')`,
   [FROM, TO]
 );
 const fuelApproved = await one(
@@ -131,7 +176,7 @@ const fuelApproved = await one(
 );
 const maintAgg = await one(
   `SELECT COUNT(*)::int AS n, COALESCE(SUM(cost), 0) AS cost
-     FROM vehiclemaintenance WHERE maintenance_date >= $1 AND maintenance_date <= $2`,
+     FROM vehiclemaintenance WHERE deleted_at IS NULL AND maintenance_date >= $1 AND maintenance_date <= $2`,
   [FROM, TO]
 );
 
@@ -184,7 +229,7 @@ const mnt = await callReport("app/api/reports/maintenance/route.js");
 eq("totalCost", mnt.totalCost, maintAgg.cost);
 const byTypeSql = (await query(
   `SELECT COALESCE(maintenance_type,'Other') AS t, COUNT(*)::int AS n, COALESCE(SUM(cost),0) AS cost
-     FROM vehiclemaintenance WHERE maintenance_date >= $1 AND maintenance_date <= $2
+     FROM vehiclemaintenance WHERE deleted_at IS NULL AND maintenance_date >= $1 AND maintenance_date <= $2
     GROUP BY 1 ORDER BY 1`,
   [FROM, TO]
 )).rows;
@@ -217,7 +262,7 @@ eq("totalDistance", util.totalDistance, tripFull.distance);
 const byVehSql = (await query(
   `SELECT COALESCE(v.plate_number,'Unknown') AS plate, COUNT(*)::int AS n, COALESCE(SUM(t.distance),0) AS distance
      FROM trips t LEFT JOIN vehicles v ON v.vehicle_id = t.vehicle_id
-    WHERE t.start_time >= $1::date AND t.start_time < ($2::date + 1) GROUP BY 1 ORDER BY 1`,
+    WHERE t.deleted_at IS NULL AND t.start_time >= $1::date AND t.start_time < ($2::date + 1) GROUP BY 1 ORDER BY 1`,
   [FROM, TO]
 )).rows;
 check(`byVehicle covers ${byVehSql.length} vehicles`, (util.byVehicle || []).length === byVehSql.length, `route returned ${(util.byVehicle || []).length}`);
@@ -238,12 +283,22 @@ check(
 // ---------------------------------------------------------------------------
 console.log(`\n4. reports/fuel-consumption`);
 const fc = await callReport("app/api/reports/fuel-consumption/route.js");
-eq("totalLiters", fc.totalLiters, fuelAgg.liters);
-eq("totalCost", fc.totalCost, fuelAgg.amount);
-eq("avgCost", fc.avgCost, Number(fuelAgg.amount) / Number(fuelAgg.liters), 0.01);
+eq("totalLiters", fc.totalLiters, fuelReportAgg.liters);
+eq("totalCost", fc.totalCost, fuelReportAgg.amount);
+eq("avgCost", fc.avgCost, Number(fuelReportAgg.amount) / Number(fuelReportAgg.liters), 0.01);
+eq("totalDistance", fc.totalDistance, fuelTripAgg.distance);
+eq("fuelTransactionCount", fc.fuelTransactionCount, fuelReportAgg.n, 0);
+eq("completedTrips", fc.completedTrips, fuelTripAgg.n, 0);
+const expectedEfficiency = Number(fuelTripAgg.distance) >= 50 && Number(fuelReportAgg.liters) > 0
+  ? Number(fuelTripAgg.distance) / Number(fuelReportAgg.liters)
+  : null;
+check("estimatedEfficiency follows the 50 km rule", expectedEfficiency == null ? fc.estimatedEfficiency == null : near(fc.estimatedEfficiency, expectedEfficiency, 0.01));
 const monthsSql = (await query(
   `SELECT to_char(fuel_date,'YYYY-MM') AS m, COALESCE(SUM(liters),0) AS liters, COALESCE(SUM(amount),0) AS cost
-     FROM fuelrecords WHERE fuel_date >= $1 AND fuel_date <= $2 GROUP BY 1 ORDER BY 1`,
+     FROM fuelrecords
+    WHERE deleted_at IS NULL AND status IN ('Approved', 'Completed')
+      AND fuel_date >= $1::date AND fuel_date < ($2::date + 1)
+    GROUP BY 1 ORDER BY 1`,
   [FROM, TO]
 )).rows;
 check(
@@ -262,7 +317,9 @@ const catSql = (await query(
      FROM fuelrecords f
      LEFT JOIN vehicles v ON v.vehicle_id = f.vehicle_id
      LEFT JOIN vehiclecategories vc ON vc.category_id = v.category_id
-    WHERE f.fuel_date >= $1 AND f.fuel_date <= $2 GROUP BY 1 ORDER BY 1`,
+    WHERE f.deleted_at IS NULL AND f.status IN ('Approved', 'Completed')
+      AND f.fuel_date >= $1::date AND f.fuel_date < ($2::date + 1)
+    GROUP BY 1 ORDER BY 1`,
   [FROM, TO]
 )).rows;
 check(`byCategory covers ${catSql.length} categories`, (fc.byCategory || []).length === catSql.length, `route returned ${(fc.byCategory || []).length}`);
@@ -273,7 +330,7 @@ for (const row of catSql) {
   eq(`byCategory[${row.c}].cost`, hit.cost, row.cost);
 }
 check(
-  `byVehicle is populated (${fuelAgg.n} fuel records exist)`,
+  `byVehicle is populated (${fuelReportAgg.n} eligible fuel records exist)`,
   (fc.byVehicle || []).length > 0,
   "route returns a hardcoded empty array"
 );
@@ -291,9 +348,9 @@ eq("totals.cost_per_km", cost.totals.cost_per_km, (Number(fuelAgg.amount) + Numb
 const perVehSql = (await query(
   `SELECT v.vehicle_id, v.plate_number,
           (SELECT COALESCE(SUM(f.amount),0) FROM fuelrecords f
-            WHERE f.vehicle_id = v.vehicle_id AND f.fuel_date >= $1 AND f.fuel_date <= $2) AS fuel_cost,
+            WHERE f.vehicle_id = v.vehicle_id AND f.deleted_at IS NULL AND f.fuel_date >= $1 AND f.fuel_date <= $2) AS fuel_cost,
           (SELECT COALESCE(SUM(m.cost),0) FROM vehiclemaintenance m
-            WHERE m.vehicle_id = v.vehicle_id AND m.maintenance_date >= $1 AND m.maintenance_date <= $2) AS maintenance_cost,
+            WHERE m.vehicle_id = v.vehicle_id AND m.deleted_at IS NULL AND m.maintenance_date >= $1 AND m.maintenance_date <= $2) AS maintenance_cost,
           (SELECT COALESCE(SUM(t.distance),0) FROM trips t
             WHERE t.vehicle_id = v.vehicle_id AND t.start_time >= $1::date AND t.start_time < ($2::date + 1)
               AND t.deleted_at IS NULL) AS distance
@@ -321,7 +378,8 @@ const perfSql = (await query(
           (SELECT COALESCE(ROUND(SUM(t.distance)::numeric,1),0) FROM trips t WHERE t.driver_id = d.driver_id
              AND t.trip_status = 'Completed' AND t.deleted_at IS NULL
              AND t.end_time >= $1::date AND t.end_time < ($2::date + 1)) AS total_distance,
-          (SELECT COUNT(*)::int FROM driverincidents di WHERE di.driver_id = d.driver_id
+           (SELECT COUNT(*)::int FROM driverincidents di WHERE di.driver_id = d.driver_id
+             AND di.deleted_at IS NULL
              AND di.incident_date >= $1::date AND di.incident_date < ($2::date + 1)) AS incidents
      FROM drivers d WHERE d.deleted_at IS NULL ORDER BY d.driver_id`,
   [FROM, TO]
@@ -383,14 +441,13 @@ for (const row of faTypes) {
 // ---------------------------------------------------------------------------
 // 8. Date-boundary probe.
 //
-// `start_time >= $1 AND start_time <= $2` compares a timestamptz against a bare
-// date, so `to` becomes midnight and every trip later that day is dropped. This
-// asks the routes for a single day and compares against that day's real count.
+// Reports use a closed-open calendar-day range. This asks the routes for a
+// single day and compares against that day's non-deleted trip count.
 // ---------------------------------------------------------------------------
 console.log(`\n8. Date boundary — a one-day window`);
 const probe = (await query(
-  `SELECT to_char(start_time AT TIME ZONE '+08:00','YYYY-MM-DD') AS d, COUNT(*)::int AS n
-     FROM trips WHERE start_time >= $1 AND start_time <= ($2::date + 1)
+   `SELECT to_char(start_time AT TIME ZONE '+08:00','YYYY-MM-DD') AS d, COUNT(*)::int AS n
+      FROM trips WHERE deleted_at IS NULL AND start_time >= $1::date AND start_time < ($2::date + 1)
     GROUP BY 1 HAVING COUNT(*) > 2 ORDER BY 2 DESC LIMIT 1`,
   [FROM, TO]
 )).rows[0];
@@ -399,19 +456,19 @@ if (!probe) {
 } else {
   const dayN = (await query(
     `SELECT COUNT(*)::int AS n FROM trips
-      WHERE start_time >= $1::date AND start_time < ($1::date + 1)`,
+      WHERE deleted_at IS NULL AND start_time >= $1::date AND start_time < ($1::date + 1)`,
     [probe.d]
   )).rows[0].n;
   const oneDay = await callReport("app/api/reports/fleet-utilization/route.js", `from=${probe.d}&to=${probe.d}`);
   check(
     `fleet-utilization from=${probe.d}&to=${probe.d} returns that day's ${dayN} trips`,
     oneDay.totalTrips === dayN,
-    `route ${oneDay.totalTrips} vs ${dayN} — <= $2 truncates the end date to midnight`
+    `route ${oneDay.totalTrips} vs ${dayN}`
   );
   const finDay = await callReport("app/api/reports/financial/route.js", `from=${probe.d}&to=${probe.d}`);
   const dayDist = (await query(
     `SELECT COALESCE(SUM(distance),0) AS d FROM trips
-      WHERE start_time >= $1::date AND start_time < ($1::date + 1)`,
+      WHERE deleted_at IS NULL AND start_time >= $1::date AND start_time < ($1::date + 1)`,
     [probe.d]
   )).rows[0].d;
   check(
@@ -419,6 +476,51 @@ if (!probe) {
     near(finDay.totalDistance, dayDist),
     `route ${finDay.totalDistance} vs ${dayDist}`
   );
+}
+
+// ---------------------------------------------------------------------------
+// 9. XLSX parity and editability smoke checks. ExcelJS can read the generated
+// files back, so these assertions cover the values shown in Summary and the
+// detail-row counts without relying on rendered images or a desktop Excel app.
+// ---------------------------------------------------------------------------
+console.log(`\n9. customized XLSX parity`);
+try {
+  const books = {
+    fuel: await callWorkbook("app/api/reports/fuel-consumption/excel/route.js"),
+    maintenance: await callWorkbook("app/api/reports/maintenance/excel/route.js"),
+    fleet: await callWorkbook("app/api/reports/fleet-utilization/excel/route.js"),
+    drivers: await callWorkbook("app/api/reports/driver-performance/excel/route.js"),
+    cost: await callWorkbook("app/api/reports/fleet-cost/excel/route.js"),
+    financial: await callWorkbook("app/api/reports/financial/excel/route.js"),
+    analytics: await callWorkbook("app/api/reports/analytics/excel/route.js"),
+    trips: await callWorkbook("app/api/reports/trip-performance/excel/route.js", ""),
+    incidents: await callWorkbook("app/api/reports/incidents/excel/route.js", ""),
+  };
+  for (const [name, book] of Object.entries(books)) {
+    const imageCount = book.worksheets.reduce((sum, sheet) => sum + sheet.getImages().length, 0);
+    check(`${name} workbook has no static images`, imageCount === 0, `found ${imageCount}`);
+    check(`${name} workbook has three native charts`, book.__package.chartCount === 3 && book.__package.drawingCount === 3, `charts ${book.__package.chartCount}, drawings ${book.__package.drawingCount}`);
+    check(`${name} workbook package has no media files`, book.__package.mediaCount === 0, `found ${book.__package.mediaCount}`);
+  }
+  const fuelSummary = books.fuel.getWorksheet("Summary");
+  eq("fuel Summary eligible liters", cellResult(fuelSummary.getCell("A7")), fc.totalLiters);
+  eq("fuel Summary approved cost", cellResult(fuelSummary.getCell("C7")), fc.totalCost);
+  check("fuel workbook detail rows match payload", books.fuel.getWorksheet("Fuel Details").rowCount - 1 === (fc.fuelRecords || []).length, "Fuel Details row count differs");
+  check("maintenance Summary cost matches payload", near(cellResult(books.maintenance.getWorksheet("Summary").getCell("A6")), mnt.totalCost), `workbook ${cellResult(books.maintenance.getWorksheet("Summary").getCell("A6"))} vs ${mnt.totalCost}`);
+  check("maintenance detail rows match payload", books.maintenance.getWorksheet("Details").rowCount - 1 === (mnt.records || []).length, "Details row count differs");
+  check("fleet Summary distance matches payload", near(cellResult(books.fleet.getWorksheet("Summary").getCell("G6")), util.totalDistance), `workbook ${cellResult(books.fleet.getWorksheet("Summary").getCell("G6"))} vs ${util.totalDistance}`);
+  check("fleet trip detail rows match payload", books.fleet.getWorksheet("Trip Details").rowCount - 1 === (util.trips || []).length, "Trip Details row count differs");
+  check("driver Summary trip count matches payload", near(cellResult(books.drivers.getWorksheet("Summary").getCell("G6")), perf.totalTrips), `workbook ${cellResult(books.drivers.getWorksheet("Summary").getCell("G6"))} vs ${perf.totalTrips}`);
+  check("driver detail rows match payload", books.drivers.getWorksheet("Driver Details").rowCount - 1 === (perf.details || []).length, "Driver Details row count differs");
+  check("fleet-cost Summary total matches payload", near(cellResult(books.cost.getWorksheet("Summary").getCell("A6")), cost.totals.total_cost), `workbook ${cellResult(books.cost.getWorksheet("Summary").getCell("A6"))} vs ${cost.totals.total_cost}`);
+  check("fleet-cost vehicle rows match payload", books.cost.getWorksheet("Vehicle Costs").rowCount - 1 === (cost.details || []).length, "Vehicle Costs row count differs");
+  check("financial Summary total matches payload", near(cellResult(books.financial.getWorksheet("Summary").getCell("A6")), fin.totalCost), `workbook ${cellResult(books.financial.getWorksheet("Summary").getCell("A6"))} vs ${fin.totalCost}`);
+  check("financial fuel detail rows match payload", books.financial.getWorksheet("Fuel Details").rowCount - 1 === (fin.fuelRecords || []).length, "Fuel Details row count differs");
+  check("analytics Summary distance matches fleet payload", near(cellResult(books.analytics.getWorksheet("Summary").getCell("E6")), util.totalDistance), `workbook ${cellResult(books.analytics.getWorksheet("Summary").getCell("E6"))} vs ${util.totalDistance}`);
+  check("trip workbook has a details sheet", books.trips.getWorksheet("Details").rowCount >= 1);
+  check("incident workbook has a details sheet", books.incidents.getWorksheet("Details").rowCount >= 1);
+} catch (error) {
+  check("customized XLSX routes load", false, error.message);
 }
 
 // ---------------------------------------------------------------------------

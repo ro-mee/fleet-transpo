@@ -1,5 +1,10 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requireAuth, err, handleError } from "@/lib/api/utils";
 import { getFleetCostReport, validateReportRange } from "@/lib/reports/operational-reports";
+import { buildFleetCostWorkbook } from "@/lib/reports/remaining-workbooks";
+import { xlsxResponse } from "@/lib/reports/excel-response";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(req) {
   try {
@@ -9,7 +14,7 @@ export async function GET(req) {
     const to = params.get("to") || "2100-01-01";
     const rangeError = validateReportRange(from, to);
     if (rangeError) return err(rangeError, 400);
-    return ok(await getFleetCostReport(from, to));
+    return xlsxResponse(await buildFleetCostWorkbook(await getFleetCostReport(from, to), { from, to }), `fleet-cost-${from}-to-${to}.xlsx`);
   } catch (error) {
     return handleError(error);
   }

@@ -78,6 +78,12 @@ const ENTITY_MAPS = {
     fulfilled: "success",
     completed: "success",
   },
+  efficiency: {
+    "below baseline": "warning",
+    "meets or exceeds baseline": "success",
+    "insufficient data": "secondary",
+    "no baseline": "info",
+  },
   dispatch: {
     "pending reassignment": "danger",
     scheduled: "info",

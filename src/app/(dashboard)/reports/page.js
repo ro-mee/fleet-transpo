@@ -16,14 +16,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { EmptyState } from "@/components/ui/empty-state";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
-import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { getPredictiveMaintenance, getReportNarrative } from "@/services/ai.service";
 import {
-  getDriverPerformanceReport, getFinancialSummary, getFleetUtilizationReport,
-  getFuelConsumptionReport, getMaintenanceReport,
+  getDriverPerformanceReport, getDriverPerformanceWorkbook, getFinancialSummary,
+  getFinancialWorkbook, getFleetCostWorkbook, getFleetUtilizationReport,
+  getFleetUtilizationWorkbook, getFuelConsumptionReport, getFuelConsumptionWorkbook,
+  getMaintenanceReport, getMaintenanceWorkbook,
 } from "@/services/report.service";
-import { exportToCSV } from "@/lib/export";
+import { downloadBlob, exportToCSV } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -34,7 +37,7 @@ const CARD_SHADOW_HOVER = "hover:shadow-[0_24px_52px_-30px_rgba(17,24,39,0.34)]"
 const KPI_SHADOW = "shadow-[0_1px_2px_rgba(17,24,39,0.04),0_24px_48px_-32px_rgba(17,24,39,0.3)]";
 const REPORT_TYPES = [
   { id: "fleet", label: "Fleet utilization", short: "Fleet", icon: CarFront, description: "Capacity and distance by vehicle" },
-  { id: "fuel", label: "Fuel consumption", short: "Fuel", icon: Fuel, description: "Volume, spend, and monthly movement" },
+  { id: "fuel", label: "Fuel consumption & estimated efficiency", short: "Fuel", icon: Fuel, description: "Verified volume, spend, and completed-trip efficiency" },
   { id: "maintenance", label: "Maintenance audit", short: "Maintenance", icon: Wrench, description: "Service spend and concentration" },
   { id: "drivers", label: "Driver performance", short: "Drivers", icon: Users, description: "Ranked safety and performance scores" },
   { id: "financial", label: "Financial summary", short: "Financial", icon: PhilippinePeso, description: "Operating cost allocation" },
@@ -102,7 +105,7 @@ function StatCard({ icon: Icon, label, value, valueNote, tone = "primary" }) {
 }
 
 function StatGrid({ children, cols = 3 }) {
-  return <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2", cols === 2 ? "lg:grid-cols-2" : "lg:grid-cols-3")}>{children}</div>;
+  return <div className={cn("grid grid-cols-1 gap-4 sm:grid-cols-2", cols === 2 ? "lg:grid-cols-2" : cols === 4 ? "lg:grid-cols-4" : "lg:grid-cols-3")}>{children}</div>;
 }
 
 function NoData({ label = "No records in this period" }) {
@@ -212,6 +215,7 @@ export default function ReportsPage() {
     return ymd.test(from) && ymd.test(to) ? { from, to } : { from: "", to: "" };
   });
   const [narrativeForce, setNarrativeForce] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   // Mirror report/range into the URL. history.replaceState keeps this
   // cosmetic — no navigation, no RSC refetch per interaction.
@@ -280,10 +284,10 @@ export default function ReportsPage() {
   ].filter((v) => v.value > 0), [reportData]);
   const totalCost = Number(reportData.totalCost) || costData.reduce((sum, item) => sum + item.value, 0);
 
-  function handleExport() {
+  function handleCsvExport() {
     let rows = []; let columns = null;
+    if (selectedReport === "fuel") { rows = reportData.fuelRecords || []; columns = [{ label: "Fuel Record ID", key: "fuel_record_id" }, { label: "Fuel Date", key: "fuel_date" }, { label: "Vehicle", key: "plate_number" }, { label: "Driver", key: "driver_name" }, { label: "Liters", key: "liters" }, { label: "Amount", key: "amount" }, { label: "Status", key: "status" }]; }
     if (selectedReport === "fleet") { rows = reportData.byVehicle || []; columns = [{ label: "Plate Number", key: "plate" }, { label: "Total Trips", key: "trips" }, { label: "Total Distance (km)", key: "distance" }]; }
-    if (selectedReport === "fuel") { rows = reportData.monthlyData || []; columns = [{ label: "Month", key: "month" }, { label: "Liters (L)", key: "liters" }, { label: "Total Cost", key: "cost" }]; }
     if (selectedReport === "maintenance") { rows = reportData.byType || []; columns = [{ label: "Maintenance Type", key: "type" }, { label: "Records", key: "count" }, { label: "Total Expense", key: "cost" }]; }
     if (selectedReport === "drivers") { rows = reportData.topDrivers || []; columns = [{ label: "Driver Name", key: "name" }, { label: "Performance Score", key: "score" }, { label: "Completed Trips", key: "trips" }]; }
     if (selectedReport === "financial") { rows = [reportData]; columns = [{ label: "Total Cost", key: "totalCost" }, { label: "Fuel Cost", key: "fuelCost" }, { label: "Maintenance Cost", key: "maintCost" }, { label: "Cost Per Km", key: "costPerKm" }]; }
@@ -299,13 +303,60 @@ export default function ReportsPage() {
     toast.success(`Exported ${result.count} rows — ${result.filename}`);
   }
 
+  async function handleExport() {
+    if (!reportData) return;
+    const loaders = { fleet: getFleetUtilizationWorkbook, fuel: getFuelConsumptionWorkbook, maintenance: getMaintenanceWorkbook, drivers: getDriverPerformanceWorkbook, financial: getFinancialWorkbook };
+    const loadWorkbook = loaders[selectedReport];
+    if (!loadWorkbook) return;
+    setExporting(true);
+    try {
+      const result = await loadWorkbook(dateBounds.from, dateBounds.to);
+      downloadBlob(result.blob, result.filename);
+      toast.success(`Exported customized workbook — ${result.filename}`);
+    } catch (error) {
+      toast.error(error.message || "Workbook export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   const presets = [{ id: "today", label: "Today" }, { id: "7d", label: "7 days" }, { id: "month", label: "This month" }, { id: "quarter", label: "Quarter" }, { id: "custom", label: "Custom" }];
   const selectedMeta = REPORT_TYPES.find((item) => item.id === selectedReport);
 
   return (
     <MotionConfig reducedMotion="user">
       <motion.main initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.65, ease: EASE }} className="w-full space-y-6 pb-14">
-        <HeroHeader icon={FileSpreadsheet} title="Fleet Reports & Operational Intelligence" badge="Reports Engine" description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost." actions={<Button onClick={handleExport} disabled={!activeQuery?.data || customIncomplete} className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs", heroButtonPrimaryClass)}><ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />Export Report CSV<span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white"><Zap className="h-4 w-4" strokeWidth={1.75} /></span></Button>}>
+        <HeroHeader
+          icon={FileSpreadsheet}
+          title="Fleet Reports & Operational Intelligence"
+          badge="Reports Engine"
+          description="A focused view of fleet capacity, fuel, maintenance, driver performance, and operating cost."
+          actions={
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                onClick={handleExport}
+                disabled={!activeQuery?.data || customIncomplete || exporting}
+                className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-sm font-semibold", heroButtonPrimaryClass)}
+              >
+                <FileSpreadsheet className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                {exporting ? "Building workbook…" : `Export ${selectedMeta?.short || "Report"} Excel`}
+                <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/10 text-slate-950 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
+                  <Zap className="h-4 w-4" strokeWidth={1.75} />
+                </span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCsvExport}
+                disabled={!activeQuery?.data || customIncomplete || exporting}
+                className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
+              >
+                <ArrowDownToLine className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                Export raw CSV
+              </Button>
+            </div>
+          }
+        >
           <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-black/70"><span className="h-2 w-2 rounded-full bg-emerald-400" />Live reporting window</span>
         </HeroHeader>
 
@@ -367,7 +418,7 @@ function FleetReport({ query, data }) {
     <>
       <StatGrid cols={3}>
         <StatCard icon={Gauge} label="Utilization" value={`${Number(report.utilization) || 0}%`} valueNote="Fleet capacity" tone="success" />
-        <StatCard icon={Zap} label="Completed trips" value={Number(report.totalTrips) || 0} valueNote="Selected window" tone="primary" />
+        <StatCard icon={Zap} label="Trip records" value={Number(report.totalTrips) || 0} valueNote="Selected window" tone="primary" />
         <StatCard icon={Activity} label="Distance logged" value={formatDistance(Number(report.totalDistance) || 0)} valueNote="Verified km" tone="info" />
       </StatGrid>
       <Panel title="Fleet workload lanes" description="A custom view of relative distance load with exact trip and kilometer totals" icon={BarChart3} action={<span className="text-xs text-foreground-muted">Top {Math.min(data.length, 8)}</span>}>
@@ -376,7 +427,7 @@ function FleetReport({ query, data }) {
             <div className="grid grid-cols-1 gap-3 border-b border-border/60 pb-5 sm:grid-cols-3">
               <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={highestDistance?.plate}>{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info-700">{formatDistance(highestDistance?.distance || 0)}</p></div>
               <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={mostTrips?.plate}>{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success-700">{mostTrips?.trips || 0} trips</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Average trip distance</p><p className="mt-1.5 font-data text-sm font-bold text-foreground">{averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</p><p className="mt-0.5 text-xs font-medium text-foreground-muted">Across completed trips</p></div>
+              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Average trip distance</p><p className="mt-1.5 font-data text-sm font-bold text-foreground">{averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</p><p className="mt-0.5 text-xs font-medium text-foreground-muted">Across trip records</p></div>
             </div>
             <div className="space-y-2.5">
               {data.map((vehicle, index) => {
@@ -393,7 +444,7 @@ function FleetReport({ query, data }) {
                         <span className="absolute inset-y-0 right-2 flex items-center font-data text-[10px] font-bold text-foreground">{vehicle.distance.toLocaleString()} km</span>
                       </div>
                     </div>
-                    <div className="col-start-2 flex items-center justify-between gap-2 sm:col-start-auto sm:justify-end"><span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted sm:hidden">Completed trips</span><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 font-data text-[11px] font-bold text-success-700"><Zap className="h-3 w-3" strokeWidth={1.75} />{vehicle.trips} trips</span></div>
+                    <div className="col-start-2 flex items-center justify-between gap-2 sm:col-start-auto sm:justify-end"><span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted sm:hidden">Trip records</span><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 font-data text-[11px] font-bold text-success-700"><Zap className="h-3 w-3" strokeWidth={1.75} />{vehicle.trips} trips</span></div>
                   </motion.div>
                 );
               })}
@@ -407,6 +458,7 @@ function FleetReport({ query, data }) {
 
 function FuelReport({ query, trend, categories }) {
   const report = query.data || {};
+  const efficiencyRows = (report.byVehicle || []).slice(0, 10);
   const categoryData = categories.slice(0, 6).map((item) => ({
     name: item.category,
     value: item.liters,
@@ -416,12 +468,12 @@ function FuelReport({ query, trend, categories }) {
 
   return (
     <>
-      <StatGrid cols={3}>
+      <StatGrid cols={4}>
         <StatCard
           icon={Droplets}
           label="Fuel volume"
           value={`${(Number(report.totalLiters) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 })} L`}
-          valueNote="Recorded liters"
+          valueNote="Reviewed actual transactions"
           tone="info"
         />
         <StatCard
@@ -437,6 +489,13 @@ function FuelReport({ query, trend, categories }) {
           value={`${money(report.avgCost)} / L`}
           valueNote="Blended rate"
           tone="primary"
+        />
+        <StatCard
+          icon={Gauge}
+          label="Estimated efficiency"
+          value={report.estimatedEfficiency == null ? "Insufficient data" : `${Number(report.estimatedEfficiency).toFixed(2)} km/L`}
+          valueNote="Completed distance ÷ eligible fuel · 50 km minimum"
+          tone={report.estimatedEfficiency == null ? "warning" : "success"}
         />
       </StatGrid>
 
@@ -634,6 +693,43 @@ function FuelReport({ query, trend, categories }) {
           )}
         </Panel>
       </div>
+      <Panel
+        title="Vehicle efficiency analysis"
+        description="Completed-trip distance compared with reviewed actual fuel and each vehicle baseline"
+        icon={Gauge}
+        action={<EncodingBadge>Top 10 · workbook has all</EncodingBadge>}
+      >
+        {query.isLoading ? <LoadingChart /> : efficiencyRows.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+              <thead className="border-b border-border text-xs text-foreground-muted">
+                <tr>
+                  <th className="px-3 py-3 font-semibold">Vehicle</th>
+                  <th className="px-3 py-3 text-right font-semibold">Trips</th>
+                  <th className="px-3 py-3 text-right font-semibold">Distance</th>
+                  <th className="px-3 py-3 text-right font-semibold">Eligible fuel</th>
+                  <th className="px-3 py-3 text-right font-semibold">Estimated</th>
+                  <th className="px-3 py-3 text-right font-semibold">Baseline</th>
+                  <th className="px-3 py-3 font-semibold">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/70">
+                {efficiencyRows.map((vehicle) => (
+                  <tr key={vehicle.vehicle_id} className="hover:bg-hover/60">
+                    <td className="px-3 py-3"><span className="block font-semibold text-foreground">{vehicle.vehicle}</span><span className="text-xs text-foreground-muted">{vehicle.category}</span></td>
+                    <td className="px-3 py-3 text-right font-data">{vehicle.trips}</td>
+                    <td className="px-3 py-3 text-right font-data">{Number(vehicle.distance).toLocaleString()} km</td>
+                    <td className="px-3 py-3 text-right font-data">{Number(vehicle.liters).toLocaleString()} L</td>
+                    <td className="px-3 py-3 text-right font-data font-semibold">{vehicle.estimated_kmpl == null ? "—" : `${Number(vehicle.estimated_kmpl).toFixed(2)} km/L`}</td>
+                    <td className="px-3 py-3 text-right font-data">{vehicle.baseline_efficiency ? `${Number(vehicle.baseline_efficiency).toFixed(2)} km/L` : "—"}</td>
+                    <td className="px-3 py-3"><StatusBadge status={vehicle.status} entity="efficiency" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <NoData />}
+      </Panel>
     </>
   );
 }

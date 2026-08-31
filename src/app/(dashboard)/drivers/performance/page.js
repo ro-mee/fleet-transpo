@@ -98,13 +98,13 @@ export default function DriverPerformancePage() {
       key: "on_time_rate",
       label: "On-time",
       sortable: true,
-      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">{(Number(val || 0) * 100).toFixed(0)}%</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
+      render: (val, row) => (row.total_trips > 0 && val != null ? <span className="font-data font-bold text-foreground text-xs">{(Number(val) * 100).toFixed(0)}%</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "total_distance",
       label: "Distance (km)",
       sortable: true,
-      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">{Number(val || 0).toLocaleString()} km</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
+      render: (val, row) => (row.total_trips > 0 && val != null ? <span className="font-data font-bold text-foreground text-xs">{Number(val).toLocaleString()} km</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "incidents",
@@ -123,7 +123,7 @@ export default function DriverPerformancePage() {
       key: "cost_per_km",
       label: "Cost/km",
       sortable: true,
-      render: (val, row) => (row.total_trips > 0 ? <span className="font-data font-bold text-foreground text-xs">₱{Number(val || 0).toFixed(2)}</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
+      render: (val, row) => (row.total_trips > 0 && val != null ? <span className="font-data font-bold text-foreground text-xs">₱{Number(val).toFixed(2)}</span> : <span className="text-xs font-semibold text-foreground-muted/60">—</span>),
     },
     {
       key: "performance_score",
@@ -136,7 +136,7 @@ export default function DriverPerformancePage() {
       ),
       sortable: true,
       render: (val, row) => {
-        if (!row.total_trips || row.total_trips === 0) {
+        if (!row.total_trips || row.total_trips === 0 || val == null) {
           return (
             <Badge variant="outline" className="rounded-full px-3 py-1 text-xs font-black font-data border-border/40 text-foreground-muted/60">
               —

@@ -14,10 +14,11 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { getTrips, getActiveTrips } from "@/services/trip.service";
+import { getTripPerformanceWorkbook } from "@/services/report.service";
 import { formatTime, formatDuration } from "@/lib/utils";
 import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin, TriangleAlert, Navigation } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
-import { exportToCSV } from "@/lib/export";
+import { downloadBlob, exportToCSV } from "@/lib/export";
 
 const columnHelper = createColumnHelper();
 
@@ -246,6 +247,15 @@ export default function TripsPage() {
     }
   };
 
+  const handleExcelExport = async () => {
+    try {
+      const result = await getTripPerformanceWorkbook();
+      downloadBlob(result.blob, result.filename);
+    } catch {
+      // Keep the existing raw CSV export as the fallback path.
+    }
+  };
+
   if (isError) {
     return (
       <div className="space-y-6">
@@ -296,15 +306,21 @@ export default function TripsPage() {
         actions={
           <>
             <Button
+              className={cn("h-11 rounded-full px-5 text-sm font-semibold", heroButtonPrimaryClass)}
+              onClick={handleExcelExport}
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export Trip Excel
+            </Button>
+            <Button
               variant="outline"
-              size="sm"
-              className={cn(heroButtonOutlineClass)}
+              className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
               onClick={handleExport}
             >
               <Download className="w-4 h-4 mr-2" />
-              Export
+              Export raw CSV
             </Button>
-            <Button variant="outline" size="sm" className={cn(heroButtonOutlineClass)} onClick={() => router.push("/tracking/live-map")}>
+            <Button variant="outline" className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)} onClick={() => router.push("/tracking/live-map")}>
               <Navigation className="w-4 h-4 mr-2" />
               Live GPS Map ({activeTrips.length})
             </Button>

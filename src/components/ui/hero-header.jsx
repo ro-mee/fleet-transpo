@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge";
 import { useTheme } from "@/hooks/use-theme";
 
 export const heroButtonOutlineClass =
-  "border-white/25 bg-white/10 text-white hover:bg-white/20 dark:border-black/20 dark:bg-black/5 dark:text-slate-900 dark:hover:bg-black/10 transition-colors active:scale-[0.98]";
+  "border-white/30 bg-white/10 text-white shadow-none hover:border-white/45 hover:bg-white/20 focus-visible:ring-white dark:border-slate-900/25 dark:bg-slate-900/5 dark:text-slate-900 dark:hover:border-slate-900/40 dark:hover:bg-slate-900/10 dark:focus-visible:ring-slate-900 transition-[background-color,border-color,transform] active:scale-[0.98]";
 
 export const heroButtonPrimaryClass =
-  "bg-white text-black hover:bg-white/90 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800 font-bold transition-colors active:scale-[0.98]";
+  "border border-white/80 bg-white text-slate-950 shadow-xs hover:-translate-y-px hover:bg-white/90 focus-visible:ring-white dark:border-slate-900 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800 dark:focus-visible:ring-slate-900 font-bold transition-[background-color,border-color,transform] active:translate-y-0 active:scale-[0.98]";
 
 export function HeroHeader({
   icon: Icon,

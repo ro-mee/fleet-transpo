@@ -12,6 +12,7 @@ import {
   getFuelConsumptionReport,
   getFinancialSummary,
   getDriverPerformanceReport,
+  getAnalyticsWorkbook,
 } from "@/services/report.service";
 import { getPredictiveMaintenance } from "@/services/ai.service";
 import { getTransportRequests } from "@/services/transport.service";
@@ -19,9 +20,10 @@ import { getReportNarrative } from "@/services/ai.service";
 import { AiAnalystCard } from "@/components/ai/ai-analyst-card";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
-import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
+import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toCalendarDay } from "@/lib/dates";
-import { exportToCSV } from "@/lib/export";
+import { downloadBlob, exportToCSV } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
 import { CHART_COLORS as CHART_TOKENS } from "@/lib/chart-tokens";
 import {
   AreaChart,
@@ -48,6 +50,7 @@ import {
   CheckCircle2,
   PhilippinePeso,
   Download,
+  FileSpreadsheet,
   Fuel,
   Layers,
   ShieldCheck,
@@ -330,6 +333,7 @@ export default function AnalyticsPage() {
   const reducedMotion = useReducedMotion();
 
   const [dateRange, setDateRange] = useState("30d");
+  const [exporting, setExporting] = useState(false);
 
   const dateBounds = useMemo(() => {
     const now = new Date();
@@ -647,7 +651,7 @@ export default function AnalyticsPage() {
       label: "Fleet Utilization",
       value: fleetQuery.data ? `${f.utilization || 0}%` : "—",
       tone: "info",
-      context: fleetQuery.data ? `${f.totalTrips || 0} total trips completed` : "Awaiting fleet activity data",
+      context: fleetQuery.data ? `${f.totalTrips || 0} trip records in the window` : "Awaiting fleet activity data",
     },
     {
       label: "Maintenance Risk Due",
@@ -662,6 +666,20 @@ export default function AnalyticsPage() {
     hidden: { opacity: 0, y: 16 },
     show: (i) => ({ opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE, delay: i * 0.06 } }),
   };
+
+  async function handleExcelExport() {
+    setExporting(true);
+    try {
+      const result = await getAnalyticsWorkbook(dateBounds.from, dateBounds.to);
+      downloadBlob(result.blob, result.filename);
+      toast.success(`Exported customized workbook — ${result.filename}`);
+    } catch (error) {
+      // Keep the existing CSV action available even when the workbook route is unavailable.
+      toast.error(error.message || "Analytics workbook export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <MotionConfig reducedMotion="user">
@@ -681,13 +699,25 @@ export default function AnalyticsPage() {
             badge="Telemetry Engine"
             description="Real-time operational trends across vehicle utilization, fuel economy, maintenance risks, and driver leaderboards."
             actions={
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() =>
-                  exportToCSV(
-                    [
-                      {
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={handleExcelExport}
+                  disabled={exporting}
+                  className={cn("group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-sm font-semibold", heroButtonPrimaryClass)}
+                >
+                  <FileSpreadsheet className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                  {exporting ? "Building workbook…" : "Export Analytics Excel"}
+                  <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-slate-950/10 text-slate-950 transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
+                    <ArrowUpRight className="h-4 w-4" strokeWidth={2} />
+                  </span>
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    exportToCSV(
+                      [{
                         utilization: `${f.utilization}%`,
                         total_distance_km: f.totalDistance,
                         total_trips: f.totalTrips,
@@ -696,32 +726,26 @@ export default function AnalyticsPage() {
                         maintenance_cost: fi.maintCost,
                         total_cost: fi.totalCost,
                         cost_per_km: fi.costPerKm,
-                      },
-                    ],
-                    "fleet-analytics-summary",
-                    [
-                      { label: "Utilization Rate", key: "utilization" },
-                      { label: "Total Distance (km)", key: "total_distance_km" },
-                      { label: "Total Trips", key: "total_trips" },
-                      { label: "Fuel Consumed (L)", key: "fuel_liters" },
-                      { label: "Fuel Expenses (₱)", key: "fuel_cost" },
-                      { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
-                      { label: "Total Operating Expenses (₱)", key: "total_cost" },
-                      { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
-                    ]
-                  )
-                }
-                className={cn(
-                  "group h-11 cursor-pointer rounded-full pl-5 pr-1.5 text-xs font-bold shadow-2xs",
-                  heroButtonPrimaryClass
-                )}
-              >
-                <Download className="mr-2 h-4 w-4" strokeWidth={1.75} />
-                Export Analytics CSV
-                <span className="ml-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-black/10 text-black transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] group-hover:translate-x-0.5 dark:bg-white/10 dark:text-white">
-                  <ArrowUpRight className="h-4 w-4" strokeWidth={2} />
-                </span>
-              </Button>
+                      }],
+                      "fleet-analytics-summary",
+                      [
+                        { label: "Utilization Rate", key: "utilization" },
+                        { label: "Total Distance (km)", key: "total_distance_km" },
+                        { label: "Total Trips", key: "total_trips" },
+                        { label: "Fuel Consumed (L)", key: "fuel_liters" },
+                        { label: "Fuel Expenses (₱)", key: "fuel_cost" },
+                        { label: "Maintenance Expenses (₱)", key: "maintenance_cost" },
+                        { label: "Total Operating Expenses (₱)", key: "total_cost" },
+                        { label: "Average Cost Per Km (₱/km)", key: "cost_per_km" },
+                      ]
+                    )
+                  }
+                  className={cn("h-11 rounded-full px-4 text-sm font-semibold", heroButtonOutlineClass)}
+                >
+                  <Download className="mr-2 h-4 w-4" strokeWidth={1.75} />
+                  Export raw CSV
+                </Button>
+              </div>
             }
           >
             <span className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-white/80 dark:border-black/10 dark:bg-black/5 dark:text-slate-600">

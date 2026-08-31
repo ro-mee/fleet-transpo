@@ -1,17 +1,21 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import Link from "next/link";
-import { getFleetCostReport } from "@/services/report.service";
+import { getFleetCostReport, getFleetCostWorkbook } from "@/services/report.service";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { EmptyState } from "@/components/ui/empty-state";
-import { HeroHeader } from "@/components/ui/hero-header";
+import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { StatsGridSkeleton, TableSkeleton } from "@/components/ui/skeleton";
-import { Wallet, Fuel, Wrench, TrendingDown } from "lucide-react";
+import { Wallet, Fuel, Wrench, TrendingDown, Download } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
+import { downloadBlob } from "@/lib/export";
+import { toast } from "@/components/ui/toast";
 
 export default function FleetCostPage() {
   useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
@@ -20,6 +24,7 @@ export default function FleetCostPage() {
   // punishing them with a denial-and-bounce for clicking a plausible link.
   const { can } = useRoleAccess();
   const canOpenVehicles = can("vehicles", "read");
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["fleet-cost"],
@@ -38,6 +43,19 @@ export default function FleetCostPage() {
     { label: "Cost / km", value: formatCurrency(totals.cost_per_km || 0), icon: TrendingDown },
   ];
 
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const result = await getFleetCostWorkbook();
+      downloadBlob(result.blob, result.filename);
+      toast.success(`Exported customized workbook — ${result.filename}`);
+    } catch (exportError) {
+      toast.error(exportError.message || "Fleet cost workbook export failed.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <HeroHeader
@@ -45,6 +63,16 @@ export default function FleetCostPage() {
         title="Fleet Cost Dashboard"
         badge="Reports"
         description="Fuel, maintenance and operating cost per vehicle and per kilometer."
+        actions={
+          <Button
+            onClick={handleExport}
+            disabled={isLoading || exporting}
+            className={cn("h-11 rounded-full px-5 text-sm font-semibold", heroButtonPrimaryClass)}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            {exporting ? "Building workbook…" : "Export Fleet Cost Excel"}
+          </Button>
+        }
       />
 
       {isLoading ? (
