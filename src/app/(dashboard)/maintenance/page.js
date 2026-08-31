@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery, keepPreviousData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { createColumnHelper } from "@tanstack/react-table";
 import { DataTable } from "@/components/tables/data-table";
@@ -44,6 +45,8 @@ const columnHelper = createColumnHelper();
 export default function MaintenancePage() {
   useRequireRole(["admin", "system_admin", "fleet_manager"]);
   const queryClient = useQueryClient();
+  const searchParams = useSearchParams();
+  const sourceIncidentId = searchParams.get("incident_id") || "";
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState([]);
   const [searchInput, setSearchInput] = useState("");
@@ -85,12 +88,13 @@ export default function MaintenancePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["maintenance", { page, search, sort }],
+    queryKey: ["maintenance", { page, search, sort, sourceIncidentId }],
     queryFn: () =>
       getVehicleMaintenance({
         page,
         pageSize: 10,
         search: search || undefined,
+        source_incident_id: sourceIncidentId || undefined,
         sort: sort[0]?.id,
         sortDir: sort[0]?.desc ? "desc" : "asc",
       }),

@@ -48,6 +48,7 @@ export function DataTable({
   stickyFirstColumn = false,
   getRowLabel,
   emptyAction,
+  tableClassName,
 }) {
   const searchInputId = useId();
   const [sorting, setSorting] = useState([]);
@@ -67,6 +68,7 @@ export function DataTable({
       accessorKey: col.key,
       header: col.label || "",
       enableSorting: col.sortable || false,
+      meta: col.meta,
       cell: col.render
         ? (info) => col.render(info.getValue(), info.row.original)
         : undefined,
@@ -171,7 +173,7 @@ export function DataTable({
       ) : (
         <div className="relative">
           <div className="w-full max-w-full overflow-x-auto [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-border">
-            <table className="w-full text-sm text-left border-collapse table-auto">
+            <table className={cn("w-full text-sm text-left border-collapse table-auto", tableClassName)}>
               <thead>
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id} className="border-b border-border/60 bg-surface">
@@ -189,6 +191,7 @@ export function DataTable({
                           aria-sort={isSorted ? (isSorted === "desc" ? "descending" : "ascending") : undefined}
                           className={cn(
                             "px-3 sm:px-5 py-3.5 text-left text-[11px] font-black text-foreground-muted uppercase tracking-widest whitespace-nowrap select-none",
+                            header.column.columnDef.meta?.headerClassName,
                             stickyFirstColumn && colIdx === 0 && "sticky left-0 bg-surface z-10 border-r border-border/60 shadow-[6px_0_10px_-8px_rgba(0,0,0,0.35)]"
                           )}
                         >

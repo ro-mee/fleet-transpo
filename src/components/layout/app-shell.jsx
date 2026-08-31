@@ -7,7 +7,7 @@ import { useRoleAccess } from "@/hooks/use-role-access";
 import { getWorkspace } from "@/lib/workspaces";
 import { DISPATCH_STATUS as D, RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { useQuery } from "@tanstack/react-query";
-import { getAllIncidents } from "@/services/driver.service";
+import { getIncidentSummary } from "@/services/driver.service";
 import { getDispatches } from "@/services/dispatch.service";
 import { getFuelRequests } from "@/services/fuel.service";
 import { getTransportRequests } from "@/services/transport.service";
@@ -144,16 +144,16 @@ export function Sidebar() {
     (group.items || []).some((item) => item.href === "/fuel")
   );
 
-  const { data: openIncidents = [] } = useQuery({
+  const { data: incidentSummary } = useQuery({
     queryKey: ["pending-incidents"],
-    // Incidents only have Open and Resolved states. Open is the actionable
-    // state and remains counted until a resolver closes it.
-    queryFn: () => getAllIncidents({ status: "Open" }),
+    // The sidebar only needs a count; avoid downloading descriptions and
+    // evidence every 30 seconds just to render a badge.
+    queryFn: () => getIncidentSummary({ status: "Open" }),
     enabled: incidentVisible,
     refetchInterval: 30000,
     refetchOnWindowFocus: true,
   });
-  const openIncidentCount = openIncidents.length;
+  const incidentAttentionCount = Number(incidentSummary?.attention ?? incidentSummary?.unacknowledged ?? incidentSummary?.open ?? incidentSummary?.total) || 0;
 
   // Request records have no persisted viewed/unread flag. Pending is the
   // current lifecycle's "received, not yet acted on" state.
@@ -190,7 +190,7 @@ export function Sidebar() {
   const pendingReassignmentCount = Array.isArray(pendingDispatches) ? pendingDispatches.length : 0;
 
   const navBadges = {
-    "/incidents": { count: openIncidentCount, tone: "danger", noun: "open incident" },
+    "/incidents": { count: incidentAttentionCount, tone: "danger", noun: "incident needing attention" },
     "/reservations/queue": { count: pendingRequestCount, tone: "warning", noun: "pending request" },
     "/fuel": { count: pendingFuelCount, tone: "warning", noun: "fuel request", suffix: " awaiting review" },
     "/dispatch": { count: pendingReassignmentCount, tone: "danger", noun: "dispatch", suffix: " pending reassignment" },

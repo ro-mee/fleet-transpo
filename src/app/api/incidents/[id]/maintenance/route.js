@@ -1,139 +1,74 @@
-import { query, withTransaction } from "@/lib/db";
+import { query } from "@/lib/db";
 import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
-import { syncVehicleStatus } from "@/services/status.service";
-import { sendPush } from "@/services/push.service";
-import {
-  buildEmergencyMaintenancePayload,
-  MAINTENANCE_ACTIONS_TAKEN,
-} from "@/lib/incidents/resolution";
+import { groundIncident } from "@/lib/incidents/grounding";
+import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
+import { writeAudit } from "@/lib/audit";
+import { INCIDENT_MAINTENANCE_ROLES } from "@/lib/incidents/resolution";
 
 /**
- * POST /api/incidents/[id]/maintenance
+ * Ensure the rule-based maintenance work order for an incident exists.
  *
- * Route an open incident's vehicle to emergency repairs and resolve the
- * incident in one atomic request.
- *
- * This replaces a client-side two-call sequence (create the maintenance
- * record, then PATCH the incident) that could strand an In Progress repair
- * record against a still-open incident — or, on a retry after that failure,
- * create duplicate emergency repairs. Both writes now share one transaction,
- * and the resolved guard below makes a replay an explicit 409 instead of a
- * second repair row.
+ * This remains as a safe recovery endpoint for older reports or a failed
+ * automatic attempt. It never resolves the incident; maintenance completion
+ * is the separate event that can release the vehicle.
  */
 export async function POST(req, props) {
   try {
-    const session = await requireAuth(req, [
-      "system_admin",
-      "admin",
-      "fleet_manager",
-      "dispatcher",
-      "management",
-    ]);
-
-    const params = await props.params;
-    const id = params.id;
+    const session = await requireAuth(req, INCIDENT_MAINTENANCE_ROLES);
+    const { id } = await props.params;
     if (!id) return err("Incident ID is required", 400);
 
-    const result = await withTransaction(async (tx) => {
-      // Lock the row so two concurrent clicks cannot both pass the guard.
-      const current = await tx.query(
-        `SELECT i.incident_id, i.vehicle_id, i.status, i.description,
-                i.expense_amount, i.incident_type, e.employee_id AS reporter_employee_id
-           FROM driverincidents i
-           LEFT JOIN drivers d ON d.driver_id = i.driver_id
-           LEFT JOIN employees e ON e.employee_id = d.employee_id
-          WHERE i.incident_id = $1 AND i.deleted_at IS NULL
-          FOR UPDATE OF i`,
-        [id]
-      );
-      const incident = current.rows[0];
-      if (!incident) return { notFound: true };
-
-      if (incident.status === "Resolved") return { conflict: true };
-      if (!incident.vehicle_id) {
-        return { noVehicle: true };
-      }
-
-      const payload = buildEmergencyMaintenancePayload(incident);
-
-      const maintenanceResult = await tx.query(
-        `INSERT INTO vehiclemaintenance
-           (vehicle_id, maintenance_date, maintenance_type, description,
-            cost, status, priority, remarks, created_by, source_incident_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING maintenance_id, vehicle_id, maintenance_type, maintenance_date,
-                   status, priority, cost`,
-        [
-          incident.vehicle_id,
-          payload.maintenance_date,
-          payload.maintenance_type,
-          payload.description,
-          payload.cost,
-          payload.status,
-          payload.priority,
-          payload.remarks,
-          session.user.employeeId ?? null,
-          incident.incident_id,
-        ]
-      );
-
-      const incidentResult = await tx.query(
-        `UPDATE driverincidents
-            SET status = 'Resolved',
-                actions_taken = $2,
-                updated_at = NOW()
-          WHERE incident_id = $1 AND deleted_at IS NULL
-          RETURNING incident_id, status, actions_taken`,
-        [id, MAINTENANCE_ACTIONS_TAKEN]
-      );
-
-      return { incident: incidentResult.rows[0], maintenance: maintenanceResult.rows[0] };
-    });
-
+    const result = await ensureIncidentMaintenance({ incidentId: id, session });
     if (result.notFound) return err("Incident not found", 404);
-    if (result.conflict) return err("This incident has already been resolved", 409);
-    if (result.noVehicle) {
-      return err("This incident has no vehicle attached, so there is nothing to send to maintenance", 400);
-    }
+    if (result.noVehicle) return err("This incident has no vehicle attached", 400);
+    if (result.notRequired) return err("This incident does not require vehicle maintenance", 400);
 
-    // Best-effort follow-ups: the resolution itself is committed; these must
-    // never turn it into an error after the fact.
-    try {
-      await syncVehicleStatus(result.maintenance.vehicle_id);
-    } catch (e) {
-      console.warn("incident maintenance vehicle sync failed:", e?.message || e);
-    }
-
-    try {
-      const reporter = await query(
-        `SELECT e.employee_id
-           FROM driverincidents i
-           JOIN drivers d ON d.driver_id = i.driver_id
-           JOIN employees e ON e.employee_id = d.employee_id
-          WHERE i.incident_id = $1`,
-        [id]
-      );
-      const reporterEmployeeId = reporter.rows[0]?.employee_id;
-      if (reporterEmployeeId) {
-        await query(
-          `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [reporterEmployeeId, "Incident Report Resolved",
-           `Your incident report (#${id}) was routed to the maintenance team for emergency repairs.`,
-           "Info", "incident", id]
-        );
-        await sendPush({
-          employeeIds: [reporterEmployeeId],
-          title: "Incident Report Resolved",
-          body: `Your incident report (#${id}) was routed to the maintenance team for emergency repairs.`,
-          data: { reference_type: "incident", reference_id: Number(id) },
+    let groundingError = null;
+    if (result.incident?.vehicle_id && result.incident.grounding_status !== "Complete") {
+      try {
+        await groundIncident({
+          incident: {
+            ...result.incident,
+            grounding_status: "Pending",
+          },
+          session,
+          req,
         });
+      } catch (cause) {
+        const message = String(cause?.message || cause).slice(0, 1000);
+        groundingError = message;
+        await query(
+          `UPDATE driverincidents
+              SET grounding_status = 'Failed', grounding_error = $2, updated_at = NOW()
+            WHERE incident_id = $1 AND deleted_at IS NULL`,
+          [id, message]
+        ).catch(() => {});
       }
+    }
+
+    if (result.created) {
+      await writeAudit(req, session, {
+        action: "auto_create",
+        resource: "vehiclemaintenance",
+        resourceId: result.workOrder.maintenance_id,
+        newValues: {
+          source_incident_id: id,
+          maintenance_type: result.workOrder.maintenance_type,
+          status: result.workOrder.status,
+        },
+      });
+    }
+    try {
+      // Notification writes are deduplicated, so a recovery can safely retry
+      // a delivery that failed after the work order was created.
+      await notifyMaintenanceTeam(result.workOrder, id);
     } catch (e) {
       console.warn("incident maintenance notification failed:", e?.message || e);
     }
 
-    return ok(result, 201);
+    if (groundingError) return err("Maintenance work order exists, but vehicle safety actions need a retry", 502);
+
+    return ok({ ...result.workOrder, incident_id: Number(id) }, result.created ? 201 : 200);
   } catch (e) {
     return handleError(e);
   }

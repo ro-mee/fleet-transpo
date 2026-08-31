@@ -726,7 +726,7 @@ is the only reservation concept, and `integration/` is its only door.
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `manifest`, `status/sync`, `cron/sync` (CRON_SECRET). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
 - The active NAIA registry currently contains six canonical curbside endpoints: Terminal 1 arrivals/departures, Terminal 2 arrivals/departures, and Terminal 3 Bay 9 arrivals/departures. Terminal 4 is not an active endpoint; its legacy row/routes remain only as inactive history. Canonical endpoint coordinates are maintained in `src/lib/naia-locations.js` and seeded without fabricated distance/time estimates.
-- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Read-only + resolve only; creation is driver-side. `incidents/[id]/maintenance` (POST) ★ — "Send to Maintenance" creates the Emergency Repair record (linked back via `source_incident_id`).
+- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Read-only + resolve only; creation is driver-side. Vehicle-related reports automatically create one linked maintenance work order; `incidents/[id]/maintenance` (POST) is an idempotent recovery endpoint for a failed automatic attempt.
 - `settings/dispatch` (GET/PUT) ★ — smart-queue policy (`criticalMinutes`/`highMinutes`/`mediumMinutes`, `enableVipFlag`/`enableEmergencyFlag`); audit-writes `dispatch_policy` (system_admin/admin; fleet_manager read).
 - `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
 - `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
@@ -801,14 +801,25 @@ board at `/uvvrp` (ops roles). New endpoints `settings/uvvrp`, `uvvrp`,
 Drivers report incidents (type, severity `Minor/Moderate/Major/Critical`, GPS
 coords, assistance, expense) via `/api/driver/incidents` (web portal + mobile).
 The staff registry `/incidents` is **read + resolve only** (PATCH status/
-`actions_taken`; "Send to Maintenance" creates an Emergency Repair record).
-Automation on a driver POST (`src/lib/driver/grounding.js`):
+`actions_taken`; vehicle-related maintenance is automatic). Automation on a
+driver POST (`src/lib/driver/grounding.js` + `src/lib/incidents/maintenance.js`):
 1. Acknowledges the reporter (Info notification).
 2. If `shouldGroundVehicle` → sets the vehicle **Under Maintenance**, alerts
    dispatcher/staff, and if the vehicle has an active dispatch inside a 48 h
    (Major/Critical) or 2 h window, cancels its trips, unassigns the pair, resets
    the dispatch to **Pending Reassignment**, and sends URGENT interruption alerts.
-3. Otherwise notifies overseers of the report.
+3. If `requiresVehicleMaintenance` → creates one linked `Emergency Repair`
+   for breakdown/mechanical/vehicle-damage reports, or `Vehicle Inspection` for
+   qualifying accidents; alerts fleet/maintenance staff. Passenger, route,
+   traffic-delay, medical, and other non-vehicle reports do not create a work
+   order.
+4. Otherwise notifies overseers of the report.
+
+Incident resolution and maintenance completion are separate state changes:
+resolving a maintenance-required incident never releases its vehicle. The
+maintenance PUT state machine calls `syncVehicleStatus` after `Completed`; only
+then can the vehicle become `Available` (subject to other active work/trip and
+registration checks).
 
 `shouldGroundVehicle` (`src/lib/driver/grounding.js`) grounds when the severity is
 Major/Critical **or** the incident type matches the breakdown regex (breakdown,

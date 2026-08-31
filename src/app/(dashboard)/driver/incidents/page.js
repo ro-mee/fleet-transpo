@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { toast } from "@/components/ui/toast";
 import { getMyIncidents, reportIncident } from "@/services/driver.service";
+import { incidentTypeLabel } from "@/lib/incidents/resolution";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { formatDate } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -137,8 +138,9 @@ export default function DriverIncidentsPage() {
                   return (
                   <div key={inc.incident_id} className="py-2.5 flex items-center justify-between text-xs">
                     <div className="min-w-0 pr-3">
-                      <div className="font-medium text-foreground">{inc.incident_type}</div>
+                      <div className="font-medium text-foreground">{incidentTypeLabel(inc.incident_type)}</div>
                       <div className="text-foreground-muted">{inc.description}</div>
+                      {inc.actions_taken && <div className="mt-1 text-foreground-secondary"><span className="font-semibold">Fleet action:</span> {inc.actions_taken}</div>}
                       {inc.location && <div className="text-foreground-muted mt-0.5">{inc.location}</div>}
                       {coords && (
                         <a
@@ -154,8 +156,17 @@ export default function DriverIncidentsPage() {
                       )}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <StatusBadge severity={inc.severity === "Critical" ? "danger" : inc.severity === "Major" ? "warning" : "info"}>{inc.severity}</StatusBadge>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <StatusBadge status={inc.status || "Open"} entity="incident" />
+                        <StatusBadge
+                          status={inc.severity === "Critical" ? "critical" : inc.severity === "Major" ? "high" : inc.severity === "Moderate" ? "medium" : "low"}
+                          entity="severity"
+                          label={inc.severity || "Minor"}
+                        />
+                      </div>
                       <div className="text-[11px] text-foreground-muted mt-1">{inc.incident_date ? formatDate(inc.incident_date) : "—"}</div>
+                      {inc.acknowledged_at && <div className="text-[10px] text-success-700 mt-1">Acknowledged</div>}
+                      {inc.resolved_at && <div className="text-[10px] text-foreground-muted mt-0.5">Resolved {formatDate(inc.resolved_at)}</div>}
                     </div>
                   </div>
                   );

@@ -115,13 +115,6 @@ export default function IncidentsScreen() {
       prev.includes(option) ? prev.filter((o) => o !== option) : [...prev, option]
     );
   };
-  // Stable per-screen-open reference so an offline-queued report that the sync
-  // queue replays later can never create a duplicate incident server-side
-  // (same pattern as fuel-report.js / inspection.js).
-  const [clientSubmissionId] = useState(
-    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
-
   const handleSubmit = async () => {
     if (!type) {
       AppAlert.alert("Incident Type Required", "Please select the category of the incident before submitting.");
@@ -142,25 +135,32 @@ export default function IncidentsScreen() {
     try {
       setSubmitting(true);
       setQueuedOffline(false);
+      // One id per submit: a later report from the same mounted form is not a
+      // replay of the previous report.
+      const clientSubmissionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       setUploadingPhotos(true);
       
-      const uploadedUrls = [];
+      const uploadedRefs = [];
+      let failedPhotoCount = 0;
       for (const photo of photos) {
         const formData = new FormData();
         formData.append("photo", {
           uri: photo.uri,
           name: photo.uri.split("/").pop() || "photo.jpg",
-          type: "image/jpeg",
+          type: photo.mimeType || "image/jpeg",
         });
         try {
           const uploadRes = await api.post("/api/driver/incidents/upload", formData, {
             headers: { "Content-Type": "multipart/form-data" },
           });
-          if (uploadRes && uploadRes.photo_url) {
-            uploadedUrls.push(uploadRes.photo_url);
+          if (uploadRes && uploadRes.photo_path) {
+            uploadedRefs.push(uploadRes.photo_path);
+          } else {
+            failedPhotoCount += 1;
           }
         } catch(err) {
           console.warn("Failed to upload photo", err);
+          failedPhotoCount += 1;
         }
       }
       setUploadingPhotos(false);
@@ -207,10 +207,16 @@ export default function IncidentsScreen() {
         client_submission_id: clientSubmissionId,
         assistance_needed: assistance.length ? assistance : null,
         expense_amount: expenseValue,
-        photo_urls: uploadedUrls.length ? uploadedUrls : undefined,
+        photo_urls: uploadedRefs.length ? uploadedRefs : undefined,
       });
       // apiFetch queues POSTs during network failures and resolves
       // { queued: true } — the report has NOT reached dispatch yet.
+      if (failedPhotoCount > 0) {
+        AppAlert.alert(
+          "Report sent without all photos",
+          `${failedPhotoCount} photo${failedPhotoCount === 1 ? "" : "s"} could not be uploaded. You can submit the report again with the missing evidence.`
+        );
+      }
       setQueuedOffline(result?.queued === true);
       setShowSuccess(true);
     } catch (e) {
@@ -544,12 +550,12 @@ export default function IncidentsScreen() {
             </View>
           </View>
           <Text style={{ fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 12, textAlign: 'center' }}>
-            {queuedOffline ? "Report saved offline" : "Help is on the way"}
+            {queuedOffline ? "Report saved offline" : "Report received"}
           </Text>
           <Text style={{ fontFamily: fonts.body, fontSize: 15, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 32, lineHeight: 22 }}>
             {queuedOffline
               ? "You appear to be offline. Your report is saved on this device and will be sent automatically when you're back online — dispatch has NOT received it yet. Please prioritize safety and call for immediate help if needed."
-              : "Dispatch has received your exact coordinates and incident report. Please prioritize safety and await instructions."}
+              : "Dispatch has received your incident report. Please prioritize safety and await instructions."}
           </Text>
           <Pressable
             onPress={() => router.back()}

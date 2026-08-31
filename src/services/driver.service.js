@@ -120,6 +120,10 @@ export async function getAllIncidents(filters = {}) {
   return apiFetch(`/api/incidents${buildQuery(filters)}`);
 }
 
+export async function getIncidentSummary(filters = {}) {
+  return apiFetch(`/api/incidents${buildQuery({ ...filters, summary: true })}`);
+}
+
 export async function updateIncident(id, payload) {
   return apiFetch(`/api/incidents/${id}`, { method: "PATCH", body: payload });
 }

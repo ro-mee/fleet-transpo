@@ -124,6 +124,9 @@ export async function GET(req) {
     const vehicle_id = searchParams.get("vehicle_id");
     if (vehicle_id) { where += ` AND vm.vehicle_id = $${idx++}`; params.push(+vehicle_id); }
 
+    const source_incident_id = searchParams.get("source_incident_id");
+    if (/^\d+$/.test(source_incident_id || "")) { where += ` AND vm.source_incident_id = $${idx++}`; params.push(+source_incident_id); }
+
     const status = searchParams.get("status");
     if (status) { where += ` AND vm.status = $${idx++}`; params.push(status); }
 

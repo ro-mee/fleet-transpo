@@ -32,11 +32,6 @@ export function DriverSos() {
   const { colors, type } = useTheme();
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
-  // Stable reference so an offline-queued SOS that the sync queue replays
-  // later cannot create a duplicate emergency incident server-side.
-  const [clientSubmissionId] = useState(
-    () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
-  );
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [position] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
   const offset = useRef({ x: 0, y: 0 });
@@ -122,17 +117,26 @@ export function DriverSos() {
   const sendEmergencyLocation = async () => {
     try {
       setSending(true);
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== "granted") {
-        AppAlert.alert("Location required", "Allow location access to share your emergency position.");
-        return;
+      let latitude = null;
+      let longitude = null;
+      let locationLabel = "GPS location unavailable";
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (permission.status === "granted") {
+          const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+          latitude = location.coords.latitude;
+          longitude = location.coords.longitude;
+          locationLabel = `https://maps.google.com/?q=${latitude},${longitude}`;
+        }
+      } catch {
+        // A critical report still needs to reach dispatch when GPS is denied
+        // or temporarily unavailable.
       }
-      const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const { latitude, longitude } = location.coords;
+      const clientSubmissionId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
       const result = await api.post("/api/driver/incidents", {
         incident_type: "Emergency",
         description: "Emergency alert from driver. Call an ambulance or 911 immediately.",
-        location: `https://maps.google.com/?q=${latitude},${longitude}`,
+        location: locationLabel,
         latitude,
         longitude,
         severity: "Critical",
@@ -141,10 +145,10 @@ export function DriverSos() {
       });
       setOpen(false);
       AppAlert.alert(
-        result?.queued ? "Please stay safe" : "Help is on the way",
+        result?.queued ? "Please stay safe" : "Emergency report received",
         result?.queued
           ? "We could not reach dispatch yet. Your alert will send when the connection returns. Call 911 now if you need immediate help."
-          : "Dispatch has received your location and can coordinate emergency assistance immediately. Move to a safe place if you can, and call 911 for immediate help."
+          : `Dispatch has received your emergency report${latitude == null ? " without GPS coordinates" : " and location"}. Move to a safe place if you can, and call 911 for immediate help.`
       );
     } catch {
       AppAlert.alert("Emergency not sent", "Your emergency location could not be submitted. Call 911 if you need immediate help.");

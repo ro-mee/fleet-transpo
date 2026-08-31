@@ -16,9 +16,8 @@ export async function storeIncidentPhoto(file, driverId) {
 
   const contentType = validation.contentType;
 
-  const suppliedExt = file.name?.split(".").pop()?.toLowerCase();
   const fallbackExt = validation.extension || "jpg";
-  const fileName = `${driverId}/${uuidv4()}.${suppliedExt || fallbackExt}`;
+  const fileName = `${Number(driverId)}/${uuidv4()}.${fallbackExt}`;
   const supabase = createAdminClient();
 
   const { error: uploadError } = await supabase.storage
@@ -35,7 +34,7 @@ export async function storeIncidentPhoto(file, driverId) {
 
   const { data: signedData, error: signedUrlError } = await supabase.storage
     .from("incident-evidence")
-    .createSignedUrl(fileName, 60 * 60 * 24 * 365 * 10);
+    .createSignedUrl(fileName, 60 * 60);
 
   if (signedUrlError || !signedData?.signedUrl) {
     console.error("Supabase incident photo signed URL error:", signedUrlError);
@@ -43,8 +42,29 @@ export async function storeIncidentPhoto(file, driverId) {
   }
 
   return {
-    fileBuffer,
-    contentType,
+    photoPath: fileName,
     photoUrl: signedData.signedUrl,
   };
+}
+
+/**
+ * Resolve stored object paths only when an authorized detail view requests
+ * them. Legacy signed URLs remain readable until their existing expiry.
+ */
+export async function getIncidentPhotoUrls(photoRefs, { expiresIn = 60 * 60 } = {}) {
+  if (!Array.isArray(photoRefs) || photoRefs.length === 0) return [];
+  const supabase = createAdminClient();
+  const urls = [];
+  for (const ref of photoRefs) {
+    if (typeof ref !== "string" || !ref) continue;
+    if (/^https?:\/\//i.test(ref)) {
+      urls.push(ref);
+      continue;
+    }
+    const { data, error } = await supabase.storage
+      .from("incident-evidence")
+      .createSignedUrl(ref, expiresIn);
+    if (!error && data?.signedUrl) urls.push(data.signedUrl);
+  }
+  return urls;
 }

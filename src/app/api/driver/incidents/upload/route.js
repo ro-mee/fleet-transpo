@@ -8,8 +8,8 @@ export async function POST(req) {
     const file = formData.get("photo");
 
     try {
-      const { photoUrl } = await storeIncidentPhoto(file, session.user.driverId);
-      return ok({ photo_url: photoUrl }, 201);
+      const { photoPath, photoUrl } = await storeIncidentPhoto(file, session.user.driverId);
+      return ok({ photo_path: photoPath, photo_url: photoUrl }, 201);
     } catch (error) {
       return err(error.message || "Failed to upload incident photo.", 400);
     }

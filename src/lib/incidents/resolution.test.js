@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   INCIDENT_STATUSES,
   normalizeIncidentStatus,
+  normalizeIncidentType,
+  incidentTypeLabel,
   canTransition,
   resolutionActionsError,
+  shouldKeepVehicleGrounded,
   buildEmergencyMaintenancePayload,
-  MAINTENANCE_ACTIONS_TAKEN,
+  buildIncidentMaintenancePayload,
 } from "@/lib/incidents/resolution";
 
 describe("normalizeIncidentStatus", () => {
@@ -31,13 +34,22 @@ describe("normalizeIncidentStatus", () => {
   });
 });
 
+describe("incident type normalization", () => {
+  it("groups mechanical wording without rewriting unknown legacy types", () => {
+    expect(normalizeIncidentType("engine failure")).toBe("breakdown");
+    expect(normalizeIncidentType("near-miss")).toBe("near_miss");
+    expect(normalizeIncidentType("Passenger delay")).toBe("Passenger delay");
+    expect(incidentTypeLabel("accident")).toBe("Traffic Accident");
+  });
+});
+
 describe("canTransition", () => {
   it("allows resolving an open incident", () => {
     expect(canTransition("Open", "Resolved").ok).toBe(true);
   });
 
-  it("allows reopening a resolved incident", () => {
-    expect(canTransition("Resolved", "Open").ok).toBe(true);
+  it("rejects reopening a resolved incident without a dedicated action", () => {
+    expect(canTransition("Resolved", "Open")).toMatchObject({ ok: false, reason: "conflict" });
   });
 
   it("allows an idempotent no-op on an open incident", () => {
@@ -68,6 +80,15 @@ describe("resolutionActionsError", () => {
 
   it("accepts real documentation", () => {
     expect(resolutionActionsError("Tow truck dispatched; driver safe.")).toBeNull();
+  });
+});
+
+describe("shouldKeepVehicleGrounded", () => {
+  it("holds a maintenance-required vehicle until its work order completes", () => {
+    expect(shouldKeepVehicleGrounded({ status: "Resolved", requiresVehicleMaintenance: true, maintenanceStatus: "In Progress" })).toBe(true);
+    expect(shouldKeepVehicleGrounded({ status: "Resolved", requiresVehicleMaintenance: true, maintenanceStatus: null })).toBe(true);
+    expect(shouldKeepVehicleGrounded({ status: "Resolved", requiresVehicleMaintenance: true, maintenanceStatus: "Completed" })).toBe(false);
+    expect(shouldKeepVehicleGrounded({ status: "Resolved", requiresVehicleMaintenance: false, maintenanceStatus: "In Progress" })).toBe(false);
   });
 });
 
@@ -107,7 +128,22 @@ describe("buildEmergencyMaintenancePayload", () => {
     expect(junk.remarks).not.toContain("claim");
   });
 
-  it("exposes the fixed audit text used by the endpoint", () => {
-    expect(MAINTENANCE_ACTIONS_TAKEN).toContain("vehicle maintenance");
+});
+
+describe("buildIncidentMaintenancePayload", () => {
+  it("uses an inspection work order for an accident", () => {
+    const payload = buildIncidentMaintenancePayload({
+      incident_id: 9,
+      incident_type: "accident",
+      description: "Bumper damaged after impact",
+    });
+    expect(payload.maintenance_type).toBe("Vehicle Inspection");
+    expect(payload.description).toContain("Safety inspection");
+    expect(payload.status).toBe("In Progress");
+  });
+
+  it("keeps breakdowns as emergency repairs", () => {
+    expect(buildIncidentMaintenancePayload({ incident_id: 10, incident_type: "breakdown" }).maintenance_type)
+      .toBe("Emergency Repair");
   });
 });

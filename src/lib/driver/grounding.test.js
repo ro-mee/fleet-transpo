@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { shouldGroundVehicle, BREAKDOWN_RE, SEVERE_SEVERITIES } from "@/lib/driver/grounding";
+import {
+  shouldGroundVehicle,
+  requiresVehicleMaintenance,
+  BREAKDOWN_RE,
+  SEVERE_SEVERITIES,
+} from "@/lib/driver/grounding";
 
 describe("shouldGroundVehicle", () => {
   it("grounds a breakdown-type incident", () => {
@@ -42,5 +47,23 @@ describe("grounding constants", () => {
     expect(BREAKDOWN_RE.test("flat tire")).toBe(true);
     expect(BREAKDOWN_RE.test("electrical fault")).toBe(true);
     expect(BREAKDOWN_RE.test("small dent")).toBe(false);
+  });
+});
+
+describe("requiresVehicleMaintenance", () => {
+  it("classifies mechanical failures and vehicle damage", () => {
+    expect(requiresVehicleMaintenance({ incidentType: "breakdown", vehicleId: 1 })).toBe(true);
+    expect(requiresVehicleMaintenance({ incidentType: "Brake failure", vehicleId: 1 })).toBe(true);
+    expect(requiresVehicleMaintenance({ incidentType: "accident", description: "rear bumper damaged", vehicleId: 1 })).toBe(true);
+  });
+
+  it("does not turn non-vehicle incidents into work orders", () => {
+    for (const incidentType of ["Passenger complaint", "Route issue", "Traffic delay", "Medical incident"]) {
+      expect(requiresVehicleMaintenance({ incidentType, severity: "Critical", vehicleId: 1 })).toBe(false);
+    }
+  });
+
+  it("does not create a work order without a vehicle", () => {
+    expect(requiresVehicleMaintenance({ incidentType: "breakdown", vehicleId: null })).toBe(false);
   });
 });

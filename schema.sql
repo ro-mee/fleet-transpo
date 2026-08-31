@@ -267,6 +267,18 @@ CREATE TABLE driverincidents (
   expense_amount numeric(12,2),
   client_submission_id varchar(64),
   photo_urls text[] DEFAULT '{}'::text[],
+  acknowledged_at timestamptz,
+  acknowledged_by integer,
+  resolved_at timestamptz,
+  resolved_by integer,
+  grounding_status varchar(20) DEFAULT 'Not Required'::character varying NOT NULL,
+  grounding_completed_at timestamptz,
+  grounding_error text,
+  requires_vehicle_maintenance boolean DEFAULT false NOT NULL,
+  maintenance_id integer,
+  maintenance_error text,
+  CONSTRAINT chk_driverincidents_grounding_status CHECK (((grounding_status)::text = ANY ((ARRAY['Not Required'::character varying, 'Pending'::character varying, 'Complete'::character varying, 'Failed'::character varying])::text[]))),
+  CONSTRAINT chk_driverincidents_severity CHECK (((severity)::text = ANY ((ARRAY['Minor'::character varying, 'Moderate'::character varying, 'Major'::character varying, 'Critical'::character varying])::text[]))),
   CONSTRAINT chk_driverincidents_status CHECK (((status)::text = ANY ((ARRAY['Open'::character varying, 'Resolved'::character varying])::text[]))),
   CONSTRAINT driverincidents_pkey PRIMARY KEY (incident_id)
 );
@@ -872,7 +884,10 @@ ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_created_b
 ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
 ALTER TABLE driver_work_schedules ADD CONSTRAINT driver_work_schedules_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE driverattendance ADD CONSTRAINT driverattendance_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id) ON DELETE CASCADE;
+ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_acknowledged_by_fkey FOREIGN KEY (acknowledged_by) REFERENCES employees(employee_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_maintenance_id_fkey FOREIGN KEY (maintenance_id) REFERENCES vehiclemaintenance(maintenance_id);
+ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_resolved_by_fkey FOREIGN KEY (resolved_by) REFERENCES employees(employee_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
@@ -969,7 +984,9 @@ CREATE INDEX idx_dispatch_status ON public.dispatchschedules USING btree (status
 CREATE INDEX idx_dispatch_vehicle ON public.dispatchschedules USING btree (vehicle_id);
 CREATE INDEX idx_dispatchschedules_request_id ON public.dispatchschedules USING btree (request_id);
 CREATE INDEX idx_driver_consents_driver ON public.driver_consents USING btree (driver_id, accepted_at DESC);
+CREATE INDEX idx_driverincidents_attention ON public.driverincidents USING btree (status, severity, created_at DESC) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_driverincidents_driver ON public.driverincidents USING btree (driver_id, created_at DESC);
+CREATE INDEX idx_driverincidents_grounding_retry ON public.driverincidents USING btree (grounding_status, created_at DESC) WHERE ((deleted_at IS NULL) AND ((grounding_status)::text = ANY ((ARRAY['Pending'::character varying, 'Failed'::character varying])::text[])));
 CREATE INDEX idx_driverincidents_status ON public.driverincidents USING btree (status, incident_date DESC);
 CREATE INDEX idx_drivers_employee ON public.drivers USING btree (employee_id);
 CREATE INDEX idx_drivers_face ON public.drivers USING btree (face_image_url);
@@ -1063,6 +1080,7 @@ CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots US
 CREATE UNIQUE INDEX uq_routes_active_direction ON public.routes USING btree (origin_location_id, destination_location_id) WHERE (((status)::text = 'Active'::text) AND (deleted_at IS NULL) AND (origin_location_id IS NOT NULL) AND (destination_location_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
+CREATE UNIQUE INDEX uq_vehiclemaintenance_source_incident ON public.vehiclemaintenance USING btree (source_incident_id) WHERE (source_incident_id IS NOT NULL);
 
 -- ============================= VIEWS ============================
 

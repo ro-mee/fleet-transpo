@@ -28,7 +28,7 @@ export async function GET(req) {
               i.status, i.severity, i.description, i.actions_taken, i.created_at, v.plate_number
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
-        WHERE i.driver_id = $1
+        WHERE i.driver_id = $1 AND i.deleted_at IS NULL
         ORDER BY i.incident_date DESC
         LIMIT 50`,
       [driverId]

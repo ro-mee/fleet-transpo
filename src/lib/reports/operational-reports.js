@@ -442,21 +442,20 @@ export async function getIncidentReport(from, to) {
   if (from) { params.push(from); conditions.push(`i.incident_date >= $${params.length}::date`); }
   if (to) { params.push(to); conditions.push(`i.incident_date < ($${params.length}::date + 1)`); }
   const { rows } = await query(
-    `SELECT i.incident_id, i.driver_id, COALESCE(i.vehicle_id, a.vehicle_id) AS vehicle_id,
+    `SELECT i.incident_id, i.driver_id, i.vehicle_id,
             i.trip_id, i.incident_type, i.incident_date, i.description, i.location,
             i.latitude, i.longitude, i.severity, i.status, i.actions_taken,
+            i.acknowledged_at, i.resolved_at, i.grounding_status,
             i.assistance_needed, i.expense_amount, i.photo_urls,
-            COALESCE(v.plate_number, av.plate_number) AS plate_number,
+            v.plate_number,
             CONCAT_WS(' ', e.first_name, e.last_name) AS driver_name
        FROM driverincidents i
        LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
        LEFT JOIN drivers d ON d.driver_id = i.driver_id
        LEFT JOIN employees e ON e.employee_id = d.employee_id
-       LEFT JOIN driver_vehicle_assignments a ON a.driver_id = i.driver_id AND a.assigned_until IS NULL
-       LEFT JOIN vehicles av ON av.vehicle_id = a.vehicle_id
       WHERE ${conditions.join(" AND ")}
       ORDER BY i.incident_date DESC, i.created_at DESC
-      LIMIT 200`,
+      `,
     params
   );
   const incidents = rows || [];
@@ -478,7 +477,7 @@ export async function getIncidentReport(from, to) {
     totalIncidents: incidents.length,
     openIncidents: incidents.filter((row) => String(row.status).toLowerCase() === "open").length,
     criticalMajor: incidents.filter((row) => ["critical", "major"].includes(String(row.severity).toLowerCase())).length,
-    breakdowns: incidents.filter((row) => /breakdown|mechanical|engine/i.test(row.incident_type || "")).length,
+    breakdowns: incidents.filter((row) => /breakdown|mechanical|engine|flat tire|battery|electrical|overheat/i.test(row.incident_type || "")).length,
     bySeverity: by("severity"),
     byStatus: by("status"),
     byType: by("incident_type"),
