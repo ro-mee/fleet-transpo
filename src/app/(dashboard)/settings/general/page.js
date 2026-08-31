@@ -86,6 +86,7 @@ const EMPTY_HOTEL = {
   latitude: "",
   longitude: "",
   google_maps_url: "",
+  physical_move: false,
 };
 
 export default function SettingsGeneralPage() {
@@ -121,6 +122,7 @@ export default function SettingsGeneralPage() {
             latitude: hotelData.latitude ?? "",
             longitude: hotelData.longitude ?? "",
             google_maps_url: hotelData.google_maps_url || "",
+            physical_move: false,
           }
         : EMPTY_HOTEL
     );
@@ -206,8 +208,8 @@ export default function SettingsGeneralPage() {
                   </CardTitle>
                 </div>
                 <CardDescription className="text-xs text-foreground-secondary mt-1.5">
-                  The central base for all dispatch routes and pickup calculations. Changes take effect on
-                  every route that originates here.
+                  The central base for dispatch routes and pickup calculations. A rename keeps the same
+                  location identity; a physical move creates a new version and retires old routes.
                 </CardDescription>
               </div>
               {form.google_maps_url && (
@@ -308,6 +310,21 @@ export default function SettingsGeneralPage() {
                   </div>
                 </div>
 
+                <label className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.physical_move === true}
+                    onChange={(e) => setForm((p) => ({ ...p, physical_move: e.target.checked }))}
+                    className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                  />
+                  <span>
+                    <span className="block text-xs font-bold text-foreground">This is a new physical location</span>
+                    <span className="block text-[11px] text-foreground-muted mt-0.5">
+                      Creates a new location version and retires the old one. Leave unchecked for a name/address update at the same place.
+                    </span>
+                  </span>
+                </label>
+
                 <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-border/60">
                   <Button
                     type="button"
@@ -398,7 +415,7 @@ export default function SettingsGeneralPage() {
                     <button
                       key={t.value}
                       type="button"
-                      onClick={(e) => setThemeMode(t.value, e)}
+                      onClick={(e) => setThemeMode(t.value, e, e.currentTarget)}
                       className={cn(
                         "relative flex flex-col items-center gap-1.5 p-3 rounded-2xl border text-center cursor-pointer transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-[0.98]",
                         themeMode === t.value

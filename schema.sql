@@ -440,6 +440,8 @@ CREATE TABLE locations (
   latitude numeric(10,7),
   longitude numeric(10,7),
   created_at timestamptz DEFAULT now(),
+  is_active boolean DEFAULT true NOT NULL,
+  retired_at timestamptz,
   CONSTRAINT locations_pkey PRIMARY KEY (location_id)
 );
 
@@ -558,6 +560,12 @@ CREATE TABLE routes (
   deleted_at timestamptz,
   origin_location_id integer,
   destination_location_id integer,
+  estimate_source varchar(30),
+  estimate_updated_at timestamptz,
+  CONSTRAINT routes_endpoint_pair_check CHECK ((((origin_location_id IS NULL) AND (destination_location_id IS NULL)) OR ((origin_location_id IS NOT NULL) AND (destination_location_id IS NOT NULL) AND (origin_location_id <> destination_location_id)))),
+  CONSTRAINT routes_estimate_source_check CHECK (((estimate_source IS NULL) OR ((estimate_source)::text = ANY ((ARRAY['TomTom'::character varying, 'Manual'::character varying, 'Legacy / Unknown'::character varying])::text[])))),
+  CONSTRAINT routes_positive_estimates_check CHECK ((((estimated_distance IS NULL) OR (estimated_distance > (0)::numeric)) AND ((estimated_duration IS NULL) OR (estimated_duration > 0)))),
+  CONSTRAINT routes_status_check CHECK (((status)::text = ANY ((ARRAY['Active'::character varying, 'Inactive'::character varying])::text[]))),
   CONSTRAINT routes_pkey PRIMARY KEY (route_id)
 );
 
@@ -986,6 +994,7 @@ CREATE INDEX idx_integration_status ON public.integration_log USING btree (statu
 CREATE INDEX idx_leave_balances_driver ON public.driver_leave_balances USING btree (driver_id);
 CREATE INDEX idx_leave_driver ON public.driver_leave_requests USING btree (driver_id, start_date DESC);
 CREATE INDEX idx_leave_status ON public.driver_leave_requests USING btree (status);
+CREATE INDEX idx_locations_active_name ON public.locations USING btree (is_active, name);
 CREATE INDEX idx_locations_name ON public.locations USING btree (name);
 CREATE INDEX idx_maintenance_date ON public.vehiclemaintenance USING btree (maintenance_date);
 CREATE INDEX idx_maintenance_status ON public.vehiclemaintenance USING btree (status);
@@ -1001,10 +1010,8 @@ CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING 
 CREATE INDEX idx_rec_snapshots_validity ON public.recommendation_snapshots USING btree (valid_until) WHERE (is_consumed = false);
 CREATE INDEX idx_reservation_events_request_timeline ON public.reservation_events USING btree (request_id, occurred_at DESC);
 CREATE INDEX idx_routes_dest_loc ON public.routes USING btree (destination_location_id);
-CREATE INDEX idx_routes_destination_location ON public.routes USING btree (destination_location_id);
 CREATE INDEX idx_routes_name ON public.routes USING btree (route_name);
 CREATE INDEX idx_routes_origin_loc ON public.routes USING btree (origin_location_id);
-CREATE INDEX idx_routes_origin_location ON public.routes USING btree (origin_location_id);
 CREATE INDEX idx_sub_driver ON public.substitute_vehicle_schedules USING btree (substitute_driver_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_history ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from DESC);
 CREATE INDEX idx_sub_vehicle_range ON public.substitute_vehicle_schedules USING btree (vehicle_id, effective_from, effective_until);
@@ -1053,6 +1060,7 @@ CREATE UNIQUE INDEX uq_fuelrecords_fuel_request ON public.fuelrecords USING btre
 CREATE UNIQUE INDEX uq_fuelrequests_driver_submission ON public.fuelrequests USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 CREATE UNIQUE INDEX uq_fuelrequests_open_vehicle ON public.fuelrequests USING btree (vehicle_id) WHERE ((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying])::text[]));
 CREATE UNIQUE INDEX uq_rec_snapshot_active ON public.recommendation_snapshots USING btree (request_id) WHERE (is_consumed = false);
+CREATE UNIQUE INDEX uq_routes_active_direction ON public.routes USING btree (origin_location_id, destination_location_id) WHERE (((status)::text = 'Active'::text) AND (deleted_at IS NULL) AND (origin_location_id IS NOT NULL) AND (destination_location_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_sub_open_vehicle ON public.substitute_vehicle_schedules USING btree (vehicle_id) WHERE (effective_until IS NULL);
 CREATE UNIQUE INDEX uq_vehicleinspection_driver_submission ON public.vehicleinspection USING btree (driver_id, client_submission_id) WHERE (client_submission_id IS NOT NULL);
 

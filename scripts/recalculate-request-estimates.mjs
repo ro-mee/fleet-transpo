@@ -1,8 +1,9 @@
 import { loadEnvLocal } from "./load-env.mjs";
+// Run with: node --import ./scripts/route-harness-loader.mjs scripts/recalculate-request-estimates.mjs
 loadEnvLocal();
 
 import { query } from "../src/lib/db.js";
-import { estimateTrip } from "../src/lib/geo/distance.js";
+import { resolveRequestEstimate } from "../src/services/route-resolver.service.js";
 
 async function main() {
   console.log("🚀 Recalculating route estimates for all transportation requests...");
@@ -17,11 +18,12 @@ async function main() {
 
   let updatedCount = 0;
   for (const r of rows) {
-    const est = estimateTrip(r.pickup_location, r.dropoff_location);
+    const est = await resolveRequestEstimate(r, { query }, { persistRoute: true });
     await query(
       `UPDATE transportation_requests
           SET estimated_distance = $1, estimated_duration = $2, updated_at = NOW()
-        WHERE request_id = $3`,
+        WHERE request_id = $3
+          AND (estimated_distance IS DISTINCT FROM $1 OR estimated_duration IS DISTINCT FROM $2)`,
       [est.distanceKm, est.durationMin, r.request_id]
     );
     console.log(

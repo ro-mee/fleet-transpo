@@ -1,7 +1,7 @@
 import { query } from "@/lib/db";
 import { fleetStatusFromBooking } from "@/lib/integration/status-map";
 import { resolveVehicleCategory } from "@/lib/integration/category-resolver";
-import { estimateTrip } from "@/lib/geo/distance";
+import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import { assignReservationNumber } from "@/lib/scheduling/reservation-number";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { RESERVATION_EVENT as E } from "@/lib/constants";
@@ -62,7 +62,7 @@ export async function ingestRequest(
 
   // Estimate travel up front so the queue can sort and filter on it without
   // waiting for someone to open the AI panel. Advisory only (see lib/geo).
-  const estimate = estimateTrip(request.pickup_location, request.dropoff_location);
+  const estimate = await resolveRequestEstimate(request, { query }, { persistRoute: true });
 
   // Translate Booking's free-text vehicle wording into one of Fleet's own
   // categories. This is the anti-corruption step migration 016 added

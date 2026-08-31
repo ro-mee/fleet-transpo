@@ -1,6 +1,7 @@
 import { scoreReservationVehicles, scoreDispatchDrivers, estimateEfficiency } from "@/lib/ai/rule-engine";
 import { buildFleetPairRecommendations, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
-import { estimateTrip, estimateFuel } from "@/lib/geo/distance";
+import { estimateFuel } from "@/lib/geo/distance";
+import { estimateForRequest } from "@/services/route-resolver.service";
 import { DRIVER_STATUS } from "@/lib/constants";
 
 // AI dispatch advisor — builds the Phase 14 recommendation payload.
@@ -263,7 +264,7 @@ function toPairCandidate(pair, request, trip) {
  * these rows never went through the pair engine.
  */
 export function shapePinnedPair({ vehicle, driver, request, score = null }) {
-  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
+  const trip = estimateForRequest(request);
 
   return {
     vehicle: vehicle
@@ -313,7 +314,7 @@ export function buildDispatchRecommendation({
   scheduleContext,
 }) {
   const passengers = Number(request?.passenger_count) || 1;
-  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
+  const trip = estimateForRequest(request);
 
   // Pair engine ranks complete vehicle+driver pairs; designated match dominates.
   const { pairs = [], recommended, alternate, skipped = [] } = buildFleetPairRecommendations({

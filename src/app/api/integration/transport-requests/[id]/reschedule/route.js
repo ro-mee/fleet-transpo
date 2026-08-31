@@ -4,7 +4,7 @@ import { RESERVATION_EVENT as E } from "@/lib/constants";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { emitTransportStatus } from "@/services/outbound.service";
-import { estimateTrip } from "@/lib/geo/distance";
+import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import { isTerminalReservationStatus } from "@/lib/scheduling/reservation-state";
 import { writeAudit } from "@/lib/audit";
 
@@ -37,7 +37,7 @@ export async function PUT(req, { params }) {
     if (!Number.isFinite(when.getTime())) return err("pickup_datetime is not a valid date.", 400);
 
     const reason = (body?.reason || "").toString().slice(0, 1000) || null;
-    const estimate = estimateTrip(before.pickup_location, before.dropoff_location);
+    const estimate = await resolveRequestEstimate(before, { query }, { persistRoute: true });
 
     const { rows } = await query(
       `UPDATE transportation_requests

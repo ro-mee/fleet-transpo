@@ -93,7 +93,7 @@ async function main() {
   // 4. Upsert NAIA Terminal Routes
   const routesData = [
     {
-      route_name: "CoCo Star Hotel ↔ NAIA Terminal 1",
+      route_name: "CoCo Star Hotel → NAIA Terminal 1",
       origin: "CoCo Star Hotel",
       destination: "NAIA Terminal 1",
       origin_location_id: locIdMap["CoCo Star Hotel"],
@@ -103,7 +103,7 @@ async function main() {
       status: "Active",
     },
     {
-      route_name: "CoCo Star Hotel ↔ NAIA Terminal 2",
+      route_name: "CoCo Star Hotel → NAIA Terminal 2",
       origin: "CoCo Star Hotel",
       destination: "NAIA Terminal 2",
       origin_location_id: locIdMap["CoCo Star Hotel"],
@@ -113,7 +113,7 @@ async function main() {
       status: "Active",
     },
     {
-      route_name: "CoCo Star Hotel ↔ NAIA Terminal 3",
+      route_name: "CoCo Star Hotel → NAIA Terminal 3",
       origin: "CoCo Star Hotel",
       destination: "NAIA Terminal 3",
       origin_location_id: locIdMap["CoCo Star Hotel"],
@@ -123,7 +123,7 @@ async function main() {
       status: "Active",
     },
     {
-      route_name: "CoCo Star Hotel ↔ NAIA Terminal 4",
+      route_name: "CoCo Star Hotel → NAIA Terminal 4",
       origin: "CoCo Star Hotel",
       destination: "NAIA Terminal 4",
       origin_location_id: locIdMap["CoCo Star Hotel"],

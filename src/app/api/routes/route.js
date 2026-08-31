@@ -1,69 +1,130 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import {
+  normalizeRoutePayload,
+  resolveRouteEndpoints,
+  findActiveRoute,
+  ROUTE_ESTIMATE_SOURCES,
+} from "@/services/route-resolver.service";
+import { writeAudit } from "@/lib/audit";
 
-// Allowed client field -> real routes column. Column names are never taken
-// from the request body — that would allow SQL injection via crafted keys.
-const ROUTE_WRITABLE = {
-  route_name: "route_name",
-  origin: "origin",
-  destination: "destination",
-  origin_location_id: "origin_location_id",
-  destination_location_id: "destination_location_id",
-  distance_km: "estimated_distance",
-  estimated_distance: "estimated_distance",
-  estimated_duration_minutes: "estimated_duration",
-  estimated_duration: "estimated_duration",
-  status: "status",
-};
+const READ_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
+const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
+
+class RouteRequestError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function routeProjection() {
+  return `
+    SELECT r.*,
+           row_to_json(ol.*) AS origin_location,
+           row_to_json(dl.*) AS destination_location,
+           (SELECT COUNT(*)::int FROM dispatchschedules d
+             WHERE d.route_id = r.route_id AND d.deleted_at IS NULL) AS dispatch_count,
+           (SELECT COUNT(*)::int FROM trips t
+             WHERE t.route_id = r.route_id AND t.deleted_at IS NULL) AS trip_count,
+           EXISTS (
+             SELECT 1 FROM dispatchschedules d
+              WHERE d.route_id = r.route_id AND d.deleted_at IS NULL
+                AND COALESCE(d.updated_at, d.created_at) >= NOW() - INTERVAL '30 days'
+           ) OR EXISTS (
+             SELECT 1 FROM trips t
+              WHERE t.route_id = r.route_id AND t.deleted_at IS NULL
+                AND COALESCE(t.updated_at, t.created_at) >= NOW() - INTERVAL '30 days'
+           ) AS used_last_30_days,
+           (
+             ol.latitude IS NOT NULL AND ol.longitude IS NOT NULL
+             AND dl.latitude IS NOT NULL AND dl.longitude IS NOT NULL
+           ) AS is_navigation_ready
+      FROM routes r
+      LEFT JOIN locations ol ON ol.location_id = r.origin_location_id
+      LEFT JOIN locations dl ON dl.location_id = r.destination_location_id`;
+}
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requireAuth(req, READ_ROLES);
     const sp = new URL(req.url).searchParams;
-    let sql = `SELECT r.*, row_to_json(ol.*) as origin_location, row_to_json(dl.*) as destination_location FROM routes r LEFT JOIN locations ol ON r.origin_location_id = ol.location_id LEFT JOIN locations dl ON r.destination_location_id = dl.location_id WHERE r.deleted_at IS NULL AND r.status = 'Active'`;
-    const params = []; let idx = 1;
-    const search = sp.get("search"); if (search) { sql += ` AND (r.route_name ILIKE $${idx} OR r.origin ILIKE $${idx} OR r.destination ILIKE $${idx})`; params.push(`%${search}%`); idx++; }
-    sql += " ORDER BY r.route_name";
+    const status = sp.get("status") || "Active";
+    if (!["all", "Active", "Inactive"].includes(status)) return err("Invalid route status filter", 400);
+
+    let sql = `${routeProjection()} WHERE r.deleted_at IS NULL`;
+    const params = [];
+    let index = 1;
+    if (status !== "all") {
+      sql += ` AND r.status = $${index++}`;
+      params.push(status);
+    }
+    const search = sp.get("search")?.trim();
+    if (search) {
+      sql += ` AND (r.route_name ILIKE $${index} OR r.origin ILIKE $${index} OR r.destination ILIKE $${index})`;
+      params.push(`%${search}%`);
+    }
+    sql += " ORDER BY CASE WHEN r.status = 'Active' THEN 0 ELSE 1 END, r.route_name, r.route_id";
     const { rows } = await query(sql, params);
     return ok(rows);
-  } catch (e) { return handleError(e); }
+  } catch (e) {
+    return handleError(e);
+  }
 }
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requireAuth(req, WRITE_ROLES);
     const body = await parseBody(req);
+    const { payload, errors } = normalizeRoutePayload(body);
+    if (Object.keys(errors).length) return errValidation(errors);
 
-    const errors = validateBody(body, {
-      route_name: { required: true, maxLength: 150, label: "Route name" },
-      origin: { required: true, maxLength: 255, label: "Origin" },
-      destination: { required: true, maxLength: 255, label: "Destination" },
-      origin_location_id: { type: "id", label: "Origin location" },
-      destination_location_id: { type: "id", label: "Destination location" },
-      distance_km: { type: "positiveNumber", label: "Distance (km)" },
-      estimated_duration_minutes: { type: "positiveNumber", label: "Estimated duration" },
-      base_fare: { type: "positiveNumber", label: "Base fare" },
-      per_km_rate: { type: "positiveNumber", label: "Per-km rate" },
-      status: { maxLength: 30, label: "Status" },
-      route_type: { maxLength: 30, label: "Route type" },
-      is_active: { label: "Active" },
-    });
-    if (!isValidObject(errors)) {
-      return errValidation(errors);
-    }
+    const route = await withTransaction(async (tx) => {
+      const endpoints = await resolveRouteEndpoints(tx, payload);
+      if (!endpoints) throw new RouteRequestError("Select two different active locations for this route.", 400);
 
-    const columns = [];
-    const values = [];
-    for (const [field, column] of Object.entries(ROUTE_WRITABLE)) {
-      if (body[field] !== undefined) {
-        columns.push(column);
-        values.push(body[field]);
+      const existing = await findActiveRoute(tx, endpoints);
+      if (existing) {
+        throw new RouteRequestError("An active route already exists for this direction. Deactivate it before creating a replacement.", 409);
       }
-    }
-    if (columns.length === 0) return err("No valid fields provided", 400);
-    const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
-    const { rows } = await query(`INSERT INTO routes (${columns.join(", ")}) VALUES (${placeholders}) RETURNING *`, values);
-    return ok(rows[0], 201);
-  } catch (e) { return handleError(e); }
+
+      const hasEstimate = payload.estimated_distance != null || payload.estimated_duration != null;
+      const estimateSource = payload.estimate_source ?? (hasEstimate ? "Manual" : null);
+      if (estimateSource && !ROUTE_ESTIMATE_SOURCES.includes(estimateSource)) {
+        throw new RouteRequestError("Estimate source is invalid.", 400);
+      }
+      const { rows } = await tx.query(
+        `INSERT INTO routes
+           (route_name, origin, destination, origin_location_id, destination_location_id,
+            estimated_distance, estimated_duration, estimate_source, estimate_updated_at,
+            status, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,CASE WHEN $8::varchar IS NULL THEN NULL ELSE NOW() END,$9,NOW(),NOW())
+         RETURNING *`,
+        [
+          payload.route_name,
+          endpoints.origin,
+          endpoints.destination,
+          endpoints.originLocationId,
+          endpoints.destinationLocationId,
+          payload.estimated_distance ?? null,
+          payload.estimated_duration ?? null,
+          estimateSource,
+          payload.status || "Active",
+        ]
+      );
+      return rows[0];
+    });
+
+    await writeAudit(req, session, {
+      action: "create",
+      resource: "routes",
+      resourceId: route.route_id,
+      newValues: route,
+    });
+    return ok(route, 201);
+  } catch (e) {
+    if (e instanceof RouteRequestError) return err(e.message, e.status);
+    if (e?.code === "23505") return err("An active route already exists for this direction.", 409);
+    return handleError(e);
+  }
 }

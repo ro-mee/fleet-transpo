@@ -17,7 +17,6 @@ import {
 import { injectTransportRequest, pullTransportRequests } from "@/services/transport.service";
 import { getVehicleCategories } from "@/services/vehicle.service";
 import { getLocations } from "@/services/location.service";
-import { getRoutes } from "@/services/route.service";
 import {
   Loader2,
   FlaskConical,
@@ -69,11 +68,6 @@ export default function MockInjectorPage() {
   const { data: locations = [] } = useQuery({
     queryKey: ["locations"],
     queryFn: () => getLocations(),
-  });
-
-  const { data: routes = [] } = useQuery({
-    queryKey: ["routes"],
-    queryFn: () => getRoutes(),
   });
 
   const [form, setForm] = useState({

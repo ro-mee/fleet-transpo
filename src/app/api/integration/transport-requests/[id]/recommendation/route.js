@@ -5,7 +5,8 @@ import { buildDispatchRecommendation, shapePinnedPair } from "@/lib/ai/dispatch-
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { estimateEfficiency, isProximityRelevant } from "@/lib/ai/rule-engine";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
-import { estimateTrip, estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
+import { estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
+import { estimateForRequest, resolveRequestEstimate } from "@/services/route-resolver.service";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { saveRecommendationSnapshot, getActiveRecommendation, validatePairAvailability } from "@/services/recommendation.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -92,11 +93,10 @@ function driverPosition(driver, ping) {
   return { ...HOTEL_BASE, basis: "assumed at hotel base" };
 }
 
-async function fetchCandidates(request) {
+async function fetchCandidates(request, trip = estimateForRequest(request)) {
   const passengers = Number(request?.passenger_count) || 1;
 
   // Same trip estimate the advisor uses, so fuel burn and schedule windows agree.
-  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
   const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
   const windowEnd = windowStart
     ? new Date(new Date(windowStart).getTime() + (trip.durationMin || 60) * 60 * 1000).toISOString()
@@ -483,7 +483,7 @@ async function narrateForRequest(req, request, recommendation, session) {
     return narrate(request, recommendation, session);
   }
 
-  const trip = estimateTrip(request?.pickup_location, request?.dropoff_location);
+  const trip = estimateForRequest(request);
   const pinnedRows = await loadPinnedPair(pinnedVehicleId, pinnedDriverId, request, trip);
   if (!pinnedRows) return narrate(request, recommendation, session);
 
@@ -518,6 +518,19 @@ async function narrateForRequest(req, request, recommendation, session) {
     },
     session
   );
+}
+
+async function withResolvedEstimate(request, { persistRoute = false } = {}) {
+  const estimate = await resolveRequestEstimate(request, { query }, { persistRoute });
+  return {
+    estimate,
+    request: {
+      ...request,
+      estimated_distance: request?.estimated_distance ?? estimate.distanceKm,
+      estimated_duration: request?.estimated_duration ?? estimate.durationMin,
+      estimate_source: request?.estimate_source ?? estimate.source,
+    },
+  };
 }
 
 /**
@@ -589,14 +602,15 @@ export async function GET(req, { params }) {
       }
     }
 
-    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(request);
+    const { request: recommendationRequest, estimate } = await withResolvedEstimate(request);
+    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(recommendationRequest, estimate);
     const [activePairs, activeSubstitutes] = await Promise.all([
       loadActivePairs(),
       loadActiveSubstitutes(),
     ]);
     const scheduleContext = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
     const recommendation = buildDispatchRecommendation({
-      request,
+      request: recommendationRequest,
       vehicles,
       drivers,
       activePairs,
@@ -606,7 +620,7 @@ export async function GET(req, { params }) {
     });
 
     // Only the explicit second call pays for the provider round-trip.
-    recommendation.narration = await narrateForRequest(req, request, recommendation, session);
+    recommendation.narration = await narrateForRequest(req, recommendationRequest, recommendation, session);
 
     return ok(recommendation);
   } catch (e) { return handleError(e); }
@@ -628,14 +642,15 @@ export async function POST(req, { params }) {
 
     // No narration here: this call persists the recommendation, and a write path
     // must not wait on an external provider. GET is where the prose belongs.
-    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(request);
+    const { request: recommendationRequest, estimate } = await withResolvedEstimate(request, { persistRoute: true });
+    const { vehicles, drivers, windowStart, windowEnd } = await fetchCandidates(recommendationRequest, estimate);
     const [activePairs, activeSubstitutes] = await Promise.all([
       loadActivePairs(),
       loadActiveSubstitutes(),
     ]);
     const scheduleContext = await loadDriverScheduleContext(drivers.map((d) => d.driver_id));
     const recommendation = buildDispatchRecommendation({
-      request,
+      request: recommendationRequest,
       vehicles,
       drivers,
       activePairs,
