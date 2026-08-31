@@ -5,9 +5,11 @@ import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { getWorkspace } from "@/lib/workspaces";
-import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
+import { DISPATCH_STATUS as D, RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { useQuery } from "@tanstack/react-query";
 import { getAllIncidents } from "@/services/driver.service";
+import { getDispatches } from "@/services/dispatch.service";
+import { getFuelRequests } from "@/services/fuel.service";
 import { getTransportRequests } from "@/services/transport.service";
 import {
   ChevronLeft,
@@ -55,6 +57,36 @@ function isActive(pathname, href, allHrefs = []) {
   return !hasBetterMatch;
 }
 
+const NAV_BADGE_TONES = {
+  danger: "bg-danger text-white",
+  warning: "bg-warning/10 text-warning-700 ring-1 ring-warning/20",
+};
+
+function SidebarBadge({ count, collapsed, tone = "warning" }) {
+  if (!(Number(count) > 0)) return null;
+
+  return (
+    <span
+      className={cn(
+        "rounded-full transition-all duration-300",
+        NAV_BADGE_TONES[tone] || NAV_BADGE_TONES.warning,
+        collapsed
+          ? "absolute top-1 right-1 h-2 w-2 p-0 ring-2 ring-sidebar group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:min-w-5 group-hover:w-auto group-hover:items-center group-hover:justify-center group-hover:px-1 group-hover:text-[11px] group-hover:font-bold group-hover:ring-0"
+          : "ml-auto flex h-5 min-w-5 items-center justify-center px-1 text-[11px] font-bold"
+      )}
+    >
+      <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>
+        {count}
+      </span>
+    </span>
+  );
+}
+
+function badgeAriaLabel(item, badge) {
+  if (!badge || !(Number(badge.count) > 0)) return undefined;
+  return `${item.label}: ${badge.count} ${badge.noun}${badge.count === 1 ? "" : "s"}${badge.suffix || ""}`;
+}
+
 export function Sidebar() {
   const pathname = usePathname();
   const { employee, signOut, loading } = useAuth();
@@ -67,14 +99,26 @@ export function Sidebar() {
   const requestQueueVisible = visibleGroups.some((group) =>
     (group.items || []).some((item) => item.href === "/reservations/queue")
   );
+  const incidentVisible = visibleGroups.some((group) =>
+    (group.items || []).some((item) => item.href === "/incidents")
+  );
+  const dispatchVisible = visibleGroups.some((group) =>
+    (group.items || []).some((item) => item.href === "/dispatch")
+  );
+  const fuelVisible = visibleGroups.some((group) =>
+    (group.items || []).some((item) => item.href === "/fuel")
+  );
 
-  const { data: pendingIncidents = [] } = useQuery({
+  const { data: openIncidents = [] } = useQuery({
     queryKey: ["pending-incidents"],
-    queryFn: () => getAllIncidents({ status: "Pending", limit: 10 }),
-    enabled: !!userRole && userRole !== "driver",
+    // Incidents only have Open and Resolved states. Open is the actionable
+    // state and remains counted until a resolver closes it.
+    queryFn: () => getAllIncidents({ status: "Open" }),
+    enabled: incidentVisible,
     refetchInterval: 30000,
+    refetchOnWindowFocus: true,
   });
-  const pendingCount = pendingIncidents.length;
+  const openIncidentCount = openIncidents.length;
 
   // Request records have no persisted viewed/unread flag. Pending is the
   // current lifecycle's "received, not yet acted on" state.
@@ -86,6 +130,36 @@ export function Sidebar() {
     refetchOnWindowFocus: true,
   });
   const pendingRequestCount = Number(pendingRequests?.total) || 0;
+
+  // Fuel requests have an explicit Pending -> Approved/Rejected review step.
+  // Pending therefore stays visible until staff acts on the request.
+  const { data: pendingFuelRequests } = useQuery({
+    queryKey: ["fuel-requests", "sidebar-pending-count"],
+    queryFn: () => getFuelRequests({ status: "Pending" }),
+    enabled: fuelVisible && ["admin", "system_admin", "fleet_manager"].includes(userRole),
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+  });
+  const pendingFuelCount = Number(pendingFuelRequests?.counts?.pending)
+    || (Array.isArray(pendingFuelRequests?.rows) ? pendingFuelRequests.rows.length : 0);
+
+  // A dispatch marked Pending Reassignment needs a new vehicle/driver pair;
+  // assignment or cancellation removes it from this attention count.
+  const { data: pendingDispatches = [] } = useQuery({
+    queryKey: ["dispatches", "sidebar-pending-reassignment-count"],
+    queryFn: () => getDispatches({ status: D.PENDING_REASSIGNMENT }),
+    enabled: dispatchVisible,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+  });
+  const pendingReassignmentCount = Array.isArray(pendingDispatches) ? pendingDispatches.length : 0;
+
+  const navBadges = {
+    "/incidents": { count: openIncidentCount, tone: "danger", noun: "open incident" },
+    "/reservations/queue": { count: pendingRequestCount, tone: "warning", noun: "pending request" },
+    "/fuel": { count: pendingFuelCount, tone: "warning", noun: "fuel request", suffix: " awaiting review" },
+    "/dispatch": { count: pendingReassignmentCount, tone: "danger", noun: "dispatch", suffix: " pending reassignment" },
+  };
 
   const allHrefs = useMemo(() => {
     const hrefs = [];
@@ -170,10 +244,11 @@ export function Sidebar() {
                       collapsed={collapsed}
                       userRole={userRole}
                       allHrefs={allHrefs}
-                      pendingCount={pendingCount}
+                      navBadges={navBadges}
                     />
                   );
                 }
+                const badge = navBadges[item.href];
                 return (
                   <Link
                     key={item.href}
@@ -186,11 +261,7 @@ export function Sidebar() {
                         : "text-foreground-secondary hover:text-foreground hover:bg-hover"
                     )}
                     title={collapsed ? item.label : undefined}
-                    aria-label={
-                      item.href === "/reservations/queue" && pendingRequestCount > 0
-                        ? `${item.label}: ${pendingRequestCount} pending request${pendingRequestCount === 1 ? "" : "s"}`
-                        : undefined
-                    }
+                    aria-label={badgeAriaLabel(item, badge)}
                   >
                     {active && (
                       <span className={cn(
@@ -211,33 +282,7 @@ export function Sidebar() {
                     )}>
                       {item.label}
                     </span>
-                    {item.href === "/incidents" && pendingCount > 0 && (
-                      <span className={cn(
-                        "rounded-full bg-danger transition-all duration-300",
-                        collapsed ? "absolute top-1 right-1 h-2 w-2 group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:w-5 group-hover:items-center group-hover:justify-center group-hover:text-[11px] group-hover:font-bold group-hover:text-white" : "ml-auto flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
-                      )}>
-                        <span className={cn(
-                          "transition-all duration-300",
-                          collapsed ? "hidden group-hover:block" : "block"
-                        )}>
-                          {pendingCount}
-                        </span>
-                      </span>
-                    )}
-                    {item.href === "/reservations/queue" && pendingRequestCount > 0 && (
-                      <span
-                        className={cn(
-                          "rounded-full bg-warning/10 text-warning-700 ring-1 ring-warning/20 transition-all duration-300",
-                          collapsed
-                            ? "absolute top-1 right-1 h-2 w-2 p-0 ring-2 ring-sidebar group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:min-w-5 group-hover:w-auto group-hover:items-center group-hover:justify-center group-hover:px-1 group-hover:text-[11px] group-hover:font-bold group-hover:ring-0"
-                            : "ml-auto flex h-5 min-w-5 items-center justify-center px-1 text-[11px] font-bold"
-                        )}
-                      >
-                        <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>
-                          {pendingRequestCount}
-                        </span>
-                      </span>
-                    )}
+                    <SidebarBadge count={badge?.count} collapsed={collapsed} tone={badge?.tone} />
                   </Link>
                 );
               })}
@@ -286,12 +331,13 @@ export function Sidebar() {
   );
 }
 
-function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCount }) {
+function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, navBadges }) {
   const [expanded, setExpanded] = useState(
     pathname.startsWith(item.href) && item.href !== "/dashboard"
   );
   const active = isActive(pathname, item.href, allHrefs);
   const visibleChildren = item.children || [];
+  const badge = navBadges[item.href];
 
   if (visibleChildren.length === 0) return null;
 
@@ -315,6 +361,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
             ? "bg-hover text-foreground font-medium"
             : "text-foreground-secondary hover:text-foreground hover:bg-hover"
         )}
+        aria-label={badgeAriaLabel(item, badge)}
       >
         {active && (
           <span className={cn(
@@ -335,14 +382,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
         )}>
           {item.label}
         </span>
-        {item.href === "/incidents" && pendingCount > 0 && (
-          <span className={cn(
-            "rounded-full bg-danger transition-all duration-300",
-            collapsed ? "absolute top-1 right-1 h-2 w-2 group-hover:static group-hover:flex group-hover:h-5 group-hover:w-5 group-hover:items-center group-hover:justify-center group-hover:text-[11px] group-hover:font-bold group-hover:text-white" : "flex h-5 w-5 items-center justify-center text-[11px] font-bold text-white"
-          )}>
-            <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>{pendingCount}</span>
-          </span>
-        )}
+        <SidebarBadge count={badge?.count} collapsed={collapsed} tone={badge?.tone} />
         {/* Width lives only in the ternary — declaring w-3.5 in the base class too
             would out-specify the collapsed w-0 and keep 14px of chevron in the
             flex row, pushing the icon off the axis the plain nav links center on. */}
@@ -362,6 +402,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
             const isChildActive = child.href === item.href
               ? pathname === child.href
               : isActive(pathname, child.href, allHrefs);
+            const childBadge = navBadges[child.href];
             return (
               <Link
                 key={child.href}
@@ -378,11 +419,7 @@ function NavGroupItem({ item, pathname, collapsed, userRole, allHrefs, pendingCo
                 )}
                 <span className="flex items-center justify-between">
                   <span>{child.label}</span>
-                  {child.href === "/incidents" && pendingCount > 0 && (
-                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white">
-                      {pendingCount}
-                    </span>
-                  )}
+                  <SidebarBadge count={childBadge?.count} collapsed={false} tone={childBadge?.tone} />
                 </span>
               </Link>
             );
