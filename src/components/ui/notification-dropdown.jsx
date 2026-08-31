@@ -150,29 +150,31 @@ export function NotificationDropdown() {
       <DropdownMenuTrigger asChild>
         <button
           className={cn(
-            "relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer outline-none",
+            "group relative flex h-8 w-8 items-center justify-center rounded-lg text-foreground-secondary hover:text-foreground hover:bg-hover transition-colors cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-primary",
             open && "bg-hover text-foreground"
           )}
           title="Notifications"
+          aria-label={unreadCount > 0 ? `Notifications (${unreadCount} unread)` : "Notifications"}
         >
           <motion.span
             key={bellPulse}
-            className="relative inline-flex"
+            className="flex items-center justify-center"
             initial={{ rotate: 0, scale: 1 }}
             animate={
               bellPulse > 0
-                ? { rotate: [0, -16, 14, -8, 0], scale: [1, 1.25, 1] }
+                ? { rotate: [0, -16, 14, -8, 0], scale: [1, 1.2, 1] }
                 : { rotate: 0, scale: 1 }
             }
             transition={{ duration: 0.55, ease: EASE }}
           >
-            <Bell className="h-4 w-4" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-1 -right-1.5 flex h-[18px] min-w-[18px] px-1 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white shadow-[0_2px_8px_rgba(239,68,68,0.45)] ring-2 ring-surface tabular-nums leading-none">
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </span>
-            )}
+            <Bell className="h-[18px] w-[18px] transition-transform duration-200 group-hover:scale-105" />
           </motion.span>
+
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-[18px] min-w-[18px] px-1 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white shadow-[0_2px_8px_rgba(239,68,68,0.45)] ring-2 ring-surface tabular-nums leading-none pointer-events-none">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent side="bottom" align="end" className="w-84 sm:w-[410px] p-0 overflow-hidden rounded-[26px] shadow-2xl border border-border/80 bg-surface/95 backdrop-blur-xl">
