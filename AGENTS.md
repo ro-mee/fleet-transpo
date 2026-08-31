@@ -1,3 +1,7 @@
+## Mandatory repository pre-flight
+
+Before planning, editing, running implementation commands, or making any other task changes, read `.agents/AGENTS.md` in full and follow it as mandatory repository policy. Then read the relevant `Capstone/` notes before implementation and update the relevant notes after behavior, architecture, data, or workflow changes.
+
 <!-- BEGIN:nextjs-agent-rules -->
 # This is NOT the Next.js you know
 
