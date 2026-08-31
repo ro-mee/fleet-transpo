@@ -58,27 +58,62 @@ function isActive(pathname, href, allHrefs = []) {
 }
 
 const NAV_BADGE_TONES = {
-  danger: "bg-danger text-white",
-  warning: "bg-warning/10 text-warning-700 ring-1 ring-warning/20",
+  danger: {
+    badge: "bg-danger/15 text-danger-700 dark:bg-danger/25 dark:text-rose-200 border border-danger/30 dark:border-danger/45 shadow-[0_0_10px_-2px_rgba(239,68,68,0.35)]",
+    pip: "bg-danger shadow-[0_0_8px_rgba(239,68,68,0.7)]",
+    hasPulse: true,
+  },
+  warning: {
+    badge: "bg-amber-500/15 text-amber-800 dark:bg-amber-500/25 dark:text-amber-200 border border-amber-500/30 dark:border-amber-500/45 shadow-[0_0_10px_-2px_rgba(245,158,11,0.25)]",
+    pip: "bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.6)]",
+    hasPulse: false,
+  },
+  info: {
+    badge: "bg-sky-500/15 text-sky-800 dark:bg-sky-500/25 dark:text-sky-200 border border-sky-500/30 dark:border-sky-500/45 shadow-[0_0_10px_-2px_rgba(14,165,233,0.25)]",
+    pip: "bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.6)]",
+    hasPulse: false,
+  },
 };
 
 function SidebarBadge({ count, collapsed, tone = "warning" }) {
-  if (!(Number(count) > 0)) return null;
+  const numericCount = Number(count);
+  if (!(numericCount > 0)) return null;
+
+  const toneConfig = NAV_BADGE_TONES[tone] || NAV_BADGE_TONES.warning;
+  const displayCount = numericCount > 99 ? "99+" : numericCount;
 
   return (
-    <span
-      className={cn(
-        "rounded-full transition-all duration-300",
-        NAV_BADGE_TONES[tone] || NAV_BADGE_TONES.warning,
-        collapsed
-          ? "absolute top-1 right-1 h-2 w-2 p-0 ring-2 ring-sidebar group-hover:static group-hover:ml-auto group-hover:flex group-hover:h-5 group-hover:min-w-5 group-hover:w-auto group-hover:items-center group-hover:justify-center group-hover:px-1 group-hover:text-[11px] group-hover:font-bold group-hover:ring-0"
-          : "ml-auto flex h-5 min-w-5 items-center justify-center px-1 text-[11px] font-bold"
+    <>
+      {/* Collapsed rail notification pip */}
+      {collapsed && (
+        <span className="absolute top-2 right-2 flex h-2.5 w-2.5 items-center justify-center group-hover:hidden transition-all duration-300 pointer-events-none">
+          {toneConfig.hasPulse && (
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
+          )}
+          <span className={cn("relative inline-flex h-2 w-2 rounded-full ring-2 ring-sidebar", toneConfig.pip)} />
+        </span>
       )}
-    >
-      <span className={cn("transition-all duration-300", collapsed ? "hidden group-hover:block" : "block")}>
-        {count}
+
+      {/* Expanded pill badge (also appears when collapsed rail is hovered/peeked) */}
+      <span
+        className={cn(
+          "ml-auto items-center justify-center rounded-full transition-all duration-300 select-none",
+          "h-[20px] min-w-[20px] px-1.5 font-data text-[11px] font-bold tabular-nums leading-none tracking-tight shadow-xs",
+          toneConfig.badge,
+          collapsed
+            ? "hidden group-hover:inline-flex"
+            : "inline-flex"
+        )}
+      >
+        {toneConfig.hasPulse && (
+          <span className="relative mr-1 flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-danger" />
+          </span>
+        )}
+        <span>{displayCount}</span>
       </span>
-    </span>
+    </>
   );
 }
 

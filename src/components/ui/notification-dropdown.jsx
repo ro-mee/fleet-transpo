@@ -168,8 +168,8 @@ export function NotificationDropdown() {
           >
             <Bell className="h-4 w-4" />
             {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-danger text-[11px] font-bold text-white shadow-sm">
-                {unreadCount > 9 ? "9+" : unreadCount}
+              <span className="absolute -top-1 -right-1.5 flex h-[18px] min-w-[18px] px-1 items-center justify-center rounded-full bg-danger text-[10px] font-bold text-white shadow-[0_2px_8px_rgba(239,68,68,0.45)] ring-2 ring-surface tabular-nums leading-none">
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
           </motion.span>
