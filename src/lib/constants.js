@@ -144,6 +144,20 @@ export const TRIP_STATUS = {
   CANCELLED: "Cancelled",
 };
 
+// Trips that are visible on the operational live map. GPS remains trip-scoped;
+// a driver without one of these states is not represented as live telemetry.
+export const LIVE_TRIP_STATUSES = [
+  TRIP_STATUS.DISPATCHED,
+  TRIP_STATUS.DRIVER_ACCEPTED,
+  TRIP_STATUS.TRIP_STARTED,
+  TRIP_STATUS.AT_PICKUP,
+  TRIP_STATUS.PASSENGER_ONBOARD,
+  TRIP_STATUS.EN_ROUTE,
+  TRIP_STATUS.DROP_OFF,
+  TRIP_STATUS.ARRIVED,
+  TRIP_STATUS.IN_PROGRESS,
+];
+
 export const DRIVER_STATUS = {
   AVAILABLE: "Available",
   ON_TRIP: "On Trip",

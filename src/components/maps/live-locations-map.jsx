@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
+import { getPublicKey, rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
+import { CHART_COLORS } from "@/lib/chart-tokens";
+import { getGpsHealth, isValidCoordinate, speedKmhFromMps } from "@/lib/gps";
 import { Button } from "@/components/ui/button";
-import { MapPin, Eye, Layers, ExternalLink, Navigation, Compass, ShieldCheck, Route, ArrowRight, CornerUpRight, Building2, Flag } from "lucide-react";
+import { MapPin, Eye, Layers, ExternalLink, Navigation, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Map tile style options
@@ -22,26 +24,24 @@ const MAP_STYLES = {
     attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community",
   },
   tomtom: {
-    name: "TomTom Vector",
+    name: "TomTom",
     url: rasterTileUrl(),
     attribution: '&copy; <a href="https://developer.tomtom.com">TomTom</a>',
   },
 };
 
 const STATUS_COLOR = {
-  "En Route": "#10b981",
-  "Trip Started": "#f59e0b",
-  "In Progress": "#3b82f6",
-  Arrived: "#8b5cf6",
-  Idle: "#ef4444",
-  Available: "#10b981",
-  Assigned: "#f59e0b",
+  "En Route": CHART_COLORS.info,
+  "Trip Started": CHART_COLORS.warning,
+  "In Progress": CHART_COLORS.info,
+  Arrived: CHART_COLORS.success,
+  Idle: CHART_COLORS.danger,
+  Available: CHART_COLORS.success,
+  Assigned: CHART_COLORS.warning,
 };
-const DEFAULT_MARKER = "#3b82f6";
+const DEFAULT_MARKER = CHART_COLORS.neutral;
 
-function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMapStyle }) {
-  const map = useMap();
-
+function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMapStyle, hasTomTomKey }) {
   return (
     <div className="absolute right-3 top-3 z-[1000] flex flex-col gap-2 select-none">
       {/* Map Layer Switcher */}
@@ -49,6 +49,8 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
         <button
           type="button"
           onClick={() => onMapStyle("street")}
+          aria-pressed={mapStyle === "street"}
+          aria-label="Use street map"
           className={cn(
             "px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all cursor-pointer",
             mapStyle === "street" ? "bg-primary text-white dark:text-slate-950 shadow-2xs" : "text-foreground-secondary hover:text-foreground"
@@ -59,6 +61,8 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
         <button
           type="button"
           onClick={() => onMapStyle("satellite")}
+          aria-pressed={mapStyle === "satellite"}
+          aria-label="Use satellite map"
           className={cn(
             "px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all cursor-pointer",
             mapStyle === "satellite" ? "bg-primary text-white dark:text-slate-950 shadow-2xs" : "text-foreground-secondary hover:text-foreground"
@@ -66,38 +70,45 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
         >
           Satellite
         </button>
-        <button
-          type="button"
-          onClick={() => onMapStyle("tomtom")}
-          className={cn(
-            "px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all cursor-pointer",
-            mapStyle === "tomtom" ? "bg-primary text-white dark:text-slate-950 shadow-2xs" : "text-foreground-secondary hover:text-foreground"
-          )}
-        >
-          TomTom
-        </button>
+        {hasTomTomKey && (
+          <button
+            type="button"
+            onClick={() => onMapStyle("tomtom")}
+            aria-pressed={mapStyle === "tomtom"}
+            aria-label="Use TomTom map"
+            className={cn(
+              "px-2.5 py-1 text-[11px] font-semibold rounded-xl transition-all cursor-pointer",
+              mapStyle === "tomtom" ? "bg-primary text-white dark:text-slate-950 shadow-2xs" : "text-foreground-secondary hover:text-foreground"
+            )}
+          >
+            TomTom
+          </button>
+        )}
       </div>
 
       {/* Traffic Toggle */}
-      <button
-        type="button"
-        onClick={onTraffic}
-        aria-pressed={trafficOn}
-        className={cn(
-          "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-md backdrop-blur transition-all cursor-pointer",
-          trafficOn ? "border-success/40 bg-surface/95 text-foreground" : "border-border/80 bg-surface/95 text-foreground-muted"
-        )}
-      >
-        <div className="flex items-center gap-2">
-          <span className={`relative inline-flex h-2 w-2 rounded-full ${trafficOn ? "bg-success" : "bg-foreground-muted"}`}>
-            {trafficOn && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />}
+      {hasTomTomKey && (
+        <button
+          type="button"
+          onClick={onTraffic}
+          aria-pressed={trafficOn}
+          aria-label={`${trafficOn ? "Hide" : "Show"} live traffic layer`}
+          className={cn(
+            "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-xs font-semibold shadow-md backdrop-blur transition-all cursor-pointer",
+            trafficOn ? "border-success/40 bg-surface/95 text-foreground" : "border-border/80 bg-surface/95 text-foreground-muted"
+          )}
+        >
+          <div className="flex items-center gap-2">
+            <span className={`relative inline-flex h-2 w-2 rounded-full ${trafficOn ? "bg-success" : "bg-foreground-muted"}`}>
+              {trafficOn && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />}
+            </span>
+            Live Traffic
+          </div>
+          <span className={cn("rounded-md px-1.5 py-0.2 text-[11px] font-bold", trafficOn ? "bg-success/15 text-success" : "bg-muted text-foreground-muted")}>
+            {trafficOn ? "ON" : "OFF"}
           </span>
-          Live Traffic
-        </div>
-        <span className={cn("text-[11px] font-bold px-1.5 py-0.2 rounded-md", trafficOn ? "bg-success/15 text-success" : "bg-muted text-foreground-muted")}>
-          {trafficOn ? "ON" : "OFF"}
-        </span>
-      </button>
+        </button>
+      )}
 
       {/* Legend Toggle */}
       <button
@@ -113,6 +124,24 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
   );
 }
 
+function MapViewport({ points, focusPoints = null, focusKey = "default" }) {
+  const map = useMap();
+  const lastFocusKey = useRef(null);
+
+  useEffect(() => {
+    if (!points.length || lastFocusKey.current === focusKey) return;
+    lastFocusKey.current = focusKey;
+    const target = focusPoints?.length ? focusPoints : points;
+    if (target.length === 1) {
+      map.setView(target[0], Math.max(map.getZoom(), 14), { animate: false });
+      return;
+    }
+    map.fitBounds(target, { padding: [48, 48], maxZoom: 15, animate: false });
+  }, [map, points, focusPoints, focusKey]);
+
+  return null;
+}
+
 function formatTitleCase(str) {
   if (!str) return "";
   return String(str)
@@ -123,6 +152,8 @@ function formatTitleCase(str) {
 
 export default function LiveLocationsMap({
   locations = [],
+  selectedTripId = null,
+  onSelectTrip = null,
   route = null,
   routeDistanceKm = null,
   routeTravelMin = null,
@@ -134,16 +165,43 @@ export default function LiveLocationsMap({
   showNavigationPanel = false,
   incidents = [],
 }) {
-  const [trafficOn, setTrafficOn] = useState(traffic);
+  const hasTomTomKey = Boolean(getPublicKey());
+  const [trafficOn, setTrafficOn] = useState(traffic && hasTomTomKey);
   const [legendOn, setLegendOn] = useState(true);
-  const [mapStyle, setMapStyle] = useState("tomtom");
+  const [mapStyle, setMapStyle] = useState(hasTomTomKey ? "tomtom" : "street");
 
-  const valid = locations.filter((l) => l && l.latitude != null && l.longitude != null);
-  const routePts = Array.isArray(route) && route.length >= 2 ? route : null;
-  const hasContent = valid.length > 0 || routePts;
+  const valid = useMemo(
+    () => (locations || [])
+      .map((location) => ({
+        ...location,
+        _lat: Number(location?.latitude),
+        _lng: Number(location?.longitude),
+      }))
+      .filter((location) => isValidCoordinate(location._lat, location._lng)),
+    [locations]
+  );
+  const routePts = useMemo(() => {
+    if (!Array.isArray(route)) return null;
+    const points = route
+      .map((point) => Array.isArray(point)
+        ? [Number(point[0]), Number(point[1])]
+        : [Number(point?.latitude ?? point?.lat), Number(point?.longitude ?? point?.lng)])
+      .filter((point) => isValidCoordinate(point[0], point[1]));
+    return points.length >= 2 ? points : null;
+  }, [route]);
 
-  const origin = waypoints?.origin;
-  const destination = waypoints?.destination;
+  const originLat = waypoints?.origin?.[0];
+  const originLng = waypoints?.origin?.[1];
+  const destinationLat = waypoints?.destination?.[0];
+  const destinationLng = waypoints?.destination?.[1];
+  const origin = useMemo(
+    () => (isValidCoordinate(originLat, originLng) ? [Number(originLat), Number(originLng)] : null),
+    [originLat, originLng]
+  );
+  const destination = useMemo(
+    () => (isValidCoordinate(destinationLat, destinationLng) ? [Number(destinationLat), Number(destinationLng)] : null),
+    [destinationLat, destinationLng]
+  );
 
   const formattedOrigin = useMemo(() => {
     if (!originName) return "Driver GPS Location";
@@ -152,12 +210,12 @@ export default function LiveLocationsMap({
   }, [originName]);
 
   const formattedDestination = useMemo(() => {
-    if (!destinationName) return "Coco Hotel & Resort";
+    if (!destinationName) return "Destination unavailable";
     return destinationName;
   }, [destinationName]);
 
   const center = useMemo(() => {
-    if (valid.length > 0) return [valid[0].latitude, valid[0].longitude];
+    if (valid.length > 0) return [valid[0]._lat, valid[0]._lng];
     if (origin) return origin;
     if (routePts) return routePts[0];
     return [14.6, 121.0];
@@ -196,20 +254,44 @@ export default function LiveLocationsMap({
     []
   );
 
-  const displayLocations = useMemo(() => {
-    if (routePts && valid.length > 1) {
-      return [valid[valid.length - 1]];
-    }
-    return valid;
-  }, [valid, routePts]);
-
   const validIncidents = useMemo(
     () =>
       (incidents || []).filter(
-        (inc) => inc && inc.latitude != null && inc.longitude != null
-      ),
+        (inc) => inc && (!inc.status || String(inc.status).toLowerCase() === "open") && isValidCoordinate(inc.latitude, inc.longitude)
+      ).map((incident) => ({
+        ...incident,
+        _lat: Number(incident.latitude),
+        _lng: Number(incident.longitude),
+      })),
     [incidents]
   );
+
+  const viewportPoints = useMemo(() => [
+    ...valid.map((location) => [location._lat, location._lng]),
+    ...(routePts || []),
+    ...(origin ? [origin] : []),
+    ...(destination ? [destination] : []),
+    ...validIncidents.map((incident) => [incident._lat, incident._lng]),
+  ], [valid, routePts, origin, destination, validIncidents]);
+
+  const hasContent = viewportPoints.length > 0;
+  const selectedPoint = useMemo(
+    () => selectedTripId == null
+      ? valid[0] || null
+      : valid.find((location) => String(location.trip_id) === String(selectedTripId)) || null,
+    [valid, selectedTripId]
+  );
+  const mapFocusPoints = useMemo(
+    () => routePts || (selectedTripId != null && selectedPoint ? [[selectedPoint._lat, selectedPoint._lng]] : null),
+    [routePts, selectedTripId, selectedPoint]
+  );
+  const mapFocusKey = useMemo(() => {
+    // The latest GPS row changes on every poll. Use the stable trip/vehicle
+    // identity so a fresh fix updates the marker without re-fitting the map.
+    const markerIds = valid.map((location) => location.trip_id || location.vehicle_id || `${location._lat},${location._lng}`);
+    const incidentIds = validIncidents.map((incident) => incident.incident_id || `${incident._lat},${incident._lng}`);
+    return [selectedTripId ?? "all", routePts ? "route" : "markers", markerIds.join(","), incidentIds.join(",")].join("|");
+  }, [selectedTripId, routePts, valid, validIncidents]);
 
   const incidentIcon = useMemo(
     () =>
@@ -231,7 +313,7 @@ export default function LiveLocationsMap({
   if (typeof window === "undefined") return null;
   if (!hasContent) return null;
 
-  const activeTile = MAP_STYLES[mapStyle] || MAP_STYLES.tomtom;
+  const activeTile = MAP_STYLES[mapStyle] || MAP_STYLES.street;
 
   return (
     <div className="relative h-full w-full select-none">
@@ -244,6 +326,7 @@ export default function LiveLocationsMap({
         style={{ height: "100%", width: "100%" }}
       >
         <ZoomControl position="bottomright" />
+        <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} focusKey={mapFocusKey} />
         <TileLayer attribution={activeTile.attribution} url={activeTile.url} />
         
         {trafficOn && (
@@ -264,7 +347,8 @@ export default function LiveLocationsMap({
           <Marker key={`marker-dest-${formattedDestination}`} position={destination} icon={destIcon}>
             <Tooltip key={`tooltip-dest-${formattedDestination}`} permanent offset={[0, -24]} direction="top" className="fleet-tooltip font-semibold text-xs shadow-md">
               <span className="flex items-center gap-1.5 font-medium">
-                🏨 {formattedDestination}
+                <MapPin className="h-3 w-3 text-danger" />
+                {formattedDestination}
               </span>
             </Tooltip>
           </Marker>
@@ -273,27 +357,32 @@ export default function LiveLocationsMap({
         {routePts && (
           <Polyline
             positions={routePts}
-            pathOptions={{ color: "#2563eb", weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }}
+            pathOptions={{ color: CHART_COLORS.info, weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }}
           />
         )}
 
-        {displayLocations.map((l, i) => {
+        {valid.map((l, i) => {
           const status = l.trip_status || l.vehicle_status;
           const color = STATUS_COLOR[status] || DEFAULT_MARKER;
-          const lat = Number(l.latitude);
-          const lng = Number(l.longitude);
+          const lat = l._lat;
+          const lng = l._lng;
           const plate = l.plate_number || l.vehicle_name || `Vehicle #${i + 1}`;
+          const driver = l.driver_name || (l.drivers ? `${l.drivers.first_name || ""} ${l.drivers.last_name || ""}`.trim() : "");
+          const health = getGpsHealth(l.recorded_at);
+          const speedKmh = l.speed_kmh ?? speedKmhFromMps(l.speed);
+          const selected = selectedTripId != null && String(l.trip_id) === String(selectedTripId);
 
           return (
             <CircleMarker
-              key={i}
+              key={l.trip_id || l.vehicle_id || l.tracking_id || `${lat},${lng}`}
               center={[lat, lng]}
-              radius={9}
+              eventHandlers={onSelectTrip && l.trip_id != null ? { click: () => onSelectTrip(l.trip_id) } : undefined}
+              radius={selected ? 11 : 8}
               pathOptions={{
                 color: "#ffffff",
-                weight: 2.5,
+                weight: selected ? 3 : 2.5,
                 fillColor: color,
-                fillOpacity: 1,
+                fillOpacity: selected ? 1 : 0.85,
               }}
             >
               <Popup className="fleet-popup">
@@ -306,15 +395,19 @@ export default function LiveLocationsMap({
                   </div>
 
                   <div className="space-y-1 text-xs text-foreground-secondary font-medium">
+                    {driver && <p className="truncate">Driver: {driver}</p>}
                     <p className="flex items-center gap-1.5 font-data">
                       <Compass className="w-3.5 h-3.5 text-primary" />
                       {lat.toFixed(4)}, {lng.toFixed(4)}
                     </p>
-                    {l.speed != null && (
+                    {speedKmh != null && (
                       <p className="text-[11px] text-foreground-muted font-data">
-                        Speed: {Number(l.speed).toFixed(0)} km/h
+                        Speed: {speedKmh.toFixed(1)} km/h
                       </p>
                     )}
+                    {l.accuracy != null && <p className="text-[11px] text-foreground-muted font-data">Accuracy: {Math.round(Number(l.accuracy))} m</p>}
+                    <p className="text-[11px] font-semibold text-foreground-muted">GPS: {health.label}</p>
+                    {l.recorded_at && <p className="text-[11px] text-foreground-muted font-data">Last update: {new Date(l.recorded_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
                   </div>
 
                   {/* Street View Action Button */}
@@ -333,22 +426,23 @@ export default function LiveLocationsMap({
               <Tooltip className="fleet-tooltip">
                 <div className="font-semibold text-xs">{plate}</div>
                 {status && <div className="text-[11px] opacity-80">{status}</div>}
+                <div className="text-[11px] opacity-80">GPS: {health.label}</div>
               </Tooltip>
             </CircleMarker>
           );
         })}
 
         {validIncidents.map((inc) => {
-          const lat = Number(inc.latitude);
-          const lng = Number(inc.longitude);
+          const lat = inc._lat;
+          const lng = inc._lng;
           const type = inc.incident_type || "Incident";
-          const severity = inc.severity || "medium";
+          const severity = String(inc.severity || "medium").toLowerCase();
           const severityColor =
-            severity === "high"
-              ? "#ef4444"
+            ["critical", "high"].includes(severity)
+              ? CHART_COLORS.danger
               : severity === "low"
-              ? "#f59e0b"
-              : "#f97316";
+              ? CHART_COLORS.info
+              : CHART_COLORS.warning;
           const ts = inc.created_at
             ? new Date(inc.created_at).toLocaleString(undefined, {
                 month: "short",
@@ -359,7 +453,7 @@ export default function LiveLocationsMap({
             : "";
           return (
             <Marker
-              key={`incident-${inc.id || lat + "," + lng}`}
+              key={`incident-${inc.incident_id || lat + "," + lng}`}
               position={[lat, lng]}
               icon={incidentIcon}
               zIndexOffset={1000}
@@ -411,6 +505,7 @@ export default function LiveLocationsMap({
           onLegend={() => setLegendOn((v) => !v)}
           mapStyle={mapStyle}
           onMapStyle={setMapStyle}
+          hasTomTomKey={hasTomTomKey}
         />
       </MapContainer>
 
@@ -418,8 +513,8 @@ export default function LiveLocationsMap({
       {trafficOn && (
         <div className="pointer-events-none absolute left-3 top-3 z-[1000] flex items-center gap-2 rounded-2xl border border-success/30 bg-surface/95 px-3.5 py-2 shadow-md backdrop-blur text-xs font-semibold text-foreground">
           <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
           </span>
           Live Traffic Layer Active <span className="text-[11px] text-foreground-muted font-medium font-data">(Real-Time Flow)</span>
         </div>
@@ -427,7 +522,7 @@ export default function LiveLocationsMap({
 
       {/* Floating Turn-by-Turn Directions & Designated Location Panel */}
       {showNavigationPanel && (originName || destinationName || (instructions && instructions.length > 0)) && (
-        <div className="absolute right-3 bottom-3 z-[1000] w-80 rounded-3xl border border-border/80 bg-surface/95 p-4 shadow-lg backdrop-blur space-y-3">
+        <div className="absolute bottom-3 left-3 right-3 z-[1000] space-y-3 rounded-3xl border border-border/80 bg-surface/95 p-4 shadow-lg backdrop-blur sm:left-auto sm:w-80">
           <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
             <span className="text-xs font-bold text-foreground flex items-center gap-2">
               <div className="p-1 rounded-lg bg-primary/10 text-primary">
@@ -435,9 +530,9 @@ export default function LiveLocationsMap({
               </div>
               Live Route Navigation
             </span>
-            {(routeDistanceKm || routeTravelMin) && (
+            {(routeDistanceKm != null || routeTravelMin != null) && (
               <span className="text-[11px] font-bold font-data text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20">
-                {routeDistanceKm ? `${routeDistanceKm} km` : ""} {routeTravelMin ? `· ~${routeTravelMin} min` : ""}
+                {routeDistanceKm != null ? `${routeDistanceKm} km` : ""} {routeTravelMin != null ? `· ~${routeTravelMin} min` : ""}
               </span>
             )}
           </div>
@@ -547,9 +642,9 @@ export default function LiveLocationsMap({
           display: flex; align-items: center; justify-content: center;
           width: 30px; height: 30px; border-radius: 50% 50% 50% 0;
           transform: rotate(-45deg);
-          background: var(--pin, #2563eb);
+          background: var(--pin, #3b82f6);
           border: 2.5px solid #ffffff;
-          box-shadow: 0 4px 10px rgb(0 0 0 / 0.35);
+          box-shadow: 0 4px 10px rgb(17 24 39 / 0.35);
         }
         .fleet-pin span { transform: rotate(45deg); color: #fff; font-size: 14px; }
         .fleet-incident-pin {
@@ -579,7 +674,7 @@ export default function LiveLocationsMap({
           100% { transform: scale(2.6); opacity: 0; }
         }
         .fleet-tooltip { border: 1px solid var(--br); border-radius: 12px; box-shadow: var(--shadow-sm); font-family: var(--font-sans); }
-        .leaflet-popup-content-wrapper { border-radius: 20px; border: 1px solid var(--br); background: var(--sf); box-shadow: var(--shadow-lg); }
+        .leaflet-popup-content-wrapper { border-radius: 16px; border: 1px solid var(--br); background: var(--sf); box-shadow: var(--shadow-lg); }
         .leaflet-popup-tip { background: var(--sf); }
       `}</style>
     </div>

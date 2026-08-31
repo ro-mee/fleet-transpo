@@ -1,71 +1,26 @@
-import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { isValidCoordinate } from "@/lib/gps";
 
 /**
  * POST /api/mobile/driver/gps
  *
- * Generic endpoint for drivers to report their live GPS location even when they
- * do not have an active trip. Used for fleet tracking (Online & Waiting).
+ * Compatibility endpoint for older mobile clients. A trip id is required for a
+ * GPS write; guessing the driver's "latest" trip here could attach a fix to the
+ * wrong trip when more than one assignment overlaps. The current mobile client
+ * uses /trips/[id]/gps instead.
  */
 export async function POST(req) {
   try {
     const session = await requireDriver(req);
     const body = await parseBody(req);
 
-    const latitude = Number(body.latitude);
-    const longitude = Number(body.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (!isValidCoordinate(body.latitude, body.longitude)) {
       return err("latitude and longitude are required", 400);
     }
-    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      return err("latitude or longitude is out of range", 400);
-    }
 
-    const toNumberOrNull = (value) => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    // Update driver's last known location
-    await query(
-      `UPDATE drivers
-          SET current_latitude = $1, current_longitude = $2, last_location_update = NOW()
-        WHERE driver_id = $3`,
-      [latitude, longitude, session.user.driverId]
-    );
-
-    // If driver has an active trip, look up its vehicle for GPS tracking
-    const { rows: tripRows } = await query(
-      `SELECT vehicle_id FROM trips
-        WHERE driver_id = $1
-          AND deleted_at IS NULL
-          AND trip_status NOT IN ('Completed', 'Cancelled')
-        ORDER BY start_time DESC NULLS LAST
-        LIMIT 1`,
-      [session.user.driverId]
-    );
-    const vehicleId = tripRows[0]?.vehicle_id;
-
-    if (vehicleId) {
-      await query(
-        `INSERT INTO gpstracking
-           (vehicle_id, trip_id, latitude, longitude, speed, heading, altitude, accuracy, recorded_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, COALESCE($9::TIMESTAMPTZ, NOW()))`,
-        [
-          vehicleId,
-          null, // No active trip
-          latitude,
-          longitude,
-          toNumberOrNull(body.speed) ?? 0,
-          toNumberOrNull(body.heading) ?? 0,
-          toNumberOrNull(body.altitude) ?? 0,
-          toNumberOrNull(body.accuracy) ?? 0,
-          body.recorded_at ?? null,
-        ]
-      );
-    }
-
-    return ok({ success: true });
+    // Do not infer a trip or persist an idle/non-trip sample. The explicit trip
+    // endpoint is the only canonical GPS write path.
+    return ok({ success: true, tracked: false, reason: "trip-id-required" });
   } catch (e) {
     return handleError(e);
   }

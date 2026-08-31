@@ -24,7 +24,7 @@ const TomTomMap = forwardRef(({
     recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterMap) window.recenterMap(); true;`),
     overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`)
   }));
-  const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "Eovwxfb6mUlNub48iBOiYpuQBZZWQHne";
+  const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "";
 
   const safeOriginAddr = (originAddress || "").replace(/'/g, "\\'");
   const safeDestAddr = (destAddress || "").replace(/'/g, "\\'");
@@ -561,10 +561,10 @@ const TomTomMap = forwardRef(({
               };
 
               async function initMap() {
-                  let originLat = ${origin?.lat || 'null'};
-                  let originLng = ${origin?.lng || 'null'};
-                  let destLat = ${destination?.lat || 'null'};
-                  let destLng = ${destination?.lng || 'null'};
+                  let originLat = ${origin?.lat ?? 'null'};
+                  let originLng = ${origin?.lng ?? 'null'};
+                  let destLat = ${destination?.lat ?? 'null'};
+                  let destLng = ${destination?.lng ?? 'null'};
                   
                   const originAddr = '${safeOriginAddr}';
                   const destAddr = '${safeDestAddr}';
@@ -589,19 +589,34 @@ const TomTomMap = forwardRef(({
                       } catch(e) {}
                   }
 
-                  originLat = originLat || 14.5086;
-                  originLng = originLng || 121.0194;
-                  destLat = destLat || 14.5547;
-                  destLng = destLng || 121.0244;
+                  const hasCoordinate = (value, min, max) => value != null && String(value).trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= min && Number(value) <= max;
+                  const hasOrigin = hasCoordinate(originLat, -90, 90) && hasCoordinate(originLng, -180, 180);
+                  const hasDestination = hasCoordinate(destLat, -90, 90) && hasCoordinate(destLng, -180, 180);
+                  if (!hasOrigin) {
+                      originLat = null;
+                      originLng = null;
+                  } else {
+                      originLat = Number(originLat);
+                      originLng = Number(originLng);
+                  }
+                  if (!hasDestination) {
+                      destLat = null;
+                      destLng = null;
+                  } else {
+                      destLat = Number(destLat);
+                      destLng = Number(destLng);
+                  }
+                  const centerLat = hasOrigin ? Number(originLat) : hasDestination ? Number(destLat) : 14.6;
+                  const centerLng = hasOrigin ? Number(originLng) : hasDestination ? Number(destLng) : 121.0;
                   
                   // Store globally for rerouting
-                  window.currentDestLat = destLat;
-                  window.currentDestLng = destLng;
+                  window.currentDestLat = hasDestination ? Number(destLat) : null;
+                  window.currentDestLng = hasDestination ? Number(destLng) : null;
 
                   const map = tt.map({
                       key: '${tomtomKey}',
                       container: 'map',
-                      center: [originLng, originLat],
+                      center: [centerLng, centerLat],
                       zoom: 12, // Start zoomed out so the route reveal is smooth
                       pitch: 0, // Start flat for the full route overview
                       dragPan: ${scrollEnabled},
@@ -657,7 +672,7 @@ const TomTomMap = forwardRef(({
                   });
 
                   if (${showCarIcon}) {
-                      if (${destination ? 'true' : 'false'}) {
+                      if (hasOrigin && hasDestination) {
                           document.getElementById('navHeader').style.display = 'flex';
                           document.getElementById('navDistVal').innerText = "---";
                           document.getElementById('navDistUnit').innerText = "";
@@ -673,6 +688,10 @@ const TomTomMap = forwardRef(({
                       if (window.ReactNativeWebView) {
                           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
                       }
+
+                      // Do not invent a driver marker when the trip has no
+                      // valid origin/GPS coordinate.
+                      if (!hasOrigin) return;
 
                       // Origin Marker
                       const originEl = document.createElement('div');
@@ -711,7 +730,7 @@ const TomTomMap = forwardRef(({
                           .addTo(map);
 
                       // Destination Marker
-                      const hasValidDest = (destLat && destLng) && (originLat !== destLat || originLng !== destLng);
+                      const hasValidDest = hasDestination && (originLat !== destLat || originLng !== destLng);
                       if (!hasValidDest) return;
 
                       const destEl = document.createElement('div');
@@ -905,7 +924,7 @@ const TomTomMap = forwardRef(({
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   useEffect(() => {
     // Only track movement if it's the live map (showCarIcon = true)
-    if (showCarIcon && origin?.lat && origin?.lng && webViewRef.current) {
+    if (showCarIcon && origin?.lat != null && origin?.lng != null && webViewRef.current) {
       const bearingScript = origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 
           ? `, bearing: ${origin.heading}` 
           : '';

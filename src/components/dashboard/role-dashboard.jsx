@@ -49,6 +49,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { StatsGridSkeleton, CardSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { getDashboardConfig } from "@/components/dashboard/dashboard-configs";
+import { isValidCoordinate } from "@/lib/gps";
 
 const tooltipStyle = {
   background: "var(--sf)",
@@ -434,23 +435,25 @@ function DashboardSection({ section, data }) {
           </div>
         </SectionCard>
       );
-    case "map":
+    case "map": {
+      const mapLocations = (data.locations || []).filter((location) => isValidCoordinate(location?.latitude, location?.longitude));
       return (
-        <SectionCard title="Live GPS Tracking" icon={MapPin} extra={<span className="text-xs text-foreground-muted">{data.locations.length} vehicles on the map</span>}>
+        <SectionCard title="Live GPS Tracking" icon={MapPin} extra={<span className="text-xs text-foreground-muted">{mapLocations.length} positioned</span>}>
           <div className="h-[280px] rounded-lg overflow-hidden bg-hover">
-            {data.locations.length ? (
-              <LiveLocationsMap locations={data.locations} />
+            {mapLocations.length ? (
+              <LiveLocationsMap locations={mapLocations} />
             ) : (
               <EmptyState
                 icon={MapPin}
-                title="No live locations"
-                description="Vehicle positions will appear here when active trips report GPS coordinates."
+                title="No current GPS positions"
+                description="Active trip positions will appear here when their next trip-scoped GPS update is received."
                 className="h-full py-16"
               />
             )}
           </div>
         </SectionCard>
       );
+    }
     case "activity":
       return (
         <SectionCard title="Recent Activity" icon={Activity} flush>

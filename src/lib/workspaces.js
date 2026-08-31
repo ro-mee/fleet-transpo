@@ -168,6 +168,7 @@ export const WORKS = {
           { href: "/maintenance/predictive", label: "Predictive Maintenance", icon: Wrench },
           { href: "/fuel", label: "Fuel Monitoring", icon: Fuel },
           { href: "/fuel/analytics", label: "Fuel Analytics", icon: Fuel },
+          { href: "/tracking/live-map", label: "Live GPS Tracking", icon: MapPin },
           { href: "/incidents", label: "Incidents", icon: AlertTriangle },
           { href: "/uvvrp", label: "Number Coding", icon: CalendarCheck },
         ],

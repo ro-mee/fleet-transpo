@@ -322,8 +322,8 @@ export default function TripDetailsScreen() {
               key={`${trip?.trip_id}-${trip?.origin}-${trip?.destination}`}
               origin={trip?.origin_latitude ? { lat: Number(trip.origin_latitude), lng: Number(trip.origin_longitude) } : undefined}
               destination={trip?.destination_latitude ? { lat: Number(trip.destination_latitude), lng: Number(trip.destination_longitude) } : undefined}
-              originAddress={trip?.origin || "Manila, Philippines"}
-              destAddress={trip?.destination || "Pasay, Metro Manila"}
+              originAddress={trip?.origin || ""}
+              destAddress={trip?.destination || ""}
               pickupLabel={trip?.origin ? `Pickup: ${trip.origin}` : "Pickup Location"}
               dropoffLabel={trip?.destination ? `Drop-off: ${trip.destination}` : "Drop-off Location"}
               style={styles.mapImage}

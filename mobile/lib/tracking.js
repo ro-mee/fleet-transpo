@@ -27,6 +27,7 @@ export function useTripTracking(tripId) {
   const latest = useRef(null);
 
   useEffect(() => {
+    latest.current = null;
     if (!tripId || !settings.locationTracking) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- settings/tripId-driven reset; mirrors external state into hook state
       setPosting(false);
@@ -59,6 +60,7 @@ export function useTripTracking(tripId) {
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
         (loc) => {
+          if (cancelled) return;
           latest.current = loc;
           if (!cancelled) {
             setLatestFix({
@@ -68,6 +70,10 @@ export function useTripTracking(tripId) {
           }
         }
       );
+      if (cancelled) {
+        subscription.remove();
+        return;
+      }
 
       // Send on a timer rather than on every movement callback, so a driver in
       // traffic doesn't generate hundreds of rows.
@@ -78,10 +84,10 @@ export function useTripTracking(tripId) {
           await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
-            speed: loc.coords.speed ?? 0,
-            heading: loc.coords.heading ?? 0,
-            altitude: loc.coords.altitude ?? 0,
-            accuracy: loc.coords.accuracy ?? 0,
+            speed: loc.coords.speed ?? null,
+            heading: loc.coords.heading ?? null,
+            altitude: loc.coords.altitude ?? null,
+            accuracy: loc.coords.accuracy ?? null,
             recorded_at: new Date(loc.timestamp).toISOString(),
           });
           if (!cancelled) {
@@ -106,6 +112,7 @@ export function useTripTracking(tripId) {
       cancelled = true;
       if (interval) clearInterval(interval);
       if (subscription) subscription.remove();
+      latest.current = null;
       setPosting(false);
       setLatestFix(null);
     };

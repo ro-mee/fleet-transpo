@@ -190,7 +190,7 @@ export default function FullMapTab() {
                 {driverName}
               </Text>
               <Text style={[styles.driverStatusSub, { color: colors.onSurfaceVariant }]}>
-                {activeTrip ? `Active Trip #${activeTrip.trip_id}` : "Fleet GPS Ready"}
+                {activeTrip ? `Active Trip #${activeTrip.trip_id}` : "Not tracking"}
               </Text>
             </View>
 
@@ -216,10 +216,10 @@ export default function FullMapTab() {
                 Heading to Destination
               </Text>
               <Text style={[styles.destinationTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                {activeTrip.destination || "Coco Hotel & Resort"}
+                {activeTrip.destination || "Destination unavailable"}
               </Text>
               <Text style={[styles.pickupSub, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
-                Pickup: {activeTrip.origin || "Origin Location"}
+                Pickup: {activeTrip.origin || "Pickup unavailable"}
               </Text>
             </View>
           </View>

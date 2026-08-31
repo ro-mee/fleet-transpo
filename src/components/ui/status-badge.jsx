@@ -95,6 +95,12 @@ const ENTITY_MAPS = {
     active: "success",
     inactive: "secondary",
   },
+  gps: {
+    fresh: "success",
+    delayed: "warning",
+    offline: "danger",
+    "no signal": "secondary",
+  },
   maintenance: {
     scheduled: "info",
     "in progress": "warning",

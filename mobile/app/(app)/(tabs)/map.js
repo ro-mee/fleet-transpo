@@ -42,6 +42,23 @@ const HEADING_TO_PICKUP_STATUSES = [
   "At Pickup",
 ];
 
+// Pending assignments remain visible in the app, but GPS persistence starts
+// only once the driver accepts the trip.
+const GPS_TRACKING_STATUSES = new Set([
+  "Driver Accepted",
+  "Trip Started",
+  "At Pickup",
+  "Passenger Onboard",
+  "En Route",
+  "Drop-off",
+  "Arrived",
+  "In Progress",
+]);
+
+function isGpsTrackedTrip(trip) {
+  return trip?.trip_id != null && GPS_TRACKING_STATUSES.has(trip.trip_status);
+}
+
 // Distance in km between two lat/lng pairs (haversine).
 function haversineKm(latA, lonA, latB, lonB) {
   const R = 6371;
@@ -166,12 +183,15 @@ export default function MapTab() {
   // Keep the background task's trip/leg context in sync so it accumulates the
   // correct leg (and posts to the right trip endpoint) when the app is
   // backgrounded. Runs on every active trip or status change.
+  const activeTripIdForTracking = activeTrip?.trip_id;
+  const activeTripStatusForTracking = activeTrip?.trip_status;
   useEffect(() => {
+    const tracking = activeTripIdForTracking != null && GPS_TRACKING_STATUSES.has(activeTripStatusForTracking);
     updateLegContext({
-      tripId: activeTrip?.trip_id ?? null,
-      leg: legForStatus(activeTrip?.trip_status),
+      tripId: tracking ? activeTripIdForTracking : null,
+      leg: tracking ? legForStatus(activeTripStatusForTracking) : null,
     }).catch(() => {});
-  }, [activeTrip?.trip_id, activeTrip?.trip_status]);
+  }, [activeTripIdForTracking, activeTripStatusForTracking]);
 
   // Background tracking, driven by AppState so there is never overlap with the
   // foreground watcher (no double-counted km, no duplicate GPS posts):
@@ -182,7 +202,7 @@ export default function MapTab() {
     const sub = AppState.addEventListener("change", (next) => {
       const prev = appState.current;
       appState.current = next;
-      const hadActiveTrip = Boolean(activeTripRef.current);
+      const hadActiveTrip = isGpsTrackedTrip(activeTripRef.current);
       const isLeavingActive = prev.match(/active/) && next.match(/inactive|background/);
       const isReturning = next === "active";
 
@@ -196,8 +216,11 @@ export default function MapTab() {
         // that fires before the merge resolves cannot double-count the gap
         // between the last foreground fix and the backgrounded stretch.
         distRef.current.prev = null;
-        stopBackgroundTracking().catch(() => {});
-        mergeStoredKm(distRef).catch(() => {});
+        // Merge only after the native task has stopped; otherwise its final
+        // AsyncStorage write can race this read and leave background km out.
+        stopBackgroundTracking()
+          .then(() => mergeStoredKm(distRef, activeTripRef.current?.trip_id ?? null))
+          .catch(() => {});
       }
     });
     return () => sub.remove();
@@ -251,12 +274,10 @@ export default function MapTab() {
           
           // 1. Backend GPS Tracking Sync (Every 30 seconds)
           const now = Date.now();
-          if (now - lastGpsSync.current >= 30000) {
+          if (isGpsTrackedTrip(activeTripRef.current) && now - lastGpsSync.current >= 30000) {
             lastGpsSync.current = now;
-            const endpoint = activeTripRef.current 
-              ? `/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`
-              : `/api/mobile/driver/gps`; // Generic endpoint for idle tracking
-              
+            const endpoint = `/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`;
+
             api.post(endpoint, {
               latitude: newLoc.coords.latitude,
               longitude: newLoc.coords.longitude,
@@ -286,6 +307,11 @@ export default function MapTab() {
 
           // 3. GPS Distance Accumulation (per leg)
           const d = distRef.current;
+          if (!isGpsTrackedTrip(activeTripRef.current)) {
+            d.prev = null;
+            d.leg = null;
+            return;
+          }
           const leg = HEADING_TO_PICKUP_STATUSES.includes(activeTripRef.current?.trip_status) ? "leg1" : "leg2";
           const lat = newLoc.coords.latitude;
           const lng = newLoc.coords.longitude;
@@ -429,7 +455,7 @@ export default function MapTab() {
         {/* Floating Explore Pill */}
         <View style={[styles.statusPill, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + '60' }]}>
           <View style={[styles.statusDot, { backgroundColor: colors.secondary }]} />
-          <Text style={[styles.statusPillText, { color: colors.onSurface }]}>ONLINE & WAITING</Text>
+          <Text style={[styles.statusPillText, { color: colors.onSurface }]}>NOT TRACKING</Text>
         </View>
 
         {/* Idle Dashboard Bottom Sheet */}
@@ -485,8 +511,8 @@ export default function MapTab() {
   const destName = isHeadingToPickup ? activeTrip.origin : activeTrip.destination;
 
   // Use driver location as start, fallback to trip origin if GPS not ready
-  const startLat = driverLocation?.lat || activeTrip.origin_latitude;
-  const startLng = driverLocation?.lng || activeTrip.origin_longitude;
+  const startLat = driverLocation?.lat ?? activeTrip.origin_latitude;
+  const startLng = driverLocation?.lng ?? activeTrip.origin_longitude;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -758,6 +784,15 @@ export default function MapTab() {
                         }
                       });
 
+                      // Clear the ref before the state update so a location
+                      // callback that lands during completion cannot post one
+                      // more fix for the finished trip. Stop any native task as
+                      // well; foreground completion normally has none running,
+                      // but this also closes a background/foreground race.
+                      activeTripRef.current = null;
+                      lastGpsSync.current = 0;
+                      updateLegContext({ tripId: null, leg: null }).catch(() => {});
+                      stopBackgroundTracking().catch(() => {});
                       setActiveTrip(null);
 
                       api.put(`/api/trips/${activeTrip.trip_id}/complete`, {

@@ -1,6 +1,8 @@
 import { query } from "@/lib/db";
 import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
+import { isValidCoordinate } from "@/lib/gps";
+import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 
 const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
 
@@ -37,16 +39,19 @@ export async function POST(req, { params }) {
 
     const trip = await assertTripOwnership(session, id);
 
-    const latitude = Number(body.latitude);
-    const longitude = Number(body.longitude);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return err("latitude and longitude are required", 400);
-    }
-    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-      return err("latitude or longitude is out of range", 400);
+    // Reject late GPS callbacks after a trip leaves the operational window.
+    if (!LIVE_TRIP_STATUSES.includes(trip.trip_status)) {
+      return ok({ success: true, tracked: false, reason: "trip-not-live" });
     }
 
+    if (!isValidCoordinate(body.latitude, body.longitude)) {
+      return err("latitude and longitude are required", 400);
+    }
+    const latitude = Number(body.latitude);
+    const longitude = Number(body.longitude);
+
     const toNumberOrNull = (value) => {
+      if (value == null || String(value).trim() === "") return null;
       const n = Number(value);
       return Number.isFinite(n) ? n : null;
     };
@@ -61,10 +66,10 @@ export async function POST(req, { params }) {
         trip.trip_id,
         latitude,
         longitude,
-        toNumberOrNull(body.speed) ?? 0,
-        toNumberOrNull(body.heading) ?? 0,
-        toNumberOrNull(body.altitude) ?? 0,
-        toNumberOrNull(body.accuracy) ?? 0,
+        toNumberOrNull(body.speed),
+        toNumberOrNull(body.heading),
+        toNumberOrNull(body.altitude),
+        toNumberOrNull(body.accuracy),
         body.recorded_at ?? null,
       ]
     );

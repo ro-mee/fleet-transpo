@@ -70,6 +70,7 @@ export async function GET(req) {
             'latitude',  loc.latitude,
             'longitude', loc.longitude,
             'speed',     loc.speed,
+            'speed_kmh', CASE WHEN loc.speed IS NULL THEN NULL ELSE ROUND((loc.speed * 3.6)::numeric, 1) END,
             'recorded_at', loc.recorded_at
           )
         END                     AS latest_location

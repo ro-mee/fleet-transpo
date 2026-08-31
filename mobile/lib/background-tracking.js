@@ -67,6 +67,9 @@ const MAX_SEGMENT_KM = 0.4;
 const MIN_MOVING_SEGMENT_KM = 0.02;
 
 const DEFAULT_CONTEXT = { tripId: null, leg: null, km1: 0, km2: 0, prev: null };
+// Foreground status/AppState events can arrive back-to-back. Serialize context
+// writes so a slower read from an older trip cannot overwrite the newer trip.
+let contextWrite = Promise.resolve();
 
 async function loadContext() {
   try {
@@ -105,21 +108,20 @@ TaskManager.defineTask(TASK_NAME, async ({ data, error }) => {
     const lng = loc.coords?.longitude;
     if (lat == null || lng == null) continue;
 
-    // Post the fix. With an active trip post to the trip GPS endpoint; otherwise
-    // the generic driver GPS endpoint (keeps idle drivers visible too).
+    // GPS is trip-scoped. A driver without an active trip can still view their
+    // local position, but the app must not persist idle/non-trip telemetry.
     const body = {
       latitude: lat,
       longitude: lng,
-      speed: loc.coords?.speed ?? 0,
-      heading: loc.coords?.heading ?? 0,
-      altitude: loc.coords?.altitude ?? 0,
-      accuracy: loc.coords?.accuracy ?? 0,
+      speed: loc.coords?.speed ?? null,
+      heading: loc.coords?.heading ?? null,
+      altitude: loc.coords?.altitude ?? null,
+      accuracy: loc.coords?.accuracy ?? null,
       recorded_at: loc.timestamp ? new Date(loc.timestamp).toISOString() : undefined,
     };
-    const path = ctx.tripId
-      ? `/api/mobile/driver/trips/${ctx.tripId}/gps`
-      : "/api/mobile/driver/gps";
-    api.post(path, body).catch(() => {});
+    if (ctx.tripId) {
+      api.post(`/api/mobile/driver/trips/${ctx.tripId}/gps`, body).catch(() => {});
+    }
 
     // Accumulate km per leg, same rules as the foreground watcher.
     if (ctx.tripId && ctx.leg && ctx.prev) {
@@ -179,14 +181,25 @@ export async function stopBackgroundTracking() {
 /**
  * Tell the background task which trip/leg is active. Called by the foreground on
  * every status change. `prev` is reset so a leg transition's straddling gap is
- * not counted. Existing km are preserved.
+ * not counted. Existing km are preserved only for the same trip.
  */
 export async function updateLegContext({ tripId, leg }) {
-  const ctx = await loadContext();
-  ctx.tripId = tripId ?? null;
-  ctx.leg = leg ?? null;
-  ctx.prev = null;
-  await saveContext(ctx);
+  const write = contextWrite.then(async () => {
+    const ctx = await loadContext();
+    const nextTripId = tripId ?? null;
+    if (ctx.tripId != null && String(ctx.tripId) !== String(nextTripId)) {
+      // Distance totals belong to one trip. Never carry them into the next
+      // assignment (or into an idle state) when the foreground changes first.
+      ctx.km1 = 0;
+      ctx.km2 = 0;
+    }
+    ctx.tripId = nextTripId;
+    ctx.leg = leg ?? null;
+    ctx.prev = null;
+    await saveContext(ctx);
+  });
+  contextWrite = write.catch(() => {});
+  return write;
 }
 
 /**
@@ -194,10 +207,14 @@ export async function updateLegContext({ tripId, leg }) {
  * Called when the app returns to the foreground. Adds km1/km2 to the matching
  * leg, then clears the stored totals so the next background cycle starts fresh.
  */
-export async function mergeStoredKm(distRef) {
+export async function mergeStoredKm(distRef, expectedTripId = null) {
+  await contextWrite;
   const ctx = await loadContext();
-  if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
-  if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
+  const sameTrip = expectedTripId != null && ctx.tripId != null && String(ctx.tripId) === String(expectedTripId);
+  if (sameTrip) {
+    if (ctx.km1 > 0) distRef.current.leg1 += ctx.km1;
+    if (ctx.km2 > 0) distRef.current.leg2 += ctx.km2;
+  }
   ctx.km1 = 0;
   ctx.km2 = 0;
   ctx.prev = null;

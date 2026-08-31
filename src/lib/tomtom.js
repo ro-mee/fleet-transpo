@@ -20,8 +20,9 @@ export function getServerKey() {
  * @param {number} [tileSize=256]
  */
 export function rasterTileUrl(tileSize = 256) {
-  const key = getPublicKey() || "3UvNRAZJ2015H29jWzKGJbAAB41Yf8hL";
-  return `https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?key=${key}&tileSize=${tileSize}`;
+  const key = getPublicKey();
+  const query = key ? `key=${encodeURIComponent(key)}&` : "";
+  return `https://api.tomtom.com/map/1/tile/basic/main/{z}/{x}/{y}.png?${query}tileSize=${tileSize}`;
 }
 
 /**
@@ -29,8 +30,9 @@ export function rasterTileUrl(tileSize = 256) {
  * @param {number} [tileSize=256]
  */
 export function trafficTileUrl(tileSize = 256) {
-  const key = getPublicKey() || "3UvNRAZJ2015H29jWzKGJbAAB41Yf8hL";
-  return `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${key}&tileSize=${tileSize}`;
+  const key = getPublicKey();
+  const query = key ? `key=${encodeURIComponent(key)}&` : "";
+  return `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?${query}tileSize=${tileSize}`;
 }
 
 /**

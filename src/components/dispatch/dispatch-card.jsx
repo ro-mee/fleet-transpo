@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/progress-bar";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getGpsHealth, speedKmhFromMps } from "@/lib/gps";
 import { DISPATCH_STATUS as D, TRIP_STATUS as T } from "@/lib/constants";
 import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { alertMessage } from "@/lib/scheduling/departure-alerts";
@@ -82,7 +83,7 @@ function TimingLeg({ leg, label, planned, plannedNote, actual, isLive }) {
           <span className="ml-1 font-normal text-foreground-muted">{plannedNote}</span>
         )}
         {isLive && (
-          <span className="ml-1.5 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-primary align-middle">
+          <span className="ml-1.5 inline-flex items-center gap-1 text-[11px] font-bold uppercase text-primary align-middle">
             <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
             live
           </span>
@@ -143,12 +144,14 @@ export function DispatchCard({
     const dep = new Date(ds.scheduled_departure).getTime();
     if (Number.isFinite(dep) && durationMin) staticEta = new Date(dep + durationMin * 60000);
   }
-  if (moving && gps && dest?.latitude != null && dest?.longitude != null) {
+  const gpsIsFresh = gps && getGpsHealth(gps.recorded_at).key === "fresh";
+  if (moving && gpsIsFresh && dest?.latitude != null && dest?.longitude != null) {
     const remainingKm = haversineKm(
       { lat: Number(gps.latitude), lng: Number(gps.longitude) },
       { lat: Number(dest.latitude), lng: Number(dest.longitude) }
     );
-    const speed = Number(gps.speed) > 3 ? Number(gps.speed) : null;
+    const speedKmh = gps.speed_kmh ?? speedKmhFromMps(gps.speed);
+    const speed = speedKmh > 3 ? speedKmh : null;
     const recordedAt = gps.recorded_at ? new Date(gps.recorded_at).getTime() : null;
     if (speed && Number.isFinite(recordedAt)) {
       liveEta = new Date(recordedAt + (remainingKm / speed) * 3600 * 1000);
