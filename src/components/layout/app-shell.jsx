@@ -503,14 +503,19 @@ export function TopNav() {
         })}
       </div>
 
-      <div className="ml-auto flex items-center gap-2 px-6">
+      <div className="ml-auto flex shrink-0 items-center gap-2 px-6">
         <ThemeToggle />
 
         <NotificationDropdown />
 
         <div className="h-5 w-px bg-border" />
 
-        {!loading && (
+        {/* Keep the auth trigger's footprint while NextAuth hydrates. Inserting
+            it later otherwise moves every ml-auto action, including the theme
+            toggle, after the first paint. */}
+        {loading ? (
+          <span aria-hidden="true" className="h-7 w-[50px] shrink-0" />
+        ) : (
           <UserDropdown employee={employee} signOut={signOut} side="bottom" align="end" chevron="down" />
         )}
       </div>

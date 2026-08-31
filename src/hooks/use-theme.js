@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useSyncExternalStore } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, useSyncExternalStore } from "react";
 
 // Theme store with three explicit modes: light, dark, system.
 //
@@ -67,7 +67,7 @@ function getServerSnapshot() {
   return SERVER_SNAPSHOT;
 }
 
-function setModeValue(next, event) {
+function setModeValue(next, source) {
   if (!MODES.includes(next)) return;
   const currentEffective = effectiveTheme(storedMode());
   const nextEffective = effectiveTheme(next);
@@ -95,52 +95,77 @@ function setModeValue(next, event) {
 
   const isGoingDark = nextEffective === "dark";
 
-  // Calculate coordinates for the circular expansion/contraction
-  let x = window.innerWidth / 2;
-  let y = window.innerHeight / 2;
+  // Measure the target button synchronously in real-time immediately before starting the transition
+  const button =
+    (source && typeof source.getBoundingClientRect === "function"
+      ? source.closest?.("[data-theme-toggle]") || source
+      : null) ||
+    document.querySelector("[data-theme-toggle]") ||
+    document.querySelector(".theme-toggle-btn");
 
-  if (
-    event &&
-    typeof event.clientX === "number" &&
-    typeof event.clientY === "number" &&
-    (event.clientX !== 0 || event.clientY !== 0)
-  ) {
-    x = event.clientX;
-    y = event.clientY;
-  } else if (event?.currentTarget?.getBoundingClientRect) {
-    const rect = event.currentTarget.getBoundingClientRect();
-    x = rect.left + rect.width / 2;
-    y = rect.top + rect.height / 2;
-  } else if (event?.target?.getBoundingClientRect) {
-    const rect = event.target.getBoundingClientRect();
-    x = rect.left + rect.width / 2;
-    y = rect.top + rect.height / 2;
+  const rect = button?.getBoundingClientRect?.();
+
+  // If no element or invalid geometry, fall back to immediate change
+  if (!rect || rect.width <= 0 || rect.height <= 0) {
+    commit();
+    return;
   }
 
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  const x = Math.round(rect.left + rect.width / 2);
+  const y = Math.round(rect.top + rect.height / 2);
   const endRadius = Math.ceil(
     Math.hypot(
-      Math.max(x, window.innerWidth - x),
-      Math.max(y, window.innerHeight - y)
+      Math.max(x, viewportWidth - x),
+      Math.max(y, viewportHeight - y)
     )
-  );
+  ) + 10;
 
   const root = document.documentElement;
-  root.style.setProperty("--theme-x", `${Math.round(x)}px`);
-  root.style.setProperty("--theme-y", `${Math.round(y)}px`);
-  root.style.setProperty("--theme-r", `${endRadius}px`);
   root.dataset.themeTransition = isGoingDark ? "expand" : "shrink";
 
-  const transition = document.startViewTransition(() => {
+  let transition;
+  try {
+    transition = document.startViewTransition(() => {
+      commit();
+    });
+  } catch {
+    delete root.dataset.themeTransition;
     commit();
-  });
+    return;
+  }
+
+  const pseudoElement = isGoingDark
+    ? "::view-transition-new(root)"
+    : "::view-transition-old(root)";
+
+  const keyframes = isGoingDark
+    ? [
+        { clipPath: `circle(0px at ${x}px ${y}px)` },
+        { clipPath: `circle(${endRadius}px at ${x}px ${y}px)` },
+      ]
+    : [
+        { clipPath: `circle(${endRadius}px at ${x}px ${y}px)` },
+        { clipPath: `circle(0px at ${x}px ${y}px)` },
+      ];
+
+  transition.ready
+    .then(() => {
+      const animation = document.documentElement.animate(keyframes, {
+        duration: 450,
+        easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+        pseudoElement,
+        fill: "both",
+      });
+      return animation.finished.catch(() => {});
+    })
+    .catch(() => {});
 
   transition.finished
     .catch(() => {})
     .finally(() => {
       delete root.dataset.themeTransition;
-      root.style.removeProperty("--theme-x");
-      root.style.removeProperty("--theme-y");
-      root.style.removeProperty("--theme-r");
     });
 }
 
@@ -154,20 +179,23 @@ if (typeof window !== "undefined" && window.matchMedia) {
 
 export function ThemeProvider({ children }) {
   const { theme, mode } = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const [mounted, setMounted] = useState(false);
 
-  const toggle = useCallback((event) => {
+  const toggle = useCallback((source) => {
     const current = effectiveTheme(storedMode());
-    setModeValue(current === "dark" ? "light" : "dark", event);
+    setModeValue(current === "dark" ? "light" : "dark", source);
   }, []);
 
   // Sync the initial class from localStorage (the blocking script handles the
   // class on first paint; this picks up any mode that wasn't applied then).
   useEffect(() => {
     applyTheme(storedMode());
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- records that client hydration has completed
+    setMounted(true);
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, mode, setMode: setModeValue, toggle, mounted: true }}>
+    <ThemeContext.Provider value={{ theme, mode, setMode: setModeValue, toggle, mounted }}>
       {children}
     </ThemeContext.Provider>
   );

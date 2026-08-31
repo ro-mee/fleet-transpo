@@ -290,32 +290,25 @@ input:-webkit-autofill:focus {
 }
 
 /* ── Theme Switch Circular Reveal (View Transition API) ── */
-@keyframes theme-expand {
-  from {
-    clip-path: circle(0px at var(--theme-x, 50%) var(--theme-y, 50%));
-  }
-  to {
-    clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 50%));
-  }
-}
-
-@keyframes theme-shrink {
-  from {
-    clip-path: circle(var(--theme-r, 150vmax) at var(--theme-x, 50%) var(--theme-y, 50%));
-  }
-  to {
-    clip-path: circle(0px at var(--theme-x, 50%) var(--theme-y, 50%));
-  }
-}
-
+::view-transition-group(root),
+::view-transition-image-pair(root),
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
 }
 
-/* Expand mode (Light -> Dark):
-   New (Dark) layer starts at circle(0px) in CSS keyframe 0% and expands outward over Light */
+::view-transition-image-pair(root) {
+  isolation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  display: block;
+}
+
+/* Expand mode (Light -> Dark): the JS animation clips the new layer while the
+   old layer remains underneath. */
 :root[data-theme-transition="expand"]::view-transition-old(root),
 html[data-theme-transition="expand"]::view-transition-old(root) {
   z-index: 1;
@@ -323,32 +316,23 @@ html[data-theme-transition="expand"]::view-transition-old(root) {
 :root[data-theme-transition="expand"]::view-transition-new(root),
 html[data-theme-transition="expand"]::view-transition-new(root) {
   z-index: 9999;
-  animation: theme-expand 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
-/* Shrink mode (Dark -> Light):
-   Old (Dark) layer sits on top and shrinks into button via CSS keyframes, revealing Light underneath */
+/* Shrink mode (Dark -> Light): the JS animation clips the old layer while the
+   new light layer remains underneath. */
 :root[data-theme-transition="shrink"]::view-transition-old(root),
 html[data-theme-transition="shrink"]::view-transition-old(root) {
   z-index: 9999;
-  animation: theme-shrink 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 :root[data-theme-transition="shrink"]::view-transition-new(root),
 html[data-theme-transition="shrink"]::view-transition-new(root) {
   z-index: 1;
 }
 
-.theme-toggle-btn {
-  view-transition-name: theme-toggle-btn;
-}
-
-::view-transition-group(theme-toggle-btn) {
-  z-index: 10000;
-}
-
-::view-transition-old(theme-toggle-btn),
-::view-transition-new(theme-toggle-btn) {
-  animation: none;
-  mix-blend-mode: normal;
-  display: none;
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
 }

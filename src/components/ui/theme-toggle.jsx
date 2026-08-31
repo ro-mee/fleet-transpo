@@ -1,16 +1,22 @@
 "use client";
 
+import { useRef } from "react";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 
 export function ThemeToggle({ className, ...props }) {
   const { theme, toggle, mounted } = useTheme();
+  const buttonRef = useRef(null);
   const isDark = mounted ? theme === "dark" : false;
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      ref={buttonRef}
+      onClick={(e) => {
+        toggle(buttonRef.current || e?.currentTarget);
+      }}
+      data-theme-toggle="true"
       className={cn(
         "theme-toggle-btn relative flex h-8 w-8 items-center justify-center rounded-md text-foreground-muted hover:text-foreground hover:bg-hover transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 select-none active:scale-90",
         className
