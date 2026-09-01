@@ -78,7 +78,7 @@ warnings were emitted). The repository contains no project-level `test.js`;
 the focused `*.test.js` files were retained because they cover shipped RBAC,
 session, reset-token, and rate-limit boundaries. The normal Vitest command is
 blocked by a local Windows/esbuild config-loader permission error; using
-`--configLoader runner` runs the retained **473/473** tests across 42 files.
+`--configLoader runner` runs the retained **474/474** tests across 43 files.
 Temporary implementation checks were removed after verification; the fixture
 that simulates an `integration_log` failure still allows route resolution.
 

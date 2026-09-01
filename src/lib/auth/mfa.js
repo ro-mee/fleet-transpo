@@ -52,7 +52,8 @@ export function decryptSecret(row) {
 }
 
 export function generateSecret() {
-  return Secret.generate().base32;
+  // otpauth v9 generates random bytes through the Secret constructor.
+  return new Secret().base32;
 }
 
 export function createTotp(secret, label) {

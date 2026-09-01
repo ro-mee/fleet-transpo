@@ -193,7 +193,7 @@ Verification (2026-09-02): `npm run verify:auth` passes 218/218 exported HTTP
 methods, the live lifecycle harness passes 72/72, and lint plus migration
 validation pass. The default local Vitest config loader still hits a Windows /
 esbuild permission error, but `--configLoader runner` runs the retained suite at
-473/473 across 42 files.
+474/474 across 43 files.
 
 - The inert RLS migrations are still in the tree. Removing them is a judgement
   call between reference value and the confusion of shipping policies that do

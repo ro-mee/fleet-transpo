@@ -130,7 +130,7 @@ The `system_admin` short-circuit exists in `can()` and is mirrored by `rolesFor(
 
 Shipped controls: explicit response projections (no employee wildcard/password-hash serialization), driver list denial on general fleet routes and global search, driver-owned fuel vehicle/trip checks and scoped counts, operations-only maintenance creation, live session revalidation, mobile refresh-token revocation on disable, system-admin target protection, non-driver demotion protection, matrix-derived report/AI permissions, and a method-level route-auth CI gate.
 
-Verification: `npm run lint:ci` passed; `npm run db:check` passed (92 migration files); `npm run verify:auth` passed (218/218 methods); `node --import ./scripts/route-harness-loader.mjs scripts/verify-rbac.mjs` passed (72/72); production build passed. The retained Vitest suite passes 473/473 with the local `--configLoader runner` workaround.
+Verification: `npm run lint:ci` passed; `npm run db:check` passed (92 migration files); `npm run verify:auth` passed (218/218 methods); `node --import ./scripts/route-harness-loader.mjs scripts/verify-rbac.mjs` passed (72/72); production build passed. The retained Vitest suite passes 474/474 across 43 files with the local `--configLoader runner` workaround.
 
 Permission centralization follow-up: every page guard now resolves its roles from
 `getRequiredRolesForPath(pathname)`, and cleanly mapped API methods resolve roles
@@ -156,7 +156,7 @@ shipped RBAC and authentication boundaries.
 
 Verification after the worktree audit: `npm run lint:ci`, `npm run build`,
 `npm run verify:auth` (218/218), and `npm run db:check` (92 files) pass. The
-retained suite runs with Vitest's `--configLoader runner` workaround at 473/473.
+retained suite runs with Vitest's `--configLoader runner` workaround at 474/474 across 43 files.
 The integration-ingest fixture allows the route-resolver lookup and still
 verifies that `integration_log` errors remain best-effort.
 

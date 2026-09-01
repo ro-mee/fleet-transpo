@@ -22,7 +22,7 @@ last_verified: 2026-09-02
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
 - **CI/security baseline:** GitHub Actions now runs install, lint, all tests, migration filename validation, and the production build. CORS, account role assignment, unexpected API errors, and vehicle-image uploads have explicit guards and tests.
-- **Test suite:** **473/473 tests across 42 files** pass. Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
+- **Test suite:** **474/474 tests across 43 files** pass. Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
 - **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
@@ -113,7 +113,7 @@ writes are ownership-checked; sensitive employee joins use explicit projections;
 reports and AI insights use matrix-derived permissions; and CI runs
 `npm run verify:auth` across all 218 exported API methods. Focused security tests,
 the 72-check live lifecycle harness, lint, migration validation, and the
-production build pass. The retained suite is 473/473 after temporary
+production build pass. The retained suite is 474/474 across 43 files after temporary
 implementation checks were removed; the integration-ingest fixture still keeps
 its best-effort `integration_log` failure coverage.
 

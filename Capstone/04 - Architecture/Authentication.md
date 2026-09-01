@@ -165,7 +165,9 @@ until their provider or deployment decisions are made.
   are returned once to the already-authenticated operator.
 - TOTP verification uses the RFC 6238-compatible `otpauth` package with a
   30-second period, six digits, ±1 step skew, and `last_used_step` replay
-  protection. MFA attempts have independent IP/account throttles.
+  protection. Enrollment generates secrets with the v9-compatible
+  `new Secret().base32` API, and MFA attempts have independent IP/account
+  throttles.
 - Web and mobile credential exchanges check the enrolled factor before issuing
   a session. Missing/invalid factors never create a web session or mobile token.
 - Enabling/disabling MFA increments `auth_version` and revokes all web/mobile

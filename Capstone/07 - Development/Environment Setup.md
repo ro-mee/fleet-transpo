@@ -55,7 +55,7 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
-Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **473/473 tests across 42 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
+Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **474/474 tests across 43 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
 ## What you cannot do here — CONFIRMED
 

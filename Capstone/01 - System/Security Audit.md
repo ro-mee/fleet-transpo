@@ -277,7 +277,7 @@ focused security tests, lint, and the production build.
 - `npm run lint:ci`: passes with zero errors or warnings.
 - `npm run build`: production build compiles and prerenders all 166 pages;
   `/api/auth/reset-token` is included as a dynamic route.
-- The retained suite currently reports **473/473 passing across 42 files**;
+- The retained suite currently reports **474/474 passing across 43 files**;
   temporary implementation checks were removed after verification. The
   integration-ingest fixture still covers its best-effort `integration_log`
   write-failure branch.
@@ -299,7 +299,7 @@ focused security tests, lint, and the production build.
   `npm run verify:auth` pass; the route-auth audit reports **218/218** guarded
   methods. The default Vitest config loader still hits a local Windows/esbuild
   access-denied error, but `--configLoader runner` runs the full suite at
-  473/473 across 42 retained test files.
+  474/474 across 43 retained test files.
 
 ## Session management and TOTP 2FA — 2026-09-02 (IMPLEMENTED)
 
@@ -335,7 +335,7 @@ The planned security-settings work is now implemented and server-enforced:
   route-auth audit reports 218/218 guarded methods.
 - Temporary implementation checks for identity, rate limiting, reset tokens,
   sessions, MFA, and route boundaries were removed after verification at the
-  operator's request. The retained suite passes **473/473 tests across 42 files**.
+  operator's request. The retained suite passes **474/474 tests across 43 files**.
 - The live transaction smoke check used during implementation confirmed TOTP
   replay rejection and one-time recovery-code consumption; temporary data was
   rolled back.
@@ -343,6 +343,13 @@ The planned security-settings work is now implemented and server-enforced:
   session/MFA route handlers and renders 172 pages.
 - The default Vitest config loader still hits the known Windows/esbuild access
   denial; `npm exec vitest -- --configLoader runner ...` runs the focused tests.
+
+## Verification follow-up — 2026-09-02 (MFA setup fix)
+
+- Fixed the 2FA setup 500 caused by calling the removed `otpauth` v9
+  `Secret.generate()` API; enrollment now uses `new Secret().base32`.
+- The permanent regression test passes, and the retained suite is now
+  **474/474 across 43 files** with `--configLoader runner`.
 
 ## Related
 
