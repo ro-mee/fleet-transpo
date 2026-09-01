@@ -5,7 +5,7 @@ tags: [status, dashboard]
 source:
   - "(whole repository)"
   - "live DB dnxuphhxlzidvwtdqqkq"
-last_verified: 2026-08-22
+last_verified: 2026-09-02
 ---
 
 # Current State
@@ -15,14 +15,14 @@ last_verified: 2026-08-22
 ## What is working — CONFIRMED
 
 - **Full request pipeline:** Booking ingest → queue → review → approve → assign → dispatch → trip start → complete → outbound notify. See [[Request Lifecycle]].
-- **RBAC:** 6 roles, enforced on all **113** API routes via `requireAuth` (was 119; the 6-route `/api/reservations/*` tree was deleted 2026-08-11). `scripts/verify-rbac.mjs` pins the UI matrix to the per-route role lists — **78 checks pass**. See [[RBAC]].
+- **RBAC:** 6 roles, enforced across **218 exported API methods** via `requireAuth`/`requirePermission`. The method-level route audit passes **218/218**; the live lifecycle harness passes **72/72**. See [[RBAC]].
 - **Mobile driver app:** login, trips, accept, GPS, fuel, incidents. See [[Mobile Architecture]].
 - **Mobile fuel scanner:** center-nav shortcut opens an embedded receipt camera; the server validates the driver's uploaded receipt and uses Gemini structured extraction for brand/date/liters/unit price/final amount. Odometer is assigned from vehicle mileage, not OCR or manual entry. See [[Fuel]].
 - **AI advisory:** deterministic rule engine + predictive maintenance. See [[AI Advisory]].
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
 - **CI/security baseline:** GitHub Actions now runs install, lint, all tests, migration filename validation, and the production build. CORS, account role assignment, unexpected API errors, and vehicle-image uploads have explicit guards and tests.
-- **Test suite:** **368 tests across 30 files, all passing** (run 2026-08-22). Caveat worth keeping in view: the suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
+- **Test suite:** **473/473 tests across 42 files** pass. Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
 - **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
@@ -103,7 +103,19 @@ Consequence: `/api/cron/sync` and the Booking webhook return **503 by design** (
 4. ~~Replace `README.md`~~ → **done 2026-08-11** → [[DOC README Is Boilerplate]]
 5. ~~`SYSTEM.md` still describes the grounding bug as live~~ → **done 2026-08-11**; that passage and the second stub claim are gone. → [[Documentation Rot]]
 6. Add an `engines` field to `package.json`. The README states Node 20.9+, which is **Next 16's** requirement — this repo declares none of its own.
-7. Continue the remaining Security Tiers 2–3 items: separate web/mobile secrets, session revocation after role demotion, driver-list authorization review, OCR URL/SSRF hardening, trusted-proxy handling for `clientIp()`, and residual password-recovery review. CORS, admin→system-admin escalation, generic 500 responses, security headers, and vehicle-image validation were addressed 2026-08-22. → [[Security Audit]]
+7. Continue the remaining Security Tiers 2–3 items: RLS boundary review, document/other-upload hardening, residual password-recovery review, and production configuration cleanup. Separate mobile signing, session revalidation, driver-list/search authorization, OCR URL/SSRF hardening, trusted-proxy handling, CORS, admin→system-admin escalation, generic 500 responses, security headers, and vehicle-image validation are closed → [[Security Audit]]
+
+## RBAC hardening — 2026-09-02
+
+API identity resolution now revalidates the live employee role/status/link;
+general driver fleet lists and unscoped maintenance creation are closed; fuel
+writes are ownership-checked; sensitive employee joins use explicit projections;
+reports and AI insights use matrix-derived permissions; and CI runs
+`npm run verify:auth` across all 218 exported API methods. Focused security tests,
+the 72-check live lifecycle harness, lint, migration validation, and the
+production build pass. The retained suite is 473/473 after temporary
+implementation checks were removed; the integration-ingest fixture still keeps
+its best-effort `integration_log` failure coverage.
 
 ## Pending decisions
 

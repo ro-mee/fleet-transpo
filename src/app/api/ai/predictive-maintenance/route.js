@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { predictFleet, USAGE_WINDOW_DAYS } from "@/lib/ai/predictive-maintenance";
 
 /**
@@ -11,10 +11,9 @@ import { predictFleet, USAGE_WINDOW_DAYS } from "@/lib/ai/predictive-maintenance
  *
  * Computed server-side. The previous implementation fetched
  * /api/vehicles?limit=500 into the browser to perform a date comparison, which
- * shipped the whole fleet to any authenticated caller: that route is bare
- * requireAuth with no role list, so a driver could retrieve it even though the
- * pages consuming it are role-gated. This route matches the page gate in
- * src/lib/auth/permissions.js:32.
+ * shipped the whole fleet to any authenticated caller. This route now uses the
+ * same predictive_maintenance permission as the page gate in
+ * src/lib/auth/permissions.js.
  *
  * Not persisted. Inputs change on every trip, so a stored snapshot would only
  * add staleness. The trade-off is no history or trending — that would need a
@@ -71,7 +70,7 @@ SELECT v.vehicle_id, v.plate_number, v.vehicle_name, v.mileage,
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "predictive_maintenance", "read");
     const { rows } = await query(FLEET_SQL, [String(USAGE_WINDOW_DAYS)]);
     // One clock for the whole fleet, so two vehicles cannot be scored against
     // instants milliseconds apart and land on different sides of a boundary.

@@ -1,18 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { deliveryFor, sendPush } from "@/services/push.service";
+import { rolesFor } from "@/lib/auth/permissions";
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, [
-      "system_admin",
-      "admin",
-      "fleet_manager",
-      "dispatcher",
-      "management",
-      "driver",
-    ]);
+    const session = await requirePermission(req, "notifications", "read");
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT n.*, di.severity AS severity, di.incident_type AS incident_subtype
                  FROM notifications n
@@ -20,7 +14,7 @@ export async function GET(req) {
     const params = []; let idx = 1;
     const conditions = [];
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
-    const canScopeAll = ["system_admin", "admin", "fleet_manager"].includes(session.user?.role);
+    const canScopeAll = rolesFor("notifications", "read_all").includes(session.user?.role);
     const target = sp.get("employee_id");
     if (target) {
       if (!canScopeAll) return err("Not authorized to view another user's notifications", 403);
@@ -45,7 +39,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "notifications", "create");
     const body = await parseBody(req);
 
     const errors = validateBody(body, {

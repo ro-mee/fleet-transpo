@@ -2,8 +2,7 @@ import { query, getAdminClient } from "@/lib/db";
 import { setDispatchStatus } from "@/services/transition.service";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
-
-const STAFF_ROLES = ["system_admin", "fleet_manager", "dispatcher", "management", "admin"];
+import { rolesFor } from "@/lib/auth/permissions";
 
 async function staffRecipients() {
   const { rows } = await query(
@@ -11,7 +10,7 @@ async function staffRecipients() {
        FROM employees e
        JOIN roles r ON r.role_id = e.role_id
       WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-    [STAFF_ROLES]
+    [rolesFor("incidents", "read")]
   );
   return rows || [];
 }

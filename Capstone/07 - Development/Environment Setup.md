@@ -6,12 +6,12 @@ source:
   - .env
   - package.json
   - mobile/package.json
-last_verified: 2026-08-11
+last_verified: 2026-09-02
 ---
 
 # Environment Setup
 
-## What's in `.env` — CONFIRMED (10 keys, all well-formed)
+## What's in `.env` — CONFIRMED (11 keys, all well-formed)
 
 | Key | Purpose |
 |---|---|
@@ -22,6 +22,8 @@ last_verified: 2026-08-11
 | `AUTH_SECRET` | NextAuth |
 | `NEXTAUTH_SECRET` | NextAuth |
 | `NEXTAUTH_URL` | NextAuth |
+| `MOBILE_JWT_SECRET` | **Required in production.** Dedicated mobile bearer-token signing key; development/test may fall back to `NEXTAUTH_SECRET` with a warning |
+| `MFA_ENCRYPTION_KEY` | **Required for MFA enrollment.** Dedicated 32-byte hex/base64 AES-256-GCM key for TOTP secrets; never expose it to the client |
 | `DATABASE_URL` | **Privileged.** Direct `pg` connection, DB owner |
 | `NEXT_PUBLIC_TOMTOM_API_KEY` | Maps, client side |
 | `TOMTOM_API_KEY` | Maps, server side |
@@ -53,7 +55,7 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
-Tests: `npm run test:run` — **currently fails**, vitest isn't installed → [[DEBT Vitest Not Installed]]
+Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **473/473 tests across 42 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
 ## What you cannot do here — CONFIRMED
 

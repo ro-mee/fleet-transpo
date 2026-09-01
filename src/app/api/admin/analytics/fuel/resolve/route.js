@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { requireAuth, parseBody } from "@/lib/api/utils";
+import { requirePermission, parseBody } from "@/lib/api/utils";
 
 export async function POST(request) {
   try {
-    const session = await requireAuth(request, ["admin", "system_admin", "fleet_manager", "finance"]);
+    const session = await requirePermission(request, "fuel", "update");
     
     const body = await parseBody(request);
     const { fuel_record_id, status, review_remarks } = body;

@@ -47,7 +47,7 @@ import { StickyActionBar } from "@/components/ui/sticky-actions";
 import { vehicleSchema } from "@/lib/validation/schemas";
 
 export default function VehicleFormPage({ params }) {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const router = useRouter();
   const queryClient = useQueryClient();
   const isEdit = params?.id;

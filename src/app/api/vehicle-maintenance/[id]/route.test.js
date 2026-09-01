@@ -51,7 +51,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
   });
 
   function mockRequest(body, role = "fleet_manager", employeeId = 888) {
-    identitySpy = vi.spyOn(utils, "requireAuth").mockResolvedValue({
+    identitySpy = vi.spyOn(utils, "requirePermission").mockResolvedValue({
       user: { role, employeeId },
     });
     return { json: async () => body };
@@ -174,7 +174,7 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
   it("Test 8: Unauthorized User", async () => {
     const req = mockRequest({ status: "Completed" }, "driver", 123);
     
-    vi.spyOn(utils, "requireAuth").mockRejectedValue(new AuthError("Unauthorized", 403));
+    vi.spyOn(utils, "requirePermission").mockRejectedValue(new AuthError("Unauthorized", 403));
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(403);
   });

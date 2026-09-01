@@ -23,7 +23,7 @@ const categorySchema = {
 };
 
 export default function CategoriesPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const [editingCategory, setEditingCategory] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);

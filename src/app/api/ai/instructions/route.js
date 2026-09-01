@@ -1,11 +1,11 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { readFile, readdir } from "fs/promises";
 import { join } from "path";
 import { REPORT_TYPES } from "@/lib/ai/report-narrative";
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requirePermission(req, "ai_settings", "read");
     const base = join(process.cwd(), "resources", "ai");
     const mainPath = join(base, "instructions.md");
     const [content, reportFiles] = await Promise.all([

@@ -2,8 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { sendPush } from "@/services/push.service";
 import { buildIncidentMaintenancePayload } from "@/lib/incidents/resolution";
 import { requiresVehicleMaintenance } from "@/lib/driver/grounding";
-
-const MAINTENANCE_ROLES = ["system_admin", "admin", "fleet_manager"];
+import { rolesFor } from "@/lib/auth/permissions";
 
 /**
  * Create or recover the single work order belonging to an incident. The
@@ -109,7 +108,7 @@ export async function notifyMaintenanceTeam(workOrder, incidentId) {
        FROM employees e
        JOIN roles r ON r.role_id = e.role_id
       WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-    [MAINTENANCE_ROLES]
+    [rolesFor("incidents", "route_to_maintenance")]
   );
   if (!recipients.length) return;
 

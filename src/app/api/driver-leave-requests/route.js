@@ -1,4 +1,4 @@
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { listAllLeaveRequests } from "@/services/driver-schedule.service";
 
 // Leave review feed for staff (migration 049).
@@ -8,7 +8,7 @@ import { listAllLeaveRequests } from "@/services/driver-schedule.service";
 // to the staff roles that need to see who is away when planning dispatches.
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "driver_leave_requests", "read_all");
     const sp = new URL(req.url).searchParams;
     const driverId = sp.get("driver_id") ? Number(sp.get("driver_id")) : undefined;
     const rows = await listAllLeaveRequests({ driverId });

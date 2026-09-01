@@ -1,12 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { loadVehicleTravelContext, vehicleCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "vehicles", "read_all");
     const { searchParams } = new URL(req.url);
 
     // `Reserved` / `In Use` are not reasons to hide a vehicle from a *windowed*

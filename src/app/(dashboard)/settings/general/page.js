@@ -90,7 +90,7 @@ const EMPTY_HOTEL = {
 };
 
 export default function SettingsGeneralPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const { mode: sidebarMode, setMode: setSidebarMode } = useSidebar();
   const { mode: themeMode, setMode: setThemeMode } = useTheme();

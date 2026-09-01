@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError, errValidation } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError, errValidation } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 
 function coordinate(value, min, max) {
@@ -14,7 +14,7 @@ function clean(value) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "settings", "read");
     const { rows } = await query(
       `SELECT setting_value FROM system_settings WHERE setting_key = 'hotel_location' LIMIT 1`
     );
@@ -26,7 +26,7 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "settings", "update");
     const body = await parseBody(req);
     const hotelName = clean(body.hotel_name);
     const address = clean(body.address);

@@ -141,7 +141,7 @@ function Endpoint({ label, value, tone }) {
 }
 
 export default function DispatchDetailPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();

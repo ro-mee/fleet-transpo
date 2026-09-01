@@ -1,9 +1,9 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { getFuelConsumptionReport, validateFuelReportRange } from "@/lib/reports/fuel-consumption";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "reports", "read");
     const params = new URL(req.url).searchParams;
     const from = params.get("from") || "1970-01-01";
     const to = params.get("to") || "2100-01-01";

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 const DEFAULT_HOTEL_CATEGORIES = [
@@ -24,7 +24,7 @@ const CATEGORY_WRITABLE = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "categories", "read");
     let { rows } = await query(
       `SELECT * FROM vehiclecategories WHERE status = 'Active' AND deleted_at IS NULL ORDER BY category_name`
     );
@@ -54,7 +54,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "categories", "create");
     const body = await parseBody(req);
 
     const errors = validateBody(body, {

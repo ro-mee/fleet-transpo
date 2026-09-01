@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 // Client-writable columns for integration_log. Column names are never taken
 // from the request body — that would allow SQL injection via crafted keys.
@@ -17,7 +17,7 @@ const LOG_WRITABLE = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "integrations", "read");
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT * FROM integration_log`;
     const conditions = []; const params = []; let idx = 1;
@@ -32,7 +32,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "integrations", "execute");
     const body = await parseBody(req);
     const columns = [];
     const values = [];

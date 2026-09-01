@@ -2,6 +2,7 @@ import { getAdminClient } from "@/lib/db";
 import { query } from "@/lib/db";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
+import { rolesFor } from "@/lib/auth/permissions";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -266,8 +267,9 @@ export async function syncDriverStatus(driverId) {
       const expiry = info.rows[0]?.license_expiry || "unknown date";
       const { rows: staff } = await query(
         `SELECT employee_id FROM employees
-          WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin','admin','fleet_manager'))
-            AND deleted_at IS NULL`
+          WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
+            AND deleted_at IS NULL`,
+        [rolesFor("drivers", "update")]
       );
       if (staff.length) {
         await supabase.from("notifications").insert(

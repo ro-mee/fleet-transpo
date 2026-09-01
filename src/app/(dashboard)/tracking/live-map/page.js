@@ -135,7 +135,7 @@ function Metric({ label, value, icon: Icon }) {
 }
 
 export default function LiveMapPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
 
   const [selectedTripId, setSelectedTripId] = useState(null);
   const [now, setNow] = useState(() => Date.now());

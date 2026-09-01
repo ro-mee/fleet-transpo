@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { ROLE_IDS } from "@/lib/constants";
 import { handleError } from "@/lib/api/utils";
+import { rolesFor } from "@/lib/auth/permissions";
 import { canAssignRole } from "@/app/api/auth/register/route";
 import { proxy } from "@/proxy";
 import { clientIp } from "@/lib/rate-limit";
@@ -20,6 +22,69 @@ describe("security boundaries", () => {
   it("prevents admin privilege escalation", () => {
     expect(canAssignRole("admin", ROLE_IDS.system_admin)).toBe(false);
     expect(canAssignRole("system_admin", ROLE_IDS.system_admin)).toBe(true);
+  });
+
+  it("derives server role lists from the RBAC matrix", () => {
+    expect(rolesFor("reports", "read")).toEqual([
+      "system_admin", "admin", "fleet_manager", "management",
+    ]);
+    expect(rolesFor("maintenance", "create")).not.toContain("driver");
+    expect(rolesFor("ai", "read")).not.toContain("driver");
+    expect(rolesFor("accounts", "update")).toEqual(["system_admin", "admin"]);
+    expect(rolesFor("dispatch_settings", "read")).toEqual([
+      "system_admin", "admin", "fleet_manager", "dispatcher",
+    ]);
+    expect(rolesFor("reservations", "recommend")).toEqual([
+      "system_admin", "admin", "fleet_manager", "dispatcher",
+    ]);
+    expect(rolesFor("drivers", "manage_account")).toEqual([
+      "system_admin", "admin", "fleet_manager",
+    ]);
+    expect(rolesFor("ai", "scan_document")).toEqual([
+      "system_admin", "admin", "fleet_manager", "dispatcher",
+    ]);
+    expect(rolesFor("fuel_requests", "read")).toEqual([
+      "system_admin", "admin", "fleet_manager", "driver",
+    ]);
+    expect(rolesFor("fuel", "read_all")).toEqual([
+      "system_admin", "admin", "fleet_manager", "dispatcher", "management",
+    ]);
+    expect(rolesFor("notifications", "read")).toEqual([
+      "system_admin", "admin", "fleet_manager", "dispatcher", "driver", "management",
+    ]);
+  });
+
+  it("keeps page guards on the shared path policy", () => {
+    const source = readFileSync(new URL("./lib/auth/role-guard.js", import.meta.url), "utf8");
+    expect(source).toContain("getRequiredRolesForPath(pathname)");
+    expect(source).not.toContain("useRequireRole(requiredRoles)");
+  });
+
+  it("keeps employee response projections explicit", () => {
+    const auditedRoutes = [
+      "./app/api/fuel/route.js",
+      "./app/api/fuel/[id]/route.js",
+      "./app/api/ai/recommendations/route.js",
+    ];
+    for (const path of auditedRoutes) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8");
+      expect(source).not.toMatch(/row_to_json\(e\.\*\)/);
+      expect(source).not.toMatch(/e\.password_hash/);
+    }
+  });
+
+  it("keeps drivers on dedicated, scoped fleet endpoints", () => {
+    const listRoutes = [
+      "./app/api/trips/route.js",
+      "./app/api/dispatch/route.js",
+      "./app/api/vehicles/route.js",
+    ];
+    for (const path of listRoutes) {
+      const source = readFileSync(new URL(path, import.meta.url), "utf8");
+      expect(source).not.toContain('"management", "driver"');
+    }
+    const searchSource = readFileSync(new URL("./app/api/search/route.js", import.meta.url), "utf8");
+    expect(searchSource).not.toContain('requireAuth(req, "*")');
   });
 
   it("does not expose unexpected server errors", async () => {

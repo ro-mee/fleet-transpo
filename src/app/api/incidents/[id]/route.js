@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { syncVehicleStatus } from "@/services/status.service";
 import { sendPush } from "@/services/push.service";
@@ -10,8 +10,6 @@ import {
   canTransition,
   resolutionActionsError,
   shouldKeepVehicleGrounded,
-  INCIDENT_READ_ROLES,
-  INCIDENT_ACTION_ROLES,
 } from "@/lib/incidents/resolution";
 
 // Staff resolution endpoints. Resolving is no longer just a row edit: it also
@@ -31,7 +29,7 @@ import {
  */
 export async function GET(req, props) {
   try {
-    await requireAuth(req, INCIDENT_READ_ROLES);
+    await requirePermission(req, "incidents", "read");
 
     const params = await props.params;
     const id = params.id;
@@ -97,7 +95,7 @@ export async function GET(req, props) {
 
 export async function PATCH(req, props) {
   try {
-    const session = await requireAuth(req, INCIDENT_ACTION_ROLES);
+    const session = await requirePermission(req, "incidents", "resolve");
 
     const params = await props.params;
     const id = params.id;

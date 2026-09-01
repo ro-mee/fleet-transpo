@@ -30,10 +30,10 @@ export function AuthProvider({ children }) {
     setSessionExpiredHandler(() => setUser(null));
   }, []);
 
-  const signIn = useCallback(async (email, password) => {
+  const signIn = useCallback(async (email, password, { mfaCode = "" } = {}) => {
     const data = await apiFetch("/api/mobile/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, totpCode: mfaCode }),
       skipAuth: true,
     });
 
@@ -49,13 +49,13 @@ export function AuthProvider({ children }) {
     return driver;
   }, []);
 
-  const signOut = useCallback(async () => {
+  const signOut = useCallback(async ({ allDevices = false } = {}) => {
     const refreshToken = await getRefreshToken();
     try {
       if (refreshToken) {
         await apiFetch("/api/mobile/auth/logout", {
           method: "POST",
-          body: JSON.stringify({ refreshToken }),
+          body: JSON.stringify({ refreshToken, allDevices }),
           skipAuth: true,
         });
       }

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 // Client-writable columns for vehicledocuments. Column names are never taken
 // from the request body — that would allow SQL injection via crafted keys.
@@ -14,7 +14,7 @@ const DOC_WRITABLE = [
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "vehicles", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     const setClause = [];
@@ -38,7 +38,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "vehicles", "delete");
     const id = (await params).id;
     const { rowCount } = await query(
       `UPDATE vehicledocuments SET deleted_at = NOW(), status = 'Inactive' WHERE document_id = $1`,

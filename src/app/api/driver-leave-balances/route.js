@@ -1,9 +1,9 @@
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { query } from "@/lib/db";
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "driver_leave_balances", "read_all");
     const sp = new URL(req.url).searchParams;
     const driverId = sp.get("driver_id");
     

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { setDispatchStatus } from "@/services/transition.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
@@ -77,11 +77,9 @@ const JOINS = `
     LIMIT 1
   ) lat ON TRUE`;
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
 export async function GET(req, { params }) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "dispatch", "read");
     const id = (await params).id;
 
     // Throws 404 when the dispatch is not the caller's own.
@@ -112,7 +110,7 @@ const WRITABLE_COLUMNS = [
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "dispatch", "update_all");
     const id = (await params).id;
     const body = await parseBody(req);
 

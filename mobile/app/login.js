@@ -26,6 +26,8 @@ export default function LoginScreen() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -38,19 +40,20 @@ export default function LoginScreen() {
     try {
       setError(null);
       setLoading(true);
-      await signIn(username.trim(), password);
+      await signIn(username.trim(), password, { mfaCode });
       router.replace("/");
     } catch (e) {
-      setError(e.message || "Invalid credentials. Please try again.");
+      if (e.message === "MFA_REQUIRED") {
+        setMfaRequired(true);
+        setError("Enter the verification code from your authenticator app.");
+      } else if (mfaRequired && e.message === "MFA_INVALID") {
+        setError("That verification code is invalid or already used.");
+      } else {
+        setError(e.message || "Invalid credentials. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemo = () => {
-    setUsername("driver1");
-    setPassword("driver123");
-    setError(null);
   };
 
   return (
@@ -124,6 +127,31 @@ export default function LoginScreen() {
             </View>
           </View>
 
+          {mfaRequired ? (
+            <View style={styles.fieldGroup}>
+              <Text style={[styles.fieldLabel, { color: colors.onSurface }]}>Verification code</Text>
+              <View
+                style={[
+                  styles.inputRow,
+                  { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest },
+                ]}
+              >
+                <Ionicons name="shield-checkmark-outline" size={20} color={colors.outline} />
+                <TextInput
+                  style={[styles.input, { color: colors.onSurface }]}
+                  placeholder="6-digit code or recovery code"
+                  placeholderTextColor={colors.outline}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  value={mfaCode}
+                  onChangeText={setMfaCode}
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                />
+              </View>
+            </View>
+          ) : null}
+
           {/* Password field */}
           <View style={styles.fieldGroup}>
             <Text style={[styles.fieldLabel, { color: colors.onSurface }]}>Password</Text>
@@ -152,18 +180,6 @@ export default function LoginScreen() {
                 />
               </Pressable>
             </View>
-          </View>
-
-          {/* Remember / Forgot row */}
-          <View style={styles.rememberRow}>
-            <Text style={[styles.rememberText, { color: colors.onSurfaceVariant }]}>
-              Demo mode available
-            </Text>
-            <Pressable onPress={fillDemo} hitSlop={8}>
-              <Text style={[styles.forgotText, { color: colors.primary }]}>
-                Fill Demo
-              </Text>
-            </Pressable>
           </View>
 
           {/* Login CTA */}
@@ -273,22 +289,6 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(16),
     fontFamily: fonts.body,
     lineHeight: moderateScale(24),
-  },
-  rememberRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: moderateScale(4),
-  },
-  rememberText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(20),
-  },
-  forgotText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
   },
   loginBtn: {
     height: moderateScale(56),

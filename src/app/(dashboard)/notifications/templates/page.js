@@ -7,7 +7,7 @@ import { FileText } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function NotificationTemplatesPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
   return (
     <div className="space-y-6">
       <HeroHeader

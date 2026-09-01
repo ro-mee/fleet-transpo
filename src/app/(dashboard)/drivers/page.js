@@ -35,7 +35,7 @@ import { useRoleAccess } from "@/hooks/use-role-access";
 import { cn } from "@/lib/utils";
 
 export default function DriversPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  useRequireRole();
   const { can } = useRoleAccess();
   const router = useRouter();
   const queryClient = useQueryClient();

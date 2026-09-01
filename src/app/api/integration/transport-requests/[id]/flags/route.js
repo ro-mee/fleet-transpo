@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
 import { recomputeDerivedPriority } from "@/services/priority.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
@@ -13,7 +13,7 @@ import { writeAudit } from "@/lib/audit";
 // reflects the change on the next read. Only authorized roles may flip them.
 export async function PATCH(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requirePermission(req, "reservations", "manage_flags");
     const { id } = await params;
     const body = await parseBody(req);
 

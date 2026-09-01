@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { resolveDriverScope } from "@/lib/api/ownership";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
@@ -7,11 +7,9 @@ import { writeAudit } from "@/lib/audit";
 
 export const dynamic = 'force-dynamic';
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
 // Lean projection for the audit table (paginated mode). Only the columns the
 // fuel review page renders + the join fields it needs, instead of `fr.*` and
-// full `row_to_json(v.*)` / `row_to_json(e.*)`.
+// full vehicle/employee wildcard objects.
 const FUEL_LIST_SELECT = `
   fr.fuel_record_id, fr.fuel_date, fr.fuel_type, fr.receipt_fuel_type, fr.liters, fr.amount,
   fr.price_per_liter, fr.odometer, fr.station_name, fr.status,
@@ -80,7 +78,7 @@ const fuelWriteSchema = {
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "fuel", "read");
     const sp = new URL(req.url).searchParams;
 
     let where = " WHERE fr.deleted_at IS NULL";
@@ -138,7 +136,10 @@ export async function GET(req) {
           [...params, ps, (page - 1) * ps]
         ),
         query(`SELECT count(*) AS total ${FUEL_FROM} ${where}`, params.slice(0, whereCount)),
-        query(FUEL_COUNTS_SQL),
+        query(
+          `${FUEL_COUNTS_SQL}${session.user.role === "driver" ? " AND fr.driver_id = $1" : ""}`,
+          session.user.role === "driver" ? [session.user.driverId] : []
+        ),
       ]);
 
       const c = countsRes.rows[0] || {};
@@ -164,7 +165,10 @@ export async function GET(req) {
          json_build_object(
            'driver_id', d.driver_id,
            'license_number', d.license_number,
-           'employees', row_to_json(e.*)
+           'employees', json_build_object(
+             'first_name', e.first_name,
+             'last_name', e.last_name
+           )
          ) as drivers
        ${FUEL_FROM} ${where} ORDER BY fr.fuel_record_id DESC`,
       params
@@ -188,12 +192,44 @@ const WRITABLE_COLUMNS = [
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
+    const session = await requirePermission(req, "fuel", "create");
     const body = await parseBody(req);
 
     const errors = validateBody(body, fuelWriteSchema);
     if (!isValidObject(errors)) {
       return errValidation(errors);
+    }
+
+    if (!body.vehicle_id) return err("vehicle_id is required", 400);
+    if (body.liters === undefined) return err("liters is required", 400);
+    if (body.amount === undefined && body.total_cost === undefined) return err("amount/total_cost is required", 400);
+    if (!body.fuel_date) return err("fuel_date is required", 400);
+
+    if (session.user.role === "driver") {
+      let ownedVehicleId = null;
+      if (body.trip_id) {
+        const { rows: tripRows } = await query(
+          `SELECT vehicle_id FROM trips
+             WHERE trip_id = $1 AND driver_id = $2 AND deleted_at IS NULL
+             LIMIT 1`,
+          [body.trip_id, session.user.driverId]
+        );
+        if (!tripRows[0]) return err("Trip not found", 404);
+        ownedVehicleId = tripRows[0].vehicle_id;
+      } else {
+        const { rows: assignmentRows } = await query(
+          `SELECT vehicle_id FROM driver_vehicle_assignments
+             WHERE driver_id = $1 AND assigned_until IS NULL AND assigned_from <= CURRENT_DATE
+             ORDER BY assigned_from DESC LIMIT 1`,
+          [session.user.driverId]
+        );
+        ownedVehicleId = assignmentRows[0]?.vehicle_id ?? null;
+      }
+      if (ownedVehicleId == null) return err("No vehicle is assigned to this driver", 403);
+      if (Number(body.vehicle_id) !== Number(ownedVehicleId)) {
+        return err("Fuel records must use your assigned vehicle", 403);
+      }
+      body.vehicle_id = ownedVehicleId;
     }
 
     const columns = [];
@@ -204,11 +240,6 @@ export async function POST(req) {
         values.push(body[key]);
       }
     }
-
-    if (!body.vehicle_id) return err("vehicle_id is required", 400);
-    if (body.liters === undefined) return err("liters is required", 400);
-    if (body.amount === undefined && body.total_cost === undefined) return err("amount/total_cost is required", 400);
-    if (!body.fuel_date) return err("fuel_date is required", 400);
 
     if (body.odometer !== undefined) {
       const { rows: vehicleRows } = await query(

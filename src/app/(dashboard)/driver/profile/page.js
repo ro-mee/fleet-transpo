@@ -73,7 +73,7 @@ function LicenseScanTile({ label, imageUrl }) {
 }
 
 export default function DriverProfilePage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const [phone, setPhone] = useState("");
 

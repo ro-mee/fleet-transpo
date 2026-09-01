@@ -11,6 +11,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { rolesFor } from "@/lib/auth/permissions";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
 import { Button } from "@/components/ui/button";
@@ -24,7 +25,7 @@ import { updateIncident } from "@/services/driver.service";
 import { getIncidentWorkbook } from "@/services/report.service";
 import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
-import { incidentTypeLabel, INCIDENT_ACTION_ROLES, INCIDENT_MAINTENANCE_ROLES } from "@/lib/incidents/resolution";
+import { incidentTypeLabel } from "@/lib/incidents/resolution";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -42,9 +43,9 @@ const SEVERITY_VARIANT = {
 };
 
 export default function IncidentsPage() {
-  const { role } = useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
-  const canAct = INCIDENT_ACTION_ROLES.includes(role);
-  const canRouteMaintenance = INCIDENT_MAINTENANCE_ROLES.includes(role);
+  const { role } = useRequireRole();
+  const canAct = rolesFor("incidents", "resolve").includes(role);
+  const canRouteMaintenance = rolesFor("incidents", "route_to_maintenance").includes(role);
   const queryClient = useQueryClient();
 
   const [resolveModal, setResolveModal] = useState({ open: false, incident: null });

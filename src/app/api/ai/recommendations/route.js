@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { scoreReservationVehicles, scoreDispatchDrivers } from "@/lib/ai/rule-engine";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
@@ -21,7 +21,7 @@ function withSummaryBudget(promise) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "ai", "read");
     const sp = new URL(req.url).searchParams;
     const type = sp.get("type") || "reservation";
 
@@ -75,7 +75,16 @@ export async function GET(req) {
 
     if (type === "dispatch") {
       const { rows: drivers } = await query(
-        `SELECT d.*, row_to_json(e.*) as employees FROM drivers d LEFT JOIN employees e ON d.employee_id = e.employee_id WHERE d.driver_status = 'Available' AND d.deleted_at IS NULL`
+        `SELECT d.driver_id, d.license_number, d.driver_status, d.license_expiry,
+                d.years_of_experience,
+                json_build_object(
+                  'employee_id', e.employee_id,
+                  'first_name', e.first_name,
+                  'last_name', e.last_name
+                ) AS employees
+           FROM drivers d
+           LEFT JOIN employees e ON d.employee_id = e.employee_id
+          WHERE d.driver_status = 'Available' AND d.deleted_at IS NULL`
       );
 
       const scoredDrivers = scoreDispatchDrivers(drivers);

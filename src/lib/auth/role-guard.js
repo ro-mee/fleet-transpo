@@ -2,7 +2,8 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { getRequiredRolesForPath } from "@/lib/auth/permissions";
 
 // The permission data and predicates live in ./permissions.js, which imports no
 // React and no next/navigation — so server routes and verification harnesses can
@@ -12,13 +13,16 @@ export {
   NAV_ROLES,
   hasRole,
   can,
+  rolesFor,
   filterNavItems,
   getRequiredRolesForPath,
 } from "@/lib/auth/permissions";
 
-export function useRequireRole(requiredRoles) {
+export function useRequireRole() {
   const { employee, loading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname() || "";
+  const requiredRoles = getRequiredRolesForPath(pathname);
   const role = employee?.roles?.role_name;
 
   const isAuthorized = !loading && (requiredRoles.includes('*') || (role && requiredRoles.includes(role)));

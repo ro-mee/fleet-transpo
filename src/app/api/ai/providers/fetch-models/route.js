@@ -1,8 +1,8 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "ai_settings", "update");
     const body = await parseBody(req);
     const { base_url, api_key } = body;
 

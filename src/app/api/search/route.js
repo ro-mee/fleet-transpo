@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // Command-palette global search. Runs a bounded ILIKE search across the four
 // master entities the operator navigates most, each returning a small top-N so
@@ -11,7 +11,9 @@ const LIMIT = 5;
 
 export async function GET(req) {
   try {
-    await requireAuth(req, "*");
+    // The command palette is an operator search. Drivers have dedicated,
+    // ownership-scoped endpoints and must not search the full fleet roster.
+    await requirePermission(req, "search", "read");
     const q = new URL(req.url).searchParams.get("q")?.trim() || "";
     if (q.length < 2) return ok([]);
 

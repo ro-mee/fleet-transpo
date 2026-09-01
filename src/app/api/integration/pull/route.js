@@ -1,4 +1,4 @@
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { getBookingGateway } from "@/lib/integration/booking-gateway";
 import { parseTransportationRequest } from "@/lib/integration/contracts";
 import { ingestRequest } from "@/lib/integration/ingest";
@@ -19,7 +19,7 @@ import { writeAudit } from "@/lib/audit";
 // and one aggregate audit row per operator click.
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "integrations", "execute");
 
     const gateway = getBookingGateway();
     const incoming = await gateway.fetchPendingRequests();

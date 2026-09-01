@@ -15,7 +15,7 @@ import { exportToCSV } from "@/lib/export";
 import Link from "next/link";
 
 export default function AiLogsPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
   const [search, setSearch] = useState("");
 
   const { data: logs = [], isLoading } = useQuery({

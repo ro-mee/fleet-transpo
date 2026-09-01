@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 function daysUntil(date) {
   if (!date) return null;
@@ -12,7 +12,7 @@ function daysUntil(date) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    await requirePermission(req, "vehicles", "update");
     const { rows: vehicles } = await query(
       `SELECT vehicle_id, plate_number, vehicle_name, model, manufacturer,
               license_plate_expiry, insurance_expiry, registration_expiry

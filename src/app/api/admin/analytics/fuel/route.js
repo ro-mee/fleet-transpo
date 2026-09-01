@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { requireAuth } from "@/lib/api/utils";
+import { requirePermission } from "@/lib/api/utils";
 
 export async function GET(request) {
   try {
-    await requireAuth(request, ["admin", "system_admin", "fleet_manager", "finance"]);
+    await requirePermission(request, "reports", "read");
 
     const { searchParams } = new URL(request.url);
     const monthStr = searchParams.get("month");

@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, ok, err, handleError, parseBody } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 
 // Substitute driver schedules (migration 032).
@@ -11,9 +11,6 @@ import { writeAudit } from "@/lib/audit";
 //
 // "Active" means the schedule currently covers dates — either open-ended
 // (effective_until IS NULL) or a bounded range that has not yet passed.
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
-const READ_ROLES = [...WRITE_ROLES, "dispatcher", "management"];
 
 const SELECT_SCHEDULE = `
   SELECT s.substitute_id, s.vehicle_id, s.substitute_driver_id,
@@ -36,7 +33,7 @@ const SELECT_SCHEDULE = `
  */
 export async function GET(req) {
   try {
-    await requireAuth(req, READ_ROLES);
+    await requirePermission(req, "substitute_driver_schedules", "read");
 
     const { searchParams } = new URL(req.url);
     const vehicleId = searchParams.get("vehicle_id");
@@ -77,7 +74,7 @@ export async function GET(req) {
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "substitute_driver_schedules", "create");
     const body = await parseBody(req);
 
     const vehicleId = Number(body?.vehicle_id);

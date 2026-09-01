@@ -4,7 +4,7 @@ title: Technical Debt
 tags: [development, debt]
 source:
   - (see individual notes)
-last_verified: 2026-08-11
+last_verified: 2026-09-02
 ---
 
 # Technical Debt
@@ -31,7 +31,7 @@ The next cheapest items are in "Fix before anything real happens" below.
 | Debt | Why |
 |---|---|
 | No reconciliation job for [[integration_log]] | Failed outbound events are recorded and never retried |
-| No audit that every route calls a guard | 113 routes, per-route discipline. `scripts/verify-rbac.mjs` pins the **role lists** (78 checks) but not the presence of a guard → [[Authentication]] |
+| ~~No audit that every route calls a guard~~ | **CLOSED 2026-09-01** — `npm run verify:auth` parses all 218 exported API methods, tracks public/delegated exceptions, and rejects mutating bare guards → [[Authentication]] |
 | Missing env keys | `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`. Consequence today: cron and the webhook fail closed with 503, outbound goes to a mock → [[Environment Setup]] |
 | No `engines` field in `package.json` | The README's Node 20.9+ floor is **Next 16's** requirement, not this repo's declaration |
 
@@ -49,7 +49,10 @@ The next cheapest items are in "Fix before anything real happens" below.
 
 ## The meta-debt
 
-**Nothing in the repository verifies the repository.** No CI, no schema check, no route-auth audit, no lint gate in a pipeline. Tests now run locally, but nothing runs them for you.
+**CI now verifies the main repository gates.** GitHub Actions runs install, lint,
+tests, migration validation, the method-level route-auth audit, and the production
+build. The remaining gap is the live-database RBAC harness, which stays local and
+supplemental because CI has no project database credentials.
 
 Every finding in this vault was found by hand. That's the debt that generates all the others: there is no mechanism that would have caught [[BUG AuthError Not Imported]], [[DEBT Schema Drift From Migrations]], or the `024_driverincidents` breakage before a human noticed.
 
@@ -60,14 +63,24 @@ Every finding in this vault was found by hand. That's the debt that generates al
 3. **Verification tooling can be silently dead.** `scripts/load-env.mjs` defaulted to `.env.local`, a file that does not exist, so **all 17 verification scripts** loaded no credentials. Two further bugs (a UTF-8 BOM and CRLF line endings against a `.` that does not match `\r`) meant it still loaded nothing after the first fix. Nothing failed loudly; the scripts just did nothing. → [[Verification Tooling Can Be Dead]]
 4. **The gates that exist don't resolve imports.** Phase 3: tests and lint both passed with a deleted symbol still imported in three modules. Vitest only loads what its tests reach; eslint here doesn't run `import/no-unresolved`. A CI job built from these same gates would inherit the blind spot. → [[Things I Should Not Forget]]
 
-**Still true, and now the whole remaining list:** enable a CI job running lint +
-tests + `npm run db:status`. The pieces it would call all exist as of today —
-`no-undef` is on, 197 tests pass, and the ledger can answer "is the DB current".
-What is missing is only the thing that runs them without being asked.
+**Updated 2026-09-01:** the CI job now runs install, lint, tests, migration
+validation, the method-level route-auth audit, and the production build. The
+live-database RBAC harness remains a local supplemental check because CI has no
+project database credentials.
 
 `schema.sql` is the sharpest version of this. It makes drift **visible** in a
 git diff, but nothing **gates** it: a schema change applied without a re-dump
 still leaves the file stale and silent. Visibility is not enforcement.
+
+**Worktree audit 2026-09-02:** no merge/rebase state or conflict markers were
+found, and `git diff --check` exited cleanly (only Git's LF/CRLF conversion
+warnings were emitted). The repository contains no project-level `test.js`;
+the focused `*.test.js` files were retained because they cover shipped RBAC,
+session, reset-token, and rate-limit boundaries. The normal Vitest command is
+blocked by a local Windows/esbuild config-loader permission error; using
+`--configLoader runner` runs the retained **473/473** tests across 42 files.
+Temporary implementation checks were removed after verification; the fixture
+that simulates an `integration_log` failure still allows route resolution.
 
 ## Related
 

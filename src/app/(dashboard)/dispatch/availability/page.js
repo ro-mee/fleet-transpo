@@ -20,7 +20,7 @@ const RESOURCES = [
 ];
 
 export default function ResourceAvailabilityPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  useRequireRole();
 
   const [resource, setResource] = useState("drivers");
 

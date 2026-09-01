@@ -7,6 +7,6 @@ import { peekRateLimit, clientIp } from "@/lib/rate-limit";
 // until they can retry. GET only; it never consumes a throttle hit.
 export async function GET(req) {
   const ip = clientIp(req);
-  const { allowed, retryAfter } = peekRateLimit(`login:${ip}`, { limit: 5, windowMs: 60_000 });
+  const { allowed, retryAfter } = await peekRateLimit(`login:ip:${ip}`, { limit: 5, windowMs: 60_000 });
   return Response.json({ locked: !allowed, retryAfterSec: retryAfter });
 }

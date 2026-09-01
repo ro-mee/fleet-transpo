@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 // Client-writable columns for vehiclecategories. Column names are never taken
@@ -17,7 +17,7 @@ const CATEGORY_WRITABLE = [
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "categories", "update");
     const id = (await params).id;
     const body = await parseBody(req);
 
@@ -52,7 +52,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "categories", "delete");
     const id = (await params).id;
     const { rowCount } = await query(
       `UPDATE vehiclecategories SET deleted_at = NOW(), status = 'Inactive' WHERE category_id = $1`,

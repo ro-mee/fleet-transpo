@@ -49,7 +49,7 @@ import { PageEntrance } from "@/components/ui/page-entrance";
 import { cn } from "@/lib/utils";
 
 export default function EditDriverPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const router = useRouter();
   const { id } = useParams();
   const queryClient = useQueryClient();

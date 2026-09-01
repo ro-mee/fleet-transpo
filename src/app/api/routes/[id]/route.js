@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isId } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import {
@@ -8,8 +8,6 @@ import {
   ROUTE_ESTIMATE_SOURCES,
 } from "@/services/route-resolver.service";
 import { fetchTomTomEstimate } from "@/lib/tomtom";
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 class RouteRequestError extends Error {
   constructor(message, status = 400) {
@@ -65,7 +63,7 @@ async function loadRouteUsage(db, id) {
 
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "routes", "read");
     const id = (await params).id;
     if (!isId(id)) return err("Route id is invalid", 400);
     const route = await loadRoute({ query }, Number(id));
@@ -78,7 +76,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "routes", "update");
     const id = (await params).id;
     if (!isId(id)) return err("Route id is invalid", 400);
     const body = await parseBody(req);
@@ -203,7 +201,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "routes", "delete");
     const id = (await params).id;
     if (!isId(id)) return err("Route id is invalid", 400);
     const current = await loadRoute({ query }, Number(id));

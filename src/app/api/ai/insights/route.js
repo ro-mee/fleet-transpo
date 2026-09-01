@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { generateFleetInsights } from "@/lib/ai/rule-engine";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 
@@ -15,7 +15,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "ai", "read");
 
     const url = new URL(req.url, `http://${req.headers.get('host') || 'localhost'}`);
     const force = url.searchParams.get("force") === "true";

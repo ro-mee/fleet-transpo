@@ -22,7 +22,7 @@ import { DriverConsentGate } from "@/components/driver/consent-gate";
 import { Fuel, Plus, TriangleAlert } from "lucide-react";
 
 export default function DriverFuelPage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const [form, setForm] = useState({

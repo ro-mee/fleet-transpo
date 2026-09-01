@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 
@@ -68,7 +68,7 @@ const WRITABLE_COLUMNS = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
+    await requirePermission(req, "vehicles", "read_all");
     const { searchParams } = new URL(req.url);
 
     let sql = `SELECT v.*, row_to_json(vc.*) as vehiclecategories
@@ -107,7 +107,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requirePermission(req, "vehicles", "create");
     const body = await parseBody(req);
 
     // Separate documents array from vehicle attributes

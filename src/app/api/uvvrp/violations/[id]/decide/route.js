@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { decideViolation } from "@/lib/uvvrp/uvvrp.service";
 import { writeAudit } from "@/lib/audit";
 
@@ -6,7 +6,7 @@ import { writeAudit } from "@/lib/audit";
 // covers that vehicle+date so the dispatcher's retry passes.
 export async function POST(req, { params }) {
   try {
-    const session = await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    const session = await requirePermission(req, "uvvrp", "decide");
     const { id } = await params;
     const body = await parseBody(req).catch(() => ({}));
 

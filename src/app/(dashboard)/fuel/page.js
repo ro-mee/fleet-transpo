@@ -89,7 +89,7 @@ function requestReviewFacts(request) {
 }
 
 export default function FuelPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const [activeTab, setActiveTab] = useState("Pending"); // 'Pending' | 'Approved' | 'Rejected' | 'all'

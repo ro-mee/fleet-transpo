@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
@@ -43,7 +43,7 @@ async function buildTravelSignals(body) {
 // advanceReservation validates and records Pending -> Scheduled -> Assigned.
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "reservations", "assign");
     const { id } = await params;
     const body = await parseBody(req);
 

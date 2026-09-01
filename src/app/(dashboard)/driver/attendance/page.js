@@ -11,7 +11,7 @@ import { AttendanceCard } from "@/components/drivers/attendance-card";
 import { HeroHeader } from "@/components/ui/hero-header";
 
 export default function DriverAttendancePage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
 
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ["driver-me"],

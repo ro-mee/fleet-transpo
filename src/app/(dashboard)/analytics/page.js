@@ -329,7 +329,7 @@ function TimeframeControl({ value, onChange }) {
 }
 
 export default function AnalyticsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   const reducedMotion = useReducedMotion();
 
   const [dateRange, setDateRange] = useState("30d");

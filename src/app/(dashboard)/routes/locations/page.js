@@ -62,7 +62,7 @@ function mapUrl(location) {
 }
 
 export default function LocationsPage() {
-  const { authorized } = useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  const { authorized } = useRequireRole();
   const { employee } = useAuth();
   const queryClient = useQueryClient();
   const canCreate = can(employee, "routes", "create");

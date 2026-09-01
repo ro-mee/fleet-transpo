@@ -23,6 +23,7 @@ const eslintConfig = defineConfig([
     //               fixtures. They are not wired into the app and are not
     //               meant to compile.
     "Capstone/**",
+    ".github/skills/**",
     ".claude/skills/**",
     ".agents/skills/**",
   ]),

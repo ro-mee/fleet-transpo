@@ -1,10 +1,11 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
+import { rolesFor } from "@/lib/auth/permissions";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -27,7 +28,7 @@ async function ensureDriverColumnsExist() {
 
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "drivers", "read_all");
     await ensureDriverColumnsExist();
     const { id } = await params;
 
@@ -122,7 +123,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "drivers", "update");
     await ensureDriverColumnsExist();
     const { id } = await params;
     const body = await parseBody(req);
@@ -171,7 +172,11 @@ export async function PUT(req, { params }) {
 
     // Fetch existing driver to get employee_id
     const { rows: existingRows } = await query(
-      `SELECT driver_id, employee_id FROM drivers WHERE driver_id = $1 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT d.driver_id, d.employee_id, e.email
+         FROM drivers d
+         LEFT JOIN employees e ON e.employee_id = d.employee_id
+        WHERE d.driver_id = $1 AND d.deleted_at IS NULL
+        LIMIT 1`,
       [id]
     );
 
@@ -226,10 +231,18 @@ export async function PUT(req, { params }) {
     if (empKeys.length > 0 && existing.employee_id) {
       const setClause = empKeys.map((k, i) => `${k} = $${i + 1}`).join(", ");
       const vals = Object.values(employeePayload);
+      const credentialClause = email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)
+        ? ", auth_version = auth_version + 1"
+        : "";
       await query(
-        `UPDATE employees SET ${setClause} WHERE employee_id = $${empKeys.length + 1}`,
+        `UPDATE employees SET ${setClause}${credentialClause} WHERE employee_id = $${empKeys.length + 1}`,
         [...vals, existing.employee_id]
       );
+      if (email !== undefined && normalizeEmail(email) !== normalizeEmail(existing.email)) {
+        await query(`UPDATE web_sessions SET revoked_at = COALESCE(revoked_at, NOW()) WHERE employee_id = $1 AND revoked_at IS NULL`, [existing.employee_id]);
+        await query(`DELETE FROM mobile_refresh_tokens WHERE employee_id = $1`, [existing.employee_id]);
+        await query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [existing.employee_id]);
+      }
     }
 
     // License-renewal reinstatement (gated): saving a valid expiry while the
@@ -266,8 +279,9 @@ export async function PUT(req, { params }) {
           // Tell the ops roles the driver is back. Best-effort.
           const { rows: staff } = await query(
             `SELECT employee_id FROM employees
-              WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin','admin','fleet_manager'))
-                AND deleted_at IS NULL`
+              WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
+                AND deleted_at IS NULL`,
+            [rolesFor("drivers", "update")]
           );
           if (staff.length) {
             const { sendPush } = await import("@/services/push.service");
@@ -328,7 +342,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "drivers", "delete");
     const { id } = await params;
 
     await query(

@@ -1,13 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
-import { INCIDENT_READ_ROLES } from "@/lib/incidents/resolution";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // Staff view of all driver-reported incidents (dispatcher, management, ops).
 // Read-only. The driver self-service endpoint (/api/driver/incidents) remains
 // driver-scoped; this one surfaces every incident with its vehicle/driver.
 export async function GET(req) {
   try {
-    await requireAuth(req, INCIDENT_READ_ROLES);
+    await requirePermission(req, "incidents", "read");
     const sp = new URL(req.url).searchParams;
 
     const conditions = ["i.deleted_at IS NULL"];

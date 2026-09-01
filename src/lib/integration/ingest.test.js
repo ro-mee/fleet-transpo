@@ -135,6 +135,10 @@ describe("ingestRequest", () => {
     wire();
     query.mockImplementation(async (sql, params) => {
       if (sql.includes("SELECT * FROM transportation_requests")) return { rows: [] };
+      // Route estimation now checks active locations before falling back to
+      // the deterministic estimator. That lookup is unrelated to the failure
+      // being simulated here, so let it return no matches.
+      if (sql.includes("FROM locations")) return { rows: [] };
       if (sql.includes("INSERT INTO transportation_requests")) {
         return { rows: [{ request_id: 501, fleet_status: params[12], source_system: params[1] }] };
       }

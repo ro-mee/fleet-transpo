@@ -1,17 +1,16 @@
 import bcrypt from "bcryptjs";
-import { query } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { query, withTransaction } from "@/lib/db";
+import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
+import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { writeAudit } from "@/lib/audit";
+import { revokeEmployeeSessions } from "@/lib/auth/sessions";
 
 export async function POST(req) {
   try {
-    const session = await auth();
-    if (!session?.user?.employeeId) {
-      return err("Unauthorized", 401);
-    }
+    const session = await requireAuth(req, "*");
 
-    const body = await req.json();
+    const body = await parseBody(req);
     const { currentPassword, newPassword } = body;
     const employeeId = session.user.employeeId;
 
@@ -27,8 +26,12 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
-    if (newPassword.length < 6) {
-      return err("New password must be at least 6 characters", 400);
+    const [ipBucket, accountBucket] = await Promise.all([
+      rateLimit(`password-change:ip:${clientIp(req)}`, { limit: 5, windowMs: 60_000 }),
+      rateLimit(`password-change:account:${employeeId}`, { limit: 5, windowMs: 60_000 }),
+    ]);
+    if (!ipBucket.allowed || !accountBucket.allowed) {
+      return err("Too many requests. Try again later.", 429);
     }
 
     if (currentPassword === newPassword) {
@@ -36,7 +39,8 @@ export async function POST(req) {
     }
 
     const { rows } = await query(
-      `SELECT password_hash FROM employees WHERE employee_id = $1 AND deleted_at IS NULL`,
+      `SELECT password_hash FROM employees
+        WHERE employee_id = $1 AND deleted_at IS NULL AND status = 'Active'`,
       [employeeId]
     );
 
@@ -50,12 +54,34 @@ export async function POST(req) {
     }
 
     const hash = await bcrypt.hash(newPassword, 10);
-    await query(
-      `UPDATE employees SET password_hash = $1 WHERE employee_id = $2`,
-      [hash, employeeId]
-    );
+    const changed = await withTransaction(async (tx) => {
+      const { rows: updated } = await tx.query(
+        `UPDATE employees
+            SET password_hash = $1,
+                auth_version = auth_version + 1,
+                updated_at = NOW()
+          WHERE employee_id = $2
+            AND password_hash = $3
+            AND deleted_at IS NULL
+            AND status = 'Active'
+          RETURNING auth_version`,
+        [hash, employeeId, rows[0].password_hash]
+      );
+      if (!updated.length) return false;
+      await revokeEmployeeSessions(tx, employeeId);
+      await tx.query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [employeeId]);
+      return true;
+    });
+    if (!changed) return err("Password was changed already. Please sign in again.", 409);
 
-    return ok({ message: "Password updated successfully" });
+    await writeAudit(req, session, {
+      action: "password_change",
+      resource: "employees",
+      resourceId: employeeId,
+      newValues: { sessions_revoked: true },
+    });
+
+    return ok({ message: "Password updated successfully", signInRequired: true });
   } catch (e) {
     return handleError(e);
   }

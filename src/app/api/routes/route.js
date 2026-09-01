@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import {
   normalizeRoutePayload,
   resolveRouteEndpoints,
@@ -8,9 +8,6 @@ import {
 } from "@/services/route-resolver.service";
 import { fetchTomTomEstimate } from "@/lib/tomtom";
 import { writeAudit } from "@/lib/audit";
-
-const READ_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 class RouteRequestError extends Error {
   constructor(message, status = 400) {
@@ -48,7 +45,7 @@ function routeProjection() {
 
 export async function GET(req) {
   try {
-    await requireAuth(req, READ_ROLES);
+    await requirePermission(req, "routes", "read");
     const sp = new URL(req.url).searchParams;
     const status = sp.get("status") || "Active";
     if (!["all", "Active", "Inactive"].includes(status)) return err("Invalid route status filter", 400);
@@ -75,7 +72,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "routes", "create");
     const body = await parseBody(req);
     const { payload, errors } = normalizeRoutePayload(body);
     if (Object.keys(errors).length) return errValidation(errors);

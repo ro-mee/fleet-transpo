@@ -1,21 +1,15 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
+import { rolesFor } from "@/lib/auth/permissions";
 
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, [
-      "system_admin",
-      "admin",
-      "fleet_manager",
-      "dispatcher",
-      "management",
-      "driver",
-    ]);
+    const session = await requirePermission(req, "notifications", "delete");
     const id = Number((await params).id);
     if (!Number.isInteger(id)) return err("Invalid notification id", 400);
 
     const own = session.user?.employeeId ?? session.user?.userId ?? null;
-    const canDeleteAny = ["system_admin", "admin", "fleet_manager"].includes(session.user?.role);
+    const canDeleteAny = rolesFor("notifications", "delete_all").includes(session.user?.role);
 
     // Staff may delete any row (broadcast cleanup); everyone else may only
     // delete their own. employee_id is int and user_id is uuid, so scope on

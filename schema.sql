@@ -100,6 +100,14 @@ CREATE TABLE audit_logs (
   CONSTRAINT audit_logs_pkey PRIMARY KEY (log_id)
 );
 
+CREATE TABLE auth_rate_limits (
+  bucket_key text NOT NULL,
+  window_started_at timestamptz DEFAULT now() NOT NULL,
+  hit_count integer DEFAULT 0 NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT auth_rate_limits_pkey PRIMARY KEY (bucket_key)
+);
+
 CREATE TABLE booking_channels (
   channel_id integer DEFAULT nextval('booking_channels_channel_id_seq'::regclass) NOT NULL,
   channel_name varchar(100) NOT NULL,
@@ -315,6 +323,19 @@ CREATE TABLE drivers (
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );
 
+CREATE TABLE employee_mfa (
+  employee_id integer NOT NULL,
+  secret_ciphertext text NOT NULL,
+  secret_iv text NOT NULL,
+  secret_tag text NOT NULL,
+  setup_expires_at timestamptz,
+  enabled_at timestamptz,
+  last_used_step bigint,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT employee_mfa_pkey PRIMARY KEY (employee_id)
+);
+
 CREATE TABLE employees (
   employee_id integer DEFAULT nextval('employees_employee_id_seq'::regclass) NOT NULL,
   role_id integer,
@@ -332,6 +353,7 @@ CREATE TABLE employees (
   created_by integer,
   updated_by integer,
   password_hash text,
+  auth_version bigint DEFAULT 1 NOT NULL,
   CONSTRAINT employees_pkey PRIMARY KEY (employee_id),
   CONSTRAINT employees_email_key UNIQUE (email)
 );
@@ -457,6 +479,15 @@ CREATE TABLE locations (
   CONSTRAINT locations_pkey PRIMARY KEY (location_id)
 );
 
+CREATE TABLE mfa_recovery_codes (
+  recovery_code_id bigint DEFAULT nextval('mfa_recovery_codes_recovery_code_id_seq'::regclass) NOT NULL,
+  employee_id integer NOT NULL,
+  code_hash char(64) NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  used_at timestamptz,
+  CONSTRAINT mfa_recovery_codes_pkey PRIMARY KEY (recovery_code_id)
+);
+
 CREATE TABLE mobile_refresh_tokens (
   id bigint DEFAULT nextval('mobile_refresh_tokens_id_seq'::regclass) NOT NULL,
   employee_id integer NOT NULL,
@@ -464,6 +495,10 @@ CREATE TABLE mobile_refresh_tokens (
   created_at timestamptz DEFAULT now() NOT NULL,
   expires_at timestamptz NOT NULL,
   revoked_at timestamptz,
+  family_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+  user_agent text,
+  ip_address varchar(50),
+  last_used_at timestamptz,
   CONSTRAINT mobile_refresh_tokens_pkey PRIMARY KEY (id),
   CONSTRAINT mobile_refresh_tokens_token_hash_key UNIQUE (token_hash)
 );
@@ -494,6 +529,17 @@ CREATE TABLE notifications (
   created_at timestamptz DEFAULT now(),
   pushed_at timestamptz,
   CONSTRAINT notifications_pkey PRIMARY KEY (notification_id)
+);
+
+CREATE TABLE password_reset_tokens (
+  token_id bigint DEFAULT nextval('password_reset_tokens_token_id_seq'::regclass) NOT NULL,
+  employee_id integer NOT NULL,
+  token_hash text NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz,
+  CONSTRAINT password_reset_tokens_pkey PRIMARY KEY (token_id),
+  CONSTRAINT password_reset_tokens_token_hash_key UNIQUE (token_hash)
 );
 
 CREATE TABLE push_outbox (
@@ -860,6 +906,18 @@ CREATE TABLE vehicles (
   CONSTRAINT vehicles_plate_number_key UNIQUE (plate_number)
 );
 
+CREATE TABLE web_sessions (
+  session_id uuid DEFAULT uuid_generate_v4() NOT NULL,
+  employee_id integer NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  last_seen_at timestamptz DEFAULT now() NOT NULL,
+  expires_at timestamptz NOT NULL,
+  revoked_at timestamptz,
+  ip_address varchar(50),
+  user_agent text,
+  CONSTRAINT web_sessions_pkey PRIMARY KEY (session_id)
+);
+
 -- ========================= FOREIGN KEYS =========================
 -- Separate so the tables above can be created in any order.
 
@@ -893,6 +951,7 @@ ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_vehicle_id_fkey FOREI
 ALTER TABLE drivers ADD CONSTRAINT drivers_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE employee_mfa ADD CONSTRAINT employee_mfa_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE employees ADD CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id) REFERENCES roles(role_id);
 ALTER TABLE employees ADD CONSTRAINT employees_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
@@ -913,10 +972,12 @@ ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_trip_id_fkey FOREIGN KEY (t
 ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE mfa_recovery_codes ADD CONSTRAINT mfa_recovery_codes_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE mobile_refresh_tokens ADD CONSTRAINT mobile_refresh_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notifications ADD CONSTRAINT notifications_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
 ALTER TABLE notifications ADD CONSTRAINT notifications_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id);
+ALTER TABLE password_reset_tokens ADD CONSTRAINT password_reset_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_designated_driver_id_fkey FOREIGN KEY (designated_driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE recommendation_snapshots ADD CONSTRAINT recommendation_snapshots_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
@@ -961,6 +1022,7 @@ ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_category_id_fkey FOREIGN KEY (category_id) REFERENCES vehiclecategories(category_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehicles ADD CONSTRAINT vehicles_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
+ALTER TABLE web_sessions ADD CONSTRAINT web_sessions_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 
 -- ============================ INDEXES ===========================
 -- Constraint-backed indexes omitted: the constraints create them.
@@ -975,6 +1037,7 @@ CREATE INDEX idx_attendance_status ON public.driverattendance USING btree (statu
 CREATE INDEX idx_audit_created ON public.audit_logs USING btree (created_at);
 CREATE INDEX idx_audit_employee ON public.audit_logs USING btree (employee_id);
 CREATE INDEX idx_audit_resource ON public.audit_logs USING btree (resource, resource_id);
+CREATE INDEX idx_auth_rate_limits_updated ON public.auth_rate_limits USING btree (updated_at);
 CREATE INDEX idx_device_tokens_employee_active ON public.device_tokens USING btree (employee_id) WHERE active;
 CREATE INDEX idx_dispatch_active_departure ON public.dispatchschedules USING btree (scheduled_departure) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_dispatch_date ON public.dispatchschedules USING btree (scheduled_departure);
@@ -994,6 +1057,7 @@ CREATE INDEX idx_drivers_status ON public.drivers USING btree (driver_status);
 CREATE INDEX idx_dva_driver_history ON public.driver_vehicle_assignments USING btree (driver_id, assigned_from DESC);
 CREATE INDEX idx_dva_vehicle_history ON public.driver_vehicle_assignments USING btree (vehicle_id, assigned_from DESC);
 CREATE INDEX idx_dws_driver ON public.driver_work_schedules USING btree (driver_id);
+CREATE INDEX idx_employee_mfa_enabled ON public.employee_mfa USING btree (enabled_at);
 CREATE INDEX idx_employees_email ON public.employees USING btree (email);
 CREATE INDEX idx_employees_role ON public.employees USING btree (role_id);
 CREATE INDEX idx_employees_status ON public.employees USING btree (status);
@@ -1016,11 +1080,15 @@ CREATE INDEX idx_locations_name ON public.locations USING btree (name);
 CREATE INDEX idx_maintenance_date ON public.vehiclemaintenance USING btree (maintenance_date);
 CREATE INDEX idx_maintenance_status ON public.vehiclemaintenance USING btree (status);
 CREATE INDEX idx_maintenance_vehicle ON public.vehiclemaintenance USING btree (vehicle_id);
+CREATE INDEX idx_mfa_recovery_codes_employee ON public.mfa_recovery_codes USING btree (employee_id, used_at);
 CREATE INDEX idx_mobile_refresh_tokens_employee ON public.mobile_refresh_tokens USING btree (employee_id);
+CREATE INDEX idx_mobile_refresh_tokens_family ON public.mobile_refresh_tokens USING btree (family_id);
 CREATE INDEX idx_notification_preferences_employee ON public.notification_preferences USING btree (employee_id);
 CREATE INDEX idx_notifications_read ON public.notifications USING btree (is_read);
 CREATE INDEX idx_notifications_sent ON public.notifications USING btree (sent_at);
 CREATE INDEX idx_notifications_user ON public.notifications USING btree (employee_id);
+CREATE INDEX idx_password_reset_tokens_employee ON public.password_reset_tokens USING btree (employee_id);
+CREATE INDEX idx_password_reset_tokens_expiry ON public.password_reset_tokens USING btree (expires_at);
 CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
 CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
 CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING btree (request_id, generated_at DESC);
@@ -1067,6 +1135,7 @@ CREATE INDEX idx_vehiclemaintenance_source_incident ON public.vehiclemaintenance
 CREATE INDEX idx_vehicles_category ON public.vehicles USING btree (category_id);
 CREATE INDEX idx_vehicles_plate ON public.vehicles USING btree (plate_number);
 CREATE INDEX idx_vehicles_status ON public.vehicles USING btree (vehicle_status);
+CREATE INDEX idx_web_sessions_employee_active ON public.web_sessions USING btree (employee_id, revoked_at, expires_at);
 CREATE UNIQUE INDEX uq_ai_report_narrative_key ON public.ai_report_narratives USING btree (report, COALESCE(range_from, '*'::character varying), COALESCE(range_to, '*'::character varying));
 CREATE UNIQUE INDEX uq_driverincidents_driver_submission ON public.driverincidents USING btree (driver_id, client_submission_id) WHERE ((deleted_at IS NULL) AND (client_submission_id IS NOT NULL));
 CREATE UNIQUE INDEX uq_dva_active_driver ON public.driver_vehicle_assignments USING btree (driver_id) WHERE (assigned_until IS NULL);

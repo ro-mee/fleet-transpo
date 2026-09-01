@@ -23,7 +23,7 @@ import { downloadBlob, exportToCSV } from "@/lib/export";
 const columnHelper = createColumnHelper();
 
 export default function TripsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
   const router = useRouter();
   const [statusFilter, setStatusFilter] = useState("all");
   const [page, setPage] = useState(1);

@@ -30,7 +30,7 @@ function formatShortPlate(plate) {
 }
 
 export default function TrackingHistoryPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  useRequireRole();
   const router = useRouter();
 
   const {

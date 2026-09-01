@@ -49,7 +49,7 @@ import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
 import { StickyActionBar } from "@/components/ui/sticky-actions";
 
 export default function NewDriverPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [submitError, setSubmitError] = useState("");

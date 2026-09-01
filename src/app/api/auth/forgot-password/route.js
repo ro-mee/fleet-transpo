@@ -1,4 +1,3 @@
-import { query } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 
@@ -12,9 +11,9 @@ import { rateLimit, clientIp } from "@/lib/rate-limit";
  * cannot be used to enumerate accounts, and the existence check stays
  * server-side. Rate-limited per IP and per email.
  *
- * NOTE: no email provider is configured, so a real reset link is never
- * delivered — the reset itself is handled by the authenticated
- * POST /api/auth/reset-password flow.
+ * NOTE: no email provider is configured. An authorized administrator issues a
+ * one-time link through POST /api/auth/reset-token until verified delivery is
+ * available.
  */
 export async function POST(req) {
   try {
@@ -22,18 +21,14 @@ export async function POST(req) {
     const email = (body?.email || "").toString().toLowerCase().trim();
     if (!email) return err("Email is required", 400);
 
-    const ipBucket = rateLimit(`forgot-password:${clientIp(req)}`, { limit: 5, windowMs: 60_000 });
-    const accountBucket = rateLimit(`forgot-password:${email}`, { limit: 5, windowMs: 60_000 });
+    const [ipBucket, accountBucket] = await Promise.all([
+      rateLimit(`forgot-password:ip:${clientIp(req)}`, { limit: 5, windowMs: 60_000 }),
+      rateLimit(`forgot-password:account:${email}`, { limit: 5, windowMs: 60_000 }),
+    ]);
     if (!ipBucket.allowed || !accountBucket.allowed) {
       return err("Too many requests. Try again later.", 429);
     }
 
-    // Existence check stays server-side; the response is identical either way.
-    await query(
-      `SELECT employee_id FROM employees WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
-      [email]
-    );
-
-    return ok({ message: "If an account exists for that email, a reset link has been sent." });
+    return ok({ message: "If an account exists for that email, contact your FleetOps administrator to receive a reset link." });
   } catch (e) { return handleError(e); }
 }

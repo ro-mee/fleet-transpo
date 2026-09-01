@@ -1,7 +1,5 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { buildRouteUrl, decodePolyline, getServerKey } from "@/lib/tomtom";
-
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
 
 // Proxy for the TomTom Routing API (computeRoute). The routing key stays
 // server-side here — it is never shipped to the browser or mobile client, which
@@ -19,7 +17,7 @@ function parseLonLat(value) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ROLES);
+    await requirePermission(req, "maps", "read");
     const sp = new URL(req.url).searchParams;
     const origin = parseLonLat(sp.get("origin"));
     const destination = parseLonLat(sp.get("destination"));

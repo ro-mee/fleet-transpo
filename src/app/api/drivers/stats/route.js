@@ -1,9 +1,9 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "drivers", "read_all");
     const { rows } = await query(`SELECT driver_id, driver_status FROM drivers WHERE deleted_at IS NULL`);
     const total = rows.length;
     const available = rows.filter(d => d.driver_status === "Available").length;

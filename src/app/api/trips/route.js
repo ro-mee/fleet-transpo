@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_LIST_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 
 const ACTIVE_STATUSES = [
@@ -66,7 +66,7 @@ export const TRIP_WRITABLE = [
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
+    await requirePermission(req, "trips", "read_all");
     const sp = new URL(req.url).searchParams;
 
     // Search matches trip id, vehicle plate, driver name, or route name.
@@ -156,7 +156,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "trips", "create");
     const body = await parseBody(req);
     const columns = [];
     const values = [];

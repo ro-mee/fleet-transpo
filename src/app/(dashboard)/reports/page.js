@@ -192,7 +192,7 @@ function ChartStage({ children, height = 320 }) {
 }
 
 export default function ReportsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   // Report + range hydrate from the URL so a configured view is bookmarkable,
   // shareable, and refresh-stable instead of dying with the component.
   const PRESET_IDS = ["today", "7d", "month", "quarter", "custom"];

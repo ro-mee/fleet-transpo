@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
 import { writeAudit } from "@/lib/audit";
@@ -16,7 +16,7 @@ function maskProvider(row) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "ai_settings", "update");
     const { id } = await params;
     const body = await parseBody(req);
 
@@ -78,7 +78,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "ai_settings", "update");
     const { id } = await params;
 
     const { rowCount } = await query(`DELETE FROM aiproviders WHERE provider_id = $1`, [+id]);
@@ -92,7 +92,7 @@ export async function DELETE(req, { params }) {
 
 export async function POST(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "ai_settings", "update");
     const { id } = await params;
 
     const { rows } = await query(`SELECT * FROM aiproviders WHERE provider_id = $1`, [+id]);

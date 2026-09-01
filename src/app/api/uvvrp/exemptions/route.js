@@ -1,10 +1,10 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { listExemptions, createExemption } from "@/lib/uvvrp/uvvrp.service";
 import { writeAudit } from "@/lib/audit";
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "uvvrp", "read");
     return ok(await listExemptions());
   } catch (e) {
     return handleError(e);
@@ -13,7 +13,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    const session = await requirePermission(req, "uvvrp", "manage_exemptions");
     const body = await parseBody(req);
     const vehicleId = Number(body.vehicle_id);
     const category = String(body.category || "").trim();

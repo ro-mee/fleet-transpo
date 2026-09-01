@@ -114,7 +114,7 @@ function routeNameFor(origin, destination) {
 }
 
 export default function RoutesPage() {
-  const { authorized } = useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  const { authorized } = useRequireRole();
   const { employee } = useAuth();
   const queryClient = useQueryClient();
   const canCreate = can(employee, "routes", "create");

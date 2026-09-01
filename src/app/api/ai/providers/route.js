@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isUrl } from "@/lib/validation";
 
@@ -15,7 +15,7 @@ function maskProvider(row) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "ai_settings", "read");
 
     // aiproviders is created by migration 031, not per request. The DDL that
     // used to run here had already drifted — it omitted target_feature.
@@ -26,7 +26,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "ai_settings", "update");
     const body = await parseBody(req);
 
     if (!body.display_name || !body.model_name) {

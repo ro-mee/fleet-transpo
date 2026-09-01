@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, ok, err, handleError, parseBody } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 
 // Custodial driver ↔ vehicle pairings (migration 017).
@@ -14,9 +14,6 @@ import { writeAudit } from "@/lib/audit";
 // "Active" means assigned_until IS NULL — exactly the predicate on the
 // uq_dva_active_driver / uq_dva_active_vehicle partial unique indexes, so
 // Postgres itself guarantees at most one active row per driver and per vehicle.
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
-const READ_ROLES = [...WRITE_ROLES, "dispatcher", "management"];
 
 const SELECT_ASSIGNMENT = `
   SELECT a.assignment_id, a.driver_id, a.vehicle_id, a.assigned_from, a.assigned_until,
@@ -39,7 +36,7 @@ const SELECT_ASSIGNMENT = `
  */
 export async function GET(req) {
   try {
-    await requireAuth(req, READ_ROLES);
+    await requirePermission(req, "driver_assignments", "read");
 
     const { searchParams } = new URL(req.url);
     const driverId = searchParams.get("driver_id");
@@ -80,7 +77,7 @@ export async function GET(req) {
  */
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "driver_assignments", "create");
     const body = await parseBody(req);
 
     const driverId = Number(body?.driver_id);

@@ -1,9 +1,9 @@
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, handleError } from "@/lib/api/utils";
 import { logOutboundEvent } from "@/services/integration.service";
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "integrations", "execute");
     const body = await parseBody(req);
     const data = await logOutboundEvent({
       sourceSystem: body.source_system,

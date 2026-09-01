@@ -3,7 +3,7 @@ import { writeAudit } from "@/lib/audit";
 import { toCalendarDay } from "@/lib/dates";
 import {
   AuthError,
-  requireAuth,
+  requirePermission,
   requireDriver,
   parseBody,
   ok,
@@ -20,7 +20,6 @@ import {
 } from "@/lib/fuel/request-policy";
 import { isOwnedFuelImageUrl } from "@/lib/fuel/receipt-storage";
 
-const STAFF_ROLES = ["system_admin", "admin", "fleet_manager"];
 const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-01`;
 const SELECT_REQUESTS = `
   SELECT r.*, t.trip_status,
@@ -64,7 +63,7 @@ async function allocationUsage(db, vehicleId, month) {
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, [...STAFF_ROLES, "driver"]);
+    const session = await requirePermission(req, "fuel_requests", "read");
     if (session.user.role === "driver" && !session.user.driverId) {
       throw new AuthError("No driver record is linked to this account", 403);
     }
@@ -277,7 +276,7 @@ export async function POST(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, STAFF_ROLES);
+    const session = await requirePermission(req, "fuel_requests", "review");
     const body = await parseBody(req);
     const requestId = Number(body.fuel_request_id);
     if (!Number.isInteger(requestId) || requestId <= 0) return err("fuel_request_id is required", 400);

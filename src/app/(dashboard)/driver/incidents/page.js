@@ -19,7 +19,7 @@ import { DriverConsentGate } from "@/components/driver/consent-gate";
 import { AlertTriangle, MapPin, Send } from "lucide-react";
 
 export default function DriverIncidentsPage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const { data: incidents = [] } = useQuery({

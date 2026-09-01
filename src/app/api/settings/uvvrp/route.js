@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { getUvvrpPolicy, saveUvvrpPolicy } from "@/lib/uvvrp/uvvrp.service";
 import { mergePolicy } from "@/lib/uvvrp/policy";
 import { writeAudit } from "@/lib/audit";
@@ -13,7 +13,7 @@ const ALLOWED_KEYS = new Set([
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["admin", "system_admin"]);
+    await requirePermission(req, "uvvrp", "read");
     return ok(await getUvvrpPolicy());
   } catch (e) {
     return handleError(e);
@@ -22,7 +22,7 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, ["admin", "system_admin"]);
+    const session = await requirePermission(req, "uvvrp", "update");
     const body = await parseBody(req);
 
     const candidate = { ...body };

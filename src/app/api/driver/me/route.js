@@ -1,5 +1,5 @@
 import { query, transaction } from "@/lib/db";
-import { requireAuth, requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePhone, isUrl, isBase64DataUrl } from "@/lib/validation/helpers";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
 import { syncDriverStatus } from "@/services/status.service";

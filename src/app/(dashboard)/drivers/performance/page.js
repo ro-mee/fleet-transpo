@@ -39,7 +39,7 @@ function DriverPerfErrorPanel({ onRetry, busy }) {
 }
 
 export default function DriverPerformancePage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   const router = useRouter();
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({

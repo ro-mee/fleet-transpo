@@ -33,7 +33,7 @@ function Stat({ label, value }) {
 }
 
 export default function DriverHomePage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
 
   const { data: profile, isLoading, isError } = useQuery({
     queryKey: ["driver-me"],

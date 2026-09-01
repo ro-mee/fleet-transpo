@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
@@ -16,7 +16,7 @@ const JOINS = `FROM dispatchschedules ds LEFT JOIN vehicles v ON ds.vehicle_id =
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"]);
+    await requirePermission(req, "dispatch", "read_all");
     const sp = new URL(req.url).searchParams;
     let sql = `SELECT ${JOIN_SELECT} ${JOINS} WHERE ds.deleted_at IS NULL`;
     const params = []; let idx = 1;
@@ -31,7 +31,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "dispatch", "create");
     const body = await parseBody(req);
 
     // Dispatch may originate from an approved Booking transportation request.

@@ -12,7 +12,7 @@ import MaintenanceFormDialog from "./components/MaintenanceFormDialog";
 import PredictiveOverview from "./components/PredictiveOverview";
 
 export default function FleetMaintenancePage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const [activeTab, setActiveTab] = useState("predictive");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState(null);

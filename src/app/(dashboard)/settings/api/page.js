@@ -13,7 +13,7 @@ import Link from "next/link";
 // not implemented yet; until it ships, this surface says exactly that and
 // points admins at the integrations that DO exist today.
 export default function ApiKeysPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
 
   return (
     <div className="space-y-6">

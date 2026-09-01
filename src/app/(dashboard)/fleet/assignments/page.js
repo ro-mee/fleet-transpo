@@ -120,7 +120,7 @@ function getScheduleStatus(schedule) {
 }
 
 export default function AssignmentsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  useRequireRole();
   const { employee } = useAuth();
   const canAssign = can(employee, "driver_assignments", "create");
   const canSubstitute = can(employee, "substitute_driver_schedules", "create");

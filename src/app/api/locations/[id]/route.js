@@ -1,10 +1,8 @@
 import { withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isId, isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 function coordinateRule(label, min, max) {
   return (value) => {
@@ -64,7 +62,7 @@ async function resolveCoordinates(body) {
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "routes", "update");
     const id = (await params).id;
     if (!isId(id)) return err("Location id is invalid", 400);
 

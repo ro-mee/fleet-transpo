@@ -1,10 +1,9 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { isValidObject, validateBody } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
-
-const LOCATION_WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
+import { rolesFor } from "@/lib/auth/permissions";
 
 function coordinateRule(label, min, max) {
   return (value) => {
@@ -27,9 +26,9 @@ const locationSchema = {
 
 export async function GET(req) {
   try {
-    const session = await requireAuth(req);
+    const session = await requirePermission(req, "routes", "read");
     const includeInactive = new URL(req.url).searchParams.get("include_inactive") === "true";
-    const canSeeInactive = ["system_admin", "admin"].includes(session.user.role);
+    const canSeeInactive = rolesFor("locations", "read_inactive").includes(session.user.role);
 
     const { rows } = await query(
       `SELECT location_id, name, address, latitude, longitude, created_at
@@ -46,7 +45,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, LOCATION_WRITE_ROLES);
+    const session = await requirePermission(req, "routes", "create");
     const body = await parseBody(req);
     if (!body || typeof body !== "object" || Array.isArray(body)) {
       return errValidation({ location: "Location payload must be an object." });

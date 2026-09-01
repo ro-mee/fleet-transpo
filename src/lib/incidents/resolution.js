@@ -7,10 +7,6 @@
 // The closed status vocabulary enforced by chk_driverincidents_status
 // (migration 062). Code only ever produces these two values.
 export const INCIDENT_STATUSES = ["Open", "Resolved"];
-export const INCIDENT_READ_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
-export const INCIDENT_ACTION_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher"];
-export const INCIDENT_MAINTENANCE_ROLES = ["system_admin", "admin", "fleet_manager"];
-
 export const INCIDENT_SEVERITIES = ["Minor", "Moderate", "Major", "Critical"];
 
 // Keep the stored type human-readable for legacy clients, while normalizing

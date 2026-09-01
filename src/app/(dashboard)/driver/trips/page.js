@@ -20,7 +20,7 @@ const columnHelper = createColumnHelper();
 const ACTIVE_STATUSES = ["In Progress", "Trip Started", "At Pickup", "Passenger Onboard", "En Route", "Drop-off", "Arrived", "Driver Accepted"];
 
 export default function DriverTripsPage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const [statusFilter, setStatusFilter] = useState("all");
 
   const { data: trips = [], isLoading, isError, error, refetch } = useQuery({

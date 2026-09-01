@@ -12,7 +12,7 @@ import { Fuel, TrendingDown, PhilippinePeso, BarChart3, PieChart, TrendingUp } f
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function FuelAnalyticsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   const { data: analytics } = useQuery({
     queryKey: ["fuel-analytics"],
     queryFn: () => getFuelAnalytics(),

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizePlate, toVehicleTitleCase } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 
@@ -67,7 +67,7 @@ const WRITABLE_COLUMNS = [
 
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "vehicles", "read_all");
     const id = (await params).id;
     const { rows: vehicleRows } = await query(
       `SELECT v.*, row_to_json(vc.*) as vehiclecategories
@@ -93,7 +93,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "vehicles", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     const { documents, ...vehicleData } = body;
@@ -186,7 +186,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "vehicles", "delete");
     const id = (await params).id;
     const { rowCount } = await query(
       `UPDATE vehicles SET deleted_at = NOW() WHERE vehicle_id = $1`,

@@ -139,7 +139,7 @@ function PolicyForm({ policy, queryClient }) {
 }
 
 export default function NumberCodingSettingsPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const { data: policy, isLoading } = useQuery({

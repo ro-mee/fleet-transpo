@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { hashToken, verifyRefreshToken } from "@/lib/auth/mobile-token";
+import { writeAudit } from "@/lib/audit";
 
 /**
  * POST /api/mobile/auth/logout
@@ -44,6 +45,13 @@ export async function POST(req) {
         [hashToken(refreshToken), claims.employeeId]
       );
     }
+
+    await writeAudit(req, null, {
+      action: "logout",
+      resource: "mobile_session",
+      employeeId: claims.employeeId,
+      newValues: { all_devices: Boolean(allDevices) },
+    });
 
     return ok({ message: "Signed out" });
   } catch (e) {

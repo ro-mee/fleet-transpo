@@ -1,4 +1,4 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { listReservationEvents } from "@/services/reservation-events.service";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
 
@@ -8,13 +8,7 @@ import { loadRequest } from "@/services/reservation-lifecycle.service";
 // request is where it is, including management.
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req, [
-      "system_admin",
-      "admin",
-      "fleet_manager",
-      "dispatcher",
-      "management",
-    ]);
+    await requirePermission(req, "reservations", "read");
     const { id } = await params;
 
     const request = await loadRequest(id);

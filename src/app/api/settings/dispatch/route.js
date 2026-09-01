@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { getDispatchPolicy, saveDispatchPolicy } from "@/services/dispatch-settings.service";
 import { mergeDispatchPolicy, validateDispatchPolicy } from "@/lib/dispatch-policy";
 import { writeAudit } from "@/lib/audit";
@@ -18,7 +18,7 @@ export async function GET(req) {
     // Dispatchers read this but cannot write it: the departure-alert tiers are
     // consumed by their board, so excluding them here would silently fall the
     // warnings back to defaults for exactly the role that acts on them.
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "dispatch_settings", "read");
     return ok(await getDispatchPolicy());
   } catch (e) {
     return handleError(e);
@@ -27,7 +27,7 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "dispatch_settings", "update");
     const body = await parseBody(req);
 
     const candidate = { ...body };

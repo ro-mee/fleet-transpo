@@ -5,13 +5,23 @@
 // role-guard.js re-exports all of it, so existing client imports keep working
 // unchanged.
 //
-// Scope: this matrix decides what the UI offers. The enforced boundary is
-// requireAuth(req, [roles]) in each API route, because RLS is inert in this
-// deployment (docs/rbac-model.md). scripts/verify-rbac.mjs asserts the two
-// layers agree, so a verb can never be merely hidden while its endpoint stays
-// open.
+// Scope: this matrix drives the UI and every cleanly mapped API guard. The
+// enforced boundary is requirePermission(req, resource, action) in those
+// routes; ownership and protocol-specific handlers remain explicit where a
+// role alone cannot express the row or machine scope (docs/rbac-model.md).
 
 import { ROLES } from "@/lib/constants";
+
+const KNOWN_ROLES = [
+  ROLES.SYSTEM_ADMIN,
+  ROLES.ADMIN,
+  ROLES.FLEET_MANAGER,
+  ROLES.DISPATCHER,
+  ROLES.DRIVER,
+  ROLES.MANAGEMENT,
+];
+
+export const AUTHENTICATED_ROLES = [...KNOWN_ROLES];
 
 export const NAV_ROLES = {
   "/dashboard": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
@@ -27,7 +37,7 @@ export const NAV_ROLES = {
   "/fleet/assignments": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/fleet/documents": ["admin", "system_admin", "fleet_manager"],
   "/fleet/categories": ["admin", "system_admin", "fleet_manager"],
-  "/reservations": ["*"],
+  "/reservations": ["system_admin", "admin", "fleet_manager", "dispatcher", "management"],
   "/reservations/queue": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/dispatch": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/dispatch/availability": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
@@ -52,19 +62,19 @@ export const NAV_ROLES = {
   "/reports": ["admin", "system_admin", "fleet_manager", "management"],
   "/reports/cost": ["admin", "system_admin", "fleet_manager", "management"],
   "/analytics": ["admin", "system_admin", "fleet_manager", "management"],
-  "/notifications": ["*"],
+  "/notifications": AUTHENTICATED_ROLES,
   "/notifications/templates": ["admin", "system_admin"],
-  "/notifications/preferences": ["*"],
+  "/notifications/preferences": AUTHENTICATED_ROLES,
   "/system/audit": ["system_admin"],
   "/settings/general": ["admin", "system_admin"],
   "/settings/number-coding": ["admin", "system_admin"],
   "/settings/dispatch": ["admin", "system_admin"],
   "/settings/users": ["admin", "system_admin"],
   "/settings/users/new": ["admin", "system_admin"],
-  "/settings/ai": ["admin", "system_admin", "fleet_manager"],
-  "/settings/ai/logs": ["admin", "system_admin", "fleet_manager"],
-  "/settings/profile": ["*"],
-  "/settings/security": ["*"],
+  "/settings/ai": ["admin", "system_admin"],
+  "/settings/ai/logs": ["admin", "system_admin"],
+  "/settings/profile": AUTHENTICATED_ROLES,
+  "/settings/security": AUTHENTICATED_ROLES,
   "/settings/api": ["admin", "system_admin"],
 };
 
@@ -86,7 +96,7 @@ export function hasRole(employee, roleOrRoles) {
 // here — as is `driver: reservations.read = false`.
 const MATRIX = {
   admin: {
-    vehicles: { create: true, read: true, update: true, delete: true },
+    vehicles: { create: true, read: true, read_all: true, update: true, delete: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     driver_assignments: { create: true, read: true, update: true, delete: true },
     // Day-scoped substitute driver coverage (migration 032) follows the same
@@ -95,26 +105,41 @@ const MATRIX = {
     // Weekly work schedules + leave (migration 049): admin observes, the fleet
     // manager sets them (see fleet_manager). Same split as driver_assignments.
     driver_work_schedules: { read: true },
-    driver_leave_requests: { read: true },
+    driver_leave_requests: { read: true, read_all: true },
     reservations: {
       create: true, read: true, update: true, delete: true,
-      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
+      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true, recommend: true, manage_flags: true,
     },
-    dispatch: { create: true, read: true, update: true, delete: true },
-    drivers: { create: true, read: true, update: true, delete: true },
-    trips: { create: true, read: true, update: true, delete: true },
+    dispatch: { create: true, read: true, read_all: true, update: true, update_all: true, delete: true },
+    drivers: { create: true, read: true, read_all: true, update: true, delete: true, manage_account: true },
+    trips: { create: true, read: true, read_all: true, update: true, update_all: true, delete: true },
     maintenance: { create: true, read: true, update: true, delete: true },
-    fuel: { create: true, read: true, update: true, delete: true },
-    routes: { create: true, read: true, update: true, delete: true },
+    fuel: { create: true, read: true, read_all: true, update: true, delete: true },
+    fuel_requests: { read: true, review: true },
+    fuelallocations: { read: true, update: true },
+    routes: { seed: true, create: true, read: true, update: true, delete: true },
     categories: { create: true, read: true, update: true, delete: true },
     reports: { create: true, read: true, update: true, delete: false },
     analytics: { read: true },
-    ai: { read: true },
+    ai: { read: true, update: true, scan_document: true, report_narrative: true },
+    ai_settings: { read: true, update: true },
+    accounts: { create: true, read: true, update: true },
+    settings: { read: true, update: true },
+    dispatch_settings: { read: true, update: true },
+    uvvrp: { read: true, update: true, decide: true, manage_exemptions: true },
+    driver_leave_balances: { read_all: true },
+    maps: { read: true },
+    predictive_maintenance: { read: true },
+    integrations: { read: true, execute: true },
+    notifications: { create: true, read: true, read_all: true, update: true, delete: true, delete_all: true },
+    device_tokens: { create: true, delete: true },
+    search: { read: true },
+    locations: { read_inactive: true },
     employees: { create: true, read: true, update: true, delete: false },
     system: { read: true },
   },
   fleet_manager: {
-    vehicles: { create: true, read: true, update: true, delete: false },
+    vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: true },
     // Custodial pairing is a fleet-management decision, so fleet_manager writes
     // it. delete:true is not a row deletion — releasing a pairing closes its
@@ -125,26 +150,40 @@ const MATRIX = {
     // they set the weekly schedule and approve/decline leave. delete:true on
     // leave is deliberate (a mistaken request can be withdrawn).
     driver_work_schedules: { create: true, read: true, update: true, delete: true },
-    driver_leave_requests: { create: true, read: true, update: true, delete: true },
+    driver_leave_requests: { create: true, read: true, read_all: true, update: true, delete: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
-      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
+      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true, recommend: true, manage_flags: true,
     },
-    dispatch: { create: true, read: true, update: true, delete: false },
-    drivers: { create: true, read: true, update: true, delete: false },
-    trips: { create: true, read: true, update: true, delete: false },
+    dispatch: { create: true, read: true, read_all: true, update: true, update_all: true, delete: false },
+    drivers: { create: true, read: true, read_all: true, update: true, delete: false, manage_account: true },
+    trips: { create: true, read: true, read_all: true, update: true, update_all: true, delete: false },
     maintenance: { create: true, read: true, update: true, delete: false },
-    fuel: { create: true, read: true, update: true, delete: false },
-    routes: { create: true, read: true, update: true, delete: false },
+    fuel: { create: true, read: true, read_all: true, update: true, delete: false },
+    fuel_requests: { read: true, review: true },
+    fuelallocations: { read: true, update: true },
+    routes: { seed: false, create: true, read: true, update: true, delete: false },
     categories: { create: true, read: true, update: true, delete: false },
     reports: { create: true, read: true, update: true, delete: false },
     analytics: { read: true },
-    ai: { read: true },
+    ai: { read: true, update: true, scan_document: true, report_narrative: true },
+    ai_settings: { read: false, update: false },
+    accounts: { create: false, read: false, update: false },
+    settings: { read: false, update: false },
+    dispatch_settings: { read: true, update: false },
+    uvvrp: { read: true, update: false, decide: true, manage_exemptions: true },
+    driver_leave_balances: { read_all: true },
+    maps: { read: true },
+    predictive_maintenance: { read: true },
+    integrations: { read: true, execute: true },
+    notifications: { create: true, read: true, read_all: true, update: true, delete: true, delete_all: true },
+    device_tokens: { create: true, delete: true },
+    search: { read: true },
     employees: { read: true },
     system: { read: false },
   },
   dispatcher: {
-    vehicles: { read: true },
+    vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: true, resolve: true, route_to_maintenance: false },
     // Read-only: a dispatcher must SEE the pairing to understand the warning
     // chip when a dispatch departs from it, but reassigning custody is not their
@@ -154,20 +193,33 @@ const MATRIX = {
     // Schedules are visible so the dispatch screen can explain why a
     // driver is not offered for a window. Dispatchers can now also review (update) leave requests.
     driver_work_schedules: { read: true },
-    driver_leave_requests: { read: true },
+    driver_leave_requests: { read: true, read_all: true },
     reservations: {
       create: true, read: true, update: true, delete: false,
-      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true,
+      approve: true, assign: true, dispatch: true, cancel: true, reschedule: true, recommend: true,
     },
-    dispatch: { create: true, read: true, update: true, delete: false },
-    drivers: { read: true },
-    trips: { read: true },
+    dispatch: { create: true, read: true, read_all: true, update: true, update_all: true, delete: false },
+    drivers: { read: true, read_all: true },
+    trips: { create: true, read: true, read_all: true, update: true, update_all: true },
     maintenance: { read: true },
-    fuel: { read: true },
+    fuel: { read: true, read_all: true },
     routes: { read: true },
+    driver_leave_balances: { read_all: true },
+    maps: { read: true },
+    categories: { read: true },
     reports: { read: false },
     analytics: { read: true },
-    ai: { read: true },
+    ai: { read: true, scan_document: true, report_narrative: false },
+    ai_settings: { read: false, update: false },
+    accounts: { create: false, read: false, update: false },
+    settings: { read: false, update: false },
+    dispatch_settings: { read: true, update: false },
+    uvvrp: { read: true, update: false, decide: false, manage_exemptions: false },
+    predictive_maintenance: { read: false },
+    integrations: { read: true, execute: true },
+    notifications: { read: true, update: true, delete: true },
+    device_tokens: { create: true, delete: true },
+    search: { read: true },
     employees: { read: false },
     system: { read: false },
   },
@@ -182,35 +234,53 @@ const MATRIX = {
     // manager's.
     driver_work_schedules: { read: true },
     driver_leave_requests: { create: true, read: true },
-    maintenance: { create: true, read: true },
     fuel: { create: true, read: true },
+    fuel_requests: { create: true, read: true },
     reports: { read: false },
     analytics: { read: false },
-    ai: { read: true },
+    ai: { read: false },
+    ai_settings: { read: false, update: false },
+    accounts: { create: false, read: false, update: false },
+    settings: { read: false, update: false },
+    dispatch_settings: { read: false, update: false },
+    uvvrp: { read: false, update: false },
+    maps: { read: true },
+    device_tokens: { create: true, delete: true },
+    notifications: { read: true, update: true, delete: true },
     employees: { read: true },
     system: { read: false },
   },
   management: {
-    vehicles: { read: true },
+    vehicles: { read: true, read_all: true },
     incidents: { read: true, acknowledge: false, resolve: false, route_to_maintenance: false },
     driver_assignments: { read: true },
     substitute_driver_schedules: { read: true },
     driver_work_schedules: { read: true },
-    driver_leave_requests: { read: true },
+    driver_leave_requests: { read: true, read_all: true },
     reservations: {
       read: true,
       approve: false, assign: false, dispatch: false, cancel: false, reschedule: false,
     },
-    dispatch: { read: true },
-    trips: { read: true },
-    drivers: { read: true },
+    dispatch: { read: true, read_all: true },
+    trips: { read: true, read_all: true },
+    drivers: { read: true, read_all: true },
     maintenance: { read: true },
-    fuel: { read: true },
+    fuel: { read: true, read_all: true },
     routes: { read: true },
+    driver_leave_balances: { read_all: true },
+    maps: { read: true },
     categories: { read: true },
     reports: { create: true, read: true },
     analytics: { read: true },
-    ai: { read: true },
+    ai: { read: true, scan_document: false, report_narrative: true },
+    ai_settings: { read: false, update: false },
+    accounts: { create: false, read: false, update: false },
+    settings: { read: false, update: false },
+    dispatch_settings: { read: false, update: false },
+    uvvrp: { read: true, update: false },
+    notifications: { read: true, update: true, delete: true },
+    device_tokens: { create: true, delete: true },
+    search: { read: true },
     fuelallocations: { read: true },
     scheduled_reports: { read: true },
     employees: { read: false },
@@ -226,6 +296,15 @@ export function can(employee, resource, action) {
   if (userRole === ROLES.SYSTEM_ADMIN) return true;
 
   return MATRIX[userRole]?.[resource]?.[action] === true;
+}
+
+// API routes can derive the same role list as the UI matrix without copying
+// policy into every handler. system_admin remains an explicit bypass, matching
+// can() above.
+export function rolesFor(resource, action) {
+  return KNOWN_ROLES.filter((role) =>
+    role === ROLES.SYSTEM_ADMIN || MATRIX[role]?.[resource]?.[action] === true
+  );
 }
 
 export function filterNavItems(navGroups, employee) {

@@ -1,12 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { writeAudit } from "@/lib/audit";
 
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "fuel", "read_all");
     const { id } = await params;
     const { rows } = await query(
       `SELECT 
@@ -15,7 +15,10 @@ export async function GET(req, { params }) {
         json_build_object(
           'driver_id', d.driver_id,
           'license_number', d.license_number,
-          'employees', row_to_json(e.*)
+          'employees', json_build_object(
+            'first_name', e.first_name,
+            'last_name', e.last_name
+          )
         ) as drivers
       FROM fuelrecords fr
       LEFT JOIN vehicles v ON fr.vehicle_id = v.vehicle_id
@@ -38,7 +41,7 @@ const WRITABLE = new Set([
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requirePermission(req, "fuel", "update");
     const { id } = await params;
     const body = await parseBody(req);
 
@@ -151,7 +154,7 @@ export async function PUT(req, { params }) {
 
 export async function DELETE(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "fuel", "delete");
     const { id } = await params;
 
     const { rows } = await query(

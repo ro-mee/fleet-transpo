@@ -14,6 +14,7 @@ export const LIMITS = {
   NAME_MAX: 100,
   TEXT_MAX: 255,
   PASSWORD_MIN: 8,
+  PASSWORD_MAX_BYTES: 72,
   YEAR_MIN: 1900,
   SEAT_MIN: 1,
   SEAT_MAX: 100,
@@ -105,6 +106,12 @@ export function isTime(value) {
 
 export function isPassword(value) {
   return typeof value === "string" && value.length >= LIMITS.PASSWORD_MIN && /[A-Z]/.test(value) && /[a-z]/.test(value) && /\d/.test(value) && /[^A-Za-z0-9]/.test(value);
+}
+
+// bcrypt only uses the first 72 UTF-8 bytes. Reject longer values rather than
+// silently authenticating two different passwords as the same credential.
+export function isPasswordByteLengthAllowed(value) {
+  return typeof value === "string" && new TextEncoder().encode(value).length <= LIMITS.PASSWORD_MAX_BYTES;
 }
 
 export function hasPasswordLowercase(value) {

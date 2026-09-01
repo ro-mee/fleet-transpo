@@ -1,12 +1,12 @@
 import { query } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, resolveIdentity, ok, err, handleError } from "@/lib/api/utils";
 import { verifyServiceToken } from "@/lib/api/service-auth";
 import { parseTransportationRequest } from "@/lib/integration/contracts";
 import { ingestRequest } from "@/lib/integration/ingest";
 import { detectConflictsForRequests } from "@/lib/scheduling/conflicts";
 import { recomputeDerivedPriority } from "@/services/priority.service";
 import { writeAudit } from "@/lib/audit";
+import { rolesFor } from "@/lib/auth/permissions";
 
 // ============================================================================
 // Inbound ingestion: Booking subsystem -> Fleet Reservation Queue.
@@ -32,9 +32,9 @@ async function authorize(req) {
     if (tokenResult.ok) return { actor: "service", session: null };
   }
   // 2) Fall back to a logged-in Fleet user (dev injector / manual replay).
-  const session = await auth();
+  const session = await resolveIdentity(req).catch(() => null);
   const role = session?.user?.role;
-  if (session?.user && ["system_admin", "admin", "fleet_manager", "dispatcher"].includes(role)) {
+  if (session?.user && rolesFor("reservations", "create").includes(role)) {
     return { actor: "user", session };
   }
   return null;
@@ -178,7 +178,7 @@ const QUEUE_TAB_COUNTS_SQL = `
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "reservations", "read");
     const sp = new URL(req.url).searchParams;
     // A queue `tab` implies pagination too: the queue fetches one lifecycle tab
     // at a time instead of the whole set on every poll.

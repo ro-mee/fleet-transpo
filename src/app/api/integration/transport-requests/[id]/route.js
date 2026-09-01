@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
 
 // Read ONE transportation request — what the reservation detail page loads.
@@ -10,17 +10,9 @@ import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
 // page renders from a single response instead of fanning out.
 //
 // Read access is deliberately wider than write access.
-const READ_ROLES = [
-  "system_admin",
-  "admin",
-  "fleet_manager",
-  "dispatcher",
-  "management",
-];
-
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req, READ_ROLES);
+    await requirePermission(req, "reservations", "read");
     const { id } = await params;
 
     const { rows } = await query(

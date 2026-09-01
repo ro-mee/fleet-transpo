@@ -1,12 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 import { getGpsHealth, speedKmhFromMps } from "@/lib/gps";
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "trips", "read_all");
 
     // Return one row per active trip, including a null GPS fix when the trip
     // has never reported. That lets the UI distinguish "No signal" from a

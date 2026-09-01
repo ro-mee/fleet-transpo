@@ -1,13 +1,11 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "trips", "read");
 
     // Operations roles see the whole active fleet; a driver sees only their own
     // trips. Without this filter the mobile app would receive every active trip

@@ -1,9 +1,8 @@
 import { query, withTransaction } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { toCalendarDay } from "@/lib/dates";
-import { AuthError, requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { AuthError, requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 
-const STAFF_ROLES = ["system_admin", "admin", "fleet_manager"];
 const monthStart = (value) => {
   const month = value || toCalendarDay(new Date()).slice(0, 7);
   return /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? `${month}-01` : null;
@@ -27,7 +26,7 @@ const USAGE_CTES = `
 
 export async function GET(req) {
   try {
-    await requireAuth(req, STAFF_ROLES);
+    await requirePermission(req, "fuelallocations", "read");
     const month = monthStart(new URL(req.url).searchParams.get("month"));
     if (!month) return err("month must use YYYY-MM", 400);
     const { rows } = await query(
@@ -54,7 +53,7 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, STAFF_ROLES);
+    const session = await requirePermission(req, "fuelallocations", "update");
     const body = await parseBody(req);
     const vehicleId = Number(body.vehicle_id);
     const allocatedLiters = Number(body.allocated_liters);

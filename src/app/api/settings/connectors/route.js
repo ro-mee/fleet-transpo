@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // Report the configuration status of every external connector the system can
 // talk to. Status is derived from environment-variable presence (server-side
@@ -51,7 +51,7 @@ function aiStatus(envKey, rows, match) {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "settings", "read");
 
     const supabaseReady = [
       has("NEXT_PUBLIC_SUPABASE_URL"),

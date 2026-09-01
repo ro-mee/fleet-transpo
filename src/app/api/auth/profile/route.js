@@ -1,14 +1,13 @@
-import { query } from "@/lib/db";
-import { auth } from "@/lib/auth";
-import { ok, err, errValidation, handleError } from "@/lib/api/utils";
+import bcrypt from "bcryptjs";
+import { query, withTransaction } from "@/lib/db";
+import { requireAuth, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone } from "@/lib/validation/helpers";
+import { writeAudit } from "@/lib/audit";
+import { revokeEmployeeSessions } from "@/lib/auth/sessions";
 
 export async function PATCH(req) {
   try {
-    const session = await auth();
-    if (!session?.user?.employeeId) {
-      return err("Unauthorized", 401);
-    }
+    const session = await requireAuth(req, "*");
 
     const body = await req.json();
     const { first_name, last_name, email, phone } = body;
@@ -24,8 +23,22 @@ export async function PATCH(req) {
     }
 
     const employeeId = session.user.employeeId;
+    const normalizedEmail = email === undefined ? session.user.email : normalizeEmail(email);
+    const emailChanged = normalizedEmail !== normalizeEmail(session.user.email);
 
-    if (email && email !== session.user.email) {
+    if (emailChanged) {
+      const { rows: credentialRows } = await query(
+        `SELECT password_hash FROM employees WHERE employee_id = $1 AND deleted_at IS NULL AND status = 'Active'`,
+        [employeeId]
+      );
+      const valid = await bcrypt.compare(
+        String(body.currentPassword || ""),
+        credentialRows[0]?.password_hash || "$2b$10$c9wQOSTVJPfSVsx6lrokNeg.W0aGtDnZreMk1p4JMIEXKaFPu.bkW"
+      );
+      if (!valid) return err("Current password is required to change your email", 403);
+    }
+
+    if (emailChanged) {
       const existing = await query(
         `SELECT employee_id FROM employees WHERE email = $1 AND employee_id != $2 AND deleted_at IS NULL LIMIT 1`,
         [normalizeEmail(email), employeeId]
@@ -49,7 +62,7 @@ export async function PATCH(req) {
     }
     if (email !== undefined) {
       fields.push(`email = $${idx++}`);
-      values.push(normalizeEmail(email));
+      values.push(normalizedEmail);
     }
     if (phone !== undefined) {
       fields.push(`phone = $${idx++}`);
@@ -61,12 +74,30 @@ export async function PATCH(req) {
     }
 
     values.push(employeeId);
-    const result = await query(
-      `UPDATE employees SET ${fields.join(", ")} WHERE employee_id = $${idx} RETURNING employee_id, first_name, last_name, email, phone, position`,
-      values
-    );
+    const versionClause = emailChanged ? ", auth_version = auth_version + 1" : "";
+    const result = await withTransaction(async (tx) => {
+      const updated = await tx.query(
+        `UPDATE employees SET ${fields.join(", ")}, updated_at = NOW()${versionClause} WHERE employee_id = $${idx} RETURNING employee_id, first_name, last_name, email, phone, position`,
+        values
+      );
+      if (emailChanged) {
+        await revokeEmployeeSessions(tx, employeeId);
+        await tx.query(`DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`, [employeeId]);
+      }
+      return updated;
+    });
 
-    return ok(result.rows?.[0] || { message: "Profile updated" });
+    await writeAudit(req, session, {
+      action: emailChanged ? "email_change" : "profile_update",
+      resource: "employees",
+      resourceId: employeeId,
+      newValues: {
+        fields: fields.map((field) => field.split(" = ")[0]),
+        sessions_revoked: emailChanged,
+      },
+    });
+
+    return ok({ ...(result.rows?.[0] || { message: "Profile updated" }), signInRequired: emailChanged });
   } catch (e) {
     return handleError(e);
   }

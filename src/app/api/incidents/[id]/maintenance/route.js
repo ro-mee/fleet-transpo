@@ -1,9 +1,8 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { groundIncident } from "@/lib/incidents/grounding";
 import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
 import { writeAudit } from "@/lib/audit";
-import { INCIDENT_MAINTENANCE_ROLES } from "@/lib/incidents/resolution";
 
 /**
  * Ensure the rule-based maintenance work order for an incident exists.
@@ -14,7 +13,7 @@ import { INCIDENT_MAINTENANCE_ROLES } from "@/lib/incidents/resolution";
  */
 export async function POST(req, props) {
   try {
-    const session = await requireAuth(req, INCIDENT_MAINTENANCE_ROLES);
+    const session = await requirePermission(req, "incidents", "route_to_maintenance");
     const { id } = await props.params;
     if (!id) return err("Incident ID is required", 400);
 

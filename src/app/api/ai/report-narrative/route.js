@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, handleError } from "@/lib/api/utils";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { getSystemInstructions, getReportInstructions } from "@/lib/ai/prompt-loader";
 import {
@@ -24,8 +24,6 @@ import {
 // sticky note (revisited tabs/loads do NOT re-bill an LLM call) and the per-tab
 // regenerate budget: max 3 regenerations per calendar day, resetting on day roll-
 // over. Only an explicit regenerate (`force=true`) bypasses the 24h cache.
-
-const ROLE_GUARD = ["admin", "system_admin", "fleet_manager", "management"];
 
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 const FORCE_DAILY_LIMIT = 3;
@@ -78,7 +76,7 @@ async function upsertNarrative(report, range, payload, force) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ROLE_GUARD);
+    await requirePermission(req, "ai", "report_narrative");
 
     const body = await parseBody(req);
     const report = body?.report;

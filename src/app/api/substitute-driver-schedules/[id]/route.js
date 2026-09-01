@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError, parseBody } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 
 // Substitute driver schedule item routes (migration 032).
@@ -7,8 +7,6 @@ import { writeAudit } from "@/lib/audit";
 // DELETE closes a schedule (sets nothing — this table has no interval-close
 // semantics; a schedule is removed entirely, unlike the custodial pairing
 // history). PATCH edits the substitute driver and/or the date range.
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 const SELECT_SCHEDULE = `
   SELECT s.substitute_id, s.vehicle_id, s.substitute_driver_id,
@@ -33,7 +31,7 @@ async function loadSchedule(id) {
  */
 export async function PATCH(req, { params }) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "substitute_driver_schedules", "update");
     const { id } = await params;
     const scheduleId = Number(id);
     if (!Number.isInteger(scheduleId) || scheduleId <= 0) {
@@ -105,7 +103,7 @@ export async function PATCH(req, { params }) {
  */
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "substitute_driver_schedules", "delete");
     const { id } = await params;
     const scheduleId = Number(id);
     if (!Number.isInteger(scheduleId) || scheduleId <= 0) {

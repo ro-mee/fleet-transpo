@@ -140,7 +140,7 @@ function KpiSummary({ items, activeFilter, setFilter }) {
 }
 
 export default function DocumentExpirationPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const router = useRouter();
   const [tab, setTab] = useState("vehicle");
   const [docFilter, setDocFilter] = useState("all");

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // module under its own env via vi.resetModules().
 describe("mobile token signing secret (audit S6)", () => {
   const saved = {};
-  const KEYS = ["MOBILE_JWT_SECRET", "NEXTAUTH_SECRET"];
+  const KEYS = ["MOBILE_JWT_SECRET", "NEXTAUTH_SECRET", "NODE_ENV"];
 
   afterEach(() => {
     for (const k of KEYS) {
@@ -25,11 +25,12 @@ describe("mobile token signing secret (audit S6)", () => {
     process.env.NEXTAUTH_SECRET = "web-secret";
     const mt = await import("./mobile-token");
 
-    const token = await mt.signAccessToken({ employeeId: 7, role: "driver", driverId: 3 });
+    const token = await mt.signAccessToken({ employeeId: 7, role: "driver", driverId: 3, authVersion: 2 });
     expect(await mt.verifyAccessToken(token)).toMatchObject({
       employeeId: 7,
       role: "driver",
       driverId: 3,
+      authVersion: 2,
     });
   });
 
@@ -66,6 +67,18 @@ describe("mobile token signing secret (audit S6)", () => {
 
     await expect(mt.signAccessToken({ employeeId: 3, role: "driver", driverId: null })).rejects.toThrow(
       /not set/
+    );
+  });
+
+  it("fails closed when production reuses the web signing secret", async () => {
+    stashEnv();
+    process.env.NODE_ENV = "production";
+    process.env.NEXTAUTH_SECRET = "same-secret";
+    process.env.MOBILE_JWT_SECRET = "same-secret";
+    const mt = await import("./mobile-token");
+
+    await expect(mt.signAccessToken({ employeeId: 4, role: "driver", driverId: null })).rejects.toThrow(
+      /must differ/
     );
   });
 });

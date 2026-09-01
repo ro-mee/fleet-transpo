@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { ROLE_IDS } from "@/lib/constants";
 
 /**
@@ -14,7 +14,7 @@ import { ROLE_IDS } from "@/lib/constants";
  */
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "drivers", "create");
     const body = await parseBody(req);
     const employeeId = Number(body.employee_id);
 

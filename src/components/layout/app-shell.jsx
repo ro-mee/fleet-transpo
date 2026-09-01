@@ -11,6 +11,7 @@ import { getIncidentSummary } from "@/services/driver.service";
 import { getDispatches } from "@/services/dispatch.service";
 import { getFuelRequests } from "@/services/fuel.service";
 import { getTransportRequests } from "@/services/transport.service";
+import { can } from "@/lib/auth/permissions";
 import {
   ChevronLeft,
   ChevronRight,
@@ -171,7 +172,7 @@ export function Sidebar() {
   const { data: pendingFuelRequests } = useQuery({
     queryKey: ["fuel-requests", "sidebar-pending-count"],
     queryFn: () => getFuelRequests({ status: "Pending" }),
-    enabled: fuelVisible && ["admin", "system_admin", "fleet_manager"].includes(userRole),
+    enabled: fuelVisible && can(employee, "fuel_requests", "review"),
     refetchInterval: 30000,
     refetchOnWindowFocus: true,
   });

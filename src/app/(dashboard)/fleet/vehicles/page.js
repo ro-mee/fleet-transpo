@@ -19,7 +19,7 @@ import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/co
 import { toast } from "@/components/ui/toast";
 
 export default function FleetVehiclesPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   useVehicleStatusSync();
   const router = useRouter();
   const [filters, setFilters] = useState({});

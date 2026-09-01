@@ -48,7 +48,7 @@ function fmtDate(value) {
 }
 
 export default function DriverSchedulePage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const [startDate, setStartDate] = useState("");

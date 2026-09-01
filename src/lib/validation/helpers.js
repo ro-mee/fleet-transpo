@@ -15,6 +15,7 @@ import {
   isDateInPast,
   isTime,
   isPassword,
+  isPasswordByteLengthAllowed,
   hasPasswordLowercase,
   hasPasswordUppercase,
   hasPasswordNumber,
@@ -32,7 +33,7 @@ import {
   toVehicleTitleCase,
 } from "./index";
 
-export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, toProperCase, toVehicleTitleCase, isUrl, isBase64DataUrl, isEmail, isPhonePH, isName, isId, isUuid, isPassword, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH };
+export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, toProperCase, toVehicleTitleCase, isUrl, isBase64DataUrl, isEmail, isPhonePH, isName, isId, isUuid, isPassword, isPasswordByteLengthAllowed, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH };
 
 export const ERRORS = {
   required: (label) => `${label} is required.`,
@@ -50,6 +51,7 @@ export const ERRORS = {
   pastDate: (label) => `${label} must not be in the past.`,
   time: (label) => `${label} must be a valid time.`,
   passwordLength: `Password must be at least ${LIMITS.PASSWORD_MIN} characters.`,
+  passwordTooLong: `Password must be no more than ${LIMITS.PASSWORD_MAX_BYTES} UTF-8 bytes.`,
   passwordUppercase: "Password must contain at least one uppercase letter.",
   passwordLowercase: "Password must contain at least one lowercase letter.",
   passwordNumber: "Password must contain at least one number.",
@@ -158,6 +160,7 @@ export function validateField(value, spec = {}, label = "This field", allValues 
         pastDate: () => (isDateInPast(value) ? null : message || ERRORS.pastDate(label)),
         time: () => (isTime(value) ? null : message || ERRORS.time(label)),
         password: () => {
+          if (!isPasswordByteLengthAllowed(value)) return ERRORS.passwordTooLong;
           if (!isPassword(value)) {
             if (!hasPasswordLowercase(value)) return ERRORS.passwordLowercase;
             if (!hasPasswordUppercase(value)) return ERRORS.passwordUppercase;

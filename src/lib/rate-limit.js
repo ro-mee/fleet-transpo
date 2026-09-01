@@ -1,19 +1,9 @@
-// In-memory, per-key fixed-window rate limiter. Zero dependencies.
-// NOTE: state is per-process. This is intentionally lightweight for a
-// single-instance deployment; it does not coordinate across serverless
-// instances. Good enough to blunt brute-force/credential-stuffing.
+import { query } from "@/lib/db";
 
-const buckets = new Map(); // key -> { count, resetAt }
-
-let lastSweep = 0;
-function sweep(now) {
-  // Opportunistically drop expired buckets so the Map doesn't grow forever.
-  if (now - lastSweep < 60_000) return;
-  lastSweep = now;
-  for (const [key, bucket] of buckets) {
-    if (bucket.resetAt <= now) buckets.delete(key);
-  }
-}
+// Authentication throttles are persisted in PostgreSQL so a restart or a
+// second application instance cannot reset the counters. The table is created
+// by migration 087. A limiter database failure fails closed rather than
+// silently allowing unthrottled credential attempts.
 
 /**
  * Consume one hit against `key`. Returns { allowed, remaining, retryAfter }.
@@ -22,22 +12,44 @@ function sweep(now) {
  * @param {number} [opts.limit]      Max hits per window (default 10).
  * @param {number} [opts.windowMs]   Window length in ms (default 60000).
  */
-export function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
-  const now = Date.now();
-  sweep(now);
+export async function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
+  try {
+    const { rows } = await query(
+      `WITH cleanup AS (
+         DELETE FROM auth_rate_limits
+          WHERE updated_at < NOW() - INTERVAL '1 day'
+       )
+       INSERT INTO auth_rate_limits (bucket_key, window_started_at, hit_count, updated_at)
+       VALUES ($1, NOW(), 1, NOW())
+       ON CONFLICT (bucket_key) DO UPDATE
+         SET hit_count = CASE
+               WHEN auth_rate_limits.window_started_at + ($2::double precision * INTERVAL '1 millisecond') <= NOW()
+                 THEN 1
+               ELSE LEAST(auth_rate_limits.hit_count + 1, $3 + 1)
+             END,
+             window_started_at = CASE
+               WHEN auth_rate_limits.window_started_at + ($2::double precision * INTERVAL '1 millisecond') <= NOW()
+                 THEN NOW()
+               ELSE auth_rate_limits.window_started_at
+             END,
+             updated_at = NOW()
+       RETURNING hit_count,
+         GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+           (window_started_at + ($2::double precision * INTERVAL '1 millisecond') - NOW())))::int) AS retry_after`,
+      [String(key).slice(0, 512), windowMs, limit]
+    );
 
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, remaining: limit - 1, retryAfter: 0 };
+    const hitCount = Number(rows[0]?.hit_count) || 1;
+    const retryAfter = Number(rows[0]?.retry_after) || 0;
+    return {
+      allowed: hitCount <= limit,
+      remaining: Math.max(0, limit - hitCount),
+      retryAfter: hitCount <= limit ? 0 : retryAfter,
+    };
+  } catch (error) {
+    console.error("Auth rate limiter unavailable:", error?.message || error);
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil(windowMs / 1000) };
   }
-
-  if (bucket.count >= limit) {
-    return { allowed: false, remaining: 0, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
-  }
-
-  bucket.count += 1;
-  return { allowed: true, remaining: limit - bucket.count, retryAfter: 0 };
 }
 
 /**
@@ -46,17 +58,29 @@ export function rateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
  * left) even though NextAuth collapses every authorize() failure into
  * "CredentialsSignin" client-side.
  */
-export function peekRateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
-  const now = Date.now();
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    return { allowed: true, remaining: limit, retryAfter: 0 };
+export async function peekRateLimit(key, { limit = 10, windowMs = 60_000 } = {}) {
+  try {
+    const { rows } = await query(
+      `SELECT hit_count,
+         GREATEST(0, CEIL(EXTRACT(EPOCH FROM
+           (window_started_at + ($2::double precision * INTERVAL '1 millisecond') - NOW())))::int) AS retry_after
+         FROM auth_rate_limits
+        WHERE bucket_key = $1`,
+      [String(key).slice(0, 512), windowMs]
+    );
+    if (!rows[0] || Number(rows[0].retry_after) <= 0) {
+      return { allowed: true, remaining: limit, retryAfter: 0 };
+    }
+    const hitCount = Number(rows[0].hit_count) || 0;
+    return {
+      allowed: hitCount < limit,
+      remaining: Math.max(0, limit - hitCount),
+      retryAfter: Number(rows[0].retry_after) || 0,
+    };
+  } catch (error) {
+    console.error("Auth rate limiter unavailable:", error?.message || error);
+    return { allowed: false, remaining: 0, retryAfter: Math.ceil(windowMs / 1000) };
   }
-  return {
-    allowed: bucket.count < limit,
-    remaining: Math.max(0, limit - bucket.count),
-    retryAfter: Math.ceil((bucket.resetAt - now) / 1000),
-  };
 }
 
 /** Matches IPv4, IPv6, and optional ":port" suffixes on dotted quads. */

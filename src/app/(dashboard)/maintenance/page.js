@@ -43,7 +43,7 @@ const maintenanceFormSchema = {
 const columnHelper = createColumnHelper();
 
 export default function MaintenancePage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
   const sourceIncidentId = searchParams.get("incident_id") || "";

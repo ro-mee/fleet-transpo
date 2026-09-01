@@ -1,4 +1,4 @@
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { query } from "@/lib/db";
 import { validateImage } from "@/lib/uploads/validator";
@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export async function POST(req, context) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "vehicles", "update");
     
     const params = await context.params;
     const vehicleId = Number(params.id);

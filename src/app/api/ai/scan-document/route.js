@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
@@ -12,8 +12,7 @@ const SUPPORTED_DOCUMENT_TYPES = new Set([
 
 export async function POST(request) {
   try {
-    const auth = await requireAuth(request, ["admin", "system_admin", "fleet_manager", "dispatcher"]);
-    if (auth.error) return auth.error;
+    await requirePermission(request, "ai", "scan_document");
 
     const body = await parseBody(request);
     const { document_type: documentType, file_url: fileUrl } = body || {};

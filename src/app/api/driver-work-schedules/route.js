@@ -1,4 +1,4 @@
-import { requireAuth, requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { query } from "@/lib/db";
 import { listWorkSchedules, saveWorkSchedule } from "@/services/driver-schedule.service";
@@ -10,7 +10,7 @@ import { listWorkSchedules, saveWorkSchedule } from "@/services/driver-schedule.
 // driver_work_schedules). A driver reads only their own schedule.
 export async function GET(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"]);
+    const session = await requirePermission(req, "driver_work_schedules", "read");
     const sp = new URL(req.url).searchParams;
     const role = session.user?.role;
     let driverId = sp.get("driver_id");
@@ -41,7 +41,7 @@ export async function GET(req) {
 // system_admin) sets schedules — admin deliberately excluded (RBAC matrix).
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "fleet_manager"]);
+    const session = await requirePermission(req, "driver_work_schedules", "update");
     const body = await parseBody(req);
 
     const errors = validateBody(body, {

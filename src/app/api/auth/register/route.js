@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError, errValidation } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, errValidation } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { ROLE_IDS } from "@/lib/constants";
@@ -16,7 +16,7 @@ export function canAssignRole(actorRole, roleId) {
 // new account's role is taken from an explicit, validated role_id.
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "accounts", "create");
 
     const body = await req.json();
 

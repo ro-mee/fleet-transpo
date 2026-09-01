@@ -1,16 +1,9 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, [
-      "system_admin",
-      "admin",
-      "fleet_manager",
-      "dispatcher",
-      "management",
-      "driver",
-    ]);
+    const session = await requirePermission(req, "notifications", "update");
     const id = Number((await params).id);
     if (!Number.isInteger(id)) return err("Invalid notification id", 400);
 

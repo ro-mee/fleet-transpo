@@ -30,7 +30,7 @@ import { formatDate, formatNumber, formatCurrency } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
 export default function VehicleDetailPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const params = useParams();
   const router = useRouter();
   const queryClient = useQueryClient();

@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // Phase 16 — everything the calendar needs for one visible window.
 //
@@ -16,7 +16,7 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 // hiccuped is not.
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "dispatch", "read_all");
 
     const sp = new URL(req.url).searchParams;
     const from = sp.get("from");

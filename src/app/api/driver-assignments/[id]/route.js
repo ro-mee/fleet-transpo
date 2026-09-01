@@ -1,8 +1,6 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError, parseBody } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError, parseBody } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
-
-const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 /**
  * DELETE /api/driver-assignments/[id]   { release_reason? }
@@ -14,7 +12,7 @@ const WRITE_ROLES = ["system_admin", "admin", "fleet_manager"];
  */
 export async function DELETE(req, { params }) {
   try {
-    const session = await requireAuth(req, WRITE_ROLES);
+    const session = await requirePermission(req, "driver_assignments", "delete");
     const { id } = await params;
     const assignmentId = Number(id);
     if (!Number.isInteger(assignmentId) || assignmentId <= 0) {

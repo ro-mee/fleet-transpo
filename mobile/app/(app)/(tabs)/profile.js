@@ -140,9 +140,14 @@ export default function Profile() {
         <View style={styles.modalBackdrop}>
           <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant }]}>
             <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
-            <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
+            <Text
+              style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}
+            >
               You will be returned to the login screen.
             </Text>
+            <Pressable onPress={() => signOut({ allDevices: true })} style={[styles.modalAllBtn, { borderColor: colors.error }]}>
+              <Text style={[type.labelLg, styles.modalAllText, { color: colors.error }]}>Sign Out All Devices</Text>
+            </Pressable>
             <View style={styles.modalActions}>
               <Pressable onPress={() => setLogoutModal(false)} style={[styles.modalCancelBtn, { borderColor: colors.outline }]}>
                 <Text style={[type.labelLg, styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
@@ -257,6 +262,8 @@ const styles = StyleSheet.create({
   },
   modalTitle: { },
   modalBody: { },
+  modalAllBtn: { height: moderateScale(44), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  modalAllText: { },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
   modalCancelBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
   modalCancelText: { },

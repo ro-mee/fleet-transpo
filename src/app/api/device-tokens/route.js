@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 
 // Real push device-token registration. The mobile app registers one Expo push
@@ -9,11 +9,9 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 // RLS lets a user manage only their own tokens; this route mirrors that scope
 // so the API boundary and the DB agree even for callers that bypass RLS.
 
-const ALL_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ALL_ROLES);
+    const session = await requirePermission(req, "device_tokens", "create");
     const employeeId = session.user?.employeeId;
     if (employeeId == null) {
       return err("This account is not linked to an employee", 400);
@@ -45,7 +43,7 @@ export async function POST(req) {
 
 export async function DELETE(req) {
   try {
-    const session = await requireAuth(req, ALL_ROLES);
+    const session = await requirePermission(req, "device_tokens", "delete");
     const employeeId = session.user?.employeeId;
     if (employeeId == null) return ok({ removed: 0 });
 

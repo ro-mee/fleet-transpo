@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
@@ -38,7 +38,7 @@ const FIELD_TO_COLUMN = {
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    const session = await requirePermission(req, "maintenance", "update");
     const id = (await params).id;
     const body = await parseBody(req);
 

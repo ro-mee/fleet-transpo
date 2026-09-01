@@ -6,12 +6,14 @@ permission matrix, and why the database is not the boundary.
 
 Source of truth: **`src/lib/auth/permissions.js`** — `MATRIX[role][resource][action]`
 plus `NAV_ROLES[path]`. `role-guard.js` re-exports it and adds the React hook;
-the matrix data itself lives in `permissions.js`.
+the matrix data itself lives in `permissions.js`. Cleanly mapped API routes call
+`requirePermission(req, resource, action)`, which derives the same role list via
+`rolesFor()`.
 
 > **History.** FleetOps was multi-branch and had nine roles. Branches were removed
 > in migration `013_drop_branches.sql`. The three hospitality roles
 > (`reception_staff`, `restaurant_staff`, `concierge`) were removed in migration
-> `022_remove_front_desk_roles.sql`, and the three employees holding them were
+> `028_remove_front_desk_roles.sql`, and the three employees holding them were
 > disabled. There is no branch scoping and there are no front-desk roles anywhere
 > in the current system.
 
@@ -47,7 +49,7 @@ Authorization therefore lives in the application, in four layers:
 
 | Layer | Where | What it does |
 |---|---|---|
-| **API route authz** (authoritative) | `requireAuth(req, [roles])` in `src/lib/api/utils.js` | Throws 401 unauthenticated, 403 wrong role. This is the real boundary. |
+| **API route authz** (authoritative) | `requirePermission(req, resource, action)` → `rolesFor()` in `src/lib/api/utils.js` | Throws 401 unauthenticated, 403 wrong role. This is the real boundary. `requireAuth()` remains for self-service, ownership, and protocol-specific handlers. |
 | Ownership scoping | `src/lib/api/ownership.js` | `assertTripOwnership` / `assertDispatchOwnership` return 404 for another driver's row; `resolveDriverScope` 403s a driver asking for someone else's data. |
 | Nav gating | `NAV_ROLES` + `filterNavItems()` | Hides sidebar items the role cannot use. |
 | Feature gating | `can(employee, resource, action)` | Conditionally renders action buttons. |
@@ -56,8 +58,14 @@ The last two decide what the UI *offers*. They are convenience, not protection:
 `useRequireRole()` redirects from a `useEffect`, so a restricted page can flash
 before the redirect. The API check is what actually stops a request.
 
-`scripts/verify-rbac.mjs` asserts the UI matrix and the per-route role lists agree,
-so a verb cannot be merely hidden while its endpoint stays open.
+`scripts/verify-rbac.mjs` asserts the UI matrix and the live lifecycle behavior
+agree. Matrix-backed route guards no longer carry a second role-list copy, so a
+verb cannot be merely hidden while its endpoint stays open.
+
+`resolveIdentity()` now re-reads the live employee, role, active status, and driver
+link for every non-harness request before a route can proceed. This makes a role
+demotion or account disablement effective immediately; `requirePermission()` and
+`rolesFor()` derive cleanly mapped API role lists from the same matrix.
 
 Auth resolution itself (`resolveIdentity`) accepts either a NextAuth cookie session
 or an `Authorization: Bearer` mobile JWT, with bearer winning when both are
@@ -82,17 +90,27 @@ different authority than editing its fields.
 | `dispatch` | CRUD | CRU | CRU | R, U | R |
 | `drivers` | CRUD | CRU | R | R | R |
 | `trips` | CRUD | CRU | CRU | R, U | R |
-| `maintenance` | CRUD | CRU | R | C, R | R |
+| `maintenance` | CRUD | CRU | R | — | R |
 | `fuel` | CRUD | CRU | R | C, R | R |
 | `routes` | CRUD | CRU | CRU | — | R |
-| `categories` | CRUD | CRU | — | — | R |
-| `reports` | CRU | CRU | CR | — | CR |
+| `categories` | CRUD | CRU | R | — | R |
+| `reports` | CRU | CRU | — | — | CR |
 | `analytics` | R | R | R | — | R |
-| `ai` | R | R | R | R | R |
+| `ai` | R | R | R | — | R |
 | `employees` | CRU | R | — | R | — |
 | `system` | R | — | — | — | — |
-| `fuelallocations` | — | — | — | — | R |
+| `fuelallocations` | RU | RU | — | — | R |
 | `scheduled_reports` | — | — | — | — | R |
+
+The matrix also carries the smaller operational scopes used by the API: `ai`
+has `scan_document` and `report_narrative`; `drivers` has `manage_account`;
+`fuel` has `read_all`; `fuel_requests` separates driver `create/read` from staff
+`review`; `fuelallocations` separates `read` from `update`; and `notifications`
+has self-service `read/update/delete` plus staff `read_all/delete_all`.
+`device_tokens`, `maps`, `search`, `locations.read_inactive`, and
+`driver_leave_balances.read_all` are likewise matrix-backed. These actions are
+deliberately more specific than a generic CRUD verb where row ownership or
+operational scope differs.
 
 ¹ `delete` on `driver_assignments` is not a row deletion — releasing a custodial
 pairing closes its interval (`DELETE /api/driver-assignments/[id]`).
@@ -119,7 +137,7 @@ Notable entries:
 |---|---|
 | `/dashboard` | all except `driver` |
 | `/driver`, `/driver/*` | `driver` only |
-| `/reservations` | `*` |
+| `/reservations` | admin, system_admin, fleet_manager, dispatcher, management |
 | `/reservations/queue` | admin, system_admin, fleet_manager, dispatcher |
 | `/executive` | admin, management |
 | `/system/audit` | `system_admin` only |
@@ -129,6 +147,11 @@ Notable entries:
 A driver navigating directly to `/dashboard` would render it — a UI-only exposure,
 since every data endpoint behind it still enforces roles.
 
+The page hook now resolves `getRequiredRolesForPath(pathname)` itself, so page
+components do not repeat navigation role arrays. Collection-wide API permissions
+are named explicitly with `read_all` / `update_all`; driver-facing endpoints use
+the ordinary `read` / `update` actions plus ownership assertions.
+
 ## 5. Accounts and sessions
 
 - **No public signup.** `POST /api/auth/register` is admin-only and 409s on a
@@ -137,11 +160,16 @@ since every data endpoint behind it still enforces roles.
 - **Web sessions:** NextAuth Credentials, bcrypt against `employees.password_hash`,
   JWT session strategy, per-IP login rate limit of 5/min. Drivers land on `/driver`,
   everyone else on `/dashboard`.
+- The JWT role is a landing/UI hint only; API authorization uses the live employee
+  row resolved by `resolveIdentity()` before applying the route permission.
 - **Mobile tokens** are a separate system: a 15-minute access JWT and a 30-day
-  refresh JWT, both signed with `NEXTAUTH_SECRET`. Refresh tokens are stored
+  refresh JWT, signed with the dedicated `MOBILE_JWT_SECRET` (falling back to
+  `NEXTAUTH_SECRET` only for compatibility). Refresh tokens are stored
   SHA-256 hashed in `mobile_refresh_tokens` with single-use rotation, and the role
   and driver link are re-read from the database on every refresh — so disabling an
-  account takes effect at the next refresh rather than at token expiry.
+  account takes effect at the next refresh rather than at token expiry. API
+  requests also revalidate the employee row, so disabling an account takes effect
+  immediately for both auth schemes.
 - **Machine-to-machine:** `verifyServiceToken` (`src/lib/api/service-auth.js`)
   does a constant-time compare and fails closed when the secret is unset. Used by
   `/api/cron/sync` and the Booking ingest endpoint.
@@ -154,11 +182,18 @@ since every data endpoint behind it still enforces roles.
 
 ## 6. Status and known gaps
 
-Implemented: all six roles, per-route `requireAuth` on every mutating route,
+Implemented: all six roles, per-route `requireAuth`/`requirePermission` on every
+mutating route,
 ownership scoping for driver-facing reads, the client guards, admin-only account
 creation, login rate limiting, and no branch scoping anywhere.
 
 Known gaps, tracked rather than fixed:
+
+Verification (2026-09-02): `npm run verify:auth` passes 218/218 exported HTTP
+methods, the live lifecycle harness passes 72/72, and lint plus migration
+validation pass. The default local Vitest config loader still hits a Windows /
+esbuild permission error, but `--configLoader runner` runs the retained suite at
+473/473 across 42 files.
 
 - The inert RLS migrations are still in the tree. Removing them is a judgement
   call between reference value and the confusion of shipping policies that do

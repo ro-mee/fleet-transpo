@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
@@ -16,7 +16,7 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"]);
+    const session = await requirePermission(req, "trips", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     const trip = await assertTripOwnership(session, id);

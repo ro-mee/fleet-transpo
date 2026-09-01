@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError, AuthError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
+import { rolesFor } from "@/lib/auth/permissions";
 
 const INSPECTION_TYPES = ["Pre-Trip", "Pre-Shift"];
 const CHECKLIST_ITEM_IDS = ["cabin", "aircon", "dashboard", "exterior", "brakes", "tires", "fuel"];
@@ -124,8 +125,9 @@ export async function POST(req) {
         const { rows: overseers } = await query(
           `SELECT e.employee_id FROM employees e
              JOIN roles r ON r.role_id = e.role_id
-            WHERE r.role_name IN ('system_admin', 'fleet_manager', 'dispatcher', 'admin')
-              AND e.deleted_at IS NULL`
+            WHERE r.role_name = ANY($1)
+              AND e.deleted_at IS NULL`,
+          [rolesFor("trips", "update_all")]
         );
         const notificationMessage = `${trip.plate_number || `Vehicle #${trip.vehicle_id}`} failed the pre-trip inspection for Trip #${tripId} and requires review.`;
         for (const overseer of overseers) {

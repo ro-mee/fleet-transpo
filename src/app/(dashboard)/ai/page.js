@@ -37,7 +37,7 @@ function normalizeSeverity(insight) {
 }
 
 export default function AiDashboardPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
 
   const { data: insightsData, isLoading: insightsLoading } = useQuery({
     queryKey: ["ai-insights"],

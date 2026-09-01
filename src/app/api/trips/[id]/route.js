@@ -1,11 +1,11 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { TRIP_WRITABLE } from "../route";
 
 export async function GET(req, { params }) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "trips", "read_all");
     const id = (await params).id;
     const { rows } = await query(`SELECT ${TRIPS_SELECT} ${TRIPS_JOINS} WHERE t.trip_id = $1 AND t.deleted_at IS NULL LIMIT 1`, [id]);
     if (!rows[0]) return err("Trip not found", 404);
@@ -15,7 +15,7 @@ export async function GET(req, { params }) {
 
 export async function PUT(req, { params }) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "trips", "update_all");
     const id = (await params).id;
     const body = await parseBody(req);
     const columns = [];

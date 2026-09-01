@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { query, getAdminClient } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
 import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
@@ -42,7 +42,7 @@ export async function GET(req) {
     // (/api/driver/me), not the roster — admitting them to this route lets any
     // driver enumerate colleagues' license numbers, contact details and
     // schedules. GET /api/drivers/[id] already excludes the role as well.
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    await requirePermission(req, "drivers", "read_all");
     await ensureDriverColumnsExist();
 
     const { searchParams } = new URL(req.url);
@@ -219,7 +219,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "drivers", "create");
     await ensureDriverColumnsExist();
     const body = await parseBody(req);
 

@@ -218,7 +218,7 @@ function JumpToDate({ anchor, onPick }) {
 }
 
 export default function DispatchCalendarPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
 
   const [view, setView] = useState(CALENDAR_VIEW.DAY);
   const [laneMode, setLaneMode] = useState(LANE.DRIVER);

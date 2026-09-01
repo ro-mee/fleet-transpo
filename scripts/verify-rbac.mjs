@@ -26,7 +26,7 @@ const app = (rel) => import(pathToFileURL(resolvePath(process.cwd(), "src", rel)
 const { getPool } = await app("lib/db.js");
 // The matrix lives in the pure module; role-guard.js is "use client" and pulls in
 // JSX, so it cannot load here. Same data either way — role-guard re-exports it.
-const { can } = await app("lib/auth/permissions.js");
+const { can, rolesFor } = await app("lib/auth/permissions.js");
 
 let pass = 0;
 const failures = [];
@@ -39,15 +39,15 @@ function check(label, condition, detail) {
 // ---------------------------------------------------------------------------
 // Routes under test, with the role list each one declares.
 // ---------------------------------------------------------------------------
-const ACTION_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher"];
-const READ_ROLES = [...ACTION_ROLES, "management"];
+const ACTION_ROLES = rolesFor("reservations", "approve");
+const READ_ROLES = rolesFor("reservations", "read");
 
 const ROUTES = [
   // Kept in lockstep with what is actually on disk and with
   // src/services/transport.service.js: review/reject/approve were deleted
   // (0c0820c) — the lifecycle is now flags → recommendation → assign.
-  { name: "flags",          mod: "app/api/integration/transport-requests/[id]/flags/route.js",         method: "PATCH", allow: ["system_admin", "admin", "fleet_manager"], kind: "action" },
-  { name: "recommendation", mod: "app/api/integration/transport-requests/[id]/recommendation/route.js", method: "POST", allow: ACTION_ROLES, kind: "action" },
+  { name: "flags",          mod: "app/api/integration/transport-requests/[id]/flags/route.js",         method: "PATCH", allow: rolesFor("reservations", "manage_flags"), kind: "action" },
+  { name: "recommendation", mod: "app/api/integration/transport-requests/[id]/recommendation/route.js", method: "POST", allow: rolesFor("reservations", "recommend"), kind: "action" },
   { name: "assign",      mod: "app/api/integration/transport-requests/[id]/assign/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
   { name: "cancel",      mod: "app/api/integration/transport-requests/[id]/cancel/route.js",      method: "PUT",  allow: ACTION_ROLES, kind: "action" },
   { name: "reschedule",  mod: "app/api/integration/transport-requests/[id]/reschedule/route.js",  method: "PUT",  allow: ACTION_ROLES, kind: "action" },

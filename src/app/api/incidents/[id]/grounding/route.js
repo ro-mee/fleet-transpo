@@ -1,13 +1,12 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { groundIncident } from "@/lib/incidents/grounding";
-import { INCIDENT_ACTION_ROLES } from "@/lib/incidents/resolution";
 
 /** Retry the safety side effects for a report whose first grounding attempt failed. */
 export async function POST(req, props) {
   try {
-    const session = await requireAuth(req, INCIDENT_ACTION_ROLES);
+    const session = await requirePermission(req, "incidents", "acknowledge");
     const { id } = await props.params;
     if (!id) return err("Incident ID is required", 400);
 

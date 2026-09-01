@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // pg returns DATE columns as JS Date objects (local time), not strings — the
 // previous `r.fuel_date?.substring(0, 7)` crashed with a TypeError the moment
@@ -14,7 +14,7 @@ const monthKey = (d) => {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "reports", "read");
     const { rows: records } = await query(`SELECT fuel_type, liters, amount, price_per_liter, fuel_date, odometer FROM fuelrecords WHERE deleted_at IS NULL AND status = 'Approved' ORDER BY fuel_date DESC`);
     if (!records?.length) return ok({ totalCost: 0, totalLiters: 0, avgCostPerLiter: 0, recordsCount: 0, byFuelType: [], monthlyTrend: [] });
     // Number() is load-bearing for the same reason monthKey exists above: pg

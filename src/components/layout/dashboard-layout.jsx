@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/ui/command-palette";
 import { useRequireRole } from "@/hooks/use-role-access";
 import { useSidebar } from "@/hooks/use-sidebar";
-import { NAV_ROLES, getRequiredRolesForPath } from "@/lib/auth/role-guard";
+import { getRequiredRolesForPath } from "@/lib/auth/role-guard";
 
 const authRoutes = ["/login", "/register", "/forgot-password", "/reset-password"];
 
@@ -113,7 +113,7 @@ function AccessRestrictedPanel() {
 
 function RouteGuard({ pathname, children }) {
   const requiredRoles = getRequiredRolesForPath(pathname);
-  const { authorized, loading } = useRequireRole(requiredRoles);
+  const { authorized, loading } = useRequireRole();
 
   // Open paths render immediately — no blank flash while the session loads.
   if (requiredRoles.includes("*")) return <>{children}</>;

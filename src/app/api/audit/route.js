@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 /**
  * GET /api/audit
@@ -13,7 +13,7 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
  */
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin"]);
+    await requirePermission(req, "audit", "read");
     const sp = new URL(req.url).searchParams;
     const params = [];
     let idx = 1;

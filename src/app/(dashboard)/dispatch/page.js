@@ -114,7 +114,7 @@ function matches(dispatch, term) {
   return haystack.includes(term.toLowerCase());
 }
 export default function DispatchPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
 

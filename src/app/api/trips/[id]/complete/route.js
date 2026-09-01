@@ -1,10 +1,10 @@
-import { requireAuth, parseBody, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { completeTrip } from "@/services/trip-lifecycle.service";
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"]);
+    const session = await requirePermission(req, "trips", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     await assertTripOwnership(session, id);

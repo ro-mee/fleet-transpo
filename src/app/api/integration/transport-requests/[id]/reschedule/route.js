@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { RESERVATION_EVENT as E } from "@/lib/constants";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
 import { recordReservationEvent } from "@/services/reservation-events.service";
@@ -19,7 +19,7 @@ import { writeAudit } from "@/lib/audit";
 // Rejected would silently rewrite history.
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "reservations", "reschedule");
     const { id } = await params;
     const body = await parseBody(req);
 

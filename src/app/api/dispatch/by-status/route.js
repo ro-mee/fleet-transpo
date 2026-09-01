@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 
 // Grouped dispatch feed for the board — one query, four buckets.
 //
@@ -9,7 +9,7 @@ import { requireAuth, ok, handleError } from "@/lib/api/utils";
 // trip progress bar without a follow-up request per row.
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    await requirePermission(req, "dispatch", "read_all");
 
     const { rows } = await query(`
       SELECT

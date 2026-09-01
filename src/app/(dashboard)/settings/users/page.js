@@ -15,8 +15,10 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { HeroHeader, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/hooks/use-role-access";
-import { Search, UserCog, UserPlus, ShieldAlert, RefreshCw, AlertTriangle } from "lucide-react";
+import { Search, UserCog, UserPlus, ShieldAlert, RefreshCw, AlertTriangle, KeyRound, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { rolesFor } from "@/lib/auth/permissions";
 
 // Staff account index — every employee account (not driver profiles; those live
 // in the Drivers directory). Admins can review roles and disable/enable
@@ -26,12 +28,16 @@ import { cn } from "@/lib/utils";
 const columnHelper = createColumnHelper();
 
 export default function UsersPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [target, setTarget] = useState(null); // {employee, action: disable|enable}
+  const [resetLink, setResetLink] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const canIssueReset = rolesFor("accounts", "update").includes(user?.role);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -74,6 +80,18 @@ export default function UsersPage() {
     onError: (e) => toast.error(e.message || "Failed to update account"),
     onError: (e) => toast.error(e.message || "Failed to update account"),
   });
+
+  const resetMutation = useMutation({
+    mutationFn: (employee_id) =>
+      apiFetch("/api/auth/reset-token", { method: "POST", body: { employee_id } }),
+    onSuccess: (result) => {
+      setResetLink(result.resetUrl);
+      setCopied(false);
+      toast.success("One-time reset link created (expires in 30 minutes)");
+    },
+    onError: (e) => toast.error(e.message || "Failed to create reset link"),
+  });
+  const { mutate: issueReset, isPending: resetPending } = resetMutation;
 
   const columns = useMemo(
     () => [
@@ -129,8 +147,22 @@ export default function UsersPage() {
         cell: (info) => {
           const u = info.row.original;
           const disabled = Boolean(u.deleted_at);
+          const canResetTarget = canIssueReset && !disabled && (u.role_name !== "system_admin" || user?.role === "system_admin");
           return (
-            <div className="text-right">
+            <div className="text-right flex items-center justify-end gap-1">
+              {canResetTarget && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 rounded-full text-xs cursor-pointer"
+                  onClick={() => issueReset(u.employee_id)}
+                  disabled={resetPending}
+                  title="Create a one-time password reset link"
+                >
+                  <KeyRound className="w-3.5 h-3.5 mr-1.5" />
+                  Reset password
+                </Button>
+              )}
               {disabled ? (
                 <Button
                   variant="outline"
@@ -156,7 +188,7 @@ export default function UsersPage() {
         },
       }),
     ],
-    []
+    [canIssueReset, issueReset, resetPending, user?.role]
   );
 
   return (
@@ -233,6 +265,42 @@ export default function UsersPage() {
             ) : undefined
           }
         />
+      )}
+
+      {resetLink && (
+        <div className="rounded-2xl border border-warning/30 bg-warning/5 p-4 space-y-2" role="status">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">One-time reset link ready</p>
+              <p className="text-xs text-foreground-secondary mt-0.5">Share it privately. It expires in 30 minutes and is invalid after one use.</p>
+            </div>
+            <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setResetLink(null)}>Dismiss</Button>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              readOnly
+              value={resetLink}
+              aria-label="Password reset link"
+              className="min-w-0 flex-1 h-9 rounded-lg border border-border bg-surface px-3 text-xs text-foreground-secondary"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 shrink-0 text-xs"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(resetLink);
+                  setCopied(true);
+                } catch {
+                  toast.error("Copy failed — select the link manually");
+                }
+              }}
+            >
+              <Copy className="w-3.5 h-3.5 mr-1.5" />
+              {copied ? "Copied" : "Copy link"}
+            </Button>
+          </div>
+        </div>
       )}
 
       <ConfirmDialog

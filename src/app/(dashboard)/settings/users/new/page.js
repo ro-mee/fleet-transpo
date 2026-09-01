@@ -121,7 +121,7 @@ function RoleCard({ role, selected, onSelect }) {
 }
 
 export default function AddUserPage() {
-  useRequireRole(["system_admin", "admin"]);
+  useRequireRole();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);

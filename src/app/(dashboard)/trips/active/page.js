@@ -18,7 +18,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
 
 export default function ActiveTripsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
   const router = useRouter();
 
   const {

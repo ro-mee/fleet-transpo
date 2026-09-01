@@ -48,7 +48,7 @@ function formatName(name) {
 }
 
 export default function ExecutiveKpiPage() {
-  useRequireRole(["admin", "management"]);
+  useRequireRole();
 
   const [utilPage, setUtilPage] = useState(1);
   const [driverPage, setDriverPage] = useState(1);

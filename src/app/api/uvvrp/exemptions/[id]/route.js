@@ -1,10 +1,10 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { setExemptionActive } from "@/lib/uvvrp/uvvrp.service";
 import { writeAudit } from "@/lib/audit";
 
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["admin", "system_admin", "fleet_manager"]);
+    const session = await requirePermission(req, "uvvrp", "manage_exemptions");
     const { id } = await params;
     const body = await parseBody(req).catch(() => ({}));
 

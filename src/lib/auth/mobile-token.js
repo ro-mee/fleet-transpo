@@ -11,9 +11,10 @@ import { SignJWT, jwtVerify } from "jose";
  * (with a loud warning) so existing single-secret deployments keep working;
  * set a distinct value in production.
  *
- * Access tokens are stateless: 15 minutes, verified by signature alone, no DB
- * hit on every request. Refresh tokens are long-lived, so they are recorded in
- * mobile_refresh_tokens (by hash) and can be revoked.
+ * Access tokens live for 15 minutes and carry an employee auth_version plus
+ * their refresh-token family. API requests re-read both, so credential and
+ * device revocations take effect on the next request. Refresh tokens are
+ * long-lived, recorded by hash, and rotated inside a token-family transaction.
  */
 
 const ISSUER = "fleetops";
@@ -31,6 +32,9 @@ function getSigningKey() {
   }
   if (!cachedKey) {
     let secret = process.env.MOBILE_JWT_SECRET;
+    if (!secret && process.env.NODE_ENV === "production") {
+      throw new Error("MOBILE_JWT_SECRET must be set separately in production.");
+    }
     if (!secret) {
       console.warn(
         "MOBILE_JWT_SECRET is not set — mobile tokens are falling back to NEXTAUTH_SECRET. Set a distinct MOBILE_JWT_SECRET so a leaked key cannot forge both token systems."
@@ -39,6 +43,9 @@ function getSigningKey() {
     }
     if (!secret) {
       throw new Error("MOBILE_JWT_SECRET (or NEXTAUTH_SECRET fallback) is not set.");
+    }
+    if (process.env.NODE_ENV === "production" && secret === process.env.NEXTAUTH_SECRET) {
+      throw new Error("MOBILE_JWT_SECRET must differ from NEXTAUTH_SECRET in production.");
     }
     cachedKey = new TextEncoder().encode(secret);
   }
@@ -51,10 +58,15 @@ export function hashToken(token) {
 }
 
 /**
- * @param {{ employeeId: number, role: string, driverId: number | null }} identity
+ * @param {{ employeeId: number, role: string, driverId: number | null, authVersion?: number, familyId?: string }} identity
  */
-export async function signAccessToken({ employeeId, role, driverId }) {
-  return new SignJWT({ role, driverId: driverId ?? null })
+export async function signAccessToken({ employeeId, role, driverId, authVersion, familyId = null }) {
+  return new SignJWT({
+    role,
+    driverId: driverId ?? null,
+    authVersion: Number.isSafeInteger(Number(authVersion)) ? Number(authVersion) : null,
+    familyId: familyId || null,
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(String(employeeId))
     .setIssuer(ISSUER)
@@ -68,9 +80,12 @@ export async function signAccessToken({ employeeId, role, driverId }) {
  * The jti is returned alongside the token so the caller can log it; the row is
  * keyed on the hash of the whole token, not the jti.
  */
-export async function signRefreshToken({ employeeId }) {
+export async function signRefreshToken({ employeeId, authVersion, familyId = randomUUID() }) {
   const jti = randomUUID();
-  const token = await new SignJWT({})
+  const token = await new SignJWT({
+    authVersion: Number.isSafeInteger(Number(authVersion)) ? Number(authVersion) : null,
+    familyId,
+  })
     .setProtectedHeader({ alg: "HS256", typ: "JWT" })
     .setSubject(String(employeeId))
     .setJti(jti)
@@ -79,7 +94,7 @@ export async function signRefreshToken({ employeeId }) {
     .setIssuedAt()
     .setExpirationTime(`${REFRESH_TOKEN_TTL_SECONDS}s`)
     .sign(getSigningKey());
-  return { token, jti };
+  return { token, jti, familyId };
 }
 
 /**
@@ -101,6 +116,8 @@ export async function verifyAccessToken(token) {
       employeeId,
       role: payload.role ?? null,
       driverId: payload.driverId ?? null,
+      authVersion: Number.isSafeInteger(Number(payload.authVersion)) ? Number(payload.authVersion) : null,
+      familyId: typeof payload.familyId === "string" ? payload.familyId : null,
     };
   } catch {
     return null;
@@ -117,7 +134,13 @@ export async function verifyRefreshToken(token) {
     });
     const employeeId = Number(payload.sub);
     if (!Number.isInteger(employeeId)) return null;
-    return { employeeId, jti: payload.jti ?? null, expiresAt: payload.exp };
+    return {
+      employeeId,
+      jti: payload.jti ?? null,
+      familyId: typeof payload.familyId === "string" ? payload.familyId : null,
+      authVersion: Number.isSafeInteger(Number(payload.authVersion)) ? Number(payload.authVersion) : null,
+      expiresAt: payload.exp,
+    };
   } catch {
     return null;
   }

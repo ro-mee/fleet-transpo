@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, loadRequest } from "@/services/reservation-lifecycle.service";
 import { writeAudit } from "@/lib/audit";
@@ -13,7 +13,7 @@ import { syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 // guest called it off.
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "reservations", "cancel");
     const { id } = await params;
     const body = await parseBody(req).catch(() => ({}));
 

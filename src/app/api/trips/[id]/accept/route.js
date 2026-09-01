@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { query } from "@/lib/db";
 import { setTripStatus } from "@/services/transition.service";
@@ -6,15 +6,13 @@ import { cancelTrip } from "@/services/trip-lifecycle.service";
 import { TRIP_STATUS } from "@/lib/constants";
 import { canTransitionTrip } from "@/lib/scheduling/trip-state";
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "driver"];
-
 // Accept or decline a dispatched trip. Accepting moves Assigned → Driver
 // Accepted. Declining transitions to Cancelled (trips have no "Rejected" state).
 // Legacy ingest statuses (Pending/Approved/…/Dispatched) are bridged through
 // Assigned first, mirroring the state machine.
 export async function PUT(req, { params }) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "trips", "update");
     const id = (await params).id;
     const body = await parseBody(req);
     if (typeof body.accept !== "boolean") {

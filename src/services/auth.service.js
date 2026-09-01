@@ -8,10 +8,11 @@ export async function createEmployeeAccount(payload) {
   return apiFetch("/api/auth/register", { method: "POST", body: payload });
 }
 
-export async function signIn(email, password) {
+export async function signIn(email, password, { mfaCode = "" } = {}) {
   const result = await nextAuthSignIn("credentials", {
     email,
     password,
+    totpCode: mfaCode,
     redirect: false,
   });
   if (result?.error) throw new Error(result.error);
@@ -25,8 +26,8 @@ export async function requestPasswordReset(email) {
   return apiFetch("/api/auth/forgot-password", { method: "POST", body: { email } });
 }
 
-export async function resetSessionPassword(newPassword) {
-  return apiFetch("/api/auth/reset-password", { method: "POST", body: { newPassword } });
+export async function resetSessionPassword(newPassword, currentPassword, token) {
+  return apiFetch("/api/auth/reset-password", { method: "POST", body: { newPassword, currentPassword, token } });
 }
 
 export async function signOut() {

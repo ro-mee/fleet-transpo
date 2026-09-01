@@ -1,8 +1,7 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
-import { INCIDENT_ACTION_ROLES } from "@/lib/incidents/resolution";
 
 /**
  * Explicitly acknowledge an open incident. Reading the registry never clears
@@ -10,7 +9,7 @@ import { INCIDENT_ACTION_ROLES } from "@/lib/incidents/resolution";
  */
 export async function POST(req, props) {
   try {
-    const session = await requireAuth(req, INCIDENT_ACTION_ROLES);
+    const session = await requirePermission(req, "incidents", "acknowledge");
     const params = await props.params;
     const id = params.id;
     if (!id) return err("Incident ID is required", 400);

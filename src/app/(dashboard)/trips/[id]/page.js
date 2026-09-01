@@ -56,7 +56,7 @@ const TRIP_CHAIN = [
 ];
 
 export default function TripDetailPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher"]);
+  useRequireRole();
   const params = useParams();
   const router = useRouter();
   const tripId = Number(params.id);

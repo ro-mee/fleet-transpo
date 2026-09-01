@@ -1,5 +1,5 @@
 import { query, withTransaction } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
 import { NAIA_CANONICAL_LOCATIONS, NAIA_LEGACY_LOCATION_NAMES } from "@/lib/naia-locations";
 import { fetchTomTomEstimate } from "@/lib/tomtom";
@@ -11,7 +11,7 @@ function validCoordinate(value, min, max) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "routes", "seed");
     const { rows: settingRows } = await query(
       `SELECT setting_value FROM system_settings WHERE setting_key = 'hotel_location' LIMIT 1`
     );

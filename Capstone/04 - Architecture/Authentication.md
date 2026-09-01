@@ -6,12 +6,23 @@ source:
   - src/lib/auth.js
   - src/lib/api/utils.js
   - src/lib/auth/mobile-token.js
+  - src/lib/auth/mfa.js
+  - src/lib/auth/sessions.js
   - src/services/auth.service.js
   - src/app/api/auth/forgot-password/route.js
   - src/app/api/auth/reset-password/route.js
+  - src/app/api/auth/reset-token/route.js
   - src/app/api/auth/change-password/route.js
   - src/app/api/mobile/auth/login/route.js
-last_verified: 2026-08-20
+  - src/app/api/mobile/auth/refresh/route.js
+  - src/app/api/auth/sessions/route.js
+  - src/app/api/auth/mfa/route.js
+  - src/app/api/auth/mfa/setup/route.js
+  - src/app/api/auth/mfa/confirm/route.js
+  - src/app/api/auth/mfa/disable/route.js
+  - src/app/api/auth/mfa/recovery-codes/route.js
+  - src/lib/auth/reset-token.js
+last_verified: 2026-09-02
 ---
 
 # Authentication
@@ -20,7 +31,10 @@ last_verified: 2026-08-20
 
 ## Web: NextAuth v4 — CONFIRMED
 
-Credentials provider, **JWT session strategy** (not database sessions), `bcryptjs` compare against `employees.password_hash`.
+Credentials provider, signed JWT transport with a server-backed `web_sessions`
+record, and `bcryptjs` compare against `employees.password_hash`. The JWT only
+identifies the session row (`sessionId`); every API request rechecks ownership,
+expiry, revocation, employee status, role, and `auth_version`.
 
 ```mermaid
 sequenceDiagram
@@ -28,13 +42,16 @@ sequenceDiagram
     participant NA as NextAuth /api/auth
     participant DB as employees
     U->>NA: POST credentials
-    NA->>DB: SELECT ... WHERE email = $1 AND deleted_at IS NULL
+    NA->>DB: SELECT ... WHERE email = $1 AND status = 'Active' AND deleted_at IS NULL
     DB-->>NA: password_hash, role_id
     NA->>NA: bcrypt.compare
-    NA-->>U: Set-Cookie (signed JWT, role in claims)
+    NA->>DB: INSERT web_sessions (session_id, device metadata, expiry)
+    NA-->>U: Set-Cookie (signed JWT, sessionId + role claims)
 ```
 
-Role lands in the JWT claims, so authorization needs no per-request DB lookup.
+Role lands in the JWT claims for landing/UI purposes. API authorization does a
+live employee lookup before applying the route role list, so a stale claim cannot
+survive a disablement or demotion.
 
 ## Mobile: separate bearer JWT — CONFIRMED
 
@@ -42,14 +59,18 @@ Role lands in the JWT claims, so authorization needs no per-request DB lookup.
 
 | Token | Lifetime | Storage |
 |---|---|---|
-| Access | 15 minutes | memory / expo-secure-store |
-| Refresh | 30 days, **single-use rotating** | SHA-256 **hashed** in `mobile_refresh_tokens` (57 rows) |
+| Access | 15 minutes, checked against its active refresh family | memory / expo-secure-store |
+| Refresh | 30 days, **single-use rotating** | SHA-256 **hashed** in `mobile_refresh_tokens`, grouped by a family UUID with device metadata |
 
 Three properties worth naming:
 
 1. **Refresh tokens are hashed at rest.** A DB read doesn't yield usable tokens.
 2. **Single-use rotation.** Presenting a refresh token invalidates it and issues a new one — replay is detectable.
 3. **The audience split is the actual security control.** A refresh token cannot be presented as an access token, because audience is verified. Without that, a 30-day token would be a 30-day API key.
+
+Each access token also carries its refresh `family_id`. Revoking one device
+family (or all mobile families) therefore invalidates its access token on the
+next API request instead of waiting for the 15-minute expiry.
 
 → [[Token Rotation And Refresh Races]]
 
@@ -62,6 +83,7 @@ const DEFAULT_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "
 
 resolveIdentity(req)   // Bearer token WINS over cookie session
 requireAuth(req, allowedRoles = DEFAULT_ROLES)
+requirePermission(req, resource, action) // derives roles from permissions.js
 requireDriver(req)     // requireAuth(req, ["driver"]) + guarantees driverId
 ```
 
@@ -78,9 +100,14 @@ requireDriver(req)     // requireAuth(req, ["driver"]) + guarantees driverId
 | `proxy.js` (root) | Dead file implying Supabase Auth. → [[BUG Root proxy.js Is Dead Code]] |
 | RLS policies | 69 of them, all inert. → [[Why RLS Is Not A Boundary]] |
 
-**Every one of the 113 route handlers calls `requireAuth()` itself.** There is no central chokepoint. That is the single most important fact about this system's security posture: the guarantee is *per-route discipline*, and a route that forgets is unprotected with nothing to catch it.
+**Every exported route method is checked by `scripts/verify-route-auth.mjs`.**
+There is no central Next.js auth middleware; the guarantee remains per-route
+discipline, with the static method-level audit catching a forgotten guard before
+CI accepts it.
 
-**TODO:** an audit that asserts every `src/app/api/**/route.js` contains a `requireAuth`/`requireDriver` call. Cheap to write, high value.
+`npm run verify:auth` scans 218 exported methods, recognizes explicit
+service-token delegations and public protocol endpoints, and rejects bare
+`requireAuth(req)` on every mutating handler.
 
 ## Password recovery & reset — CONFIRMED (2026-08-20)
 
@@ -93,6 +120,59 @@ All credential-change paths are **server-side**; nothing writes `employees` from
   - `POST /api/auth/reset-password` — `requireAuth`, employee derived from the session (never the body), rate-limited, wipes the employee's `mobile_refresh_tokens` so a leaked mobile session dies too.
 - `POST /api/mobile/auth/login` is now throttled **per-IP and per-account** (5/60s, 429 + `Retry-After`), mirroring the web Credentials provider — previously it ran unlimited bcrypt compares.
 - Seeded `admin123` credential from migration 008 was a **real account takeover**: migration 061 NULLs the known hash where it still matches, and the live `admin@fleetops.com` password was **rotated** to a fresh strong hash (cost 10). Decision: keep the account, rotate the credential.
+
+## Credential and session lifecycle — CONFIRMED (2026-09-02)
+
+The 2026-08-20 recovery description above is the historical baseline. Current
+behavior is:
+
+- `employees.auth_version` is included in NextAuth and mobile token claims and
+  compared against the live employee row by `resolveIdentity()`. Password,
+  email, role, and account-status changes increment it, so stale web sessions
+  and mobile access tokens receive `401 Session expired` without waiting for
+  their normal expiry.
+- Password changes and email changes run their credential update and mobile/reset
+  token revocation in a transaction. Driver-account password setup and account
+  disablement revoke the same token classes. Password changes return
+  `signInRequired: true`; the web settings screens sign the operator out.
+- `POST /api/auth/reset-token` is restricted to `admin`/`system_admin` and issues
+  a 30-minute one-time link. Only a SHA-256 token hash is stored. The reset page
+  consumes the token without an employee id, marks it used, revokes other reset
+  and mobile tokens, and requires a fresh sign-in afterward.
+- `POST /api/auth/forgot-password` deliberately remains a uniform contact-admin
+  response until a verified email delivery provider is selected. It does not
+  claim that an email was sent.
+- Authentication, session, and MFA events are written to `audit_logs` without storing
+  passwords, cookies, bearer tokens, OTPs, recovery codes, or plaintext TOTP secrets. PostgreSQL-backed
+  IP/account rate-limit buckets are shared across app instances and fail closed
+  when the database is unavailable.
+- Mobile refresh rotation uses one transaction, a family UUID, single-use rows,
+  and family revocation on replay. The login path opportunistically removes
+  expired and long-revoked rows; `/api/mobile/auth/logout` supports the existing
+  `allDevices` flag.
+
+Verified email delivery and scheduled pruning remain explicitly unimplemented
+until their provider or deployment decisions are made.
+
+## TOTP MFA and session management — CONFIRMED (2026-09-02)
+
+- Settings > Security starts enrollment only after the current password is
+  verified, returns an `otpauth://` URI/QR code, and requires a first six-digit
+  TOTP before enabling the factor. Secrets are encrypted with AES-256-GCM in
+  `employee_mfa`; production requires `MFA_ENCRYPTION_KEY`.
+- Ten recovery codes are generated on enable or regeneration. Only SHA-256
+  hashes are stored, each code is atomically single-use, and plaintext codes
+  are returned once to the already-authenticated operator.
+- TOTP verification uses the RFC 6238-compatible `otpauth` package with a
+  30-second period, six digits, ±1 step skew, and `last_used_step` replay
+  protection. MFA attempts have independent IP/account throttles.
+- Web and mobile credential exchanges check the enrolled factor before issuing
+  a session. Missing/invalid factors never create a web session or mobile token.
+- Enabling/disabling MFA increments `auth_version` and revokes all web/mobile
+  sessions. Password/email/role/account changes use the same revocation path.
+- `web_sessions` records safe device metadata and bounded activity. The
+  owner-scoped sessions API can list, revoke one, or revoke all other sessions;
+  mobile refresh families are grouped as one device entry.
 
 ## Related
 

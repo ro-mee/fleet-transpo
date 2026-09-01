@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { reviewLeaveRequest } from "@/services/driver-schedule.service";
 
@@ -6,7 +6,7 @@ import { reviewLeaveRequest } from "@/services/driver-schedule.service";
 // action. Only the fleet manager (or a system_admin) reviews; admin observes.
 export async function PATCH(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "fleet_manager"]);
+    const session = await requirePermission(req, "driver_leave_requests", "update");
     const id = (await params).id;
     const body = await parseBody(req);
 

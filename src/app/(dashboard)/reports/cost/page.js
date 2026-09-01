@@ -18,7 +18,7 @@ import { downloadBlob } from "@/lib/export";
 import { toast } from "@/components/ui/toast";
 
 export default function FleetCostPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   // Plate links lead to /fleet/vehicles/[id], which excludes `management` —
   // render plain text for roles without vehicle read access instead of
   // punishing them with a denial-and-bounce for clicking a plausible link.

@@ -1,4 +1,4 @@
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { query } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 
@@ -21,7 +21,7 @@ const EMPLOYEE_SELECT = `
 
 export async function GET(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin"]);
+    await requirePermission(req, "accounts", "read");
     const url = new URL(req.url);
     const search = (url.searchParams.get("search") || "").trim().toLowerCase();
 
@@ -42,7 +42,7 @@ export async function GET(req) {
 
 export async function PUT(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin"]);
+    const session = await requirePermission(req, "accounts", "update");
     const body = await parseBody(req);
     const employeeId = Number(body?.employee_id);
     const action = body?.action; // "disable" | "enable"
@@ -56,17 +56,44 @@ export async function PUT(req) {
     }
 
     const { rows: before } = await query(
-      `SELECT employee_id, email, first_name, last_name, status, deleted_at FROM employees WHERE employee_id = $1`,
+      `SELECT e.employee_id, e.email, e.first_name, e.last_name, e.status, e.deleted_at,
+              r.role_name
+         FROM employees e
+         LEFT JOIN roles r ON r.role_id = e.role_id
+        WHERE e.employee_id = $1`,
       [employeeId]
     );
     if (!before.length) return err("Employee not found", 404);
+    if (before[0].role_name === "system_admin" && session.user.role !== "system_admin") {
+      return err("Only a system administrator may change a system administrator account.", 403);
+    }
 
     const { rows: updated } = await query(
       action === "disable"
-        ? `UPDATE employees SET deleted_at = COALESCE(deleted_at, NOW()), status = 'Inactive', updated_at = NOW(), updated_by = $2 WHERE employee_id = $1 RETURNING employee_id, status, deleted_at`
-        : `UPDATE employees SET deleted_at = NULL, status = 'Active', updated_at = NOW(), updated_by = $2 WHERE employee_id = $1 RETURNING employee_id, status, deleted_at`,
+        ? `UPDATE employees SET deleted_at = COALESCE(deleted_at, NOW()), status = 'Inactive', auth_version = auth_version + 1, updated_at = NOW(), updated_by = $2 WHERE employee_id = $1 RETURNING employee_id, status, deleted_at`
+        : `UPDATE employees SET deleted_at = NULL, status = 'Active', auth_version = auth_version + 1, updated_at = NOW(), updated_by = $2 WHERE employee_id = $1 RETURNING employee_id, status, deleted_at`,
       [employeeId, session.user?.employeeId ?? null]
     );
+
+    if (action === "disable") {
+      try {
+        await query(
+          `UPDATE web_sessions SET revoked_at = COALESCE(revoked_at, NOW())
+             WHERE employee_id = $1 AND revoked_at IS NULL`,
+          [employeeId]
+        );
+        await query(
+          `DELETE FROM mobile_refresh_tokens WHERE employee_id = $1`,
+          [employeeId]
+        );
+        await query(
+          `DELETE FROM password_reset_tokens WHERE employee_id = $1 AND used_at IS NULL`,
+          [employeeId]
+        );
+      } catch (revokeError) {
+        console.warn("Failed to revoke disabled employee refresh tokens:", revokeError?.message || revokeError);
+      }
+    }
 
     await writeAudit(req, session, {
       action: "update",

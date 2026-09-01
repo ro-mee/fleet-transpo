@@ -1,14 +1,12 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { isValidCoordinate } from "@/lib/gps";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 
-const ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management", "driver"];
-
 export async function GET(req, { params }) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "trips", "read");
     const id = (await params).id;
 
     // GPS breadcrumbs are a movement history of a named person. A driver may
@@ -33,7 +31,7 @@ export async function GET(req, { params }) {
  */
 export async function POST(req, { params }) {
   try {
-    const session = await requireAuth(req, ROLES);
+    const session = await requirePermission(req, "trips", "update");
     const id = (await params).id;
     const body = await parseBody(req);
 

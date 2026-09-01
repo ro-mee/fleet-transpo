@@ -1,4 +1,4 @@
-import { requireAuth, err, handleError } from "@/lib/api/utils";
+import { requirePermission, err, handleError } from "@/lib/api/utils";
 import { getDriverPerformanceReport, validateReportRange } from "@/lib/reports/operational-reports";
 import { buildDriverPerformanceWorkbook } from "@/lib/reports/remaining-workbooks";
 import { xlsxResponse } from "@/lib/reports/excel-response";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "reports", "read");
     const params = new URL(req.url).searchParams;
     const from = params.get("from") || "1970-01-01";
     const to = params.get("to") || "2100-01-01";

@@ -225,6 +225,8 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const { validate, fieldError, registerField } = useFormValidation(loginSchema);
@@ -238,13 +240,27 @@ export default function LoginPage() {
       onSuccess: async () => {
         setLoading(true);
         try {
-          await signIn(email, password);
+          await signIn(email, password, { mfaCode });
           // Drivers land on their personal home; every other role gets the
           // operations dashboard.
           const session = await getSession();
           router.push(session?.user?.role === "driver" ? "/driver" : "/dashboard");
           router.refresh();
         } catch (err) {
+          if (err.message === "MFA_REQUIRED") {
+            setMfaRequired(true);
+            setError("Enter the verification code from your authenticator app.");
+            return;
+          }
+          if (err.message === "MFA_INVALID") {
+            setMfaRequired(true);
+            setError("That verification code is invalid or already used.");
+            return;
+          }
+          if (err.message === "MFA_UNAVAILABLE") {
+            setError("Two-factor authentication is temporarily unavailable. Try again later.");
+            return;
+          }
           // NextAuth collapses every authorize() failure (including the IP
           // throttle) into "CredentialsSignin", so a locked-out user would be
           // told their password is wrong. Check the public throttle status and
@@ -458,6 +474,32 @@ export default function LoginPage() {
                     </div>
                     {passwordField.error && <p className="text-xs text-danger">{passwordField.error}</p>}
                   </div>
+
+                  {mfaRequired && (
+                    <div className="space-y-2">
+                      <Label htmlFor="mfaCode" className="text-[13px] font-medium text-foreground">
+                        Verification code
+                      </Label>
+                      <div className="relative">
+                        <ShieldCheck
+                          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-foreground-muted"
+                          strokeWidth={1.75}
+                        />
+                        <Input
+                          id="mfaCode"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          placeholder="6-digit code or recovery code"
+                          value={mfaCode}
+                          onChange={(e) => setMfaCode(e.target.value)}
+                          className="h-12 rounded-[0.9rem] bg-surface pl-11 text-[15px] tracking-[0.12em] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface"
+                          autoFocus
+                        />
+                      </div>
+                      <p className="text-xs text-foreground-muted">Use a current authenticator code or one unused recovery code.</p>
+                    </div>
+                  )}
 
 <Button
                     type="submit"

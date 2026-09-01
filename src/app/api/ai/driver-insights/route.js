@@ -1,10 +1,10 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { executeLlmCompletion, getActiveAiProvider } from "@/lib/ai/llm-adapter";
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "ai_settings", "read");
 
     const { rows: drivers } = await query(`SELECT * FROM drivers WHERE deleted_at IS NULL`);
 

@@ -24,7 +24,7 @@ const profileSchema = {
 };
 
 export default function ProfilePage() {
-  const { employee, refreshEmployee } = useAuth();
+  const { employee, refreshEmployee, signOut } = useAuth();
   const { userRole } = useRoleAccess();
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
@@ -32,8 +32,10 @@ export default function ProfilePage() {
     last_name: employee?.last_name || "",
     email: employee?.email || "",
     phone: employee?.phone || "",
+    currentPassword: "",
   });
   const { validate, fieldError, registerField } = useFormValidation(profileSchema);
+  const emailChanged = form.email.trim().toLowerCase() !== (employee?.email || "").trim().toLowerCase();
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -53,6 +55,11 @@ export default function ProfilePage() {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Failed to update profile");
+          if (data.signInRequired) {
+            toast.success("Email updated. Please sign in again.");
+            await signOut();
+            return;
+          }
           await refreshEmployee();
           toast.success("Profile updated");
         } catch (err) {
@@ -115,6 +122,21 @@ export default function ProfilePage() {
                 />
                 {fieldError("email").error && <p className="text-xs text-danger">{fieldError("email").error}</p>}
               </div>
+              {emailChanged && (
+                <div className="space-y-2">
+                  <label htmlFor="currentPassword" className="text-sm text-foreground-secondary">
+                    Current Password (required for email changes)
+                  </label>
+                  <Input
+                    id="currentPassword"
+                    name="currentPassword"
+                    type="password"
+                    autoComplete="current-password"
+                    value={form.currentPassword}
+                    onChange={handleChange}
+                  />
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="text-sm text-foreground-secondary">Phone</label>
                 <Input

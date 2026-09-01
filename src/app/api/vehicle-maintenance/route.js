@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
@@ -36,11 +36,6 @@ const FIELD_TO_COLUMN = {
   service_center: "service_center",
   remarks: "remarks",
 };
-
-// Who is allowed to move a vehicle's service schedule by creating a record.
-// Deliberately narrower than the POST's own role list, which also admits
-// drivers — see the comment on the recompute call in POST.
-const SCHEDULE_OWNER_ROLES = ["system_admin", "admin", "fleet_manager"];
 
 // Lean projection for the paginated register. Only the columns the maintenance
 // page renders + the detail dialog needs, instead of `vm.*` + `row_to_json(v.*)`.
@@ -92,8 +87,8 @@ const maintenanceWriteSchema = {
   // are the only two body fields recomputeVehicleSchedule feeds into the
   // vehicle's next_service_date / next_service_mileage — and that write is
   // clamped forward-only, so an out-of-range value here is not correctable by
-  // filing a later record. POST is open to the driver role, which makes these
-  // the lowest-privilege inputs to the whole prediction.
+  // filing a later record. Operations roles may provide these inputs; driver
+  // self-service maintenance writes are not permitted here.
   mileage_at_service: { type: "positiveNumber", label: "Mileage at service", max: MAX_ODOMETER_KM },
   next_service_date: { type: "date", label: "Next service date" },
   next_service_mileage: { type: "positiveNumber", label: "Next service mileage", max: MAX_ODOMETER_KM },
@@ -114,7 +109,7 @@ const maintenanceWriteSchema = {
 
 export async function GET(req) {
   try {
-    await requireAuth(req);
+    await requirePermission(req, "maintenance", "read");
     const { searchParams } = new URL(req.url);
 
     let where = " WHERE vm.deleted_at IS NULL";
@@ -191,7 +186,7 @@ export async function GET(req) {
 
 export async function POST(req) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "driver"]);
+    const session = await requirePermission(req, "maintenance", "create");
     const body = await parseBody(req);
 
     const errors = validateBody(body, maintenanceWriteSchema);
@@ -230,17 +225,7 @@ export async function POST(req) {
     if (rows[0]?.vehicle_id) {
       const { syncVehicleStatus } = await import("@/services/status.service");
       await syncVehicleStatus(rows[0].vehicle_id);
-      // A record created already Completed advances the vehicle's due-dates —
-      // but only when an operations role authored it. Drivers can post here to
-      // report a problem they hit on the road, and a driver-authored row with
-      // status "Completed" and a mis-keyed odometer would otherwise reach the
-      // forward-only clamp in recomputeVehicleSchedule, where a too-high value
-      // is permanent through this path. The record is still written and still
-      // syncs vehicle status; it just does not move the service schedule until
-      // someone who owns the schedule touches it via PUT.
-      if (SCHEDULE_OWNER_ROLES.includes(session.user.role)) {
-        await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
-      }
+      await recomputeVehicleSchedule(rows[0].vehicle_id, rows[0]);
     }
     return ok(rows[0], 201);
   } catch (e) { return handleError(e); }

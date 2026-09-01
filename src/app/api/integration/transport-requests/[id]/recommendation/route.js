@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { requireAuth, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
 import { loadRequest } from "@/services/reservation-lifecycle.service";
 import { buildDispatchRecommendation, shapePinnedPair } from "@/lib/ai/dispatch-advisor";
 import { NON_DISPATCHABLE_VEHICLE_STATUSES } from "@/lib/ai/pair-scoring";
@@ -543,7 +543,7 @@ async function withResolvedEstimate(request, { persistRoute = false } = {}) {
  */
 export async function GET(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher", "management"]);
+    const session = await requirePermission(req, "reservations", "read");
     const { id } = await params;
 
     const request = await loadRequest(id);
@@ -634,7 +634,7 @@ export async function GET(req, { params }) {
  */
 export async function POST(req, { params }) {
   try {
-    const session = await requireAuth(req, ["system_admin", "admin", "fleet_manager", "dispatcher"]);
+    const session = await requirePermission(req, "reservations", "recommend");
     const { id } = await params;
 
     const request = await loadRequest(id);

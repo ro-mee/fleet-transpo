@@ -31,7 +31,7 @@ function normalizeSeverity(insight) {
 
 
 export default function AiInsightsPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "management"]);
+  useRequireRole();
   const queryClient = useQueryClient();
   const [syncToken, setSyncToken] = useState(0);
 

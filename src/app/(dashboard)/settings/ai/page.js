@@ -63,7 +63,7 @@ function isMaskedApiKey(value) {
 }
 
 export default function AiSettingsPage() {
-  useRequireRole(["admin", "system_admin"]);
+  useRequireRole();
   const queryClient = useQueryClient();
 
   const [dialogOpen, setDialogOpen] = useState(false);

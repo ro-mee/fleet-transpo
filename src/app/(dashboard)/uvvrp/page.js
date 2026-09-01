@@ -38,7 +38,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 const columnHelper = createColumnHelper();
 
 export default function UvvrpBoardPage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager", "dispatcher", "management"]);
+  useRequireRole();
   const [date, setDate] = useState("");
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({

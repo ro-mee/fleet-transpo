@@ -15,7 +15,7 @@ import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-di
 import { CarFront, TriangleAlert, Maximize } from "lucide-react";
 
 export default function DriverVehiclePage() {
-  useRequireRole(["driver"]);
+  useRequireRole();
   const [zoomImageUrl, setZoomImageUrl] = useState(null);
 
   const { data: inspection, isLoading, isError } = useQuery({

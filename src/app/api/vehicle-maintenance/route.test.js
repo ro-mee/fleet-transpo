@@ -33,7 +33,7 @@ describe("POST /api/vehicle-maintenance", () => {
   });
 
   function mockRequest(body, role = "fleet_manager", employeeId = 888) {
-    identitySpy = vi.spyOn(utils, "requireAuth").mockResolvedValue({
+    identitySpy = vi.spyOn(utils, "requirePermission").mockResolvedValue({
       user: { role, employeeId },
     });
     return { json: async () => body };

@@ -61,7 +61,7 @@ function PredictionErrorPanel({ onRetry, busy }) {
 }
 
 export default function PredictiveMaintenancePage() {
-  useRequireRole(["admin", "system_admin", "fleet_manager"]);
+  useRequireRole();
   const [riskFilter, setRiskFilter] = useState("all");
 
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({

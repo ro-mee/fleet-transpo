@@ -6,6 +6,7 @@ import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document"
 import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
 import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rolesFor } from "@/lib/auth/permissions";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -163,8 +164,9 @@ async function notifyStaffOfLicenseUpdate(driverId, side, expiryDate) {
 
   const staff = await query(
     `SELECT employee_id FROM employees
-     WHERE role_id IN (SELECT role_id FROM roles WHERE role_name IN ('system_admin','admin','fleet_manager'))
-       AND deleted_at IS NULL`
+     WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
+       AND deleted_at IS NULL`,
+    [rolesFor("drivers", "update")]
   );
   if (!staff.rows.length) return;
 

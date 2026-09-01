@@ -1,9 +1,9 @@
-import { requireAuth, ok, handleError } from "@/lib/api/utils";
+import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { syncAllVehicleStatuses, syncAllDriverStatuses, syncComplianceNotifications } from "@/services/status.service";
 
 export async function POST(req) {
   try {
-    await requireAuth(req, ["system_admin", "admin", "fleet_manager"]);
+    await requirePermission(req, "maintenance", "update");
     const [vehicleResult, driverResult, complianceResult] = await Promise.all([
       syncAllVehicleStatuses(),
       syncAllDriverStatuses(),
