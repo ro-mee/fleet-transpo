@@ -176,6 +176,18 @@ until their provider or deployment decisions are made.
   owner-scoped sessions API can list, revoke one, or revoke all other sessions;
   mobile refresh families are grouped as one device entry.
 
+## Session idle timeout and expiration UX — CONFIRMED (2026-09-02)
+
+- **Idle timeout**: 1 hour (`last_seen_at + 3600s`). Migration `089_session_idle_timeout.sql` adds `web_sessions.idle_timeout_seconds` defaulting to `3600`.
+- **Absolute expiration**: 12-hour hard maximum (`expires_at`), computed at login and never extended.
+- **Server authority**: `resolveCurrentIdentity()` independently validates both `expires_at > NOW()` and `last_seen_at + idle_timeout_seconds > NOW()`. Idle expiration throws `SESSION_IDLE_TIMEOUT` with HTTP 401; 12-hour expiration throws `SESSION_EXPIRED`; revoked sessions throw `SESSION_REVOKED`.
+- **5-minute activity throttle vs idle timeout**: The existing 5-minute threshold is strictly a database-write throttle for updating `last_seen_at`. It is not the idle timeout.
+- **Heartbeat & human activity**: `GET/POST /api/auth/heartbeat`. Frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`) and pings heartbeat at 5-minute intervals only if human activity occurred. Background polling (dispatch boards, notifications) does not touch the human-activity flag.
+- **Stay signed in**: Issues a `POST /api/auth/heartbeat` to slide `last_seen_at` and idle deadline by 1 hour; the 12-hour maximum remains unchanged.
+- **Warning UX**: A double-bezel modal appears at 5 minutes before idle expiry (55m of inactivity) and 5 minutes before absolute expiry (11h55m). Error toasts are suppressed (`setSuppressAuthToasts(true)`) while any session modal is open.
+- **Multi-tab synchronization**: `BroadcastChannel("fleetops_session_bus")` broadcasts auth failures, session extensions, and explicit logouts across open tabs.
+- **Return-to-route protection**: `sessionStorage` preserves the user's current route across re-authentication, strictly validated against open-redirect and protocol vulnerabilities via `isValidInternalPath()`.
+
 ## Related
 
 [[RBAC]] · [[employees]] · [[Mobile Architecture]] · [[Why RLS Is Not A Boundary]] · [[Architecture]] · [[Backend]]

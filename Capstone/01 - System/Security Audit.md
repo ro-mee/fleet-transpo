@@ -351,6 +351,17 @@ The planned security-settings work is now implemented and server-enforced:
 - The permanent regression test passes, and the retained suite is now
   **474/474 across 43 files** with `--configLoader runner`.
 
+## Session idle timeout & expiration UX — 2026-09-02 (IMPLEMENTED)
+
+- Migration `089_session_idle_timeout.sql` adds `idle_timeout_seconds` to `web_sessions` (default 3600).
+- `resolveCurrentIdentity()` enforces 1-hour idle timeout (`last_seen_at + idle_timeout_seconds`) and 12-hour absolute expiration (`expires_at`), returning explicit 401 codes: `SESSION_IDLE_TIMEOUT`, `SESSION_EXPIRED`, `SESSION_REVOKED`, `ACCOUNT_DISABLED`, and `SESSION_INVALID`.
+- Centralized `apiFetch` and `window.fetch` interceptors dispatch 401s to the session event bus and suppress error toast flooding when session modals are active.
+- `GET /api/auth/heartbeat` synchronizes authoritative server timestamps. `POST /api/auth/heartbeat` slides the idle timer on verified human activity or "Stay signed in" click, without extending the 12-hour hard maximum. Background polling does not synthesize activity.
+- `SessionExpiryModal` delivers an Apple/Linear-grade double-bezel design for idle warning (55m), 12h expiry warning (11h55m), and expired states.
+- Multi-tab synchronization runs over `BroadcastChannel("fleetops_session_bus")`.
+- Re-authentication restores the user's prior internal route via `isValidInternalPath()`-protected `sessionStorage`.
+- Focused tests in `src/lib/auth/idle-session.test.js` and `src/lib/auth/return-to.test.js` pass (12/12). Full suite passes **487/487 across 46 files**. `npm run verify:auth` reports **220/220 guarded methods**.
+
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

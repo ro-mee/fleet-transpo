@@ -7,10 +7,22 @@ import { CheckCircle, XCircle, AlertTriangle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 let toastId = 0;
+let suppressAuthErrors = false;
+
+export function setSuppressAuthToasts(suppress) {
+  suppressAuthErrors = Boolean(suppress);
+}
+
+export function isAuthToastSuppressed() {
+  return suppressAuthErrors;
+}
 
 export const useToastStore = create((set) => ({
   toasts: [],
   add: (toast) => {
+    if (suppressAuthErrors && toast?.type === "error") {
+      return null;
+    }
     const id = ++toastId;
     set((state) => ({ toasts: [...state.toasts, { ...toast, id, position: toast.position || "bottom-right" }] }));
     return id;
@@ -19,6 +31,9 @@ export const useToastStore = create((set) => ({
   remove: (id) => {
     set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
   },
+  clear: () => {
+    set({ toasts: [] });
+  },
 }));
 
 export const toast = {
@@ -26,6 +41,7 @@ export const toast = {
   error: (message) => useToastStore.getState().add({ type: "error", message }),
   warning: (message) => useToastStore.getState().add({ type: "warning", message }),
   info: (message) => useToastStore.getState().add({ type: "info", message }),
+  clear: () => useToastStore.getState().clear(),
   // Rich toast for live notifications: optional bold title, muted message,
   // custom auto-dismiss duration (ms), and a position. "top-right" anchors
   // below the top nav's notification bell; default keeps the classic

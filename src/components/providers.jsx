@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { SidebarProvider } from "@/hooks/use-sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toast";
+import { SessionManagerProvider } from "@/context/session-manager";
 import { useState } from "react";
 
 export function Providers({ children }) {
@@ -29,10 +30,12 @@ export function Providers({ children }) {
         <ThemeProvider>
           <SidebarProvider>
             <AuthProvider>
-              <TooltipProvider>
-                {children}
-                <Toaster />
-              </TooltipProvider>
+              <SessionManagerProvider>
+                <TooltipProvider>
+                  {children}
+                  <Toaster />
+                </TooltipProvider>
+              </SessionManagerProvider>
             </AuthProvider>
           </SidebarProvider>
         </ThemeProvider>

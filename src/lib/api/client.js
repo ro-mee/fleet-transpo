@@ -1,3 +1,5 @@
+import { dispatchSessionAuthError } from "@/lib/auth/session-bus";
+
 export async function apiFetch(path, options = {}) {
   const { body, method, ...rest } = options;
   let jsonBody = undefined;
@@ -18,6 +20,9 @@ export async function apiFetch(path, options = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
+    if (res.status === 401) {
+      dispatchSessionAuthError(err.code || "SESSION_INVALID", err.error);
+    }
     // Preserve the response alongside the message. Routes that fail with
     // structured detail — notably the assign endpoint's 409, which returns the
     // blocking `conflicts` a dispatcher must see before overriding — would
@@ -25,6 +30,7 @@ export async function apiFetch(path, options = {}) {
     // existing `err.message` call site keeps working.
     const error = new Error(err.error || `Request failed (${res.status})`);
     error.status = res.status;
+    error.code = err.code;
     error.data = err;
     throw error;
   }

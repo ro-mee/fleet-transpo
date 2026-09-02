@@ -1,6 +1,9 @@
 import { query } from "@/lib/db";
 
 export const WEB_SESSION_TTL_SECONDS = 12 * 60 * 60;
+export const IDLE_TIMEOUT_SECONDS = 60 * 60; // 1 hour idle timeout
+export const IDLE_WARNING_SECONDS = 5 * 60; // 5 minutes before idle timeout
+export const ABSOLUTE_WARNING_SECONDS = 5 * 60; // 5 minutes before absolute expiry
 
 export async function revokeEmployeeSessions(tx, employeeId) {
   await tx.query(

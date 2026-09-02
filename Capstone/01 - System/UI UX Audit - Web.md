@@ -75,6 +75,17 @@ See `UI UX Audit - Mobile.md` ("Changes Applied — Round 2"). Headlines: SwipeB
 - No behavior changes: validation, throttle-honesty error path, and driver-vs-staff redirect logic untouched.
 - Route graphic now has a car marker (`RouteCar`) traveling the primary path on a 7s loop: motion values + `getPointAtLength` sampling (no React state per frame), departs only after the route finishes drawing, hidden entirely under `prefers-reduced-motion`. Glyph reuses `CarFront` in a `--sf`/`--primary` chip matching the waypoint-dot language.
 
+### Phase 8 — Role dashboard redesign
+
+- All six dashboard bodies were rebuilt around their actual decisions while every existing `HeroHeader` title, badge, icon, and description stayed unchanged.
+- System Admin now focuses on account posture, the signed-in administrator's own sessions, platform failures, audit activity, and configuration routes; operational fleet widgets were removed.
+- Admin now receives an exception-first cross-functional overview (incidents, reassignment, documents, maintenance, fuel), operational throughput, and fleet/workforce health without live dispatch controls.
+- Fleet Manager now receives driver–vehicle coverage, today's substitute coverage, maintenance, compliance, leave, fuel, and near-term schedule surfaces. Coverage is explicitly current-state only; the existing dispatch advisor remains authoritative for requested-window eligibility.
+- Dispatcher now receives the existing deterministic priority ordering, pickup timeline, active-trip/GPS operations, reassignment alerts, and a read-only Smart Dispatch preview for the first actionable request. No dashboard widget assigns resources automatically.
+- Driver now receives only self-scoped trip, duty, leave, vehicle inspection, fuel-request, notification, and incident-reporting surfaces. Management remains read-only and now emphasizes utilization, service reliability, cost trends, driver measurements, and incident risk.
+- Each query retains an explicit loading, failure-with-retry, or truthful empty state. Existing API services, RBAC, queue ordering, pair scoring, status grammar, cards, and map were reused; no endpoint, schema, migration, or permission changed.
+- Verified 2026-09-02 with focused ESLint, a successful Next.js 16 production build, route-auth audit (`218 passed`), the role-layout check, queue-ordering tests, and pair-scoring tests (`55 passed`). The Impeccable detector reported no findings. Authenticated screenshot QA was not available in the local browser session, so no access-control bypass was used.
+
 ## Known remaining gaps (post-waves)
 
 - Per-device web session history isn't tracked (security page explains honestly).

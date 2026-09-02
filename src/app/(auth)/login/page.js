@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -20,6 +20,7 @@ import {
   AlertCircle,
   ArrowRight,
   CarFront,
+  Clock,
   Eye,
   EyeOff,
   Gauge,
@@ -33,6 +34,7 @@ import {
 import { APP_NAME } from "@/lib/constants";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { cn } from "@/lib/utils";
+import { getAndClearReturnTo } from "@/lib/auth/return-to";
 
 const loginSchema = {
   email: { required: true, type: "email", label: "Email" },
@@ -229,6 +231,13 @@ export default function LoginPage() {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [sessionExpiredNotice] = useState(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("reason") === "expired";
+    }
+    return false;
+  });
   const { validate, fieldError, registerField } = useFormValidation(loginSchema);
 
   const handleSubmit = async (e) => {
@@ -241,10 +250,10 @@ export default function LoginPage() {
         setLoading(true);
         try {
           await signIn(email, password, { mfaCode });
-          // Drivers land on their personal home; every other role gets the
-          // operations dashboard.
+          // Restores the validated prior page if saved, or defaults to role home
           const session = await getSession();
-          router.push(session?.user?.role === "driver" ? "/driver" : "/dashboard");
+          const targetUrl = getAndClearReturnTo(session?.user?.role);
+          router.push(targetUrl);
           router.refresh();
         } catch (err) {
           if (err.message === "MFA_REQUIRED") {
@@ -387,6 +396,23 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                   <AnimatePresence initial={false}>
+                    {sessionExpiredNotice && !error && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8, height: 0 }}
+                        animate={{ opacity: 1, y: 0, height: "auto" }}
+                        exit={{ opacity: 0, y: -8, height: 0 }}
+                        transition={{ duration: 0.35, ease: EASE }}
+                        className="overflow-hidden"
+                      >
+                        <div
+                          role="status"
+                          className="flex items-start gap-2.5 rounded-[0.9rem] border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-700 dark:text-amber-400"
+                        >
+                          <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
+                          <span>Your session expired. Please sign in to resume your work.</span>
+                        </div>
+                      </motion.div>
+                    )}
                     {error && (
                       <motion.div
                         initial={{ opacity: 0, y: -8, height: 0 }}

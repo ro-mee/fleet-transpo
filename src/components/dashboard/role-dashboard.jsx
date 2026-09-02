@@ -1,276 +1,667 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from "recharts";
-import {
-  BarChart3,
   Activity,
-  MapPin,
-  TrendingUp,
+  AlertTriangle,
+  ArrowRight,
+  BarChart3,
   Bell,
-  Inbox,
-  ChevronRight,
-  Truck,
+  Brain,
+  CalendarClock,
   CheckCircle2,
+  ClipboardCheck,
+  Clock3,
+  FileWarning,
+  Fuel,
+  Inbox,
+  KeyRound,
+  MapPin,
+  Navigation,
   ShieldCheck,
+  Truck,
+  UserCheck,
+  UserCog,
+  Users,
+  Wrench,
 } from "lucide-react";
-import { getAiInsights } from "@/services/ai.service";
-import { getVehicles } from "@/services/vehicle.service";
-import { getDriverStats } from "@/services/driver.service";
-import { getTrips, getActiveTrips, getLatestLocations } from "@/services/trip.service";
-import { getTransportRequests } from "@/services/transport.service";
-import { getNotifications } from "@/services/notification.service";
 import { getAuditLogs } from "@/services/audit.service";
+import { getDispatchesByStatus } from "@/services/dispatch.service";
+import {
+  getDriverLeaveRequests,
+  getDrivers,
+  getDriverStats,
+  getIncidentSummary,
+} from "@/services/driver.service";
+import { getDriverAssignments } from "@/services/driver-assignment.service";
+import { getFuelRequests } from "@/services/fuel.service";
+import { getMaintenanceRecords } from "@/services/maintenance.service";
+import { getNotifications } from "@/services/notification.service";
+import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { getSystemActivity } from "@/services/system.service";
-import { vehiclePieColor, CHART_COLORS } from "@/lib/chart-tokens";
-import { getUvvrpPolicy } from "@/services/settings.service";
-import { isRestricted } from "@/lib/uvvrp/policy";
+import { getLatestLocations } from "@/services/trip.service";
+import { getRecommendation, getTransportRequests } from "@/services/transport.service";
+import { getExpiringDocuments, getVehicles } from "@/services/vehicle.service";
+import { apiFetch } from "@/lib/api/client";
+import {
+  isDriverUnavailableFor,
+  NON_DISPATCHABLE_VEHICLE_STATUSES,
+  resolveSubstituteForDate,
+} from "@/lib/ai/pair-scoring";
+import { compareByPriority, groupQueue } from "@/lib/scheduling/queue-grouping";
+import { isValidCoordinate } from "@/lib/gps";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
+import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
-import { StatsGridSkeleton, CardSkeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { CardSkeleton, StatsGridSkeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { getDashboardConfig } from "@/components/dashboard/dashboard-configs";
-import { isValidCoordinate } from "@/lib/gps";
-
-const tooltipStyle = {
-  background: "var(--sf)",
-  border: "1px solid var(--br)",
-  borderRadius: "8px",
-  fontSize: "12px",
-};
-
-// Shared chart palette (src/lib/chart-tokens.js) — previously a private copy
-// that drifted from the analytics/reports palettes.
-const PIE_COLORS = {
-  Available: vehiclePieColor("Available"),
-  "In Use": vehiclePieColor("In Use"),
-  "Under Maintenance": vehiclePieColor("Under Maintenance"),
-  "Out of Service": vehiclePieColor("Out of Service"),
-  "Registration Expired": vehiclePieColor("Registration Expired"),
-  Reserved: vehiclePieColor("Reserved"),
-  Decommissioned: vehiclePieColor("Decommissioned"),
-  Unknown: CHART_COLORS.neutral,
-};
-
-const OPEN_STATUSES = ["pending", "scheduled", "assigned", "in progress"];
 
 const LiveLocationsMap = dynamic(
   () => import("@/components/maps/live-locations-map"),
   { ssr: false, loading: () => <div className="h-full w-full animate-pulse bg-hover" /> }
 );
 
+const linkClass =
+  "inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2";
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
 function isToday(value) {
   if (!value) return false;
-  const d = new Date(value);
-  const now = new Date();
-  return (
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate()
-  );
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime()) && localDateKey(date) === localDateKey();
 }
 
 function formatTime(value) {
   if (!value) return "—";
-  return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
 function formatDateTime(value) {
   if (!value) return "—";
-  const d = new Date(value);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + formatTime(value);
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${formatTime(value)}`;
+}
+
+function Panel({ title, description, action, className, children }) {
+  return (
+    <Card className={cn("overflow-hidden rounded-2xl border-border/80", className)}>
+      <CardHeader className="gap-1 border-b border-border/70 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base">{title}</CardTitle>
+            {description && <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">{description}</p>}
+          </div>
+          {action}
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">{children}</CardContent>
+    </Card>
+  );
+}
+
+function InlineEmpty({ icon = Inbox, title, description }) {
+  return <EmptyState icon={icon} title={title} description={description} className="py-12" />;
+}
+
+function QueryErrors({ items }) {
+  const failed = items.filter((item) => item.query?.isError);
+  if (!failed.length) return null;
+  return (
+    <div className="space-y-2">
+      {failed.map((item) => (
+        <QueryErrorBanner
+          key={item.title}
+          query={item.query}
+          title={item.title}
+          description={item.description || "This panel is unavailable; other dashboard data remains current."}
+        />
+      ))}
+    </div>
+  );
+}
+
+function FeedState({ queries, errorTitle = "This data is unavailable", children }) {
+  const feeds = Array.isArray(queries) ? queries : [queries];
+  if (feeds.some((query) => query?.isLoading)) return <div className="p-5"><CardSkeleton /></div>;
+  if (feeds.some((query) => query?.isError)) {
+    return <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">{errorTitle}. Use Retry in the alert above.</div>;
+  }
+  return children;
+}
+
+function Row({ icon: Icon, title, detail, meta, status, entity, href }) {
+  const content = (
+    <>
+      {Icon && (
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-hover text-foreground-secondary">
+          <Icon className="h-4 w-4" />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium text-foreground">{title}</p>
+        {detail && <p className="mt-0.5 truncate text-xs text-foreground-secondary">{detail}</p>}
+      </div>
+      {status && <StatusBadge status={status} entity={entity} className="shrink-0" />}
+      {meta && <span className="shrink-0 text-xs tabular-nums text-foreground-muted">{meta}</span>}
+      {href && <ArrowRight className="h-4 w-4 shrink-0 text-foreground-muted" />}
+    </>
+  );
+  const classes = "flex min-h-16 items-center gap-3 px-5 py-3 transition-colors";
+  return href ? (
+    <Link href={href} className={cn(classes, "hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
+      {content}
+    </Link>
+  ) : (
+    <div className={classes}>{content}</div>
+  );
+}
+
+function StatusBars({ rows }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.value) || 0));
+  return (
+    <div className="space-y-4 p-5">
+      {rows.map((row) => (
+        <div key={row.label}>
+          <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+            <span className="font-medium text-foreground-secondary">{row.label}</span>
+            <span className="tabular-nums text-foreground">{row.value}</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded-full bg-hover">
+            <div className={cn("h-full rounded-full", row.color || "bg-primary")} style={{ width: `${Number(row.value) ? Math.max(3, (Number(row.value) / max) * 100) : 0}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LinkRail({ items }) {
+  return (
+    <nav aria-label="Dashboard shortcuts" className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {items.map(({ label, href, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          className="group flex min-h-14 items-center gap-3 rounded-2xl border border-border/80 bg-surface px-4 text-sm font-semibold text-foreground shadow-xs transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+        >
+          <Icon className="h-4 w-4 text-primary" />
+          <span className="flex-1">{label}</span>
+          <ArrowRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+function LoadingDashboard() {
+  return (
+    <div className="space-y-5" aria-busy="true">
+      <StatsGridSkeleton count={4} />
+      <div className="grid gap-5 lg:grid-cols-2"><CardSkeleton /><CardSkeleton /></div>
+    </div>
+  );
+}
+
+function SystemAdminDashboard({ queries }) {
+  const users = queries.users.data?.rows || [];
+  const sessions = queries.sessions.data?.sessions || [];
+  const notifications = queries.notifications.data || [];
+  const activity = queries.activity.data || {};
+  const audit = queries.audit.data || {};
+  const counters = activity.counters || {};
+  const activeUsers = users.filter((user) => !user.deleted_at && user.status !== "Inactive");
+  const disabledUsers = users.length - activeUsers.length;
+  const roleCounts = Object.entries(users.reduce((acc, user) => {
+    const roleName = user.role_name || "Unassigned";
+    acc[roleName] = (acc[roleName] || 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => b[1] - a[1]);
+  const failedJobs = Number(counters.integration_failed || 0) + Number(counters.automation_failed || 0);
+  const unread = notifications.filter((item) => !item.is_read).length;
+
+  if (queries.users.isLoading || queries.activity.isLoading) return <LoadingDashboard />;
+
+  return (
+    <div className="space-y-5">
+      <QueryErrors items={[
+        { query: queries.users, title: "Account posture could not be loaded" },
+        { query: queries.sessions, title: "Your sessions could not be loaded" },
+        { query: queries.activity, title: "Platform activity could not be loaded" },
+        { query: queries.audit, title: "Audit activity could not be loaded" },
+        { query: queries.notifications, title: "Notifications could not be loaded" },
+      ]} />
+
+      {(failedJobs > 0 || unread > 0) && (
+        <div className="flex flex-col gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 sm:flex-row sm:items-center">
+          <AlertTriangle className="h-5 w-5 shrink-0" />
+          <p className="flex-1 text-sm font-medium">
+            {failedJobs > 0 ? `${failedJobs} integration or automation failure${failedJobs === 1 ? "" : "s"} in the last 24 hours.` : ""}
+            {failedJobs > 0 && unread > 0 ? " " : ""}
+            {unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"} need review.` : ""}
+          </p>
+          <Link href="/settings/ai/logs" className={linkClass}>Review system logs <ArrowRight className="h-3.5 w-3.5" /></Link>
+        </div>
+      )}
+
+      <StatGrid cols={4}>
+        <StatCard icon={UserCheck} label="Active accounts" value={queries.users.isError ? "—" : activeUsers.length} trend="Accounts currently allowed to sign in" tone="success" />
+        <StatCard icon={UserCog} label="Disabled accounts" value={queries.users.isError ? "—" : disabledUsers} trend="Inactive or soft-deleted accounts" tone={disabledUsers ? "warning" : "neutral"} />
+        <StatCard icon={ShieldCheck} label="Roles represented" value={queries.users.isError ? "—" : roleCounts.length} trend="Current access-role coverage" tone="primary" />
+        <StatCard icon={KeyRound} label="Your active sessions" value={queries.sessions.isLoading || queries.sessions.isError ? "—" : sessions.length} trend="Web and mobile sessions for this account" tone="info" />
+      </StatGrid>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(18rem,0.75fr)]">
+        <Panel title="Platform activity" description="Newest integration and automation events; failures stay visible instead of being counted as success." action={<Link href="/settings/ai/logs" className={linkClass}>Open logs <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.activity} errorTitle="Platform activity is unavailable">{(activity.recent || []).length ? (
+            <div className="divide-y divide-border/70">
+              {activity.recent.slice(0, 8).map((item) => {
+                const eventStatus = String(item.status || "").toLowerCase();
+                const health = eventStatus === "failed" ? "Critical" : ["processed", "success"].includes(eventStatus) ? "Healthy" : "Medium";
+                return (
+                <Row
+                  key={`${item.source}-${item.id}`}
+                  icon={item.source === "integration" ? Activity : Brain}
+                  title={`${item.source === "integration" ? "Integration" : "Automation"} · ${item.type || "Event"}`}
+                  detail={item.error_message || item.detail || "No additional detail recorded"}
+                  meta={formatDateTime(item.created_at)}
+                  status={health}
+                  entity="risk"
+                />
+              );})}
+            </div>
+          ) : <InlineEmpty icon={Activity} title="No platform events recorded" description="Integration and automation activity will appear here." />}</FeedState>
+        </Panel>
+
+        <Panel title="Account posture" description="Role distribution across all employee accounts.">
+          <FeedState queries={queries.users} errorTitle="Account posture is unavailable">{roleCounts.length ? (
+            <div className="divide-y divide-border/70">
+              {roleCounts.map(([name, count]) => (
+                <Row key={name} icon={Users} title={name.replace(/_/g, " ")} detail={`${count} account${count === 1 ? "" : "s"}`} />
+              ))}
+            </div>
+          ) : <InlineEmpty icon={Users} title="No accounts found" description="Create an employee account to establish role coverage." />}</FeedState>
+        </Panel>
+      </div>
+
+      <Panel title="Recent security and change audit" description="Actor, action, target and timestamp from the immutable audit trail." action={<Link href="/system/audit" className={linkClass}>Open full audit <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <FeedState queries={queries.audit} errorTitle="Audit activity is unavailable">{(audit.logs || []).length ? (
+          <div className="divide-y divide-border/70">
+            {audit.logs.slice(0, 8).map((item) => (
+              <Row
+                key={item.log_id}
+                icon={ShieldCheck}
+                title={`${item.action || "Changed"} · ${item.resource || "resource"}${item.resource_id ? ` #${item.resource_id}` : ""}`}
+                detail={[item.first_name, item.last_name].filter(Boolean).join(" ") || item.email || "System process"}
+                meta={formatDateTime(item.created_at)}
+              />
+            ))}
+          </div>
+        ) : <InlineEmpty icon={ShieldCheck} title="No audit events recorded" description="Tracked system changes will appear here." />}</FeedState>
+      </Panel>
+
+      <LinkRail items={[
+        { label: "Manage users", href: "/settings/users", icon: UserCog },
+        { label: "API and integrations", href: "/settings/api", icon: KeyRound },
+        { label: "Notification center", href: "/notifications", icon: Bell },
+        { label: "Audit log", href: "/system/audit", icon: ShieldCheck },
+      ]} />
+    </div>
+  );
+}
+
+function AdminDashboard({ queries }) {
+  const vehicles = queries.vehicles.data || [];
+  const drivers = queries.driverStats.data || {};
+  const requests = queries.reservations.data || [];
+  const dispatches = queries.dispatches.data || {};
+  const maintenance = queries.maintenance.data || [];
+  const incidents = queries.incidents.data || {};
+  const documents = queries.documents.data || { items: [], totals: {} };
+  const fuel = queries.fuelRequests.data || { rows: [], counts: {} };
+  const openRequests = requests.filter((request) => !["Completed", "Cancelled"].includes(request.fleet_status));
+  const completedToday = (dispatches.completed || []).filter((dispatch) => isToday(dispatch.updated_at || dispatch.scheduled_arrival)).length;
+  const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
+  const vehicleCounts = vehicles.reduce((acc, vehicle) => {
+    const status = vehicle.vehicle_status || "Unknown";
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  const attention = [
+    { label: "Incident attention queue", value: queries.incidents.isLoading || queries.incidents.isError ? "—" : Number(incidents.attention || 0), sortValue: Number(incidents.attention || 0), href: "/incidents", icon: AlertTriangle },
+    { label: "Pending reassignment", value: queries.dispatches.isError ? "—" : (dispatches.pendingReassignment || []).length, sortValue: (dispatches.pendingReassignment || []).length, href: "/dispatch", icon: Navigation },
+    { label: "Expired / 30-day documents", value: queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), sortValue: Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0), href: "/fleet/documents", icon: FileWarning },
+    { label: "Active maintenance work", value: queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length, sortValue: activeMaintenance.length, href: "/maintenance", icon: Wrench },
+    { label: "Pending fuel requests", value: queries.fuelRequests.isLoading || queries.fuelRequests.isError ? "—" : Number(fuel.counts?.pending || 0), sortValue: Number(fuel.counts?.pending || 0), href: "/fuel", icon: Fuel },
+  ].sort((a, b) => b.sortValue - a.sortValue);
+
+  if (queries.vehicles.isLoading || queries.dispatches.isLoading || queries.reservations.isLoading) return <LoadingDashboard />;
+
+  return (
+    <div className="space-y-5">
+      <QueryErrors items={[
+        { query: queries.vehicles, title: "Fleet status could not be loaded" },
+        { query: queries.driverStats, title: "Driver status could not be loaded" },
+        { query: queries.reservations, title: "Request volume could not be loaded" },
+        { query: queries.dispatches, title: "Dispatch progress could not be loaded" },
+        { query: queries.maintenance, title: "Maintenance attention could not be loaded" },
+        { query: queries.incidents, title: "Incident attention could not be loaded" },
+        { query: queries.documents, title: "Document compliance could not be loaded" },
+        { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
+      ]} />
+
+      <Panel title="Operational attention" description="Exceptions that may block service, ordered by current volume." action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0">
+          {attention.map((item) => (
+            <Link key={item.label} href={item.href} className="flex items-center gap-3 p-4 transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+              <item.icon className={cn("h-4 w-4 shrink-0", item.value === "—" ? "text-foreground-muted" : item.value ? "text-danger" : "text-success")} />
+              <div><p className="text-xl font-semibold tabular-nums text-foreground">{item.value}</p><p className="text-[11px] leading-snug text-foreground-secondary">{item.label}</p></div>
+            </Link>
+          ))}
+        </div>
+      </Panel>
+
+      <StatGrid cols={4}>
+        <StatCard icon={Inbox} label="Open requests" value={queries.reservations.isError ? "—" : openRequests.length} trend="Not completed or cancelled" tone="warning" />
+        <StatCard icon={CalendarClock} label="Scheduled dispatches" value={queries.dispatches.isError ? "—" : (dispatches.scheduled || []).length} trend="Committed and waiting to depart" tone="info" />
+        <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : (dispatches.inProgress || []).length} trend="Currently underway" tone="primary" />
+        <StatCard icon={CheckCircle2} label="Completed today" value={queries.dispatches.isError ? "—" : completedToday} trend="Dispatches finished today" tone="success" />
+      </StatGrid>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Panel title="Fleet health" description="Current vehicle statuses; this is an operational overview, not a dispatch eligibility check." action={<Link href="/fleet/vehicles" className={linkClass}>Fleet register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.vehicles} errorTitle="Fleet health is unavailable"><StatusBars rows={[
+            { label: "Available", value: vehicleCounts.Available || 0, color: "bg-success" },
+            { label: "Reserved", value: vehicleCounts.Reserved || 0, color: "bg-info" },
+            { label: "In use", value: vehicleCounts["In Use"] || 0, color: "bg-primary" },
+            { label: "Under maintenance", value: vehicleCounts["Under Maintenance"] || 0, color: "bg-warning" },
+            { label: "Decommissioned", value: vehicleCounts.Decommissioned || 0, color: "bg-danger" },
+          ]} /></FeedState>
+        </Panel>
+        <Panel title="Workforce coverage" description="Driver status across the whole operation." action={<Link href="/drivers" className={linkClass}>Driver roster <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.driverStats} errorTitle="Driver coverage is unavailable"><StatusBars rows={[
+            { label: "Available", value: drivers.available || 0, color: "bg-success" },
+            { label: "On trip", value: drivers.onTrip || 0, color: "bg-primary" },
+            { label: "Off duty", value: drivers.offDuty || 0, color: "bg-foreground-muted" },
+            { label: "On leave", value: drivers.onLeave || 0, color: "bg-info" },
+            { label: "Suspended", value: drivers.suspended || 0, color: "bg-danger" },
+          ]} /></FeedState>
+        </Panel>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(19rem,0.65fr)]">
+        <Panel title="Maintenance and incident pressure" description="The newest active maintenance records alongside incident severity totals." action={<Link href="/maintenance" className={linkClass}>Open maintenance <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.maintenance} errorTitle="Maintenance attention is unavailable">{activeMaintenance.length ? (
+            <div className="divide-y divide-border/70">
+              {activeMaintenance.slice(0, 6).map((item) => (
+                <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || `Scheduled ${formatDateTime(item.maintenance_date)}`} status={item.status} entity="maintenance" />
+              ))}
+            </div>
+          ) : <InlineEmpty icon={Wrench} title="No active maintenance work" description="Scheduled or in-progress records will appear here." />}</FeedState>
+        </Panel>
+        <Panel title="Incident risk" description="Counts from the current incident attention summary.">
+          <FeedState queries={queries.incidents} errorTitle="Incident risk is unavailable"><StatusBars rows={[
+            { label: "Open", value: incidents.open || 0, color: "bg-warning" },
+            { label: "Critical / major open", value: incidents.critical_major_open || 0, color: "bg-danger" },
+            { label: "Assistance open", value: incidents.assistance_open || 0, color: "bg-info" },
+            { label: "Maintenance pending", value: incidents.maintenance_pending || 0, color: "bg-primary" },
+          ]} /></FeedState>
+        </Panel>
+      </div>
+
+      <LinkRail items={[
+        { label: "Operations reports", href: "/reports", icon: BarChart3 },
+        { label: "Incident center", href: "/incidents", icon: AlertTriangle },
+        { label: "Fuel operations", href: "/fuel", icon: Fuel },
+        { label: "AI insights", href: "/ai/insights", icon: Brain },
+      ]} />
+    </div>
+  );
+}
+
+function FleetManagerDashboard({ queries }) {
+  const vehicles = queries.vehicles.data || [];
+  const drivers = queries.drivers.data || [];
+  const assignments = queries.assignments.data?.assignments || [];
+  const substitutes = queries.substitutes.data?.schedules || [];
+  const leave = queries.leave.data || [];
+  const maintenance = queries.maintenance.data || [];
+  const documents = queries.documents.data || { items: [], totals: {} };
+  const fuel = queries.fuelRequests.data || { counts: {} };
+  const dispatches = queries.dispatches.data || {};
+  const today = localDateKey();
+  const driverById = new Map(drivers.map((driver) => [Number(driver.driver_id), driver]));
+  const vehicleById = new Map(vehicles.map((vehicle) => [Number(vehicle.vehicle_id), vehicle]));
+  const blockedVehicles = new Set(NON_DISPATCHABLE_VEHICLE_STATUSES);
+  const pairRows = assignments.map((assignment) => {
+    const driver = driverById.get(Number(assignment.driver_id));
+    const vehicle = vehicleById.get(Number(assignment.vehicle_id));
+    const driverUnavailable = isDriverUnavailableFor(driver, new Date()).unavailable;
+    const substituteId = resolveSubstituteForDate(assignment.vehicle_id, today, substitutes);
+    const substitute = substituteId ? driverById.get(substituteId) : null;
+    const vehicleBlocked = blockedVehicles.has(vehicle?.vehicle_status);
+    const coverage = vehicleBlocked
+      ? "Vehicle blocked"
+      : driverUnavailable && substitute
+        ? "Substitute covering"
+        : driverUnavailable
+          ? "Driver unavailable"
+          : "Current pair";
+    return { assignment, driver, vehicle, substitute, coverage };
+  });
+  const readyPairs = pairRows.filter((row) => row.coverage === "Current pair" || row.coverage === "Substitute covering").length;
+  const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
+  const approvedLeave = leave.filter((item) => item.status === "Approved").length;
+  const nextDispatches = [...(dispatches.pendingReassignment || []), ...(dispatches.scheduled || [])].slice(0, 5);
+
+  if (queries.vehicles.isLoading || queries.drivers.isLoading || queries.assignments.isLoading) return <LoadingDashboard />;
+
+  return (
+    <div className="space-y-5">
+      <QueryErrors items={[
+        { query: queries.vehicles, title: "Vehicle readiness could not be loaded" },
+        { query: queries.drivers, title: "Driver readiness could not be loaded" },
+        { query: queries.assignments, title: "Driver–vehicle pairings could not be loaded" },
+        { query: queries.substitutes, title: "Substitute coverage could not be loaded" },
+        { query: queries.leave, title: "Leave coverage could not be loaded" },
+        { query: queries.maintenance, title: "Maintenance data could not be loaded" },
+        { query: queries.documents, title: "Compliance documents could not be loaded" },
+        { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
+        { query: queries.dispatches, title: "Upcoming schedules could not be loaded" },
+      ]} />
+
+      <StatGrid cols={4}>
+        <StatCard icon={Truck} label="Vehicles in fleet" value={queries.vehicles.isError ? "—" : vehicles.length} trend="All active vehicle records" tone="primary" />
+        <StatCard icon={ClipboardCheck} label="Covered pairings today" value={queries.assignments.isError || queries.drivers.isError || queries.vehicles.isError ? "—" : readyPairs} valueNote={queries.assignments.isError ? undefined : `of ${pairRows.length}`} trend="Current-status coverage only; dispatch validates each requested window" tone="success" />
+        <StatCard icon={Wrench} label="Maintenance attention" value={queries.maintenance.isLoading || queries.maintenance.isError ? "—" : activeMaintenance.length} trend="Scheduled or in-progress work" tone="warning" />
+        <StatCard icon={FileWarning} label="Compliance due ≤30d" value={queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0)} trend="Expired and near-expiry documents" tone="danger" />
+      </StatGrid>
+
+        <Panel title="Driver–vehicle coverage" description="Designated pairings and today’s substitute coverage. Final eligibility remains window-aware at dispatch." action={<Link href="/fleet/assignments" className={linkClass}>Manage pairings <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <FeedState queries={[queries.vehicles, queries.drivers, queries.assignments, queries.substitutes]} errorTitle="Driver–vehicle coverage is unavailable">{pairRows.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-left text-sm">
+              <thead className="bg-hover text-xs text-foreground-secondary">
+                <tr><th className="px-5 py-3 font-semibold">Vehicle</th><th className="px-5 py-3 font-semibold">Designated driver</th><th className="px-5 py-3 font-semibold">Driver status</th><th className="px-5 py-3 font-semibold">Today’s coverage</th></tr>
+              </thead>
+              <tbody className="divide-y divide-border/70">
+                {pairRows.slice(0, 10).map(({ assignment, driver, vehicle, substitute, coverage }) => (
+                  <tr key={assignment.assignment_id} className="hover:bg-hover/60">
+                    <td className="px-5 py-3"><p className="font-medium text-foreground">{vehicle?.plate_number || assignment.plate_number || "Unrecorded plate"}</p><StatusBadge status={vehicle?.vehicle_status || assignment.vehicle_status || "Unknown"} entity="vehicle" className="mt-1" /></td>
+                    <td className="px-5 py-3 text-foreground">{[driver?.employees?.first_name || assignment.first_name, driver?.employees?.last_name || assignment.last_name].filter(Boolean).join(" ") || `Driver #${assignment.driver_id}`}</td>
+                    <td className="px-5 py-3"><StatusBadge status={driver?.driver_status || "Unknown"} entity="driver" /></td>
+                    <td className="px-5 py-3"><StatusBadge status={coverage === "Current pair" || coverage === "Substitute covering" ? "Healthy" : coverage === "Vehicle blocked" ? "Critical" : "High"} entity="risk" /><p className="mt-1 text-xs text-foreground-secondary">{substitute ? `Covered by ${[substitute.employees?.first_name, substitute.employees?.last_name].filter(Boolean).join(" ") || `driver #${substitute.driver_id}`}` : coverage}</p></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <InlineEmpty icon={UserCheck} title="No active pairings" description="Assign designated drivers before planning normal vehicle coverage." />}</FeedState>
+      </Panel>
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <Panel title="Maintenance pressure" description="Active work ordered by the API’s current maintenance date." action={<Link href="/maintenance" className={linkClass}>Maintenance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.maintenance} errorTitle="Maintenance pressure is unavailable">{activeMaintenance.length ? <div className="divide-y divide-border/70">{activeMaintenance.slice(0, 6).map((item) => <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || "No work description recorded"} meta={formatDateTime(item.maintenance_date)} status={item.status} entity="maintenance" />)}</div> : <InlineEmpty icon={Wrench} title="No active maintenance work" description="Scheduled and in-progress work will appear here." />}</FeedState>
+        </Panel>
+        <Panel title="Upcoming fleet schedule" description="Nearest scheduled departures and reassignment exceptions." action={<Link href="/dispatch" className={linkClass}>Dispatch board <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.dispatches} errorTitle="The fleet schedule is unavailable">{nextDispatches.length ? <div className="divide-y divide-border/70">{nextDispatches.map((item) => <Row key={item.dispatch_id} icon={CalendarClock} title={`${item.vehicles?.plate_number || "Unassigned vehicle"} · ${item.transportation_requests?.guest_name || item.routes?.route_name || "Scheduled service"}`} detail={`${item.transportation_requests?.pickup_location || item.origin_location?.location_name || "Pickup unrecorded"} → ${item.transportation_requests?.dropoff_location || item.destination_location?.location_name || "Destination unrecorded"}`} meta={formatDateTime(item.scheduled_departure)} status={item.status} entity="dispatch" href={`/dispatch/${item.dispatch_id}`} />)}</div> : <InlineEmpty icon={CalendarClock} title="No upcoming dispatches" description="Scheduled departures will appear here." />}</FeedState>
+        </Panel>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Panel title="Document compliance" description="All expired and near-expiry records."><FeedState queries={queries.documents} errorTitle="Document compliance is unavailable"><StatusBars rows={[{ label: "Expired", value: documents.totals?.expired || 0, color: "bg-danger" }, { label: "Due in 30 days", value: documents.totals?.expiring30 || 0, color: "bg-warning" }, { label: "Due in 31–90 days", value: documents.totals?.expiring90 || 0, color: "bg-info" }]} /></FeedState></Panel>
+        <Panel title="Workforce exceptions" description="Approved leave and substitute coverage today."><FeedState queries={[queries.leave, queries.substitutes]} errorTitle="Workforce exceptions are unavailable"><StatusBars rows={[{ label: "Approved leave", value: approvedLeave, color: "bg-warning" }, { label: "Substitute schedules", value: substitutes.length, color: "bg-info" }, { label: "Uncovered pairings", value: pairRows.length - readyPairs, color: "bg-danger" }]} /></FeedState></Panel>
+        <Panel title="Fuel request status" description="Current request workflow volume."><FeedState queries={queries.fuelRequests} errorTitle="Fuel request status is unavailable"><StatusBars rows={[{ label: "Pending", value: fuel.counts?.pending || 0, color: "bg-warning" }, { label: "Approved", value: fuel.counts?.approved || 0, color: "bg-info" }, { label: "Fulfilled", value: fuel.counts?.fulfilled || 0, color: "bg-success" }]} /></FeedState></Panel>
+      </div>
+
+      <LinkRail items={[
+        { label: "Vehicle register", href: "/fleet/vehicles", icon: Truck },
+        { label: "Driver roster", href: "/drivers", icon: Users },
+        { label: "Leave coverage", href: "/drivers/leave", icon: CalendarClock },
+        { label: "Fuel operations", href: "/fuel", icon: Fuel },
+      ]} />
+    </div>
+  );
+}
+
+function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
+  const requests = queries.reservations.data || [];
+  const dispatches = queries.dispatches.data || {};
+  const vehicles = queries.vehicles.data || [];
+  const drivers = queries.driverStats.data || {};
+  const validLocations = (queries.locations.data || []).filter((location) => isValidCoordinate(location?.latitude, location?.longitude));
+  const queue = [...queueGroups.today, ...queueGroups.upcoming].sort(compareByPriority).slice(0, 10);
+  const reviewCount = queueGroups.today.length + queueGroups.upcoming.filter((request) => request.derived_priority === "Overdue").length;
+  const timeline = [...queueGroups.today, ...queueGroups.assigned, ...queueGroups.upcoming]
+    .sort((a, b) => new Date(a.pickup_datetime) - new Date(b.pickup_datetime))
+    .slice(0, 6);
+  const activeTrips = dispatches.inProgress || [];
+  const pendingReassignment = dispatches.pendingReassignment || [];
+  const availableVehicles = vehicles.filter((vehicle) => vehicle.vehicle_status === "Available").length;
+  const recommended = recommendationQuery.data?.pair?.recommended;
+
+  if (queries.reservations.isLoading || queries.dispatches.isLoading) return <LoadingDashboard />;
+
+  return (
+    <div className="space-y-5">
+      <QueryErrors items={[
+        { query: queries.reservations, title: "The transportation queue could not be loaded" },
+        { query: queries.dispatches, title: "Dispatch status could not be loaded" },
+        { query: queries.vehicles, title: "Vehicle status could not be loaded" },
+        { query: queries.driverStats, title: "Driver status could not be loaded" },
+        { query: queries.locations, title: "Live GPS positions could not be loaded" },
+        { query: recommendationQuery, title: "Smart Dispatch could not build a recommendation", description: "Open the request to retry the current, window-aware pairing check." },
+      ]} />
+
+      {pendingReassignment.length > 0 && (
+        <Link href="/dispatch" className="flex items-center gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 transition-colors hover:bg-danger-bg/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-danger">
+          <AlertTriangle className="h-5 w-5 shrink-0" /><span className="flex-1 text-sm font-semibold">{pendingReassignment.length} dispatch{pendingReassignment.length === 1 ? " needs" : "es need"} reassignment now.</span><ArrowRight className="h-4 w-4" />
+        </Link>
+      )}
+
+      <StatGrid cols={4}>
+        <StatCard icon={Inbox} label="Needs dispatch review" value={queries.reservations.isError ? "—" : reviewCount} trend="Today and overdue, priority-sorted" tone="warning" />
+        <StatCard icon={CalendarClock} label="Assigned next" value={queries.reservations.isError ? "—" : queueGroups.assigned.length} trend="Committed requests waiting to start" tone="info" />
+        <StatCard icon={Navigation} label="Trips in progress" value={queries.dispatches.isError ? "—" : activeTrips.length} trend="Active dispatches" tone="primary" />
+        <StatCard icon={CheckCircle2} label="Current resource pulse" value={queries.vehicles.isLoading || queries.driverStats.isLoading || queries.vehicles.isError || queries.driverStats.isError ? "—" : `${availableVehicles} / ${drivers.available || 0}`} trend="Available vehicles / drivers; final choices are window-validated" tone="success" />
+      </StatGrid>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(18rem,0.7fr)]">
+        <Panel title="Priority transportation queue" description="Overdue first, then Critical → High → Medium → Normal → Future; ties use the earliest pickup." action={<Link href="/reservations/queue" className={linkClass}>Open queue <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.reservations} errorTitle="The priority queue is unavailable">{queue.length ? (
+            <div className="divide-y divide-border/70">
+              {queue.map((request) => (
+                <Link key={request.request_id} href={`/reservations/${request.request_id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:items-center">
+                  <div><p className="text-sm font-semibold tabular-nums text-foreground">{formatTime(request.pickup_datetime)}</p><p className="text-[11px] text-foreground-muted">{formatDateTime(request.pickup_datetime).split(" · ")[0]}</p></div>
+                  <div className="min-w-0"><p className="truncate text-sm font-medium text-foreground">{request.guest_name || request.reservation_number || `Request #${request.request_id}`}</p><p className="mt-0.5 truncate text-xs text-foreground-secondary">{request.pickup_location || "Pickup unrecorded"} → {request.dropoff_location || "Destination unrecorded"}</p></div>
+                  <div className="flex items-center gap-2"><StatusBadge status={request.derived_priority || "Future"} entity="priority" />{(request.is_vip || request.is_emergency) && <StatusBadge severity="danger">{request.is_emergency ? "Emergency" : "VIP"}</StatusBadge>}<ArrowRight className="h-4 w-4 text-foreground-muted" /></div>
+                </Link>
+              ))}
+            </div>
+          ) : <InlineEmpty icon={Inbox} title="No requests awaiting dispatch" description="New and upcoming requests will appear here in priority order." />}</FeedState>
+        </Panel>
+
+        <Panel title="Pickup timeline" description="Nearest active pickup windows across today and upcoming work.">
+          <FeedState queries={queries.reservations} errorTitle="The pickup timeline is unavailable">{timeline.length ? <div className="divide-y divide-border/70">{timeline.map((request) => <Row key={request.request_id} icon={Clock3} title={request.guest_name || request.reservation_number || `Request #${request.request_id}`} detail={request.pickup_location || "Pickup unrecorded"} meta={formatDateTime(request.pickup_datetime)} status={request.fleet_status} entity="reservation" href={`/reservations/${request.request_id}`} />)}</div> : <InlineEmpty icon={Clock3} title="No pickups scheduled" description="Scheduled pickup windows will appear here." />}</FeedState>
+        </Panel>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
+        <Panel title="Trips in motion" description="Current assignment, route and latest GPS freshness from the dispatch feed." action={<Link href="/trips" className={linkClass}>Trips hub <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState queries={queries.dispatches} errorTitle="Active trips are unavailable">{activeTrips.length ? <div className="divide-y divide-border/70">{activeTrips.slice(0, 6).map((dispatch) => {
+            const driverName = [dispatch.drivers?.first_name, dispatch.drivers?.last_name].filter(Boolean).join(" ") || "Driver unrecorded";
+            const route = dispatch.transportation_requests;
+            return <Row key={dispatch.dispatch_id} icon={Navigation} title={`${dispatch.vehicles?.plate_number || "Vehicle unrecorded"} · ${driverName}`} detail={`${route?.pickup_location || dispatch.origin_location?.location_name || "Pickup unrecorded"} → ${route?.dropoff_location || dispatch.destination_location?.location_name || "Destination unrecorded"}`} meta={dispatch.latest_location?.recorded_at ? `GPS ${formatTime(dispatch.latest_location.recorded_at)}` : "No GPS"} status={dispatch.latest_trip?.trip_status || dispatch.status} entity={dispatch.latest_trip ? "trip" : "dispatch"} href={`/dispatch/${dispatch.dispatch_id}`} />;
+          })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here." />}</FeedState>
+        </Panel>
+
+        <Panel title="Smart Dispatch preview" description="A read-only, deterministic pairing for the first actionable request. A dispatcher still reviews and confirms it." action={queue[0] ? <Link href={`/reservations/${queue[0].request_id}`} className={linkClass}>Review request <ArrowRight className="h-3.5 w-3.5" /></Link> : null}>
+          {recommendationQuery.isError ? <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">Smart Dispatch is unavailable. Use Retry in the alert above.</div> : recommendationQuery.isLoading ? <div className="p-5"><CardSkeleton /></div> : recommended ? (
+            <div className="space-y-4 p-5">
+              <div><p className="text-xs text-foreground-secondary">Vehicle</p><p className="mt-1 text-base font-semibold text-foreground">{recommended.vehicle?.plate_number || recommended.vehicle?.vehicle_name || "Not recommended"}</p></div>
+              <div><p className="text-xs text-foreground-secondary">Driver</p><p className="mt-1 text-base font-semibold text-foreground">{recommended.driver?.driver_name || "Not recommended"}</p></div>
+              {recommended.score != null && <div><p className="text-xs text-foreground-secondary">Pair score</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{recommended.score}<span className="text-sm font-normal text-foreground-muted"> / 100</span></p></div>}
+              {(recommended.reasons || []).length > 0 && <p className="text-xs leading-relaxed text-foreground-secondary">{recommended.reasons.slice(0, 2).join(" · ")}</p>}
+            </div>
+          ) : <InlineEmpty icon={Brain} title={requests.length ? "No valid pair found" : "No request to score"} description={requests.length ? "Open the request to review blockers and current assignment-ready choices." : "A recommendation will appear when a request needs dispatch review."} />}
+        </Panel>
+      </div>
+
+      <Panel title="Live operations map" description="Latest valid GPS positions for active fleet tracking." action={<Link href="/tracking/live-map" className={linkClass}>Full map <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <FeedState queries={queries.locations} errorTitle="Live GPS positions are unavailable">{validLocations.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} /></div> : <InlineEmpty icon={MapPin} title="No valid GPS positions" description="Map markers appear only when a valid latitude and longitude are recorded." />}</FeedState>
+      </Panel>
+    </div>
+  );
 }
 
 export function RoleDashboard({ role, employee }) {
-  const router = useRouter();
   const config = getDashboardConfig(role);
-  const q = config.queries || [];
+  const enabled = (name) => config.queries.includes(name);
+  const today = localDateKey();
 
-  const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery({
-    queryKey: ["vehicles"],
-    queryFn: () => getVehicles(),
-    enabled: q.includes("vehicles"),
-  });
-  const { data: driverStats = {} } = useQuery({
-    queryKey: ["driver-stats"],
-    queryFn: () => getDriverStats(),
-    enabled: q.includes("driverStats"),
-  });
-  const { data: tripsData = { rows: [] } } = useQuery({
-    queryKey: ["trips"],
-    queryFn: () => getTrips(),
-    enabled: q.includes("trips"),
-  });
-  const trips = useMemo(() => tripsData.rows ?? [], [tripsData]);
-  const { data: activeTrips = [] } = useQuery({
-    queryKey: ["trips-active"],
-    queryFn: () => getActiveTrips(),
-    enabled: q.includes("activeTrips"),
-    refetchInterval: q.includes("activeTrips") ? 30000 : undefined,
-  });
-  const { data: reservations = [] } = useQuery({
-    queryKey: ["transport-requests"],
-    queryFn: () => getTransportRequests(),
-    enabled: q.includes("reservations"),
-  });
-  const { data: locations = [] } = useQuery({
-    queryKey: ["latest-locations"],
-    queryFn: () => getLatestLocations(),
-    enabled: q.includes("locations"),
-    refetchInterval: q.includes("locations") ? 15000 : undefined,
-  });
-  const { data: insightsData, isLoading: insightsLoading } = useQuery({
-    queryKey: ["ai-insights"],
-    queryFn: () => getAiInsights(),
-    enabled: q.includes("insights"),
-  });
-  const { data: notifications = [] } = useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => getNotifications(),
-    enabled: q.includes("notifications"),
-  });
-  const { data: uvvrpPolicy } = useQuery({
-    queryKey: ["uvvrp-policy"],
-    queryFn: getUvvrpPolicy,
-  });
-  const { data: auditData } = useQuery({
-    queryKey: ["audit-logs"],
-    queryFn: () => getAuditLogs({ limit: 200 }),
-    enabled: q.includes("audit"),
-  });
-  const { data: activityData } = useQuery({
-    queryKey: ["system-activity"],
-    queryFn: () => getSystemActivity(),
-    enabled: q.includes("activity"),
+  const users = useQuery({ queryKey: ["dashboard-users"], queryFn: () => apiFetch("/api/settings/users"), enabled: enabled("users") });
+  const sessions = useQuery({ queryKey: ["dashboard-sessions"], queryFn: () => apiFetch("/api/auth/sessions"), enabled: enabled("sessions") });
+  const notifications = useQuery({ queryKey: ["notifications"], queryFn: () => getNotifications(), enabled: enabled("notifications") });
+  const audit = useQuery({ queryKey: ["audit-logs", "dashboard"], queryFn: () => getAuditLogs({ limit: 30 }), enabled: enabled("audit") });
+  const activity = useQuery({ queryKey: ["system-activity"], queryFn: getSystemActivity, enabled: enabled("activity"), refetchInterval: enabled("activity") ? 60000 : false });
+  const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: () => getVehicles(), enabled: enabled("vehicles") });
+  const drivers = useQuery({ queryKey: ["drivers", "dashboard"], queryFn: () => getDrivers(), enabled: enabled("drivers") });
+  const driverStats = useQuery({ queryKey: ["driver-stats"], queryFn: getDriverStats, enabled: enabled("driverStats") });
+  const reservations = useQuery({ queryKey: ["transport-requests"], queryFn: () => getTransportRequests(), enabled: enabled("reservations"), refetchInterval: enabled("reservations") ? 30000 : false });
+  const dispatches = useQuery({ queryKey: ["dispatches-by-status"], queryFn: getDispatchesByStatus, enabled: enabled("dispatches"), refetchInterval: enabled("dispatches") ? 30000 : false });
+  const locations = useQuery({ queryKey: ["latest-locations"], queryFn: getLatestLocations, enabled: enabled("locations"), refetchInterval: enabled("locations") ? 15000 : false });
+  const assignments = useQuery({ queryKey: ["driver-assignments"], queryFn: () => getDriverAssignments(), enabled: enabled("assignments") });
+  const substitutes = useQuery({ queryKey: ["substitute-schedules", today], queryFn: () => getSubstituteSchedules({ date: today }), enabled: enabled("substitutes") });
+  const leave = useQuery({ queryKey: ["driver-leave-requests"], queryFn: () => getDriverLeaveRequests(), enabled: enabled("leave") });
+  const maintenance = useQuery({ queryKey: ["maintenance-records", "dashboard"], queryFn: () => getMaintenanceRecords(), enabled: enabled("maintenance") });
+  const incidents = useQuery({ queryKey: ["incident-summary"], queryFn: () => getIncidentSummary(), enabled: enabled("incidents") });
+  const documents = useQuery({ queryKey: ["expiring-documents"], queryFn: getExpiringDocuments, enabled: enabled("documents") });
+  const fuelRequests = useQuery({ queryKey: ["fuel-requests"], queryFn: () => getFuelRequests(), enabled: enabled("fuelRequests") });
+
+  const queueGroups = useMemo(() => groupQueue(reservations.data || []), [reservations.data]);
+  const recommendationRequest = queueGroups.today[0] || queueGroups.upcoming[0];
+  const recommendation = useQuery({
+    queryKey: ["dashboard-recommendation", recommendationRequest?.request_id],
+    queryFn: () => getRecommendation(recommendationRequest.request_id),
+    enabled: role === "dispatcher" && Boolean(recommendationRequest?.request_id),
+    staleTime: 30000,
   });
 
-  const insights = useMemo(() => {
-    if (Array.isArray(insightsData)) return insightsData;
-    if (Array.isArray(insightsData?.insights)) return insightsData.insights;
-    return [];
-  }, [insightsData]);
-
-  const restrictedPlates = useMemo(() => {
-    const set = new Set();
-    if (!uvvrpPolicy?.enabled) return set;
-    vehicles.forEach((v) => {
-      if (v.plate_number && isRestricted(v.plate_number, uvvrpPolicy, new Date())) set.add(v.plate_number);
-    });
-    return set;
-  }, [uvvrpPolicy, vehicles]);
-
-  const stats = useMemo(() => {
-    const available = vehicles.filter((v) => v.vehicle_status === "Available" && !restrictedPlates.has(v.plate_number)).length;
-    const maintenance = vehicles.filter((v) => v.vehicle_status === "Under Maintenance").length;
-    const utilization = vehicles.length ? Math.round((available / vehicles.length) * 100) : 0;
-    const tripsToday = trips.filter((t) => isToday(t.start_time) || isToday(t.created_at)).length;
-    const statusLower = (r) => (r.fleet_status || "").toLowerCase();
-    const openRequests = reservations.filter((r) => OPEN_STATUSES.includes(statusLower(r))).length;
-    const todayRequests = reservations.filter((r) => isToday(r.pickup_datetime) || isToday(r.created_at)).length;
-    return {
-      totalVehicles: vehicles.length,
-      available,
-      maintenance,
-      utilization: `${utilization}%`,
-      driversOnDuty: driverStats.total ?? 0,
-      driversAvailable: driverStats.available ?? 0,
-      activeTrips: activeTrips.length,
-      tripsToday,
-      openRequests,
-      todayRequests,
-      unreadNotifications: notifications.filter((n) => !n.is_read).length,
-      integrationOk: activityData?.counters?.integration_ok ?? 0,
-      integrationFailed: activityData?.counters?.integration_failed ?? 0,
-      automationOk: activityData?.counters?.automation_ok ?? 0,
-      automationFailed: activityData?.counters?.automation_failed ?? 0,
-      notifications24h: activityData?.counters?.notifications_24h ?? 0,
-      auditTotal: auditData?.total ?? 0,
-    };
-  }, [vehicles, driverStats, trips, activeTrips, reservations, notifications, activityData, auditData, restrictedPlates]);
-
-  const reservationTrend = useMemo(() => {
-    const days = 14;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const map = new Map();
-    for (let i = days - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const key = d.toISOString().slice(0, 10);
-      map.set(key, { date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), count: 0 });
-    }
-    reservations.forEach((r) => {
-      const created = r.created_at || r.reservation_date;
-      if (!created) return;
-      const key = created.slice(0, 10);
-      if (map.has(key)) map.get(key).count += 1;
-    });
-    return Array.from(map.values());
-  }, [reservations]);
-
-  const fleetStatus = useMemo(() => {
-    const counts = {};
-    vehicles.forEach((v) => {
-      const s = v.vehicle_status || "Unknown";
-      counts[s] = (counts[s] || 0) + 1;
-    });
-    return Object.entries(counts).map(([name, value]) => ({ name, value }));
-  }, [vehicles]);
-
-  const activities = useMemo(() => {
-    return [...trips]
-      .filter((t) => t.start_time || t.created_at)
-      .sort((a, b) => new Date(b.start_time || b.created_at) - new Date(a.start_time || a.created_at))
-      .slice(0, 6)
-      .map((t) => {
-        const plate = t.vehicles?.plate_number || "—";
-        const driver = t.drivers
-          ? `${t.drivers.first_name || ""} ${t.drivers.last_name || ""}`.trim() || null
-          : null;
-        const status = (t.trip_status || "").toLowerCase();
-        let action;
-        let type = "info";
-        if (status === "completed") { action = `Trip #${t.trip_id} completed`; type = "success"; }
-        else if (status === "cancelled") { action = `Trip #${t.trip_id} cancelled`; type = "danger"; }
-        else if (status === "en route") { action = `Trip #${t.trip_id} en route`; type = "primary"; }
-        else if (status) { action = `Trip #${t.trip_id} ${status}`; }
-        else { action = `Trip #${t.trip_id} scheduled`; }
-        const detail = driver ? `${plate} · ${driver}` : plate;
-        return { action, detail, time: formatTime(t.start_time || t.created_at), type };
-      });
-  }, [trips]);
-
-  const queueItems = useMemo(() => {
-    return reservations
-      .filter((r) => OPEN_STATUSES.includes((r.fleet_status || "").toLowerCase()))
-      // Soonest pickup first — the operator works the nearest deadline, not the newest row.
-      .sort((a, b) => new Date(a.pickup_datetime || a.created_at || 0) - new Date(b.pickup_datetime || b.created_at || 0))
-      .slice(0, 6);
-  }, [reservations]);
-
-  const availableVehicles = useMemo(
-    () => vehicles.filter((v) => v.vehicle_status === "Available").slice(0, 8),
-    [vehicles]
-  );
+  const queries = { users, sessions, notifications, audit, activity, vehicles, drivers, driverStats, reservations, dispatches, locations, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests };
 
   return (
     <div className="space-y-6">
@@ -281,469 +672,10 @@ export function RoleDashboard({ role, employee }) {
         description={`Welcome${employee ? `, ${employee.first_name}` : ""}. ${config.description}`}
       />
 
-      {vehiclesLoading && q.includes("vehicles") ? (
-        <StatsGridSkeleton count={config.kpis.length} gridClass="md:grid-cols-2 lg:grid-cols-4" />
-      ) : (
-        <StatGrid cols={Math.min(config.kpis.length, 4)}>
-          {config.kpis.map((kpi) => (
-            <StatCard
-              key={kpi.label}
-              icon={kpi.icon}
-              label={kpi.label}
-              value={stats[kpi.stat] ?? "—"}
-              tone={kpi.tone}
-              trend={kpi.trend}
-              onClick={kpi.href ? () => router.push(kpi.href) : undefined}
-            />
-          ))}
-        </StatGrid>
-      )}
-
-      {config.quickActions?.length > 0 && (
-        <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
-          <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
-            <CardTitle className="text-sm font-bold flex items-center gap-2 text-foreground">
-              <Activity className="w-4 h-4 text-primary" /> Quick Actions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <div className="flex flex-wrap gap-3">
-              {config.quickActions.map((action) => (
-                <Link
-                  key={action.href}
-                  href={action.href}
-                  className="inline-flex items-center gap-2 rounded-3xl border border-border/80 bg-surface px-4 py-2.5 text-xs font-bold text-foreground hover:border-primary/50 hover:bg-hover/50 hover:shadow-xs transition-all"
-                >
-                  <action.icon className="h-4 w-4 text-primary" />
-                  {action.label}
-                  <ChevronRight className="h-3.5 w-3.5 text-foreground-muted" />
-                </Link>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {config.sections.map((section, idx) => {
-          const key = `${section.type}-${idx}`;
-          return (
-            <div
-              key={key}
-              className={cn(
-                section.span === 2 && "lg:col-span-2",
-                section.span === 3 && "lg:col-span-3"
-              )}
-            >
-              <DashboardSection
-                section={section.type}
-                data={{
-                  reservationTrend,
-                  fleetStatus,
-                  locations,
-                  activities,
-                  queueItems,
-                  availableVehicles,
-                  restrictedPlates,
-                  notifications,
-                  insights,
-                  insightsLoading,
-                  activityRecent: activityData?.recent ?? [],
-                  auditLogs: auditData?.logs ?? [],
-                }}
-              />
-            </div>
-          );
-        })}
-      </div>
+      {role === "system_admin" && <SystemAdminDashboard queries={queries} />}
+      {role === "admin" && <AdminDashboard queries={queries} />}
+      {role === "fleet_manager" && <FleetManagerDashboard queries={queries} />}
+      {role === "dispatcher" && <DispatcherDashboard queries={queries} recommendationQuery={recommendation} queueGroups={queueGroups} />}
     </div>
   );
 }
-
-function SectionCard({ title, icon: Icon, children, extra, flush = false }) {
-  return (
-    <Card className="h-full border-0 shadow-xs rounded-3xl overflow-hidden flex flex-col">
-      <CardHeader className="flex-row items-center justify-between pb-3.5 border-b border-border/60 bg-muted/20">
-        <CardTitle className="flex items-center gap-2 text-sm font-bold text-foreground">
-          <Icon className="w-4 h-4 text-primary" />
-          {title}
-        </CardTitle>
-        {extra}
-      </CardHeader>
-      <CardContent className={cn(flush ? "p-0" : "p-5", "flex-1")}>{children}</CardContent>
-    </Card>
-  );
-}
-
-function DashboardSection({ section, data }) {
-  switch (section) {
-    case "area":
-      return (
-        <SectionCard title="Reservation Trends" icon={BarChart3} extra={<span className="text-xs text-foreground-muted">last 14 days</span>}>
-          <div className="chart-h-md">
-            {data.reservationTrend.some((d) => d.count > 0) ? (
-              <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                <AreaChart data={data.reservationTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.12} />
-                      <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Area type="monotone" dataKey="count" stroke="var(--primary)" strokeWidth={2} fill="url(#trendFill)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState
-                icon={BarChart3}
-                title="No reservations yet"
-                description="Reservation activity will appear here once bookings start coming in."
-                className="py-16"
-              />
-            )}
-          </div>
-        </SectionCard>
-      );
-    case "pie":
-      return (
-        <SectionCard title="Fleet Status" icon={Activity}>
-          <div className="chart-h-md">
-            {data.fleetStatus.length ? (
-              <ResponsiveContainer width="100%" height="100%" debounce={200}>
-                <PieChart>
-                  <Pie data={data.fleetStatus} dataKey="value" nameKey="name" innerRadius={55} outerRadius={80} paddingAngle={2}>
-                    {data.fleetStatus.map((entry) => (
-                      <Cell key={entry.name} fill={PIE_COLORS[entry.name] || "#9ca3af"} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <EmptyState
-                icon={Activity}
-                title="No vehicles tracked"
-                description="Add vehicles to your fleet to see status distribution."
-                className="py-16"
-              />
-            )}
-          </div>
-        </SectionCard>
-      );
-    case "map": {
-      const mapLocations = (data.locations || []).filter((location) => isValidCoordinate(location?.latitude, location?.longitude));
-      return (
-        <SectionCard title="Live GPS Tracking" icon={MapPin} extra={<span className="text-xs text-foreground-muted">{mapLocations.length} positioned</span>}>
-          <div className="h-[280px] rounded-lg overflow-hidden bg-hover">
-            {mapLocations.length ? (
-              <LiveLocationsMap locations={mapLocations} />
-            ) : (
-              <EmptyState
-                icon={MapPin}
-                title="No current GPS positions"
-                description="Active trip positions will appear here when their next trip-scoped GPS update is received."
-                className="h-full py-16"
-              />
-            )}
-          </div>
-        </SectionCard>
-      );
-    }
-    case "activity":
-      return (
-        <SectionCard title="Recent Activity" icon={Activity} flush>
-          {data.activities.length ? (
-            <div className="divide-y divide-border">
-              {data.activities.map((activity, i) => (
-                <div key={i} className="flex items-start gap-3 px-5 py-3 hover:bg-hover transition-colors">
-                  <span
-                    className={cn(
-                      "mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0",
-                      activity.type === "success" ? "bg-success"
-                        : activity.type === "warning" ? "bg-warning"
-                        : activity.type === "danger" ? "bg-danger"
-                        : "bg-info"
-                    )}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground">{activity.action}</p>
-                    <p className="text-xs text-foreground-muted truncate">{activity.detail}</p>
-                  </div>
-                  <span className="text-[11px] text-foreground-muted flex-shrink-0">{activity.time}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Activity}
-              title="No activity yet"
-              description="Recent trips will show up here as they start."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "queue":
-      return (
-        <SectionCard
-          title="Open Requests"
-          icon={Inbox}
-          flush
-          extra={
-            <Link href="/reservations/queue" className="text-xs font-medium text-primary hover:underline">
-              View queue →
-            </Link>
-          }
-        >
-          {data.queueItems.length ? (
-            <div className="divide-y divide-border">
-              {data.queueItems.map((r) => (
-                <Link
-                  key={r.request_id}
-                  href={`/reservations/${r.request_id}`}
-                  className="flex items-center gap-3 px-5 py-3 hover:bg-hover transition-colors"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {r.guest_name || r.reservation_number || `Request #${r.request_id}`}
-                    </p>
-                    <p className="text-xs text-foreground-muted truncate">
-                      {r.pickup_location || r.route_name || r.service_types?.service_name || ""}
-                      {r.pickup_datetime ? ` · ${formatDateTime(r.pickup_datetime)}` : ""}
-                    </p>
-                  </div>
-                  <StatusBadge status={r.fleet_status} entity="reservation" className="flex-shrink-0" />
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Inbox}
-              title="No open requests"
-              description="New guest requests will appear here as they're created."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "availability":
-      return (
-        <SectionCard
-          title="Fleet Availability"
-          icon={CheckCircle2}
-          flush
-          extra={data.restrictedPlates?.size ? (
-            <span className="text-[11px] font-medium text-danger">{data.restrictedPlates.size} coding-restricted today</span>
-          ) : undefined}
-        >
-          {data.availableVehicles.length ? (
-            <div className="divide-y divide-border">
-              {data.availableVehicles.map((v) => {
-                const restricted = data.restrictedPlates?.has(v.plate_number);
-                return (
-                  <div key={v.vehicle_id} className="flex items-center justify-between gap-3 px-5 py-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
-                        <Truck className="h-4 w-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground truncate">{v.plate_number}</p>
-                        <p className="text-xs text-foreground-muted truncate">
-                          {v.vehiclecategories?.category_name || v.vehicle_type || v.model || ""}
-                        </p>
-                      </div>
-                    </div>
-                    {restricted ? (
-                      <StatusBadge severity="danger" className="flex-shrink-0">Coding Restricted</StatusBadge>
-                    ) : (
-                      <StatusBadge status={v.vehicle_status} entity="vehicle" className="flex-shrink-0" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState
-              icon={CheckCircle2}
-              title="No vehicles available"
-              description="All vehicles are currently in use or under maintenance."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "notifications":
-      return (
-        <SectionCard
-          title="Notifications"
-          icon={Bell}
-          flush
-          extra={
-            <Link href="/notifications" className="text-xs font-medium text-primary hover:underline">
-              View all →
-            </Link>
-          }
-        >
-          {data.notifications.length ? (
-            <div className="divide-y divide-border">
-              {data.notifications.slice(0, 5).map((n) => (
-                <div key={n.notification_id} className="flex items-start gap-3 px-5 py-3">
-                  <span
-                    className={cn(
-                      "mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
-                      n.is_read ? "bg-transparent border border-border" : "bg-primary"
-                    )}
-                    aria-label={n.is_read ? "Read" : "Unread"}
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm text-foreground truncate", !n.is_read && "font-medium")}>{n.title}</p>
-                    <p className="text-xs text-foreground-muted truncate">{n.message}</p>
-                  </div>
-                  <span className="text-[11px] text-foreground-muted flex-shrink-0">{formatTime(n.sent_at)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Bell}
-              title="No notifications"
-              description="You're all caught up."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "platform-activity":
-      return (
-        <SectionCard
-          title="Platform Activity"
-          icon={Activity}
-          extra={
-            <Link href="/settings/ai/logs" className="text-xs font-medium text-primary hover:underline">
-              View logs →
-            </Link>
-          }
-        >
-          {data.activityRecent.length ? (
-            <div className="divide-y divide-border">
-              {data.activityRecent.map((item) => {
-                const ok = (item.status || "").toLowerCase() !== "failed";
-                return (
-                  <div key={`${item.source}-${item.id}`} className="flex items-start gap-3 px-5 py-3">
-                    <span
-                      className={cn(
-                        "mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0",
-                        ok ? "bg-success" : "bg-danger"
-                      )}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-foreground truncate">
-                        <span className="font-medium capitalize">{item.source}</span> · {item.type}
-                      </p>
-                      <p className="text-xs text-foreground-muted truncate">
-                        {item.detail || item.status}
-                        {item.error_message ? ` — ${item.error_message}` : ""}
-                      </p>
-                    </div>
-                    <span className="text-[11px] text-foreground-muted flex-shrink-0">{formatTime(item.created_at)}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <EmptyState
-              icon={Activity}
-              title="No recent platform activity"
-              description="Integration and automation events will appear here."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "audit":
-      return (
-        <SectionCard
-          title="Recent Audit Activity"
-          icon={ShieldCheck}
-          extra={
-            <Link href="/system/audit" className="text-xs font-medium text-primary hover:underline">
-              Open audit log →
-            </Link>
-          }
-        >
-          {data.auditLogs.length ? (
-            <div className="divide-y divide-border">
-              {data.auditLogs.slice(0, 8).map((log) => (
-                <div key={log.log_id} className="flex items-start gap-3 px-5 py-3">
-                  <span className="mt-1.5 h-1.5 w-1.5 rounded-full flex-shrink-0 bg-primary" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-foreground truncate">
-                      <span className="font-medium capitalize">{log.action}</span> {log.resource}
-                      {log.resource_id != null ? ` #${log.resource_id}` : ""}
-                    </p>
-                    <p className="text-xs text-foreground-muted truncate">
-                      {log.first_name && log.last_name ? `${log.first_name} ${log.last_name}` : log.email || "system"}
-                    </p>
-                  </div>
-                  <span className="text-[11px] text-foreground-muted flex-shrink-0">{formatTime(log.created_at)}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <EmptyState
-              icon={ShieldCheck}
-              title="No audit entries"
-              description="Tracked mutations will appear here as they happen."
-              className="py-16"
-            />
-          )}
-        </SectionCard>
-      );
-    case "insights":
-      return (
-        <SectionCard title="AI Operational Insights" icon={TrendingUp}>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {data.insightsLoading ? (
-              [1, 2, 3].map((n) => <CardSkeleton key={n} />)
-            ) : data.insights.length === 0 ? (
-              <EmptyState
-                icon={TrendingUp}
-                title="No active insights"
-                description="The operation is within optimal metrics. Anomalies will surface here as they're detected."
-                className="col-span-full"
-              />
-            ) : (
-              data.insights.slice(0, 3).map((insight) => {
-                const sev = (insight.severity || insight.impact || "low").toLowerCase();
-                return (
-                  <Link
-                    key={insight.insight_id || insight.title}
-                    href="/ai/insights"
-                    className="block p-4 rounded-3xl border border-border bg-surface hover:border-primary/50 hover:shadow-sm transition-all"
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <StatusBadge severity={sev} className="text-[11px]" />
-                      <span className="text-xs text-foreground-muted">{insight.category || "General"}</span>
-                    </div>
-                    <h4 className="text-sm font-semibold text-foreground mb-1">{insight.title}</h4>
-                    <p className="text-xs text-foreground-secondary leading-relaxed">
-                      {insight.summary || insight.description}
-                    </p>
-                    <p className="text-xs font-medium text-primary mt-2">View in AI Insights →</p>
-                  </Link>
-                );
-              })
-            )}
-          </div>
-        </SectionCard>
-      );
-    default:
-      return null;
-  }
-}
-

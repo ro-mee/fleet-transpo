@@ -1,122 +1,105 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
-import { getFinancialSummary, getDriverPerformanceReport, getFleetUtilizationReport, getFuelConsumptionReport, getFleetCostReport } from "@/services/report.service";
+import { useQuery } from "@tanstack/react-query";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Brain,
+  CheckCircle2,
+  Fuel,
+  Gauge,
+  Route,
+  ShieldAlert,
+  TrendingUp,
+  Truck,
+  Users,
+  Wallet,
+} from "lucide-react";
+import {
+  getDriverPerformanceReport,
+  getFinancialSummary,
+  getFleetUtilizationReport,
+} from "@/services/report.service";
+import { getIncidentSummary } from "@/services/driver.service";
 import { getAiInsights } from "@/services/ai.service";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { QueryErrorBanner } from "@/components/ui/query-feedback";
-import { EmptyState } from "@/components/ui/empty-state";
-import { StatCard, StatGrid } from "@/components/ui/stat-card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
-import { formatCurrency, getInitials, cn } from "@/lib/utils";
-import { Gauge, Wallet, Fuel, Wrench, Send, Users, TrendingUp, Route, Truck, Sparkles, Brain, Award, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, ArrowUpRight } from "lucide-react";
+import { formatCurrency } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
+import { QueryErrorBanner } from "@/components/ui/query-feedback";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { CardSkeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 
-const money = (n) => formatCurrency(n || 0);
-const ITEMS_PER_PAGE = 5;
+const tooltipStyle = {
+  background: "var(--sf)",
+  border: "1px solid var(--br)",
+  borderRadius: "12px",
+  fontSize: "12px",
+};
 
-function formatShortPlate(plate) {
-  if (!plate) return "—";
-  if (plate.startsWith("HARN-VS-") && plate.length > 15) {
-    const parts = plate.split("-");
-    const lastPart = parts[parts.length - 1];
-    const shortCode = lastPart.length > 3 ? lastPart.slice(-3) : lastPart;
-    return `HARN-VS-${shortCode}`;
-  }
-  if (plate.startsWith("HARN-CC-") && plate.length > 15) {
-    const parts = plate.split("-");
-    const lastPart = parts[parts.length - 1];
-    const shortCode = lastPart.length > 3 ? lastPart.slice(-3) : lastPart;
-    return `HARN-CC-${shortCode}`;
-  }
-  return plate;
+function Panel({ title, description, action, className = "", children }) {
+  return (
+    <Card className={`overflow-hidden rounded-2xl border-border/80 ${className}`}>
+      <CardHeader className="border-b border-border/70 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div><CardTitle className="text-base">{title}</CardTitle>{description && <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">{description}</p>}</div>
+          {action}
+        </div>
+      </CardHeader>
+      <CardContent className="p-0">{children}</CardContent>
+    </Card>
+  );
 }
 
-function formatName(name) {
-  if (!name) return "Unknown Driver";
-  return name
-    .toLowerCase()
-    .split(" ")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+function FeedState({ query, children, errorTitle = "This data is unavailable" }) {
+  if (query.isLoading) return <div className="p-5"><CardSkeleton /></div>;
+  if (query.isError) return <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">{errorTitle}. Use Retry in the alert above.</div>;
+  return children;
+}
+
+function StatusBars({ rows }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row.value) || 0));
+  return <div className="space-y-4 p-5">{rows.map((row) => <div key={row.label}><div className="mb-1.5 flex justify-between gap-3 text-xs"><span className="font-medium text-foreground-secondary">{row.label}</span><span className="tabular-nums text-foreground">{row.value}</span></div><div className="h-2 overflow-hidden rounded-full bg-hover"><div className={`h-full rounded-full ${row.color}`} style={{ width: `${Number(row.value) ? Math.max(3, (Number(row.value) / max) * 100) : 0}%` }} /></div></div>)}</div>;
 }
 
 export default function ExecutiveKpiPage() {
   useRequireRole();
 
-  const [utilPage, setUtilPage] = useState(1);
-  const [driverPage, setDriverPage] = useState(1);
-  const [insightPage, setInsightPage] = useState(1);
+  const financial = useQuery({ queryKey: ["exec-financial"], queryFn: () => getFinancialSummary() });
+  const utilization = useQuery({ queryKey: ["exec-utilization"], queryFn: () => getFleetUtilizationReport() });
+  const performance = useQuery({ queryKey: ["exec-driver-perf"], queryFn: () => getDriverPerformanceReport() });
+  const incidents = useQuery({ queryKey: ["exec-incident-summary"], queryFn: () => getIncidentSummary() });
+  const insightsQuery = useQuery({ queryKey: ["exec-insights"], queryFn: () => getAiInsights() });
 
-  const { data: fin = {}, isLoading: finLoading, isError: finError, refetch: finRefetch } = useQuery({ queryKey: ["exec-financial"], queryFn: () => getFinancialSummary() });
-  const { data: util = {}, isLoading: utilLoading, isError: utilError, refetch: utilRefetch } = useQuery({ queryKey: ["exec-utilization"], queryFn: () => getFleetUtilizationReport() });
-  const { data: perf = {}, isLoading: perfLoading, isError: perfError, refetch: perfRefetch } = useQuery({ queryKey: ["exec-driver-perf"], queryFn: () => getDriverPerformanceReport() });
-  const { data: fuel = {}, isLoading: fuelLoading, isError: fuelError, refetch: fuelRefetch } = useQuery({ queryKey: ["exec-fuel"], queryFn: () => getFuelConsumptionReport() });
-  const { data: cost = {}, isLoading: costLoading, isError: costError, refetch: costRefetch } = useQuery({ queryKey: ["exec-cost"], queryFn: () => getFleetCostReport() });
-  const { data: insightsData } = useQuery({ queryKey: ["exec-insights"], queryFn: () => getAiInsights() });
-
-  // Banner-at-top honesty: a failed feed is announced with its own retry,
-  // while every panel that still has data keeps rendering. Failures never
-  // masquerade as confident zeros.
-  const failedQueries = [
-    { key: "financial", isError: finError, refetch: finRefetch },
-    { key: "utilization", isError: utilError, refetch: utilRefetch },
-    { key: "driver performance", isError: perfError, refetch: perfRefetch },
-    { key: "fuel", isError: fuelError, refetch: fuelRefetch },
-    { key: "cost", isError: costError, refetch: costRefetch },
-  ].filter((q) => q.isError);
-  const hasError = failedQueries.length > 0;
-
-  const insights = useMemo(() => {
-    if (Array.isArray(insightsData)) return insightsData;
-    if (Array.isArray(insightsData?.insights)) return insightsData.insights;
-    return [];
-  }, [insightsData]);
-
-  const loading = finLoading || utilLoading || perfLoading || fuelLoading || costLoading;
-  // Stable fallback arrays — inline `|| []` recreates every render and makes
-  // the pagination memo deps unstable.
-  const utilVehicles = useMemo(() => util.byVehicle || [], [util]);
-  const topDrivers = useMemo(() => perf.details || [], [perf]);
-
-  // Pagination slicing
-  const paginatedUtil = useMemo(() => {
-    const start = (utilPage - 1) * ITEMS_PER_PAGE;
-    return utilVehicles.slice(start, start + ITEMS_PER_PAGE);
-  }, [utilVehicles, utilPage]);
-  const maxUtilPages = Math.ceil(utilVehicles.length / ITEMS_PER_PAGE) || 1;
-
-  const paginatedDrivers = useMemo(() => {
-    const start = (driverPage - 1) * ITEMS_PER_PAGE;
-    return topDrivers.slice(start, start + ITEMS_PER_PAGE);
-  }, [topDrivers, driverPage]);
-  const maxDriverPages = Math.ceil(topDrivers.length / ITEMS_PER_PAGE) || 1;
-
-  const paginatedInsights = useMemo(() => {
-    const start = (insightPage - 1) * ITEMS_PER_PAGE;
-    return insights.slice(start, start + ITEMS_PER_PAGE);
-  }, [insights, insightPage]);
-  const maxInsightPages = Math.ceil(insights.length / ITEMS_PER_PAGE) || 1;
-
-  const kpis = [
-    { label: "Fleet Utilization", value: `${Number(util.utilization) || 0}%`, icon: Gauge, tone: "success", href: "/analytics" },
-    { label: "Total Cost", value: money(fin.totalCost ?? cost.totals?.total_cost), icon: Wallet, tone: "primary", href: "/reports/cost" },
-    { label: "Cost / km", value: formatCurrency(fin.costPerKm ?? cost.totals?.cost_per_km ?? 0), icon: TrendingUp, tone: "success", href: "/reports/cost" },
-    { label: "Fuel Cost", value: money(fuel.totalCost), icon: Fuel, tone: "warning", href: "/fuel/analytics" },
-    { label: "Maintenance Cost", value: money(fin.maintCost), icon: Wrench, tone: "danger", href: "/reports" },
-    { label: "Total Trips", value: util.totalTrips ?? 0, icon: Send, tone: "info", href: "/trips" },
-    { label: "Total Distance (km)", value: (Number(util.totalDistance) || 0).toLocaleString(), icon: Route, tone: "primary", href: "/tracking/history" },
-    { label: "Avg Driver Score", value: perf.avgScore ?? 0, icon: Users, tone: "info", href: "/drivers/performance" },
-  ];
+  const fin = financial.data || {};
+  const util = utilization.data || {};
+  const perf = performance.data || {};
+  const risk = incidents.data || {};
+  const insights = useMemo(() => Array.isArray(insightsQuery.data) ? insightsQuery.data : insightsQuery.data?.insights || [], [insightsQuery.data]);
+  const vehicleStatus = (util.vehicleRoster || []).reduce((acc, vehicle) => {
+    const status = vehicle.vehicle_status || "Unknown";
+    acc[status] = (acc[status] || 0) + 1;
+    return acc;
+  }, {});
+  const statusTrips = (util.statusBreakdown || []).reduce((acc, row) => {
+    acc[row.status] = Number(row.trips) || 0;
+    return acc;
+  }, {});
+  const measuredDrivers = (perf.details || []).filter((driver) => driver.on_time_rate != null && Number(driver.total_trips) > 0);
+  const measuredTrips = measuredDrivers.reduce((sum, driver) => sum + Number(driver.total_trips), 0);
+  const onTimeRate = measuredTrips
+    ? measuredDrivers.reduce((sum, driver) => sum + Number(driver.on_time_rate) * Number(driver.total_trips), 0) / measuredTrips
+    : null;
+  const costTrend = (fin.monthlyData || []).slice(-12);
+  const reportLink = <Link href="/reports" className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline">Open reports <ArrowRight className="h-3.5 w-3.5" /></Link>;
 
   return (
-    <div className="space-y-6 pb-12 w-full">
+    <div className="w-full space-y-6 pb-12">
       <HeroHeader
         icon={Gauge}
         title="Executive KPI Center"
@@ -124,331 +107,97 @@ export default function ExecutiveKpiPage() {
         description="High-level operational and financial KPIs for leadership. Real-time overview."
       />
 
-      {hasError && (
-        <div className="space-y-2" role="alert">
-          {failedQueries.map((q) => (
-            <QueryErrorBanner
-              key={q.key}
-              query={q}
-              title={`Couldn't refresh the ${q.key} feed`}
-              description="KPIs and panels fed by this report may be missing or stale."
-            />
-          ))}
+      {[financial, utilization, performance, incidents, insightsQuery].some((query) => query.isError) && (
+        <div className="space-y-2">
+          {[
+            [financial, "Financial summary could not be refreshed"],
+            [utilization, "Fleet utilization could not be refreshed"],
+            [performance, "Driver performance could not be refreshed"],
+            [incidents, "Incident risk could not be refreshed"],
+            [insightsQuery, "AI insights could not be refreshed"],
+          ].map(([query, title]) => <QueryErrorBanner key={title} query={query} title={title} description="Affected metrics show as unavailable; other executive data remains current." />)}
         </div>
       )}
 
-      <StatGrid cols={4} className="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
-        {kpis.map((k) => {
-          return (
-            <Link key={k.label} href={k.href || "#"} className="block rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-              <StatCard icon={k.icon} label={k.label} value={loading ? "—" : k.value} tone={k.tone} interactive />
-            </Link>
-          );
-        })}
+      <StatGrid cols={6}>
+        <StatCard icon={Gauge} label="Fleet in use now" value={utilization.isLoading || utilization.isError ? "—" : `${Number(util.utilization) || 0}%`} trend={utilization.isLoading || utilization.isError ? "Unavailable while utilization refreshes" : `${util.vehiclesInUse || 0} of ${util.fleetSize || 0} vehicles currently In Use`} tone="primary" />
+        <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : perf.totalTrips || 0} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : "Completed trips in the report period"} tone="success" />
+        <StatCard icon={TrendingUp} label="On-time rate" value={performance.isLoading || performance.isError ? "—" : onTimeRate == null ? "—" : `${Math.round(onTimeRate * 100)}%`} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : onTimeRate == null ? "Insufficient completed-trip measurements" : `${measuredTrips} measured completed trips`} tone="info" />
+        <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : "Fuel plus maintenance records"} tone="primary" />
+        <StatCard icon={Route} label="Cost per km" value={financial.isLoading || financial.isError ? "—" : fin.totalDistance ? formatCurrency(fin.costPerKm || 0) : "—"} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : fin.totalDistance ? `${Number(fin.totalDistance).toLocaleString()} km recorded` : "No recorded distance denominator"} tone="warning" />
+        <StatCard icon={ShieldAlert} label="Critical / major open" value={incidents.isLoading || incidents.isError ? "—" : risk.critical_major_open || 0} trend="Open incident severity exposure" tone="danger" />
       </StatGrid>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* PANEL 1: Fleet Utilization by Vehicle */}
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
-          <div>
-            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                  <Truck className="w-4 h-4 text-primary" /> Fleet Utilization by Vehicle
-                </CardTitle>
-                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2 py-0.5">
-                  {utilVehicles.length} Total
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {paginatedUtil.length ? (
-                <div className="divide-y divide-border/60">
-                  {paginatedUtil.map((v) => (
-                    <div key={v.plate} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <div className="p-1.5 rounded-lg bg-primary/10 text-primary border border-primary/20 shrink-0">
-                          <Truck className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="text-xs font-semibold text-foreground font-data truncate">{formatShortPlate(v.plate)}</span>
-                      </div>
-                      <span className="text-[11px] text-foreground-secondary font-medium font-data shrink-0 bg-muted/30 px-2 py-0.5 rounded-xl border border-border/60">
-                        {v.trips} trips · {Number(v.distance || 0).toLocaleString()} km
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <EmptyState icon={Route} title="No trip data" description="Utilization appears once trips are recorded." className="py-12" />
-              )}
-            </CardContent>
-          </div>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(19rem,0.7fr)]">
+        <Panel title="Operating cost trend" description="Recorded fuel and maintenance costs by month; missing months are not fabricated." action={reportLink}>
+          <FeedState query={financial} errorTitle="The operating cost trend is unavailable">{costTrend.length ? (
+            <><div className="h-[330px] p-5" aria-hidden="true">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={costTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <defs><linearGradient id="fuelCostArea" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--primary)" stopOpacity={0.24} /><stop offset="95%" stopColor="var(--primary)" stopOpacity={0} /></linearGradient><linearGradient id="maintenanceCostArea" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="var(--warning)" stopOpacity={0.22} /><stop offset="95%" stopColor="var(--warning)" stopOpacity={0} /></linearGradient></defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--br)" vertical={false} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "var(--fg-muted)" }} axisLine={false} tickLine={false} tickFormatter={(value) => `₱${Number(value).toLocaleString()}`} width={72} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(value, name) => [formatCurrency(value), name === "fuelCost" ? "Fuel" : "Maintenance"]} />
+                  <Area type="monotone" dataKey="fuelCost" stroke="var(--primary)" strokeWidth={2} fill="url(#fuelCostArea)" />
+                  <Area type="monotone" dataKey="maintenanceCost" stroke="var(--warning)" strokeWidth={2} fill="url(#maintenanceCostArea)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div><table className="sr-only"><caption>Monthly recorded operating costs</caption><thead><tr><th>Month</th><th>Fuel cost</th><th>Maintenance cost</th></tr></thead><tbody>{costTrend.map((row) => <tr key={row.month}><th>{row.month}</th><td>{formatCurrency(row.fuelCost || 0)}</td><td>{formatCurrency(row.maintenanceCost || 0)}</td></tr>)}</tbody></table></>
+          ) : <EmptyState icon={Wallet} title="No cost trend available" description="Monthly points appear when fuel or maintenance costs are recorded." className="py-16" />}</FeedState>
+        </Panel>
 
-          {/* ── Pagination Footer (System Standard) ── */}
-          {utilVehicles.length > 0 && maxUtilPages > 1 && (
-            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
-              <span className="text-xs font-semibold text-foreground-secondary">
-                Showing <span className="font-bold text-foreground">{(utilPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(utilPage * ITEMS_PER_PAGE, utilVehicles.length)}</span> of <span className="font-bold text-foreground">{utilVehicles.length}</span>
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {utilPage} of {maxUtilPages}</span>
-                <button
-                  onClick={() => setUtilPage(1)}
-                  disabled={utilPage === 1}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsLeft className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setUtilPage((p) => Math.max(1, p - 1))}
-                  disabled={utilPage === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                {Array.from({ length: maxUtilPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setUtilPage(p)}
-                    className={cn(
-                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
-                      utilPage === p
-                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
-                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
-                    )}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setUtilPage((p) => Math.min(maxUtilPages, p + 1))}
-                  disabled={utilPage === maxUtilPages}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setUtilPage(maxUtilPages)}
-                  disabled={utilPage === maxUtilPages}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </CardFooter>
-          )}
-        </Card>
+        <Panel title="Fleet activity state" description="Current roster status, separate from historical trip volume." action={<Link href="/analytics" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View analytics <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState query={utilization} errorTitle="Fleet activity state is unavailable"><StatusBars rows={[
+            { label: "Available", value: vehicleStatus.Available || 0, color: "bg-success" },
+            { label: "In use", value: vehicleStatus["In Use"] || 0, color: "bg-primary" },
+            { label: "Reserved", value: vehicleStatus.Reserved || 0, color: "bg-info" },
+            { label: "Under maintenance", value: vehicleStatus["Under Maintenance"] || 0, color: "bg-warning" },
+            { label: "Decommissioned", value: vehicleStatus.Decommissioned || 0, color: "bg-danger" },
+          ]} /></FeedState>
+        </Panel>
+      </div>
 
-        {/* PANEL 2: Top Drivers */}
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
-          <div>
-            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                  <Award className="w-4 h-4 text-warning" /> Top Performing Drivers
-                </CardTitle>
-                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2 py-0.5">
-                  {topDrivers.length} Roster
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-0">
-              {paginatedDrivers.length ? (
-                <div className="divide-y divide-border/60">
-                  {paginatedDrivers.map((d, index) => {
-                    const formattedName = formatName(d.name);
-                    return (
-                      <div key={d.driver_id || index} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/40 transition-colors">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Avatar className="h-8 w-8 shrink-0 border border-border/60">
-                            <AvatarFallback className="bg-warning/10 text-warning font-bold text-xs">
-                              {getInitials(formattedName)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="min-w-0">
-                            <p className="text-xs font-semibold text-foreground truncate">{formattedName}</p>
-                            <p className="text-[11px] text-foreground-muted font-medium font-data mt-0.5">
-                              {d.total_trips} trips · On-Time {d.on_time_rate == null ? "Insufficient data" : `${(d.on_time_rate * 100).toFixed(0)}%`}
-                            </p>
-                          </div>
-                        </div>
-                        {/* Positive grammar for a leaderboard: high score = strong,
-                            never the danger heat used for risk surfaces. */}
-                        {d.performance_score >= 70 ? (
-                          <Badge variant="success" className="shrink-0">Strong</Badge>
-                        ) : d.performance_score >= 40 ? (
-                          <Badge variant="warning" className="shrink-0">Developing</Badge>
-                        ) : (
-                          <Badge variant="info" className="shrink-0">Improving</Badge>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState icon={Users} title="No driver data" description="Driver performance appears once trips are completed." className="py-12" />
-              )}
-            </CardContent>
-          </div>
+      <div className="grid gap-5 lg:grid-cols-3">
+        <Panel title="Service reliability" description="Stored trip outcomes in the report period.">
+          <FeedState query={utilization} errorTitle="Service reliability is unavailable"><StatusBars rows={[
+            { label: "Completed", value: statusTrips.Completed || 0, color: "bg-success" },
+            { label: "In progress", value: statusTrips["In Progress"] || statusTrips["Trip Started"] || 0, color: "bg-primary" },
+            { label: "Cancelled", value: statusTrips.Cancelled || 0, color: "bg-danger" },
+          ]} /></FeedState>
+        </Panel>
+        <Panel title="Cost mix" description="Recorded components only; unrecorded trip cost is not estimated.">
+          <FeedState query={financial} errorTitle="The recorded cost mix is unavailable"><div className="space-y-5 p-5"><div><p className="text-xs text-foreground-secondary">Fuel</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.fuelCost || 0)}</p></div><div><p className="text-xs text-foreground-secondary">Maintenance</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{formatCurrency(fin.maintCost || 0)}</p></div><p className="text-xs leading-relaxed text-foreground-muted">Method: {fin.methodology || "Financial report methodology unavailable."}</p></div></FeedState>
+        </Panel>
+        <Panel title="Operational risk" description="Current incident attention, not a historical severity forecast.">
+          <FeedState query={incidents} errorTitle="Operational risk is unavailable"><StatusBars rows={[
+            { label: "Open incidents", value: risk.open || 0, color: "bg-warning" },
+            { label: "Critical / major", value: risk.critical_major_open || 0, color: "bg-danger" },
+            { label: "Assistance open", value: risk.assistance_open || 0, color: "bg-info" },
+            { label: "Maintenance pending", value: risk.maintenance_pending || 0, color: "bg-primary" },
+          ]} /></FeedState>
+        </Panel>
+      </div>
 
-          {/* ── Pagination Footer (System Standard) ── */}
-          {topDrivers.length > 0 && maxDriverPages > 1 && (
-            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
-              <span className="text-xs font-semibold text-foreground-secondary">
-                Showing <span className="font-bold text-foreground">{(driverPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(driverPage * ITEMS_PER_PAGE, topDrivers.length)}</span> of <span className="font-bold text-foreground">{topDrivers.length}</span>
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {driverPage} of {maxDriverPages}</span>
-                <button
-                  onClick={() => setDriverPage(1)}
-                  disabled={driverPage === 1}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsLeft className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setDriverPage((p) => Math.max(1, p - 1))}
-                  disabled={driverPage === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                {Array.from({ length: maxDriverPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setDriverPage(p)}
-                    className={cn(
-                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
-                      driverPage === p
-                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
-                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
-                    )}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setDriverPage((p) => Math.min(maxDriverPages, p + 1))}
-                  disabled={driverPage === maxDriverPages}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setDriverPage(maxDriverPages)}
-                  disabled={driverPage === maxDriverPages}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </CardFooter>
-          )}
-        </Card>
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
+        <Panel title="Driver performance snapshot" description="Completed-trip measurements; unscored drivers remain visible without invented ratings." action={<Link href="/drivers/performance" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Full performance view <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState query={performance} errorTitle="Driver performance is unavailable">{(perf.details || []).length ? (
+            <div className="overflow-x-auto"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-hover text-xs text-foreground-secondary"><tr><th className="px-5 py-3 font-semibold">Driver</th><th className="px-5 py-3 font-semibold">Trips</th><th className="px-5 py-3 font-semibold">On-time</th><th className="px-5 py-3 font-semibold">Score</th><th className="px-5 py-3 font-semibold">Incidents</th></tr></thead><tbody className="divide-y divide-border/70">{perf.details.slice(0, 8).map((driver) => <tr key={driver.driver_id} className="hover:bg-hover/60"><td className="px-5 py-3 font-medium text-foreground">{driver.name}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.total_trips}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.on_time_rate == null ? "—" : `${Math.round(driver.on_time_rate * 100)}%`}</td><td className="px-5 py-3 tabular-nums text-foreground-secondary">{driver.performance_score == null ? "—" : driver.performance_score}</td><td className="px-5 py-3"><StatusBadge status={driver.incidents > 0 ? "High" : "Healthy"} entity="risk" /></td></tr>)}</tbody></table></div>
+          ) : <EmptyState icon={Users} title="No driver measurements" description="Performance appears after completed trips record the required measures." className="py-14" />}</FeedState>
+        </Panel>
 
-        {/* PANEL 3: AI Strategic Insights */}
-        <Card className="lg:col-span-1 border-0 shadow-xs rounded-3xl overflow-hidden bg-surface flex flex-col justify-between">
-          <div>
-            <CardHeader className="pb-3 border-b border-border/60 bg-muted/20">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                  <div className="p-1 rounded-lg bg-primary/10 text-primary border border-primary/20">
-                    <Brain className="w-3.5 h-3.5" />
-                  </div>
-                  AI Strategic Insights
-                </CardTitle>
-                <Badge variant="outline" className="text-[11px] font-medium font-data rounded-full px-2.5 py-0.5 bg-surface border-border/80">
-                  {insights.length} Active
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="p-3.5 space-y-2.5">
-              {paginatedInsights.length ? (
-                paginatedInsights.map((ins, i) => (
-                  <Link
-                    key={ins.insight_id || i}
-                    href="/ai/insights"
-                    className="group p-3.5 rounded-2xl border border-border/60 bg-muted/20 hover:bg-hover/80 hover:border-primary/30 transition-all flex items-start justify-between gap-3 cursor-pointer"
-                  >
-                    <div className="space-y-1.5 min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge severity={(ins.severity || ins.impact || "low").toLowerCase()} className="text-[10px] px-2 py-0.5 rounded-md font-bold" />
-                        <span className="text-[11px] text-foreground-secondary font-medium tracking-wide">{ins.category || "General"}</span>
-                      </div>
-                      <p className="text-xs font-semibold text-foreground group-hover:text-primary transition-colors leading-snug">
-                        {ins.title}
-                      </p>
-                      {(ins.recommendation || ins.description || ins.details) && (
-                        <p className="text-[11px] text-foreground-muted line-clamp-1 font-normal">
-                          {ins.recommendation || ins.description || ins.details}
-                        </p>
-                      )}
-                    </div>
-                    <div className="p-1.5 rounded-xl bg-surface border border-border/60 group-hover:border-primary/40 group-hover:bg-primary/10 group-hover:text-primary transition-all shrink-0 mt-0.5">
-                      <ArrowUpRight className="w-3.5 h-3.5 text-foreground-muted group-hover:text-primary transition-colors" />
-                    </div>
-                  </Link>
-                ))
-              ) : (
-                <EmptyState icon={TrendingUp} title="No insights" description="AI insights will appear here as they're generated." className="py-12" />
-              )}
-            </CardContent>
-          </div>
+        <Panel title="Advisory insights" description="Evidence-based records only. Insights advise; they never change fleet state." action={<Link href="/ai/insights" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">Open insights <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+          <FeedState query={insightsQuery} errorTitle="Advisory insights are unavailable">{insights.length ? <div className="divide-y divide-border/70">{insights.slice(0, 5).map((insight, index) => <Link key={insight.insight_id || index} href="/ai/insights" className="flex items-start gap-3 px-5 py-4 transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"><Brain className="mt-0.5 h-4 w-4 shrink-0 text-primary" /><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><p className="truncate text-sm font-medium text-foreground">{insight.title || "Advisory insight"}</p><StatusBadge severity={String(insight.severity || insight.impact || "low").toLowerCase()} /></div><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-foreground-secondary">{insight.recommendation || insight.description || insight.details || "No supporting detail recorded"}</p></div></Link>)}</div> : <EmptyState icon={Brain} title="No active insights" description="Advisory records will appear when evidence-based analysis is available." className="py-14" />}</FeedState>
+        </Panel>
+      </div>
 
-          {/* ── Pagination Footer (System Standard) ── */}
-          {insights.length > 0 && maxInsightPages > 1 && (
-            <CardFooter className="flex flex-col gap-3 px-4 py-4 border-t border-border/60 bg-transparent xl:flex-row xl:items-center xl:justify-between">
-              <span className="text-xs font-semibold text-foreground-secondary">
-                Showing <span className="font-bold text-foreground">{(insightPage - 1) * ITEMS_PER_PAGE + 1}–{Math.min(insightPage * ITEMS_PER_PAGE, insights.length)}</span> of <span className="font-bold text-foreground">{insights.length}</span>
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="mr-2 hidden text-xs font-semibold text-foreground-muted sm:inline">Page {insightPage} of {maxInsightPages}</span>
-                <button
-                  onClick={() => setInsightPage(1)}
-                  disabled={insightPage === 1}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsLeft className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setInsightPage((p) => Math.max(1, p - 1))}
-                  disabled={insightPage === 1}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                {Array.from({ length: maxInsightPages }, (_, i) => i + 1).map((p) => (
-                  <button
-                    key={p}
-                    onClick={() => setInsightPage(p)}
-                    className={cn(
-                      "flex h-8 min-w-[32px] px-2.5 items-center justify-center rounded-full text-xs font-bold border transition-colors",
-                      insightPage === p
-                        ? "bg-primary border-primary text-white dark:text-slate-950 shadow-2xs"
-                        : "border-border/80 bg-surface text-foreground-secondary hover:border-primary/40 hover:text-primary"
-                    )}
-                  >
-                    {p}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setInsightPage((p) => Math.min(maxInsightPages, p + 1))}
-                  disabled={insightPage === maxInsightPages}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  onClick={() => setInsightPage(maxInsightPages)}
-                  disabled={insightPage === maxInsightPages}
-                  className="hidden h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-surface text-foreground-muted hover:border-primary/40 hover:text-primary disabled:cursor-not-allowed disabled:opacity-30 transition-colors sm:flex"
-                >
-                  <ChevronsRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </CardFooter>
-          )}
-        </Card>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          ["/reports", Wallet, "Financial reports", financial.isLoading || financial.isError ? "Unavailable" : formatCurrency(fin.totalCost || 0)],
+          ["/analytics", Truck, "Fleet analytics", utilization.isLoading || utilization.isError ? "Unavailable" : `${util.fleetSize || 0} vehicles`],
+          ["/reports", Fuel, "Fuel and maintenance", financial.isLoading || financial.isError ? "Unavailable" : formatCurrency((fin.fuelCost || 0) + (fin.maintCost || 0))],
+          ["/incidents", AlertTriangle, "Incident oversight", incidents.isLoading || incidents.isError ? "Unavailable" : `${risk.attention || 0} attention items`],
+        ].map(([href, Icon, label, detail]) => <Link key={label} href={href} className="group flex min-h-16 items-center gap-3 rounded-2xl border border-border/80 bg-surface px-4 shadow-xs transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"><Icon className="h-4 w-4 text-primary" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold text-foreground">{label}</p><p className="truncate text-xs text-foreground-secondary">{detail}</p></div><ArrowRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:translate-x-0.5" /></Link>)}
       </div>
     </div>
   );

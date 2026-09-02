@@ -6,7 +6,7 @@ import { getAdminClient, query, withTransaction } from "@/lib/db";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { consumeFactor } from "@/lib/auth/mfa";
-import { WEB_SESSION_TTL_SECONDS } from "@/lib/auth/sessions";
+import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
 
 export const authOptions = {
   providers: [
@@ -114,9 +114,9 @@ export const authOptions = {
         try {
           await query(
             `INSERT INTO web_sessions
-               (session_id, employee_id, expires_at, ip_address, user_agent)
-             VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL, $4, $5)`,
-            [sessionId, employee.employee_id, WEB_SESSION_TTL_SECONDS, ip, userAgent]
+               (session_id, employee_id, expires_at, ip_address, user_agent, idle_timeout_seconds)
+             VALUES ($1, $2, NOW() + ($3 || ' seconds')::INTERVAL, $4, $5, $6)`,
+            [sessionId, employee.employee_id, WEB_SESSION_TTL_SECONDS, ip, userAgent, IDLE_TIMEOUT_SECONDS]
           );
         } catch {
           throw new Error("Unable to start a secure session.");
