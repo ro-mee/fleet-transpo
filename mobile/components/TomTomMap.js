@@ -382,27 +382,38 @@ const TomTomMap = forwardRef(({
                       return R * c;
                   }
 
-                  let minDist = Infinity;
-                  let closestIdx = 0;
-                  
-                  window.lastClosestIdx = window.lastClosestIdx || 0;
-                  const searchStart = Math.max(0, window.lastClosestIdx - 5);
-                  const searchEnd = Math.min(window.routeCoords.length, window.lastClosestIdx + 150);
+                  function searchRange(start, end) {
+                      let minDist = Infinity;
+                      let closestIdx = 0;
+                      for (let i = start; i < end; i++) {
+                          const pt = window.routeCoords[i];
+                          const ptLng = Array.isArray(pt) ? pt[0] : (pt.lng !== undefined ? pt.lng : pt.longitude);
+                          const ptLat = Array.isArray(pt) ? pt[1] : (pt.lat !== undefined ? pt.lat : pt.latitude);
 
-                  for (let i = searchStart; i < searchEnd; i++) {
-                      const pt = window.routeCoords[i];
-                      const ptLng = Array.isArray(pt) ? pt[0] : (pt.lng !== undefined ? pt.lng : pt.longitude);
-                      const ptLat = Array.isArray(pt) ? pt[1] : (pt.lat !== undefined ? pt.lat : pt.latitude);
-                      
-                      if (ptLat !== undefined && ptLng !== undefined) {
-                          const d = getDist(lat, lng, ptLat, ptLng);
-                          if (d < minDist) {
-                              minDist = d;
-                              closestIdx = i;
+                          if (ptLat !== undefined && ptLng !== undefined) {
+                              const d = getDist(lat, lng, ptLat, ptLng);
+                              if (d < minDist) {
+                                  minDist = d;
+                                  closestIdx = i;
+                              }
                           }
                       }
+                      return { minDist: minDist, closestIdx: closestIdx };
                   }
-                  
+
+                  window.lastClosestIdx = window.lastClosestIdx || 0;
+                  // Fast path: search a window around the last known position.
+                  let found = searchRange(Math.max(0, window.lastClosestIdx - 5), Math.min(window.routeCoords.length, window.lastClosestIdx + 150));
+
+                  // Not near the road? Scan the FULL route before declaring the
+                  // driver off-route — the windowed search misses fixes that
+                  // land behind or far ahead of the last index (detours, loops).
+                  if (found.minDist >= 35) {
+                      found = searchRange(0, window.routeCoords.length);
+                  }
+
+                  const minDist = found.minDist;
+                  const closestIdx = found.closestIdx;
                   window.lastClosestIdx = closestIdx;
                   
                   // If we are within 35 meters of the road, snap to it!
@@ -414,6 +425,83 @@ const TomTomMap = forwardRef(({
                   }
                   
                   return { lng, lat, isSnapped: false, closestIdx, minDist };
+              };
+
+              // Full route recalculation from the car's current position to the
+              // destination. Called on reroute (off-route), and on the periodic
+              // refresh timer so ETA/traffic never go stale mid-trip.
+              window.recalculateRoute = function(carLng, carLat) {
+                  if (!window.currentDestLng || window.isRecalculating) return;
+                  window.isRecalculating = true;
+                  window.lastCalcCarLng = carLng;
+                  window.lastCalcCarLat = carLat;
+                  document.getElementById('navStreet').innerText = "Rerouting...";
+
+                  tt.services.calculateRoute({
+                      key: '${tomtomKey}',
+                      traffic: ${autoSwoop},
+                      computeTravelTimeFor: 'all',
+                      maxAlternatives: 0,
+                      sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
+                      instructionsType: 'text',
+                      locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
+                  }).then(response => {
+                      window.isRecalculating = false;
+                      const baseGeojson = response.toGeoJson();
+                      if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) {
+                          document.getElementById('navStreet').innerText = "Route unavailable";
+                          return;
+                      }
+
+                      const mainFeature = baseGeojson.features[0];
+                      window.routeCoords = mainFeature.geometry.coordinates;
+                      window.routeInstructions = response.routes[0].guidance ? response.routes[0].guidance.instructions : [];
+
+                      // Reset caches
+                      window.cumDist = null;
+                      window.lastClosestIdx = 0;
+                      window.offRouteCount = 0;
+
+                      // Drop the stale traffic badges and the old alternative
+                      // line from the previous route.
+                      (window.badgeMarkers || []).forEach(function(m) { m.remove(); });
+                      window.badgeMarkers = [];
+                      if (window.ttMap.getLayer('alt-route')) {
+                          window.ttMap.removeLayer('alt-route');
+                          if (window.ttMap.getSource('alt-route')) window.ttMap.removeSource('alt-route');
+                      }
+
+                      // Redraw the route line instantly without a full map reload!
+                      const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, response.routes[0], false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
+
+                      if (window.ttMap.getLayer('route')) {
+                          window.ttMap.getSource('route').setData(mainGeojson);
+                      } else {
+                          // The initial route never drew (failed / offline); add the layer now.
+                          window.ttMap.addLayer({
+                              'id': 'route',
+                              'type': 'line',
+                              'source': { 'type': 'geojson', 'data': mainGeojson },
+                              'paint': { 'line-color': ['get', 'color'], 'line-width': 6, 'line-opacity': 1.0 }
+                          });
+                      }
+
+                      // Refresh the native bottom-sheet ETA/traffic numbers.
+                      const summary = mainFeature.properties && mainFeature.properties.summary;
+                      if (window.ReactNativeWebView && summary) {
+                          window.ReactNativeWebView.postMessage(JSON.stringify({
+                              type: 'ROUTE_CALCULATED',
+                              travelTimeInSeconds: summary.travelTimeInSeconds,
+                              lengthInMeters: summary.lengthInMeters,
+                              trafficDelayInSeconds: summary.trafficDelayInSeconds
+                          }));
+                      }
+
+                      window.updateNavigationBanner(carLng, carLat);
+                  }).catch(() => {
+                      window.isRecalculating = false;
+                      document.getElementById('navStreet').innerText = "Route unavailable";
+                  });
               };
 
               window.updateNavigationBanner = function(carLng, carLat, snapInfo = null) {
@@ -439,45 +527,18 @@ const TomTomMap = forwardRef(({
                       closestIdx = fallbackSnap.closestIdx;
                   }
                   
-                  // Auto-Rerouting: If car is > 50m off the route, recalculate!
-                  if (minDist > 50 && !window.isRecalculating && window.currentDestLng) {
-                      window.isRecalculating = true;
-                      document.getElementById('navStreet').innerText = "Rerouting...";
-                      
-                      tt.services.calculateRoute({
-                          key: '${tomtomKey}',
-                          traffic: ${autoSwoop},
-                          computeTravelTimeFor: 'all',
-                          maxAlternatives: 0,
-                          sectionType: ${autoSwoop ? "'traffic'" : "undefined"},
-                          instructionsType: 'text',
-                          locations: carLng + ',' + carLat + ':' + window.currentDestLng + ',' + window.currentDestLat
-                      }).then(response => {
-                          window.isRecalculating = false;
-                          const baseGeojson = response.toGeoJson();
-                          if (!baseGeojson || !baseGeojson.features || !baseGeojson.features.length) return;
-                          
-                          const mainFeature = baseGeojson.features[0];
-                          window.routeCoords = mainFeature.geometry.coordinates;
-                          window.routeInstructions = response.routes[0].guidance ? response.routes[0].guidance.instructions : [];
-                          
-                          // Reset cache
-                          window.cumDist = null;
-                          window.lastClosestIdx = 0;
-                          
-                          // Redraw the green line instantly without full map reload!
-                          const mainGeojson = window.buildTrafficSegments ? window.buildTrafficSegments(mainFeature, false) : { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: window.routeCoords } }] };
-                          
-                          if (window.ttMap && window.ttMap.getSource('route')) {
-                              window.ttMap.getSource('route').setData(mainGeojson);
-                          }
-                          
-                          window.updateNavigationBanner(carLng, carLat);
-                      }).catch(e => {
-                          window.isRecalculating = false;
-                      });
-                      return; // Stop updating banner while rerouting
+                  // Auto-Rerouting: a single noisy fix must not trigger a full
+                  // recalculation (urban-canyon jitter easily reads >50m off).
+                  // Require two consecutive off-route fixes first.
+                  if (minDist > 50 && window.currentDestLng) {
+                      window.offRouteCount = (window.offRouteCount || 0) + 1;
+                      if (window.offRouteCount >= 2) {
+                          window.offRouteCount = 0;
+                          window.recalculateRoute(carLng, carLat);
+                      }
+                      return; // Hold the banner while the off-route state is unconfirmed
                   }
+                  window.offRouteCount = 0;
                   
                   // 2. Precompute exact segment distances for 100% accuracy
                   if (!window.cumDist) {
@@ -775,6 +836,8 @@ const TomTomMap = forwardRef(({
                           const route = response.routes[0];
                           window.routeInstructions = route.guidance ? route.guidance.instructions : [];
                           window.routeCoords = mainCoords;
+                          window.lastCalcCarLng = originLng;
+                          window.lastCalcCarLat = originLat;
                           
                           if (${showCarIcon}) {
                               window.updateNavigationBanner(originLng, originLat);
@@ -791,14 +854,36 @@ const TomTomMap = forwardRef(({
                           
                           // ETA Box logic removed as it's displayed natively
                           // Helper function to dynamically slice a route into colored traffic segments
-                          window.buildTrafficSegments = (feature, isAltRoute) => {
+                          window.buildTrafficSegments = (feature, route, isAltRoute) => {
                               const coords = feature.geometry.coordinates;
                               const props = feature.properties || {};
+                              // Sections/summary are documented on routes[n]; the geojson
+                              // properties copy is kept only as a fallback.
+                              const secs = (route && route.sections && route.sections.length) ? route.sections : (props.sections || []);
+                              const summary = (route && route.summary) || props.summary || {};
                               const features = [];
-                              
-                              if (${autoSwoop} && props.sections && props.sections.length > 0) {
+
+                              if (${autoSwoop} && secs.length > 0) {
+                                  // Routing API v1 has no per-section delay field — only the
+                                  // route-level summary.trafficDelayInSeconds. Split that total
+                                  // across the traffic sections by segment length so the badge
+                                  // minutes add up to the real delay.
+                                  // ponytail: length-weighted estimate (degree deltas as
+                                  // relative weight); true per-section delay needs another API.
+                                  const totalDelay = summary.trafficDelayInSeconds || 0;
+                                  const trafficSecs = secs.filter(s => s.sectionType === 'TRAFFIC');
+                                  const weights = trafficSecs.map(sec => {
+                                      let w = 0;
+                                      for (let i = sec.startPointIndex + 1; i <= sec.endPointIndex && i < coords.length; i++) {
+                                          w += Math.abs(coords[i][0] - coords[i-1][0]) + Math.abs(coords[i][1] - coords[i-1][1]);
+                                      }
+                                      return w;
+                                  });
+                                  const totalWeight = weights.reduce((a, b) => a + b, 0) || 1;
+
                                   let lastIndex = 0;
-                                  props.sections.forEach(sec => {
+                                  let t = 0;
+                                  secs.forEach(sec => {
                                       if (sec.sectionType === 'TRAFFIC') {
                                           if (sec.startPointIndex > lastIndex) {
                                               const normalSegment = coords.slice(lastIndex, sec.startPointIndex + 1);
@@ -806,28 +891,35 @@ const TomTomMap = forwardRef(({
                                                   features.push({ type: 'Feature', properties: { color: '${colors.primary}' }, geometry: { type: 'LineString', coordinates: normalSegment } });
                                               }
                                           }
-                                          
-                                          let color = '${colors.error}';
-                                          let badgeClass = 'on-route-badge';
-                                          if (sec.magnitudeOfDelay === 1 || sec.simpleCategory === 'JAM_LIGHT') { color = '${colors.secondary}'; badgeClass += ' yellow'; }
-                                          else if (sec.magnitudeOfDelay === 2 || sec.simpleCategory === 'JAM_MODERATE') { color = '${colors.secondary}'; badgeClass += ' yellow'; }
-                                          
+
+                                          // magnitudeOfDelay: 0 unknown, 1 minor, 2 moderate,
+                                          // 3 serious, 4 undefined (used for road closure).
+                                          let color = '${colors.secondary}';
+                                          let badgeClass = 'on-route-badge yellow';
+                                          if ((sec.magnitudeOfDelay || 0) >= 3 || sec.simpleCategory === 'ROAD_CLOSED') {
+                                              color = '${colors.error}';
+                                              badgeClass = 'on-route-badge';
+                                          }
+
                                           const trafficSegment = coords.slice(sec.startPointIndex, sec.endPointIndex + 1);
                                           if (trafficSegment.length >= 2) {
                                               features.push({ type: 'Feature', properties: { color: color }, geometry: { type: 'LineString', coordinates: trafficSegment } });
                                           }
-                                          
+
                                           // Only put text badges on the main route, not the alternative
-                                          if (!isAltRoute) {
-                                              const delayMin = Math.ceil((sec.delayInSeconds || 0) / 60);
-                                              if (delayMin > 0 && trafficSegment.length >= 2) {
+                                          if (!isAltRoute && totalDelay > 0 && trafficSegment.length >= 2) {
+                                              const delayMin = Math.ceil((totalDelay * (weights[t] || 0) / totalWeight) / 60);
+                                              if (delayMin >= 1) {
                                                   const midIndex = Math.floor(trafficSegment.length / 2);
                                                   const badgeEl = document.createElement('div');
                                                   badgeEl.className = badgeClass;
-                                                  badgeEl.innerHTML = '🚗 ' + delayMin + ' min';
-                                                  new tt.Marker({ element: badgeEl, anchor: 'center' }).setLngLat(trafficSegment[midIndex]).addTo(map);
+                                                  badgeEl.innerHTML = '🚗 +' + delayMin + ' min';
+                                                  const badgeMarker = new tt.Marker({ element: badgeEl, anchor: 'center' }).setLngLat(trafficSegment[midIndex]).addTo(map);
+                                                  // Tracked so a recalculation can remove stale badges.
+                                                  (window.badgeMarkers = window.badgeMarkers || []).push(badgeMarker);
                                               }
                                           }
+                                          t++;
                                           lastIndex = sec.endPointIndex;
                                       }
                                   });
@@ -844,7 +936,7 @@ const TomTomMap = forwardRef(({
                           try {
                               // 1. Draw Alternative Route First (so it sits underneath)
                               if (${autoSwoop} && baseGeojson.features.length > 1) {
-                                  const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], true);
+                                  const altGeojson = window.buildTrafficSegments(baseGeojson.features[1], response.routes[1], true);
                                   map.addLayer({
                                       'id': 'alt-route',
                                       'type': 'line',
@@ -858,7 +950,7 @@ const TomTomMap = forwardRef(({
                               }
 
                               // 2. Draw Main Route on top
-                              const mainGeojson = window.buildTrafficSegments(mainFeature, false);
+                              const mainGeojson = window.buildTrafficSegments(mainFeature, route, false);
                               map.addLayer({
                                   'id': 'route',
                                   'type': 'line',
@@ -897,6 +989,7 @@ const TomTomMap = forwardRef(({
                           }
                       }).catch((e) => {
                           console.error("Routing error:", e);
+                          document.getElementById('navStreet').innerText = "Route unavailable";
                           const bounds = new tt.LngLatBounds();
                           bounds.extend([originLng, originLat]);
                           bounds.extend([destLng, destLat]);
@@ -910,6 +1003,18 @@ const TomTomMap = forwardRef(({
                               }, 5000);
                           }
                       });
+
+                      // Periodic refresh: a route calculated once at load goes
+                      // stale (traffic, ETA) over a long trip. Re-request it
+                      // every 2 minutes while the car is actually moving.
+                      setInterval(function() {
+                          if (!window.currentCarLng || !window.currentDestLng || window.isRecalculating) return;
+                          if (window.lastCalcCarLng != null) {
+                              const moved = Math.abs(window.currentCarLng - window.lastCalcCarLng) + Math.abs(window.currentCarLat - window.lastCalcCarLat);
+                              if (moved < 0.0002) return; // ~20m: parked, nothing new to calculate
+                          }
+                          window.recalculateRoute(window.currentCarLng, window.currentCarLat);
+                      }, 120000);
                   });
               }
 
@@ -954,17 +1059,17 @@ const TomTomMap = forwardRef(({
           if (window.updateCarRotation) window.updateCarRotation();
           
           if (window.ttMap && window.isFollowing) {
-             const distToCenter = Math.abs(window.ttMap.getCenter().lng - finalLng) + Math.abs(window.ttMap.getCenter().lat - finalLat);
-             if (distToCenter > 0.002) { 
-                 const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
-                 window.ttMap.easeTo({ 
-                     center: [finalLng, finalLat], 
-                     zoom: 18.5,
-                     pitch: 0,
-                     bearing: routeBearing,
-                     duration: 800 
-                 });
-             }
+              const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
+              // Ease on every fix with a duration matched to the ~3s GPS
+              // cadence, so the camera glides continuously instead of letting
+              // the car drift to the screen edge and jumping after it.
+              window.ttMap.easeTo({
+                  center: [finalLng, finalLat],
+                  zoom: 18.5,
+                  pitch: 0,
+                  bearing: routeBearing,
+                  duration: 2800
+              });
           }
         }
         
@@ -986,15 +1091,15 @@ const TomTomMap = forwardRef(({
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
         onMessage={(event) => {
-          if (onRouteData) {
-            try {
-              const data = JSON.parse(event.nativeEvent.data);
-              if (data.type === 'ROUTE_CALCULATED') {
-                onRouteData(data);
-              }
-              if (data.type === 'MAP_READY' && onMapReady) onMapReady();
-            } catch(e){}
-          }
+          try {
+            const data = JSON.parse(event.nativeEvent.data);
+            if (data.type === 'ROUTE_CALCULATED' && onRouteData) {
+              onRouteData(data);
+            }
+            // MAP_READY must fire even when the caller passes no onRouteData
+            // (the idle map) — otherwise the loading overlay never lifts.
+            if (data.type === 'MAP_READY' && onMapReady) onMapReady();
+          } catch(e){}
         }}
       />
     </View>

@@ -102,7 +102,7 @@ export default function MapTab() {
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
-  const lastGpsSync = useRef(0);
+
 
   // Bottom Sheet Animation State
   const [panY] = useState(() => new Animated.Value(SCREEN_HEIGHT - BOTTOM_SHEET_MIN_HEIGHT - 60)); // -60 for tab bar approx
@@ -167,6 +167,11 @@ export default function MapTab() {
   // Held in a ref so it survives re-renders and the watcher closure can read and
   // mutate it without the interval/callback being torn down.
   const distRef = useRef({ leg1: 0, leg2: 0, prev: null, leg: null });
+
+  // Last compass heading applied to the marker. watchHeadingAsync fires at
+  // very high frequency; without a threshold, parked-idle jitter re-renders
+  // the screen and spams the WebView with marker updates many times a second.
+  const lastCompassHeading = useRef(null);
 
   useEffect(() => {
     activeTripRef.current = activeTrip;
@@ -271,24 +276,8 @@ export default function MapTab() {
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Highest, distanceInterval: 5, timeInterval: 3000 },
         (newLoc) => {
-          
-          // 1. Backend GPS Tracking Sync (Every 30 seconds)
-          const now = Date.now();
-          if (isGpsTrackedTrip(activeTripRef.current) && now - lastGpsSync.current >= 30000) {
-            lastGpsSync.current = now;
-            const endpoint = `/api/mobile/driver/trips/${activeTripRef.current.trip_id}/gps`;
 
-            api.post(endpoint, {
-              latitude: newLoc.coords.latitude,
-              longitude: newLoc.coords.longitude,
-              speed: newLoc.coords.speed,
-              heading: newLoc.coords.heading,
-              altitude: newLoc.coords.altitude,
-              accuracy: newLoc.coords.accuracy,
-            }).catch(e => console.warn("Background GPS sync failed:", e));
-          }
-
-          // 2. Map Marker Update
+          // 1. Map Marker Update
           setDriverLocation(prev => {
             let updatedHeading = prev?.heading;
             
@@ -305,7 +294,7 @@ export default function MapTab() {
             };
           });
 
-          // 3. GPS Distance Accumulation (per leg)
+          // 2. GPS Distance Accumulation (per leg)
           const d = distRef.current;
           if (!isGpsTrackedTrip(activeTripRef.current)) {
             d.prev = null;
@@ -333,11 +322,19 @@ export default function MapTab() {
           d.prev = { lat, lng };
         }
       );
-      // 3. Compass/Gyroscope Subscription for when the car is stopped
+      // 2. Compass/Gyroscope Subscription for when the car is stopped
       try {
           headingSubscription = await Location.watchHeadingAsync((headingObj) => {
               const compassHeading = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
-              
+              if (compassHeading == null || compassHeading < 0) return;
+
+              // Only propagate meaningful changes (>= 5 degrees).
+              const last = lastCompassHeading.current;
+              let delta = last == null ? 999 : Math.abs(compassHeading - last) % 360;
+              if (delta > 180) delta = 360 - delta;
+              if (delta < 5) return;
+              lastCompassHeading.current = compassHeading;
+
               setDriverLocation(prev => {
                   if (!prev) return prev;
                   // Only use the physical compass if the car is stopped or moving very slowly (< 2 m/s)
@@ -785,12 +782,11 @@ export default function MapTab() {
                       });
 
                       // Clear the ref before the state update so a location
-                      // callback that lands during completion cannot post one
+                      // callback that lands during completion cannot count one
                       // more fix for the finished trip. Stop any native task as
                       // well; foreground completion normally has none running,
                       // but this also closes a background/foreground race.
                       activeTripRef.current = null;
-                      lastGpsSync.current = 0;
                       updateLegContext({ tripId: null, leg: null }).catch(() => {});
                       stopBackgroundTracking().catch(() => {});
                       setActiveTrip(null);
