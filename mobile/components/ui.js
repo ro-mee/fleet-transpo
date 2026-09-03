@@ -68,8 +68,10 @@ export function FilledButton({ label, onPress, loading, disabled, style, size = 
         style,
       ]}
     >
-      {loading && <ActivityIndicator size="small" color={colors.onPrimary} />}
-      <Text style={[type.labelLg, { color: colors.onPrimary }]}>{label}</Text>
+      {loading && (
+        <ActivityIndicator size="small" color={colors.onPrimary} style={StyleSheet.absoluteFill} />
+      )}
+      <Text style={[type.labelLg, { color: colors.onPrimary }, loading && { opacity: 0 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -98,8 +100,10 @@ export function TonalButton({ label, onPress, loading, disabled, style, size = "
         style,
       ]}
     >
-      {loading && <ActivityIndicator size="small" color={colors.onSecondaryContainer} />}
-      <Text style={[type.labelLg, { color: colors.onSecondaryContainer }]}>
+      {loading && (
+        <ActivityIndicator size="small" color={colors.onSecondaryContainer} style={StyleSheet.absoluteFill} />
+      )}
+      <Text style={[type.labelLg, { color: colors.onSecondaryContainer }, loading && { opacity: 0 }]}>
         {label}
       </Text>
     </Pressable>
@@ -126,8 +130,10 @@ export function OutlinedButton({ label, onPress, loading, disabled, style, size 
         style,
       ]}
     >
-      {loading && <ActivityIndicator size="small" color={colors.primary} />}
-      <Text style={[type.labelLg, { color: colors.primary }]}>{label}</Text>
+      {loading && (
+        <ActivityIndicator size="small" color={colors.primary} style={StyleSheet.absoluteFill} />
+      )}
+      <Text style={[type.labelLg, { color: colors.primary }, loading && { opacity: 0 }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -180,8 +186,10 @@ export function CriticalButton({ label, onPress, loading, disabled, style, size 
         style,
       ]}
     >
-      {loading && <ActivityIndicator size="small" color={colors.onError} />}
-      <Text style={[type.labelLg, { color: colors.onError }]}>{label}</Text>
+      {loading && (
+        <ActivityIndicator size="small" color={colors.onError} style={StyleSheet.absoluteFill} />
+      )}
+      <Text style={[type.labelLg, { color: colors.onError }, loading && { opacity: 0 }]}>{label}</Text>
     </Pressable>
   );
 }
