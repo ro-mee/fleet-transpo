@@ -174,7 +174,9 @@ until their provider or deployment decisions are made.
   sessions. Password/email/role/account changes use the same revocation path.
 - `web_sessions` records safe device metadata and bounded activity. The
   owner-scoped sessions API can list, revoke one, or revoke all other sessions;
-  mobile refresh families are grouped as one device entry.
+  mobile refresh families are grouped as one device entry. Session listing includes 
+  an approximate physical location derived from the IP address using `geoip-lite`, 
+  and accurately identifies the current device for both web (`sessionId`) and mobile (`familyId`) contexts.
 
 ## Session idle timeout and expiration UX — CONFIRMED (2026-09-02)
 

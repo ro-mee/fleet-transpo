@@ -180,7 +180,7 @@ export function ConfigureAllocationDialog({
             type="button"
             onClick={onSubmit}
             disabled={isPending}
-            className="text-xs h-9 px-5 font-bold bg-primary text-primary-foreground shadow-xs"
+            className="text-xs h-9 px-5 font-bold bg-primary text-surface shadow-xs"
           >
             {isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
             Save Fuel Plan

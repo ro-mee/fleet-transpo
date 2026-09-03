@@ -137,6 +137,7 @@ const MATRIX = {
     locations: { read_inactive: true },
     employees: { create: true, read: true, update: true, delete: false },
     system: { read: true },
+    expenses: { read: true, read_all: true, update: true, review: true },
   },
   fleet_manager: {
     vehicles: { create: true, read: true, read_all: true, update: true, delete: false },
@@ -181,6 +182,7 @@ const MATRIX = {
     search: { read: true },
     employees: { read: true },
     system: { read: false },
+    expenses: { read: true, read_all: true, update: true, review: true },
   },
   dispatcher: {
     vehicles: { read: true, read_all: true },

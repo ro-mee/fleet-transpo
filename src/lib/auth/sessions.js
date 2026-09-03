@@ -1,4 +1,5 @@
 import { query } from "@/lib/db";
+import { getLocationFromIp } from "./geoip";
 
 export const WEB_SESSION_TTL_SECONDS = 12 * 60 * 60;
 export const IDLE_TIMEOUT_SECONDS = 60 * 60; // 1 hour idle timeout
@@ -58,8 +59,12 @@ export function maskIp(ip) {
   return `${value.slice(0, 8)}…`;
 }
 
-export function sessionDto(row, kind, currentSessionId = null) {
+export function sessionDto(row, kind, currentUser = null) {
   const id = kind === "web" ? row.session_id : row.family_id;
+  const is_current = kind === "web" 
+    ? String(id) === String(currentUser?.sessionId || "")
+    : String(id) === String(currentUser?.familyId || "");
+
   return {
     id: String(id),
     kind,
@@ -68,11 +73,13 @@ export function sessionDto(row, kind, currentSessionId = null) {
     createdAt: row.created_at,
     lastActiveAt: row.last_seen_at || row.last_used_at || row.created_at,
     expiresAt: row.expires_at,
-    current: kind === "web" && String(id) === String(currentSessionId || ""),
+    location: getLocationFromIp(row.ip_address),
+    is_current,
+    current: is_current // Backwards compatibility for existing web UI
   };
 }
 
-export async function listEmployeeSessions(employeeId, currentSessionId) {
+export async function listEmployeeSessions(employeeId, currentUser) {
   const [web, mobile] = await Promise.all([
     query(
       `SELECT session_id, created_at, last_seen_at, expires_at, ip_address, user_agent
@@ -96,8 +103,15 @@ export async function listEmployeeSessions(employeeId, currentSessionId) {
     ),
   ]);
 
-  return [
-    ...web.rows.map((row) => sessionDto(row, "web", currentSessionId)),
-    ...mobile.rows.map((row) => sessionDto(row, "mobile")),
+  const sessions = [
+    ...web.rows.map((row) => sessionDto(row, "web", currentUser)),
+    ...mobile.rows.map((row) => sessionDto(row, "mobile", currentUser)),
   ];
+
+  // Sort: current first, then by lastActiveAt descending
+  return sessions.sort((a, b) => {
+    if (a.is_current && !b.is_current) return -1;
+    if (!a.is_current && b.is_current) return 1;
+    return new Date(b.lastActiveAt).getTime() - new Date(a.lastActiveAt).getTime();
+  });
 }

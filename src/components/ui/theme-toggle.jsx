@@ -36,18 +36,20 @@ export function ThemeToggle({ className, ...props }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         className={cn(
-          "h-4 w-4 transform transition-transform duration-500 ease-out",
-          isDark ? "rotate-90 text-amber-400" : "rotate-0 text-foreground-muted"
+          "h-5 w-5 transform transition-all duration-500",
+          isDark ? "rotate-[360deg] text-amber-500" : "rotate-0 text-foreground-muted"
         )}
+        style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
       >
         <mask id="theme-toggle-moon-mask">
           <rect x="0" y="0" width="100%" height="100%" fill="white" />
           <circle
-            cx={isDark ? "28" : "17"}
-            cy={isDark ? "-4" : "7"}
-            r="7"
+            cx={isDark ? "28" : "15"}
+            cy={isDark ? "-4" : "5"}
+            r="8"
             fill="black"
-            className="transition-all duration-500 ease-out"
+            className="transition-all duration-500"
+            style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
           />
         </mask>
 
@@ -58,7 +60,8 @@ export function ThemeToggle({ className, ...props }) {
           r={isDark ? "5" : "9"}
           fill="currentColor"
           mask="url(#theme-toggle-moon-mask)"
-          className="transition-all duration-500 ease-out"
+          className="transition-all duration-500"
+          style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
         />
 
         {/* Sun Rays (Expand in Dark Mode, Contract in Light Mode) */}
@@ -66,18 +69,19 @@ export function ThemeToggle({ className, ...props }) {
           stroke="currentColor"
           strokeWidth="2"
           className={cn(
-            "transition-all duration-500 ease-out origin-center",
-            isDark ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-0 -rotate-45 pointer-events-none"
+            "transition-all duration-500 origin-center",
+            isDark ? "opacity-100 scale-100 rotate-0" : "opacity-0 scale-50 -rotate-90 pointer-events-none"
           )}
+          style={{ transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)" }}
         >
-          <line x1="12" y1="1" x2="12" y2="3" />
-          <line x1="12" y1="21" x2="12" y2="23" />
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
-          <line x1="1" y1="12" x2="3" y2="12" />
-          <line x1="21" y1="12" x2="23" y2="12" />
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+          <line x1="12" y1="2" x2="12" y2="4" />
+          <line x1="12" y1="20" x2="12" y2="22" />
+          <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+          <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+          <line x1="2" y1="12" x2="4" y2="12" />
+          <line x1="20" y1="12" x2="22" y2="12" />
+          <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+          <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
         </g>
       </svg>
     </button>
