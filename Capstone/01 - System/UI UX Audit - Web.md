@@ -86,6 +86,30 @@ See `UI UX Audit - Mobile.md` ("Changes Applied — Round 2"). Headlines: SwipeB
 - Each query retains an explicit loading, failure-with-retry, or truthful empty state. Existing API services, RBAC, queue ordering, pair scoring, status grammar, cards, and map were reused; no endpoint, schema, migration, or permission changed.
 - Verified 2026-09-02 with focused ESLint, a successful Next.js 16 production build, route-auth audit (`218 passed`), the role-layout check, queue-ordering tests, and pair-scoring tests (`55 passed`). The Impeccable detector reported no findings. Authenticated screenshot QA was not available in the local browser session, so no access-control bypass was used.
 
+
+### Phase 9 — Impeccable and Taste elevation
+
+- Enhanced `role-dashboard.jsx` (System Admin, Admin, Fleet Manager, Dispatcher) with tactile inset shadows, hairline highlights (`shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]`), and group-hover scaling for actionable items.
+- Introduced `LivePulseBeacon` to critical alert items (e.g., integration failures, blocked vehicles, overdue dispatches) to naturally guide dispatcher and admin attention.
+- Rewrote the Admin Operational Attention panel into a tactile ribbon with distinct issue/success states and pulsing badges.
+- Enhanced `driver/page.js` to build a mobile-first Driver Workspace with larger touch targets (`min-h-16`), refined padding, grouped layout, and pulsing beacons for critical safety notifications.
+- Enhanced `executive/page.js` to elevate the Executive KPI Center, introducing tabular-nums for financial metrics, inner-shadow tracking bars for utilization metrics, and hover-driven transitions on data tables.
+- All dashboards now conform to the anti-slop guidelines (no excessive borders, proper typography hierarchy, consistent `-foreground-secondary` for subtext) drawn from the 3 injected skills (impeccable, taste, ui-ux-pro-max).
+- Checked using Vitest (`487 tests passed`).
+
+### Phase 9 — Impeccable and Taste elevation
+
+- Enhanced `role-dashboard.jsx` (System Admin, Admin, Fleet Manager, Dispatcher) with tactile inset shadows, hairline highlights (`shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]`), and group-hover scaling for actionable items.
+- Introduced `LivePulseBeacon` to critical alert items (e.g., integration failures, blocked vehicles, overdue dispatches) to naturally guide dispatcher and admin attention.
+- Rewrote the Admin Operational Attention panel into a tactile ribbon with distinct issue/success states and pulsing badges.
+- Enhanced `driver/page.js` to build a mobile-first Driver Workspace with larger touch targets (`min-h-16`), refined padding, grouped layout, and pulsing beacons for critical safety notifications.
+- Enhanced `executive/page.js` to elevate the Executive KPI Center, introducing tabular-nums for financial metrics, inner-shadow tracking bars for utilization metrics, and hover-driven transitions on data tables.
+- All dashboards now conform to the anti-slop guidelines (no excessive borders, proper typography hierarchy, consistent `-foreground-secondary` for subtext) drawn from the 3 injected skills (impeccable, taste, ui-ux-pro-max).
+- Checked using Vitest (`487 tests passed`).
+
+- Fixed Priority Queue and Pickup timeline text truncation issues by swapping `truncate` with `line-clamp-2` to allow text to wrap onto a second line instead of disappearing.
+- Tightened the time-column width on the Priority Queue grid (`sm:grid-cols-[5rem...]`) to reclaim empty whitespace and give more room to the important text.
+
 ## Known remaining gaps (post-waves)
 
 - Per-device web session history isn't tracked (security page explains honestly).

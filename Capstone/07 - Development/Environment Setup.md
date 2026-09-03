@@ -6,25 +6,25 @@ source:
   - .env
   - package.json
   - mobile/package.json
-last_verified: 2026-09-02
+last_verified: 2026-09-03
 ---
 
 # Environment Setup
 
-## What's in `.env` — CONFIRMED (11 keys, all well-formed)
+## What's in `.env` — CONFIRMED (12 keys, values not reproduced)
 
 | Key | Purpose |
 |---|---|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Anon key (largely unused — see [[Supabase]]) |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Privileged.** Used by `getAdminClient()` |
-| `NEXT_PUBLIC_APP_URL` | Base URL |
-| `AUTH_SECRET` | NextAuth |
-| `NEXTAUTH_SECRET` | NextAuth |
-| `NEXTAUTH_URL` | NextAuth |
-| `MOBILE_JWT_SECRET` | **Required in production.** Dedicated mobile bearer-token signing key; development/test may fall back to `NEXTAUTH_SECRET` with a warning |
-| `MFA_ENCRYPTION_KEY` | **Required for MFA enrollment.** Dedicated 32-byte hex/base64 AES-256-GCM key for TOTP secrets; never expose it to the client |
 | `DATABASE_URL` | **Privileged.** Direct `pg` connection, DB owner |
+| `NEXT_PUBLIC_APP_URL` | Base URL and browser CORS origin |
+| `AUTH_SECRET` | Legacy auth compatibility |
+| `NEXTAUTH_SECRET` | NextAuth and development fallback for mobile/MFA secrets |
+| `NEXTAUTH_URL` | NextAuth URL |
+| `GEMINI_API_KEY` | Gemini document/gauge scanning and optional AI output |
+| `GEMINI_RECEIPT_MODEL` | Requested Gemini model for receipt/gauge scans |
 | `NEXT_PUBLIC_TOMTOM_API_KEY` | Maps, client side |
 | `TOMTOM_API_KEY` | Maps, server side |
 
@@ -34,12 +34,14 @@ last_verified: 2026-09-02
 
 | Key | Consequence of absence |
 |---|---|
-| `CRON_SECRET` | Scheduled/cron endpoints are unauthenticated or non-functional. **TODO:** find which routes read it. |
-| `BOOKING_WEBHOOK_SECRET` | The inbound webhook can't verify it's really Booking calling |
-| `BOOKING_GATEWAY` | Without `=http`, the gateway is the **mock**. Nothing reaches Booking. → [[System Boundaries]] |
-| Any LLM key | Narration is always `null`. Deterministic scores still work. → [[AI Advisory]] |
+| `MOBILE_JWT_SECRET` | **Required in production.** Mobile token signing fails closed; development/test may fall back to `NEXTAUTH_SECRET` with a warning. It must differ from `NEXTAUTH_SECRET` in production. |
+| `MFA_ENCRYPTION_KEY` | **Required in production for MFA.** MFA setup/verification fails closed without a dedicated 32-byte hex/base64 AES-256-GCM key. Generate once and keep it stable after enrollment. |
+| `CRON_SECRET` | Protected cron endpoints reject requests when the secret is unset. |
+| `BOOKING_WEBHOOK_SECRET` | The inbound webhook rejects requests because it cannot verify Booking. |
+| `BOOKING_GATEWAY` | Without `=http`, the gateway remains the **mock**. Nothing reaches Booking. → [[System Boundaries]] |
+| `OPENAI_API_KEY` | OpenAI is optional; Gemini scans remain available when configured, and deterministic scores still work. → [[AI Advisory]] |
 
-**None of these break the app today** — every one degrades to a documented fallback. But three of the four are needed before the Booking integration is real.
+`MOBILE_JWT_SECRET` and `MFA_ENCRYPTION_KEY` must be added to the production hosting environment, not exposed through a `NEXT_PUBLIC_` variable. Vercel deployments need both values configured for the relevant environment and must be redeployed after adding them.
 
 ## Two credentials, both total access
 
@@ -55,7 +57,7 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
-Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **474/474 tests across 43 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
+Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **487/487 tests across 46 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
 ## What you cannot do here — CONFIRMED
 

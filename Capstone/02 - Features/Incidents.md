@@ -19,7 +19,7 @@ source:
   - supabase/migrations/084_incident_maintenance_state.sql
   - supabase/migrations/085_incident_maintenance_grounding.sql
   - supabase/migrations/086_incident_maintenance_grounding_backfill.sql
-last_verified: 2026-08-31
+last_verified: 2026-09-03
 ---
 
 # Feature: Incidents
@@ -30,10 +30,10 @@ Drivers report breakdowns and emergencies from the mobile app; staff triage them
 
 ## The loop — CONFIRMED 2026-08-31
 
-1. **Report.** `POST /api/driver/incidents` from `incidents.js` (typed report) or `DriverSos.js` (SOS = type "Emergency", severity Critical). Offline submissions queue in AsyncStorage (`mobile/lib/sync.js`).
+1. **Report.** `POST /api/driver/incidents` from `incidents.js` (typed report) or `DriverSos.js` (SOS = type "Emergency", severity Critical). Offline submissions queue in AsyncStorage (`mobile/lib/sync.js`). SOS `location` is a reverse-geocoded place name (`expo-location` `reverseGeocodeAsync`, falls back to `"lat,lng"` text) — never a Google Maps URL; the web's exact-location link is built from the `latitude`/`longitude` columns, which `resolveIncidentCoords` prefers anyway.
 2. **Automate.** Grounding rule: breakdown/mechanical/engine/brake/tire/electrical reports automatically set the vehicle `Under Maintenance`, create one linked `Emergency Repair` work order, alert fleet/maintenance staff, and move affected dispatches to `Pending Reassignment`. Major/Critical accident reports or explicit vehicle-damage reports create a linked `Vehicle Inspection`. Passenger, route, traffic-delay, medical, and other non-vehicle reports do not create maintenance work orders.
 3. **Resolve.** The incident modal requires a non-empty `actions_taken` narrative and notifies the reporting driver. Resolving an incident never completes maintenance: a linked work order keeps the vehicle `Under Maintenance` until the maintenance state machine marks it `Completed`; only then can `syncVehicleStatus` return it to `Available`.
-4. **See it.** Mobile Activity Logs (`submissions.js`) shows real OPEN/RESOLVED badges and renders `actions_taken`; permanently-failed offline sends are quarantined behind an unsent-reports banner with Retry/Discard.
+4. **See it.** Mobile Activity Logs (`submissions.js`) shows real OPEN/RESOLVED badges and renders `actions_taken`; permanently-failed offline sends are quarantined behind an unsent-reports banner with Retry/Discard. On the web, the admin registry's incident map (`src/components/maps/incident-map.jsx`) shows a permanent label on every marker — severity-color dot + type · severity + driver name — no hover needed (2026-09-03).
 
 ## Rules that were gaps before 2026-08-31
 

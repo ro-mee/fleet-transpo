@@ -8,6 +8,8 @@ Comprehensive system overview for AI assistants and new developers. Covers archi
 
 It is a **single-organization** system (branch/multi-tenant concepts were removed in migration 013). There are two applications in one repo:
 
+> **Last audited:** 2026-09-03 against Git `1a16346`. Repository counts and the checked-in schema are synchronized below; live Vercel environment variables and the production migration ledger remain deployment-specific and must be verified in their respective environments.
+
 | App | Location | Tech | Audience |
 |---|---|---|---|
 | Web dashboard | `src/` | Next.js 16 (App Router) + React 19 | Admin, fleet managers, dispatchers, drivers, management |
@@ -27,9 +29,9 @@ endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`. The
 into the dispatch module as `/dispatch/availability` (one page, Drivers |
 Vehicles tabs); management gained Vehicles visibility in the merge.
 
-**Latest changes** (the current feature wave — details in §7/§8/§9):
+**Latest changes** (the current feature wave — details in §7/§8/§9/§12):
 
-- **Smart Transportation Queue** (migrations 026–027): explicit priority inputs
+- **Smart Transportation Queue** (migrations 032–033): explicit priority inputs
   `is_vip` / `is_emergency` on `transportation_requests` feed a deterministic
   priority engine (`src/lib/scheduling/priority.js`) that writes a cached
   `derived_priority` (`Overdue → Critical → High → Medium → Normal → Future`);
@@ -37,7 +39,7 @@ Vehicles tabs); management gained Vehicles visibility in the merge.
   AI fleet-pair recommendations are now **immutable snapshots**
   (`recommendation_snapshots`, `src/lib/ai/pair-scoring.js` + `dispatch-advisor.js`)
   with a TTL, a `designated-driver` rule enforced at assign, and regeneration.
-- **Incidents module** (migrations 024/029): driver-reported incidents (severity +
+- **Incidents module** (migrations 030/035, 081–086): driver-reported incidents (severity +
   GPS coords) surface in a staff **read-only registry** with an active-incident
   map (TomTom tiles), resolve / send-to-maintenance actions, and **vehicle
   grounding + dispatch-interrupt automation** (see §7.3). Web page `/incidents`.
@@ -54,10 +56,23 @@ Vehicles tabs); management gained Vehicles visibility in the merge.
 - **CORS lockdown:** `src/proxy.js` (Next 16 middleware) answers preflights only
   for the `NEXT_PUBLIC_APP_URL` origin and 403s every other cross-origin caller —
   fail-closed, no `*` (see §4.6).
+- **Authentication and session hardening** (migrations 087–089, 2026-09-02):
+  web sessions are server-backed with a 1-hour idle timeout and 12-hour absolute
+  expiry; heartbeat activity, cross-tab session events, validated return-to
+  redirects, TOTP MFA, and hashed recovery codes are shipped. Production requires
+  distinct `MOBILE_JWT_SECRET` and dedicated `MFA_ENCRYPTION_KEY` secrets.
+- **Live map & incident-map UX polish** (2026-09-03): the live map always
+  auto-fits to all pins on every GPS poll, vehicle markers carry permanent
+  plate + driver labels (no hover/click), marker colors are phase-coded with
+  no gray fallback, and the open-incidents layer and floating "Live Route
+  Navigation" panel were removed (the Incidents module already plots
+  incidents on its own map, whose markers now show permanent type · severity
+  + driver labels). Mobile SOS reports a reverse-geocoded place name instead
+  of a raw Google Maps URL. Details in §9.3/§12.10.
 - Mobile app tab bar is Home / Live Map / **scan FAB** (fuel gauge+receipt
   capture) / Trips / Profile; Vehicle, Alerts (notifications) and History live
   off the bar (header access) — see §8.
-- **Newer waves** (2026-08-15 → 2026-08-26, details in §12): driver work
+- **Newer waves** (2026-08-15 → 2026-09-03, details in §12): driver work
   schedules + leave requests, substitute-driver coverage, fuel **requests**
   (monthly allocations + Gemini gauge scan), **push notifications**
   (`push_outbox` + Expo), AI report narratives, per-trip pre-trip inspection
@@ -89,9 +104,11 @@ Vehicles tabs); management gained Vehicles visibility in the merge.
 - Scripts: `start`, `tunnel` (`@expo/ngrok`), `android`, `ios`, `web`.
 
 ### Key environment config
-- `.env` — Supabase URL/key, service-role key, `DATABASE_URL` (pg), `NEXTAUTH_SECRET`, `NEXT_PUBLIC_APP_URL` (the CORS-allowed origin), `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, AI provider keys, and TomTom (`NEXT_PUBLIC_TOMTOM_API_KEY` client, `TOMTOM_API_KEY` server).
+- Local configuration is read from `.env`; deployed configuration is supplied by the hosting provider. Core server keys are `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL`, `NEXTAUTH_SECRET`, and `NEXTAUTH_URL`; `NEXT_PUBLIC_APP_URL` is the browser CORS origin. `AUTH_SECRET` is retained for compatibility.
+- Production auth requires a distinct `MOBILE_JWT_SECRET` and a dedicated 32-byte hex or base64 `MFA_ENCRYPTION_KEY`. The MFA key encrypts TOTP secrets with AES-256-GCM; generate it with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`, configure it in Vercel for Production and Preview, and redeploy. Never expose either secret to the client or rotate `MFA_ENCRYPTION_KEY` after enrollment unless all enrolled factors are intentionally reset.
+- Optional integrations use `CRON_SECRET`, `BOOKING_WEBHOOK_SECRET`, `BOOKING_GATEWAY`, `BOOKING_API_URL`, `BOOKING_API_KEY`, AI provider keys, and TomTom (`NEXT_PUBLIC_TOMTOM_API_KEY` client, `TOMTOM_API_KEY` server). Missing integration keys degrade to documented fallbacks or disable the protected integration.
 - `next.config.mjs` — `turbopack.root` + security headers (CSP, HSTS, frame/nosniff, referrer policy). **No CORS here.**
-- `src/proxy.js` — **Next 16's middleware** (export `proxy()`, matcher `/api/:path*`). CORS **lockdown, fail-closed**: same-origin/no-Origin requests pass; any other `Origin` gets 403; preflight is answered 204 only for the `NEXT_PUBLIC_APP_URL` origin. No auth in the proxy — every route calls `requireAuth()` itself. Covered by `src/security-boundaries.test.js`.
+- `src/proxy.js` — **Next 16's middleware** (export `proxy()`, matcher `/api/:path*`). CORS **lockdown, fail-closed**: same-origin/no-Origin requests pass; any other `Origin` gets 403; preflight is answered 204 only for the `NEXT_PUBLIC_APP_URL` origin. No auth in the proxy — protected handlers enforce auth per route; public protocol and service-token endpoints use explicit checks. Covered by `src/security-boundaries.test.js`.
 - Path alias: `@/* → ./src/*` (`jsconfig.json`).
 
 ---
@@ -128,7 +145,7 @@ fleet-transpo/
 │   │   │   ├── notifications/  # feed, preferences, templates
 │   │   │   ├── system/         # ★ System Console (admin) — audit log (system_admin only)
 │   │   │   └── settings/       # general, profile, security, users/new, api, ai/logs, number-coding (UVVRP), dispatch (smart queue)
-│   │   └── api/                # 151 route handler files (see §6)
+│   │   └── api/                # 162 route handler files (see §6)
 │   ├── components/
 │   │   ├── layout/             # app-shell, dashboard-layout (+RouteGuard)
 │   │   ├── dashboard/          # ★ role-dashboard renderer + dashboard-configs.js
@@ -160,15 +177,15 @@ fleet-transpo/
 │   │   │                       #   gemini-document, report-narrative, license-scan-policy
 │   │   ├── uvvrp/              # policy.js (Number Coding), uvvrp.service.js
 │   │   ├── supabase/, geo/, vehicles/, validation/
-│   ├── services/               # ~33 modules: client apiFetch wrappers + server business-logic services
+│   ├── services/               # 35 modules: client apiFetch wrappers + server business-logic services
 │   └── hooks/                  # use-auth, use-realtime, use-role-access, use-theme, ...
 ├── mobile/                     # Expo driver app — see §8
 ├── supabase/
-│   ├── migrations/             # 84 SQL migrations (see §5)
+│   ├── migrations/             # 93 SQL migrations (through 089; see §5)
 │   ├── config.toml
 │   └── functions/ai-recommend-vehicle/   # edge function
 ├── docs/                       # rbac-model.md, design-system.md, mobile-*.md, architecture/
-├── scripts/                    # 55 scripts: migrate.mjs, dump-schema.mjs, generate-erd.mjs, seed-demo.mjs, verification harnesses
+├── scripts/                    # 57 files: migrate.mjs, dump-schema.mjs, generate-erd.mjs, seed-demo.mjs, verification harnesses
 ├── schema.sql                  # GENERATED by npm run db:dump — never edit by hand
 ├── resources/ai/instructions.md
 └── SYSTEM.md                   # this file
@@ -316,7 +333,7 @@ gone — do not reintroduce it.)
   legitimizes a substitute. `dispatch-advisor.js` enriches candidates with fuel-burn
   estimates and `detected_risks`; `recommendation.service.js` enforces the
   **designated-driver rule** at assign and flips snapshots to `is_consumed`.
-- **Recommendation snapshots** (`recommendation_snapshots`, migration 027) are
+- **Recommendation snapshots** (`recommendation_snapshots`, migration 033) are
   immutable pair records (`pair_json`, score, reasons, validity window). The
   saved-recommendation card reads the active snapshot; unconsumed/past-`valid_until`
   is surfaced as expired with `?regenerate=1`.
@@ -470,19 +487,20 @@ and ETA rather than guessing another route or a default hotel position.
 
 ## 5. Database Schema (PostgreSQL on Supabase)
 
-Live, per the last `npm run db:dump`: **45 tables, 1 view (`driver_stats`), 95
-foreign keys, 113 standalone indexes, 14 functions, 19 triggers** (no sequences —
-dispatch numbers are random strings now, see below). `schema.sql` carries that dump
-and is the authoritative picture — §5.2 below is a reading aid, not the source.
+The checked-in `schema.sql` currently declares **50 tables, 1 view (`driver_stats`),
+103 foreign keys, 108 standalone indexes plus 15 unique indexes, 14 functions, and
+19 triggers**. It is the authoritative structure dump; §5.2 below is a reading aid,
+not the source. Dispatch numbers are random strings, while serial-backed tables
+still use PostgreSQL sequences in the live database.
 
-84 migration files in `supabase/migrations/`. The numbering runs through 080;
-exactly four numbers are duplicated historically — **036, 037, 059, 060** have
-two files each (applied in filename order, this set is frozen by `npm run db:check`).
-Ledger state as of 2026-08-31: **84 applied, 0 pending, 0 changed**. **Migrations
-are applied via a direct `pg` connection, NOT the Supabase CLI or the SQL editor** (see `AGENTS.md` — the
-CLI is broken here and the web editor was found to silently target the wrong
-project).
-
+There are **93 migration files** in `supabase/migrations/`, numbered through 089.
+Exactly four numeric versions are duplicated historically — **036, 037, 059, and
+060** each have two files, applied in filename order. The checked-in schema includes
+the server-backed session/MFA tables and the `idle_timeout_seconds` column from
+migrations 087–089. Live ledger state is environment-specific; verify it with
+`npm run db:status` before applying anything. Migrations are applied via a direct
+`pg` connection, NOT the Supabase CLI or the SQL editor (see `AGENTS.md` — the CLI
+is broken here and the web editor was found to silently target the wrong project).
 Use the runner rather than a one-off script: `npm run db:status` (applied /
 pending / changed-since-applied), `npm run db:up` (apply pending, each in its own
 transaction), `npm run db:dump` (regenerate `schema.sql` from live).
@@ -579,6 +597,15 @@ places, so a migration has to be a safe no-op there.
 | 078 | `validate_routes_integrity.sql` | validates route status, endpoint, estimate, and provenance constraints |
 | 079 | `normalize_route_arrows.sql` | normalizes remaining legacy `->` route labels to `→` |
 | 080 | `backfill_hotel_location_identity.sql` | persists the canonical active hotel `location_id` in `system_settings` |
+| 081 | `incident_triage_integrity.sql` | adds incident acknowledgement/resolution ownership, grounding state, retry indexes, and severity checks |
+| 082 | `incident_grounding_no_vehicle.sql` | prevents incidents without a vehicle from triggering grounding automation |
+| 083 | `incident_maintenance_unique.sql` | enforces one maintenance work order per source incident |
+| 084 | `incident_maintenance_state.sql` | links incident maintenance state, backfills work orders, and grounds affected vehicles |
+| 085 | `incident_maintenance_grounding.sql` | keeps unresolved vehicle incidents in the grounding queue |
+| 086 | `incident_maintenance_grounding_backfill.sql` | completes legacy incident grounding backfills after maintenance linkage |
+| 087 | `auth_security_lifecycle.sql` | adds auth-version invalidation, shared rate limits, mobile token families, and password reset tokens |
+| 088 | `auth_sessions_mfa.sql` | adds server-backed web sessions, encrypted employee MFA, recovery codes, and supporting indexes |
+| 089 | `session_idle_timeout.sql` | adds the configurable `web_sessions.idle_timeout_seconds` defaulting to 3600 seconds |
 
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
@@ -589,33 +616,38 @@ places, so a migration has to be a safe no-op there.
 | Table | Domain | Notes |
 |---|---|---|
 | `roles` | auth | `role_id`, `role_name` UNIQUE |
-| `employees` | auth/users | 1:1 with `auth.users`, `role_id`, `password_hash`, soft-delete |
+| `employees` | auth/users | 1:1 with `auth.users`, `role_id`, `password_hash`, `auth_version`, soft-delete |
+| `auth_rate_limits` | auth | shared IP/account throttle buckets used by web/mobile auth |
+| `password_reset_tokens` | auth | hashed, one-time, expiring administrator-issued reset links |
+| `web_sessions` | web auth | server-backed session records with revocation, device metadata, 12-hour expiry, and configurable idle timeout |
+| `employee_mfa` | web/mobile auth | encrypted TOTP secret, enrollment expiry, enabled state, and replay marker |
+| `mfa_recovery_codes` | web/mobile auth | hashed, single-use recovery codes |
 | `vehiclecategories` | fleet | base/per-km/per-hour rates, seating |
 | `vehicles` | fleet | plate UNIQUE, status CHECK, service intervals, expiry dates |
 | `drivers` | drivers | license fields, status CHECK, GPS last-known, face image, personal details (021) |
 | `routes` | operations | canonical directional location FKs, active-pair uniqueness, estimate provenance, lifecycle/status checks (076–079) |
-| `dispatchschedules` | operations | `dispatch_number` UNIQUE, status CHECK, `request_id` FK, `cancel_reason` (030a) |
+| `dispatchschedules` | operations | `dispatch_number` UNIQUE, status CHECK, `request_id` FK, `cancel_reason` (036) |
 | `trips` | operations | 16-state CHECK, cost+performance cols (007) |
-| `gpstracking` | tracking | BIGSERIAL time-series GPS (no `driver_id`, 019c) |
+| `gpstracking` | tracking | BIGSERIAL time-series GPS (no `driver_id`, 024) |
 | `vehiclemaintenance` | maintenance | inspection merged (005), inspection cols dropped (018b) |
 | `vehicledocuments` | fleet | restored real table (007) |
-| `fuelrecords` | fuel | review workflow (020) |
+| `fuelrecords` | fuel | review workflow (026) |
 | `driverattendance` | attendance | face rec, UNIQUE (driver_id, date) |
 | `notifications` | notifications | fed by triggers |
 | `ai_recommendations`, `ai_insights` | AI | rule-engine output |
-| `audit_logs` | audit | the DB trigger functions were dropped (014b); writes now come from the application — `writeAudit()` (`src/lib/audit.js`) is called across 30 route/service modules |
+| `audit_logs` | audit | the DB trigger functions were dropped (015); writes now come from the application — `writeAudit()` (`src/lib/audit.js`) is called across route/service modules |
 | `service_types`, `booking_channels`, `integration_log` | integration | |
-| `locations` | reference | named places with active/retired identity metadata (076) |
-| `mobile_refresh_tokens` | mobile auth | hashed, revocable, no RLS |
-| `transportation_requests` | queue | 6-state `fleet_status` (review states removed, 037b), `external_booking_id` UNIQUE, AI rec cols, `is_vip`/`is_emergency`/`derived_priority` (032) |
+| `locations` | reference | named places with active/retired identity metadata (076, 080) |
+| `mobile_refresh_tokens` | mobile auth | hashed, revocable, family-grouped, device metadata, no RLS |
+| `transportation_requests` | queue | 6-state `fleet_status` (review states removed, 037), `external_booking_id` UNIQUE, AI rec cols, `is_vip`/`is_emergency`/`derived_priority` (032) |
 | `reservation_events` | timeline | append-only |
 | **`driver_consents`** | ★ privacy | `driver_id`, `policy_version`, `accepted_at/via`, `ip_address`; append-only; index `(driver_id, accepted_at DESC)` |
 | `driver_vehicle_assignments` | drivers | interval history + 2 partial UNIQUE active-pairing indexes |
-| `driverincidents` | ★ incidents | driver-reported incidents (024) with `latitude/longitude` (029); `severity`, `actions_taken`, status |
-| `uvvrp_exemptions`, `uvvrp_violations` | ★ Number Coding | vehicle exemptions + violation history (025) |
-| `recommendation_snapshots` | ★ AI | immutable fleet-pair advice per request; TTL + UNIQUE active-per-request (027) |
-| `vehicleinspection` | ★ fleet | restored driver-facing inspection table for `/api/driver/vehicle-inspection` (028) |
-| `notification_preferences` | ★ notifications | per-employee (event × channel) toggles; absent rows = server defaults (030b) |
+| `driverincidents` | ★ incidents | driver-reported incidents (030), coordinates (035), photos (065), triage/grounding/maintenance state (081–086) |
+| `uvvrp_exemptions`, `uvvrp_violations` | ★ Number Coding | vehicle exemptions + violation history (031) |
+| `recommendation_snapshots` | ★ AI | immutable fleet-pair advice per request; TTL + UNIQUE active-per-request (033) |
+| `vehicleinspection` | ★ fleet | restored driver-facing inspection table for `/api/driver/vehicle-inspection` (034) |
+| `notification_preferences` | ★ notifications | per-employee (event × channel) toggles; absent rows = server defaults (037) |
 | `aiproviders` | AI | LLM provider config (migrated to proper table in 038; used to be hot-path DDL) |
 | `system_settings` | settings | created ad-hoc then declared by 043; stores `dispatch_policy`, `uvvrp_policy` |
 | `schema_migrations` | tooling | migration ledger keyed by full filename + checksum |
@@ -629,10 +661,11 @@ places, so a migration has to be a safe no-op there.
 | **`ai_report_narratives`** | ★ AI | cached LLM report narratives (24 h sticky, ≤3 forced regenerations/day, unique COALESCE range key) (043/045) |
 
 **Views:** `driver_stats` (computed from completed trips). **Storage buckets:**
-`face-captures`, `fuel-receipts`, `incident-evidence` (private), `vehicle-images`
-(public). Dispatch numbers are random `DSP-XXXX` strings from
-`generate_dispatch_number()` (trigger `trg_dispatch_number`) — there are no
-sequences.
+`face-captures`, `fuel-receipts`, `incident-evidence` (private), `driver-licenses`
+(private), `vehicle-images` (public). Dispatch numbers are random `DSP-XXXX`
+strings from `generate_dispatch_number()` (trigger `trg_dispatch_number`); the
+old dispatch-number sequence is gone, although other serial-backed tables still
+use PostgreSQL sequences.
 
 ### 5.3 DB-enforced integrity (highlights)
 - Status CHECKs, counted from `schema.sql`: vehicle (5 — `Available`, `Reserved`,
@@ -652,14 +685,18 @@ sequences.
 
 ---
 
-## 6. API Surface (`src/app/api/` — 151 route files)
+## 6. API Surface (`src/app/api/` — 162 route files)
 
-All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads default to the 5 ops roles; writes are narrowed to admin/fleet_manager (+ dispatcher for dispatch/trip/integration; + driver for self-owned actions).
+Protected handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`; public protocol endpoints and service-token endpoints use explicit alternatives. Reads default to the 5 ops roles; writes are narrowed to admin/fleet_manager (+ dispatcher for dispatch/trip/integration; + driver for self-owned actions).
 
 ### Auth & account
 - `auth/[...nextauth]` (GET/POST) — NextAuth Credentials.
 - `auth/register` (POST) — **admin-only** employee account creation; 409 on duplicate email; no silent credential overwrite.
 - `auth/profile` (PATCH), `auth/change-password` (POST) — self-service.
+- `auth/login-status` (GET) — read-only lockout status; `auth/heartbeat` (GET/POST) — session expiry state and human-activity heartbeat.
+- `auth/sessions` (GET/DELETE) — owner-scoped web/mobile session listing and revocation.
+- `auth/mfa` (GET), `auth/mfa/setup`, `auth/mfa/confirm`, `auth/mfa/disable`, `auth/mfa/recovery-codes` — password-gated TOTP enrollment, confirmation, disablement, and recovery-code management.
+- `auth/forgot-password`, `auth/reset-password`, `auth/reset-token` — rate-limited recovery/reset flows; reset tokens are administrator-issued, hashed, one-time, and expiring.
 
 ### Drivers & driver self-service
 - `drivers/` (GET/POST) — list (filters; `includeUnlinked=1` surfaces driver-role employees without a `drivers` row flagged `requires_completion`); create (employee+driver, optional password, rollback on failure).
@@ -671,8 +708,9 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `driver/license-scan` (POST) ★ — **single-call self-service renewal**: Gemini verifies the photo is a genuine LTO card (`document_is_license_card`, fail-closed), reads key fields, and on pass **persists the scan** + applies a future-dated `license_expiry` (front side), then notifies ops staff (`system_admin`/`admin`/`fleet_manager`) best-effort. Failures write nothing — an unreadable or non-card photo is never saved. Policy: `src/lib/ai/license-scan-policy.js`.
 - `driver/me/consent` (POST) ★ — record policy acceptance; 409 on stale `policy_version`.
 - `driver/incidents` (GET/POST) ★ — driver-reported incidents (self-scoped to own trips).
-- `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting (reads `vehicleinspection`, migration 028).
+- `driver/vehicle-inspection` (GET/POST) ★ — driver vehicle inspection reporting (reads `vehicleinspection`, migration 034).
 - `driver/trips` (GET) ★ — **web driver-portal** trip list; always `WHERE driver_id = auth` (unlike the unscoped `trips/`).
+- `driver/balances`, `driver/leave`, `driver/incidents/upload` — driver-scoped leave balance/self-service and incident-photo upload support.
 
 ### Trips
 - `trips/` (GET/POST), `trips/[id]` (GET/PUT) — shared `TRIPS_SELECT/TRIPS_JOINS` (`src/lib/api/trips-query.js`).
@@ -682,12 +720,14 @@ All handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`. Reads d
 - `trips/[id]/locations` (GET/POST) — GPS breadcrumbs (trip-isolated route history).
 - `trips/active` (GET) — active fleet; **driver sees only own trips**.
 - `trips/latest-locations` (GET) — latest status-aware GPS telemetry per active vehicle/trip (`src/lib/gps.js`); filters by active states (`In Progress`, `Dispatched`, `Assigned`), marks staleness with a 3-minute disconnect threshold (`GPS_STALE_THRESHOLD_MS`), and isolates breadcrumbs to active trips.
+- `trips/[id]/accept|at-pickup|cancel|complete|dropoff|enroute|onboard|start` — explicit lifecycle action endpoints; the centralized transition service remains the status-write authority.
 
 ### Vehicles, maintenance, fuel
-- `vehicles/` (GET/POST), `vehicles/[id]` (GET/PUT/DELETE, archive admin-only), `vehicles/available`, `vehicles/[id]/documents`, `vehicle-documents/[id]`, `vehicle-categories/[id]`.
+- `vehicles/` (GET/POST), `vehicles/[id]` (GET/PUT/DELETE, archive admin-only), `vehicles/available`, `vehicles/[id]/documents`, `vehicles/[id]/image`, `vehicle-documents/[id]`, `vehicle-categories`, `vehicle-categories/[id]`.
 - `vehicle-maintenance/` (GET/POST), `vehicle-maintenance/[id]` (PUT) — drivers can file reports **without** moving the service schedule (ops roles only); maintenance rows created from incidents carry `source_incident_id` (063).
 - **Fuel requests & allocations** ★ — `fuel/requests` (GET staff+driver-scoped; POST = driver-only: requires an owned gauge photo + idempotent `client_submission_id`, derives vehicle from trip/assignment, computes `calculateFuelRecommendation` vs tank/efficiency/monthly allocation, then **auto-authorizes within policy** or files `Pending`; PUT = staff approval with override reasons, bounded by tank space and current month). `fuel/allocations` (GET/PUT, staff) — monthly liters per vehicle with consumed/committed CTEs. Fulfillment: `POST /api/mobile/fuel` creates the receipt against an **Approved** request and flips it to `Fulfilled`. Gauge scanning: `POST /api/mobile/fuel/gauge-scan` → Gemini (`lib/fuel/gemini-gauge.js`, fail-closed); uploads via `POST /api/mobile/fuel/upload` (`kind=receipt|gauge`). Policy helpers: `src/lib/fuel/request-policy.js`.
 - `fuel/[id]` (GET/PUT/DELETE) — record review workflow (reason required; Completed locked), `fuel/analytics` (Approved only).
+- `admin/analytics/fuel` and `admin/analytics/fuel/resolve` — staff fuel analytics and anomaly resolution.
 
 ### Reservations & integration (Booking)
 There is **no `reservations/` route tree.** It was deleted with migration 036
@@ -719,23 +759,23 @@ is the only reservation concept, and `integration/` is its only door.
 - `documents/expiring` (GET) ★ — Document Expiration Center: aggregates `vehicles.*_expiry` + `vehicledocuments.expiry_date` + `drivers.license_expiry` with days-left/expired flags (admin, system_admin, fleet_manager).
 - `ai/recommendations`, `ai/predictive-maintenance`, `ai/insights[/[id]/dismiss]`, `ai/driver-insights`, `ai/providers[/[id]]`, `ai/providers/fetch-models`, `ai/scan-document`, `ai/logs`, `ai/instructions`.
 - `ai/report-narrative` (POST) ★ — LLM report narration over a client-computed payload: 24 h sticky cache, ≤3 forced regenerations per tab/day, deterministic rules fallback (`lib/ai/report-narrative.js`, `ai_report_narratives` table).
-- `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 030b).
+- `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 037).
 - `search` (GET) ★ — global command-palette search across reservations, dispatches, drivers, vehicles (min 2 chars, LIMIT 5 per entity; any role).
 - `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin; all roles incl. driver.
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
-- `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `manifest`, `status/sync`, `cron/sync` (CRON_SECRET). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
+- `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `settings/users`, `settings/connectors`, `manifest`, `status/sync`, `cron/sync`, `cron/reconcile` (service-token protected). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
 - The active NAIA registry currently contains six canonical curbside endpoints: Terminal 1 arrivals/departures, Terminal 2 arrivals/departures, and Terminal 3 Bay 9 arrivals/departures. Terminal 4 is not an active endpoint; its legacy row/routes remain only as inactive history. Canonical endpoint coordinates are maintained in `src/lib/naia-locations.js` and seeded without fabricated distance/time estimates.
-- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Read-only + resolve only; creation is driver-side. Vehicle-related reports automatically create one linked maintenance work order; `incidents/[id]/maintenance` (POST) is an idempotent recovery endpoint for a failed automatic attempt.
+- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Acknowledge, resolve, grounding, and maintenance actions have dedicated guarded endpoints; creation is driver-side. Vehicle-related reports automatically create one linked maintenance work order; `incidents/[id]/maintenance` (POST) is an idempotent recovery endpoint for a failed automatic attempt.
 - `settings/dispatch` (GET/PUT) ★ — smart-queue policy (`criticalMinutes`/`highMinutes`/`mediumMinutes`, `enableVipFlag`/`enableEmergencyFlag`); audit-writes `dispatch_policy` (system_admin/admin; fleet_manager read).
 - `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
 - `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
 - `uvvrp/exemptions` (GET/POST), `uvvrp/exemptions/[id]` (PUT) ★ — per-vehicle coding exemptions (category, approver, optional expiry).
 - `uvvrp/violations` (GET), `uvvrp/violations/[id]/decide` (POST) ★ — coding violation history + approve/deny pending approvals (defer-then-retry: an approved violation exempts that vehicle+date).
-- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips` (+ `pre_trip_status` per trip), `mobile/driver/trips/[id]/accept|gps` (trip-scoped GPS ping ingestion — only records live movement during `In Progress` trips), `mobile/driver/inspections` (POST — per-trip pre-trip inspection, notifies staff on fail), `mobile/driver/submissions` (GET — activity-log/dead-letter feed), `mobile/fuel/scan|upload|gauge-scan|[id]`, `mobile/fuel` (POST receipt → fulfills the Approved request).
+- `mobile/auth/login|refresh|logout`, `mobile/driver/me`, `mobile/driver/ref` (GET) ★ — driver-only trip/status reference (status buckets, `getNextStatus` chain, tones; the server owns the state machine), `mobile/driver/trips` (+ `pre_trip_status` per trip), `mobile/driver/trips/[id]/accept|gps` (trip-scoped GPS ping ingestion — only records live movement during `In Progress` trips), `mobile/driver/inspections` (POST — per-trip pre-trip inspection, notifies staff on fail), `mobile/driver/submissions` (GET — activity-log/dead-letter feed), `mobile/driver/gps` and `mobile/driver/trips/[id]/gps` (driver GPS ingestion), `mobile/fuel/scan|upload|gauge-scan|[id]`, `mobile/fuel` (POST receipt → fulfills the Approved request).
 
 ### Client service layer (`src/services/`)
-Thin `apiFetch` wrappers per domain plus server-only business-logic services. Current modules: `ai.service, audit.service, auth.service, dispatch.service, dispatch-autocreate.service, dispatch-settings.service, driver.service, driver-assignment.service, driver-schedule.service, fuel.service, integration.service, location.service, maintenance-schedule.service, notification.service, outbound.service, priority.service, push.service, recommendation.service, report.service, reservation-events.service, reservation-lifecycle.service, route.service, route-resolver.service, search.service, settings.service, status.service, substitute-driver.service, system.service, transition.service, transport.service, trip-lifecycle.service, trip.service, uvvrp.service, vehicle.service`. Notable server-only ones: `reservation-lifecycle`, `trip-lifecycle`, `transition` (centralized trip/dispatch status writes), `status`, `outbound`, `push`, `uvvrp`, `dispatch-autocreate`, `route-resolver`.
+Thin `apiFetch` wrappers per domain plus server-only business-logic services. Current modules: `ai.service, audit.service, auth.service, dispatch.service, dispatch-autocreate.service, dispatch-settings.service, driver.service, driver-assignment.service, driver-schedule.service, fuel.service, integration.service, location.service, maintenance.service, maintenance-schedule.service, notification.service, outbound.service, priority.service, push.service, recommendation.service, report.service, reservation-events.service, reservation-lifecycle.service, route.service, route-resolver.service, search.service, settings.service, status.service, substitute-driver.service, system.service, transition.service, transport.service, trip-lifecycle.service, trip.service, uvvrp.service, vehicle.service`. Notable server-only ones: `reservation-lifecycle`, `trip-lifecycle`, `transition` (centralized trip/dispatch status writes), `status`, `outbound`, `push`, `uvvrp`, `dispatch-autocreate`, `route-resolver`.
 
 ---
 
@@ -829,11 +869,12 @@ with a vehicle attached; the rule is now real and unit-tested
 (`src/lib/driver/grounding.test.js`).
 
 ### Web sessions (NextAuth)
-- Credentials provider; bcrypt vs `employees.password_hash`; **IP rate limit 5/min**; JWT session strategy (`NEXTAUTH_SECRET`); role/employeeId/name embedded in token. Login redirects drivers → `/driver`, others → `/dashboard`.
-- Registration is **admin-only**; public signup redirects to login.
+- Credentials provider; bcrypt vs `employees.password_hash`; **IP/account rate limit 5/min**; JWT transport (`NEXTAUTH_SECRET`) identifies a server-backed `web_sessions` record. Role/employeeId/name remain in the token for UI landing, while every API request revalidates the live employee and session row.
+- Sessions expire after 12 hours absolutely or 1 hour idle (`idle_timeout_seconds`); `GET/POST /api/auth/heartbeat` updates the idle deadline only for verified activity. The session manager warns five minutes before either deadline, synchronizes tabs through `BroadcastChannel`, and preserves only validated internal return-to routes through re-authentication.
+- Registration is **admin-only**; public signup redirects to login. TOTP MFA is checked before a web session is created, and enabling/disabling MFA revokes existing sessions.
 
 ### Mobile tokens (separate system)
-- Access = 15-min HS256 JWT (aud `fleetops-mobile-access`), refresh = 30-day JWT (aud `fleetops-mobile-refresh`), both `NEXTAUTH_SECRET`-signed. Refresh tokens stored SHA-256 hashed in `mobile_refresh_tokens`; **single-use rotation**; role/driver re-read from DB every refresh; `logout?allDevices` revokes all.
+- Access = 15-min HS256 JWT (aud `fleetops-mobile-access`), refresh = 30-day JWT (aud `fleetops-mobile-refresh`), signed with production-only `MOBILE_JWT_SECRET` (development can fall back to `NEXTAUTH_SECRET` with a warning). Refresh tokens are stored SHA-256 hashed in `mobile_refresh_tokens`; **single-use rotation**, family grouping, and device metadata are enforced; role/driver re-read from DB every refresh; `logout?allDevices` revokes all.
 
 ---
 
@@ -902,10 +943,10 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
 
 ### 9.1 Smart Transportation Queue (priority engine)
 - Explicit inputs `transportation_requests.is_vip` / `is_emergency` (set at intake
-  or via `PATCH .../[id]/flags`, migration 026) feed a **deterministic priority
+  or via `PATCH .../[id]/flags`, migration 032) feed a **deterministic priority
   engine** (`src/lib/scheduling/priority.js`). It writes a cached `derived_priority`
   (`Overdue → Critical → High → Medium → Normal → Future`) that the queue groups and
-  orders on (`queue-grouping.js`); never human-set (CHECK in migration 026).
+  orders on (`queue-grouping.js`); never human-set (CHECK in migration 032).
   Thresholds live in `system_settings.dispatch_policy` (`src/lib/dispatch-policy.js`),
   configurable at `/settings/dispatch` (system_admin/admin).
 
@@ -913,19 +954,24 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
 - `src/lib/ai/pair-scoring.js` + `dispatch-advisor.js` recommend a **vehicle+driver
   pair** (designated-driver match dominates; a provably-unavailable custodian is the
   only legit substitute). Recommendations persist as immutable snapshots
-  (`recommendation_snapshots`, migration 027) with a 60-min TTL, an `is_consumed`
+  (`recommendation_snapshots`, migration 033) with a 60-min TTL, an `is_consumed`
   flag (flipped on assign), and a hard **designated-driver rule** at assign
   (`recommendation.service.js`). The saved-recommendation card surfaces stale
   snapshots as expired with regeneration.
 
 ### 9.3 Incidents (driver → staff → maintenance)
 - Drivers report incidents with severity + GPS (web portal `/driver/incidents`,
-  mobile `/incidents`). Staff see a **read-only registry** (`/incidents`) with an
-  active-incident TomTom map, filters, and only two write controls: **Resolve**
-  (`PATCH /api/incidents/[id]` → `Resolved` + `actions_taken`) and **Send to
-  Maintenance** (creates an Emergency Repair record). A driver POST runs the grounding
-  automation in `src/lib/driver/grounding.js` — acknowledge, then ground the vehicle +
-  interrupt active dispatches, or just notify overseers (§7.3).
+  mobile `/incidents`; mobile SOS reverse-geocodes the fix into a place name
+  via `expo-location`, falling back to `"lat,lng"` text — never a maps URL).
+  Staff see a **read-only registry** (`/incidents`) with an
+  active-incident TomTom map (permanent type · severity + driver labels on
+  every marker — no hover needed), filters, and only two write controls:
+  **Resolve** (`PATCH /api/incidents/[id]` → `Resolved` + `actions_taken`)
+  and **Send to Maintenance** (creates an Emergency Repair record). A driver
+  POST runs the grounding automation in `src/lib/driver/grounding.js` —
+  acknowledge, then ground the vehicle + interrupt active dispatches, or just
+  notify overseers (§7.3). The web live map no longer plots open incidents
+  (removed 2026-09-03 — this registry's own map owns that view).
 
 ### 9.4 Notification direction & preferences
 - Rows carry `reference_type` / `reference_id` / `severity` / `link`; all surfaces
@@ -933,12 +979,12 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
   (`src/lib/notifications/presentation.js`). Tap targets resolve **per-role**
   (`src/lib/notifications/target.js`) — staff or driver routes, guarded by
   `getRequiredRolesForPath` so a tap never loops through a redirect.
-- Per-user toggles persist in `notification_preferences` (migration 030b) and drive
+- Per-user toggles persist in `notification_preferences` (migration 037) and drive
   the `/notifications/preferences` grid (event × channel, in-app non-disableable);
   email/push channels are accepted but delivery ships later.
 
 ### 9.5 Mobile tabs + TomTom map
-- The mobile app is now `(app)/(tabs)/`: Home · Live Map · History · Alerts ·
+- The mobile app is now `(app)/(tabs)/`: Home · Live Map · scan FAB · Trips ·
   Profile (§8). Sign-out moved to Profile; login is interactive (demo mode removed).
   The map is TomTom **static images** (no RN/Leaflet native module) so it runs in
   Expo Go and on the web target; routing on web/server uses the `/api/tomtom/route`
@@ -966,13 +1012,13 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
 The consent/portal work (merged from `5794427`) remains live and is condensed here.
 Versioned privacy policy (`CURRENT_PRIVACY_POLICY_VERSION = 1` in
 `src/lib/consent/policies.js`) gates both web (`/driver`) and mobile (`(app)/_layout.js`)
-personal-data screens; acceptance is append-only in `driver_consents` (migration 017a,
+personal-data screens; acceptance is append-only in `driver_consents` (migration 019,
 IP + via captured, no UPDATE/DELETE) via `POST /api/driver/me/consent` (409 on stale
 version). The driver self-service portal spans `/driver` + subpages
 (profile/license-scan, trips, incidents, vehicle, fuel) — `GET/PATCH /api/driver/me`
 (whitelisted fields; license scans self-serve anytime since 2026-08-25),
 `POST /api/driver/license-scan` (Gemini verify + persist + expiry auto-apply + staff notification), `GET /api/driver/trips`,
-`GET /api/driver/vehicle-inspection` (table restored by migration 028), and admin
+`GET /api/driver/vehicle-inspection` (table restored by migration 034), and admin
 controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
 
 ---
@@ -1007,8 +1053,8 @@ controls `PUT /api/drivers/[id]/account` + `POST /api/drivers/link`.
 - Route protection is via root `layout.js` → `DashboardLayout` → `RouteGuard` (client) + per-route API checks.
 - A driver hitting `/dashboard` directly would render it (UI-only exposure; data APIs still enforce roles).
 - Mobile status-advance uses the **web** route `PUT /api/trips/{id}/status` (not `/mobile/` prefix).
-- Scope status (2026-08-26): **push notifications are shipped in-app + local/foreground** (Expo tokens registered at sign-in; server tiers via `push.service.js`; terminated-app remote fan-out documented future work). Offline queueing exists for incident reports (dead-letter surfaced in Submissions). Background location task exists but needs a dev build. Still not implemented: guest mode.
-- Ledger orphan: `070_driver_licenses_bucket.sql` is recorded in `schema_migrations` but its file was deleted from disk — do not "fix" by recreating a different file under that name.
+- Scope status (2026-09-02): **push notifications are shipped in-app + local/foreground** (Expo tokens registered at sign-in; server tiers via `push.service.js`; terminated-app remote fan-out documented future work). Offline queueing exists for incident reports (dead-letter surfaced in Submissions). Background location task exists but needs a dev build. Still not implemented: guest mode.
+- `070_driver_licenses_bucket.sql` is present and tracked. It owns the private `driver-licenses` bucket; keep its filename and checksum stable because the migration ledger keys entries by full filename.
 
 ---
 
@@ -1054,7 +1100,7 @@ future developer/AI must know:
 - Login throttling surfaces honestly: `GET /api/auth/login-status`
   (read-only peek) backs the login page's lockout messaging.
 - Staff account management: `/settings/users` index +
-  `GET/PUT /api/settings/users` (disable = soft-delete per migration 028 —
+  `GET/PUT /api/settings/users` (disable = soft-delete;
   that is what blocks sign-in; status='Inactive' is the readable flag).
 - Availability boards tab vocabulary mirrors canonical DB CHECK values exactly.
 - Mobile: SwipeButton exposes accessibility actions; offline-queued incident
@@ -1062,9 +1108,9 @@ future developer/AI must know:
 
 ---
 
-## 12. ★ Current wave (2026-08-15 → 2026-08-26) — schedules, leave, fuel requests, push
+## 12. ★ Current wave (2026-08-15 → 2026-09-03) — schedules, leave, fuel requests, push, auth, map UX
 
-The newest feature set after §9/§11. Everything here is shipped and enforced in code.
+The newest feature set after §9/§11. Everything here is shipped and enforced in code; the auth/session items were added 2026-09-02.
 
 ### 12.1 Driver work schedules + leave (migrations 049–055)
 Weekly per-driver shift rows (`driver_work_schedules`, UNIQUE driver+weekday,
@@ -1129,4 +1175,38 @@ CORS lockdown via `src/proxy.js` (§4.6); anon access to `employees` revoked
 (060b); seeded admin hash invalidated if ever still present (061);
 `source_incident_id` links maintenance to incidents (063);
 `drivers.suspension_reason` (064); incident photos + evidence bucket (065);
-random `DSP-XXXX` dispatch numbers (044); seven pagination indexes (052).
+random `DSP-XXXX` dispatch numbers (044); seven pagination indexes (052);
+incident triage/grounding/maintenance integrity (081–086); auth-version
+invalidation and shared auth rate limits (087); server-backed web sessions and
+TOTP MFA (088); configurable web-session idle timeout (089).
+
+### 12.9 Auth lifecycle and session UX (migrations 087–089)
+Web authentication now records a server-backed session with a 12-hour absolute
+lifetime and 1-hour idle timeout. Live identity resolution checks session expiry,
+revocation, employee status, role, and `auth_version` before authorizing each API
+request. Human activity and the Stay signed in action use `/api/auth/heartbeat`;
+background polling does not extend the idle deadline. The browser session manager
+warns before idle or absolute expiry, coordinates failures/extensions/logout across
+tabs, and returns users only to validated internal routes after re-authentication.
+TOTP enrollment and login MFA use encrypted per-employee secrets, a v9-compatible
+`otpauth` implementation, hashed single-use recovery codes, replay protection, and
+separate IP/account throttles. Production deployments must set both
+`MOBILE_JWT_SECRET` and `MFA_ENCRYPTION_KEY` as distinct server-side secrets.
+
+### 12.10 Live map & SOS UX polish (2026-09-03)
+`src/components/maps/live-locations-map.jsx` (used by `/tracking/live-map`, role
+dashboards, and `/trips/[id]`):
+- **Always auto-fit** — the viewport re-fits to all pins (or the selected trip's
+  route) on every GPS poll; user pans are re-fitted on the next refresh.
+- **Permanent labels** — latest-locations markers (nested `vehicles`/`drivers`
+  data) show a status-color dot + plate + driver name without hovering; the
+  click popup (telemetry, Street View) is unchanged. Raw GPS-history rows
+  (`/trips/[id]`) have no identity and keep the hover tooltip.
+- **No gray markers** — every `LIVE_TRIP_STATUSES` phase maps to a phase color
+  (pre-trip blue, to-pickup amber, passenger-onboard/arrived green); the
+  fallback default is blue, not gray.
+- **Removed** — the open-incidents layer (the `/incidents` module's own map
+  owns that view) and the floating "Live Route Navigation" panel (turn-by-turn
+  instructions, distance/ETA). The route polyline, origin/destination labels,
+  and sidebar trip metrics remain; the `incidents`, `instructions`,
+  `routeDistanceKm`, `routeTravelMin`, and `showNavigationPanel` props are gone.
