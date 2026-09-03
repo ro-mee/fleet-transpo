@@ -157,6 +157,12 @@ export async function syncQueue() {
     
     // Process sequentially to maintain order
     for (const req of queue) {
+      // Auth requests are never replayed (see api.js) — drop any stale ones
+      // already in the queue so they can't hammer the rate limiter.
+      if (req.path?.startsWith('/api/mobile/auth/')) {
+        console.log(`[Sync] Dropping stale auth request ${req.path}`);
+        continue;
+      }
       try {
         if (!_apiFetch) throw new Error('apiFetch not injected');
           await _apiFetch(req.path, {
@@ -166,9 +172,14 @@ export async function syncQueue() {
           });
         console.log(`[Sync] Successfully synced ${req.method} ${req.path}`);
       } catch (err) {
-        // If it fails due to network again, keep it in the queue
-        if (err.message && err.message.includes("Network request failed")) {
-          console.log(`[Sync] Network still down for ${req.path}, keeping in queue.`);
+        // If it fails due to network or a transient server state (rate limit,
+        // server error), keep it in the queue.
+        if (
+          (err.message && err.message.includes("Network request failed")) ||
+          err.status === 429 ||
+          err.status >= 500
+        ) {
+          console.log(`[Sync] Transient failure for ${req.path}, keeping in queue.`);
           remainingQueue.push(req);
         } else {
           // Permanent backend error — drop from queue to avoid infinite loop.

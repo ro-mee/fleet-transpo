@@ -134,6 +134,11 @@ export async function apiFetch(path, options = {}) {
         throw new ApiError("Network request failed. The queued request will be retried later.", 0);
       }
       const method = init.method || 'GET';
+      // Auth requests are interactive: replaying a queued login minutes later
+      // is never what the user wanted (and hammers the rate limiter).
+      if (path.startsWith('/api/mobile/auth/')) {
+        throw new ApiError("Network request failed. Check your connection.", 0);
+      }
       if (['POST', 'PUT', 'DELETE'].includes(method.toUpperCase())) {
         let parsedBody = undefined;
         try {
