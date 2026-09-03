@@ -1,4 +1,5 @@
 import { Tabs, useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../../lib/theme-context";
 import { useAuth } from "../../../lib/auth";
 import { fonts } from "../../../lib/theme";
@@ -10,6 +11,11 @@ export default function TabsLayout() {
   const { colors } = useTheme();
   const { user } = useAuth();
   const router = useRouter();
+  // Edge-to-edge (forced on Android in SDK 53+): the app draws behind the
+  // system 3-button nav bar / gesture bar. A custom tabBarStyle overrides the
+  // tab bar's automatic safe-area padding, so the bottom inset must be added
+  // manually or the tab bar sits under the system nav buttons.
+  const insets = useSafeAreaInsets();
 
   return (
     <>
@@ -20,8 +26,8 @@ export default function TabsLayout() {
           backgroundColor: colors.surface,
           borderTopWidth: 1,
           borderTopColor: colors.outlineVariant,
-          height: 72,
-          paddingBottom: 10,
+          height: 72 + insets.bottom,
+          paddingBottom: 10 + insets.bottom,
           paddingTop: 10,
           paddingHorizontal: 8,
           shadowColor: "#000",
