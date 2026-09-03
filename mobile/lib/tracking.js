@@ -1,86 +1,105 @@
 import { useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
 import * as Location from "expo-location";
 import { api } from "./api";
 import { useSettings } from "./settings-context";
+import { getActiveStatuses } from "./tripRef";
 
 const POST_INTERVAL_MS = 30 * 1000;
+// How often the poster re-checks which trip is active, so a trip accepted or
+// completed on another screen is picked up without any screen coordination.
+const TRIP_REFRESH_MS = 60 * 1000;
 
+// ── Poster status pub/sub ──────────────────────────────────────────────────
+// The poster is mounted once at the (app) layout level; screens subscribe to
+// this to render their tracking chip without each owning a poster.
+let posterStatus = { lastSentAt: null, error: null };
+const statusListeners = new Set();
+
+function publishStatus(patch) {
+  posterStatus = { ...posterStatus, ...patch };
+  statusListeners.forEach((l) => l(posterStatus));
+}
+
+export function usePosterStatus() {
+  const [status, setStatus] = useState(posterStatus);
+  useEffect(() => {
+    statusListeners.add(setStatus);
+    return () => statusListeners.delete(setStatus);
+  }, []);
+  return status;
+}
+
+// ── The single GPS poster ──────────────────────────────────────────────────
 /**
- * Posts the driver's location to the active trip every 30 seconds.
+ * Posts the driver's location to the active trip every 30 seconds while the
+ * app is foregrounded.
  *
- * Foreground only. expo-location's watchPositionAsync stops firing when the app
- * is backgrounded, and background updates need a dev build plus Play Store
- * review, so that is deliberately out of scope for this MVP — the driver's
- * position stops updating when they leave the app.
+ * Mounted ONCE, in the (app) layout — screens never post. Previously each
+ * screen had its own poster: the tab screens stay mounted after being visited,
+ * so three visited tabs meant up to 3 duplicate GPS rows per 30 seconds, and
+ * any screen pushed on top of the tabs meant zero posts. One owner fixes both.
  *
- * @param {number | null} tripId  active trip, or null to stop tracking
+ * The background task (lib/background-tracking.js) covers the app being
+ * backgrounded; this hook skips its tick while the app is not active.
+ *
+ * @param {boolean} enabled  false until the driver is signed in and consented
  */
-export function useTripTracking(tripId) {
+export function useActiveTripGpsPoster(enabled) {
   const { settings } = useSettings();
-  const [posting, setPosting] = useState(false);
-  const [lastSentAt, setLastSentAt] = useState(null);
-  const [error, setError] = useState(null);
-  const [latestFix, setLatestFix] = useState(null);
-
-  // Held in a ref so the interval callback always sees the latest fix without
-  // being torn down and recreated on every position update.
-  const latest = useRef(null);
 
   useEffect(() => {
-    latest.current = null;
-    if (!tripId || !settings.locationTracking) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- settings/tripId-driven reset; mirrors external state into hook state
-      setPosting(false);
-      setLatestFix(null);
-      if (!settings.locationTracking && tripId) {
-        setError("Location tracking disabled in Settings.");
-      }
-      return;
-    }
+    if (!enabled || !settings.locationTracking) return;
 
-    let subscription = null;
-    let interval = null;
     let cancelled = false;
+    let interval = null;
+    let tripId = null;
+    let lastTripFetch = 0;
+
+    publishStatus({ error: null });
 
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (cancelled) return;
-
       if (status !== "granted") {
-        setError(
-          "Location is off. Turn it on in Settings so dispatch can see your trip."
-        );
-        setPosting(false);
+        publishStatus({
+          error: "Location is off. Turn it on in Settings so dispatch can see your trip.",
+        });
         return;
       }
 
-      setError(null);
-      setPosting(true);
-
-      subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
-        (loc) => {
-          if (cancelled) return;
-          latest.current = loc;
-          if (!cancelled) {
-            setLatestFix({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-            });
-          }
-        }
-      );
-      if (cancelled) {
-        subscription.remove();
-        return;
-      }
-
-      // Send on a timer rather than on every movement callback, so a driver in
-      // traffic doesn't generate hundreds of rows.
-      interval = setInterval(async () => {
-        const loc = latest.current;
-        if (!loc) return;
+      const findActiveTrip = async () => {
         try {
+          const [trips, activeStatuses] = await Promise.all([
+            api.get("/api/mobile/driver/trips"),
+            getActiveStatuses(),
+          ]);
+          if (cancelled) return;
+          const active = (Array.isArray(trips) ? trips : []).find((t) =>
+            activeStatuses.includes(t.trip_status)
+          );
+          // A completed/cancelled trip is left in place: the server drops
+          // posts to non-live trips, and the next refresh replaces it.
+          tripId = active?.trip_id ?? null;
+        } catch {
+          // Keep the previous tripId; the next tick retries.
+        }
+      };
+
+      const tick = async () => {
+        if (cancelled || AppState.currentState.match(/background|inactive/)) return;
+        const now = Date.now();
+        if (now - lastTripFetch >= TRIP_REFRESH_MS) {
+          lastTripFetch = now;
+          await findActiveTrip();
+        }
+        if (!tripId) return;
+        try {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          if (cancelled) return;
           await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
@@ -90,33 +109,107 @@ export function useTripTracking(tripId) {
             accuracy: loc.coords.accuracy ?? null,
             recorded_at: new Date(loc.timestamp).toISOString(),
           });
-          if (!cancelled) {
-            setLastSentAt(new Date());
-            setError(null);
-          }
-        } catch (e) {
+          if (!cancelled) publishStatus({ lastSentAt: new Date().toISOString(), error: null });
+        } catch {
           // A dropped post is not worth interrupting the driver over; the next
-          // tick retries. Only surface it so the card can show it is stale.
-          if (!cancelled) setError("Location not sent. Retrying.");
+          // tick retries. Only surface it so the chip can show it is stale.
+          if (!cancelled) publishStatus({ error: "Location not sent. Retrying." });
         }
-      }, POST_INTERVAL_MS);
-    })().catch((e) => {
+      };
+
+      await tick();
+      if (cancelled) return;
+      interval = setInterval(tick, POST_INTERVAL_MS);
+    })().catch(() => {
       if (!cancelled) {
-        setPosting(false);
-        setError("Current location is unavailable. Turn on Location services to resume tracking.");
+        publishStatus({ error: "Current location is unavailable. Turn on Location services to resume tracking." });
       }
-      console.warn("Location tracking unavailable:", e.message);
     });
 
     return () => {
       cancelled = true;
       if (interval) clearInterval(interval);
+    };
+  }, [enabled, settings.locationTracking]);
+}
+
+// ── Screen-side display hook ───────────────────────────────────────────────
+/**
+ * Watch-only companion for screens: streams the driver's position for local
+ * UI (Vehicle's live marker, Home's tracking chip) and mirrors the global
+ * poster's last-sent/error status. Never posts — the poster owns that.
+ *
+ * Focus-gated: the tab screens stay mounted after being visited, so an
+ * unfocused tab doesn't keep a second position watcher running for UI nobody
+ * is looking at.
+ *
+ * @param {number | null} tripId  active trip, or null to stop watching
+ */
+export function useTripTracking(tripId) {
+  const { settings } = useSettings();
+  const focused = useIsFocused();
+  const poster = usePosterStatus();
+  const [watching, setWatching] = useState(false);
+  const [localError, setLocalError] = useState(null);
+  const [latestFix, setLatestFix] = useState(null);
+
+  useEffect(() => {
+    setLatestFix(null);
+    if (!tripId || !settings.locationTracking) {
+      setWatching(false);
+      if (!settings.locationTracking && tripId) {
+        setLocalError("Location tracking disabled in Settings.");
+      } else {
+        setLocalError(null);
+      }
+      return;
+    }
+    if (!focused) {
+      setWatching(false);
+      return;
+    }
+
+    let subscription = null;
+    let cancelled = false;
+
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (cancelled) return;
+      if (status !== "granted") {
+        setWatching(false);
+        return;
+      }
+
+      setLocalError(null);
+      setWatching(true);
+
+      subscription = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.Balanced, distanceInterval: 10 },
+        (loc) => {
+          if (cancelled) return;
+          setLatestFix({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+        }
+      );
+      if (cancelled) subscription.remove();
+    })().catch(() => {
+      if (!cancelled) setWatching(false);
+    });
+
+    return () => {
+      cancelled = true;
       if (subscription) subscription.remove();
-      latest.current = null;
-      setPosting(false);
+      setWatching(false);
       setLatestFix(null);
     };
-  }, [tripId, settings.locationTracking]);
+  }, [tripId, settings.locationTracking, focused]);
 
-  return { posting, lastSentAt, error, latestFix };
+  return {
+    posting: watching,
+    lastSentAt: poster.lastSentAt,
+    error: localError || poster.error,
+    latestFix,
+  };
 }

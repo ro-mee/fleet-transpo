@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { useAuth } from "../../lib/auth";
 import { isDriverSession } from "../../lib/rbac";
+import { useActiveTripGpsPoster } from "../../lib/tracking";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
 import { useTheme } from "../../lib/theme-context";
 import { NotificationFeedProvider } from "../../context/notification-feed";
@@ -26,6 +27,13 @@ export default function AppLayout() {
   const { colors } = useTheme();
   const [consentVersion, setConsentVersion] = useState(null);
   const [consentLoading, setConsentLoading] = useState(true);
+
+  const consented = consentVersion === CURRENT_PRIVACY_POLICY_VERSION;
+
+  // The single GPS poster for the whole app (see lib/tracking.js). Runs only
+  // once the driver is signed in and consented — live location is personal
+  // data, so nothing posts while parked on the consent screen.
+  useActiveTripGpsPoster(Boolean(user) && isDriverSession(user) && consented);
 
   // Read the locally-accepted policy version. A signed-in driver is remembered
   // so returning drivers are not re-prompted; the version constant lives beside
@@ -56,7 +64,6 @@ export default function AppLayout() {
     return <Redirect href="/login" />;
   }
 
-const consented = consentVersion === CURRENT_PRIVACY_POLICY_VERSION;
   if (!consented) {
     return <Redirect href="/consent" />;
   }
