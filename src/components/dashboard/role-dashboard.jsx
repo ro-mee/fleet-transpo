@@ -97,13 +97,30 @@ function formatDateTime(value) {
     : `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${formatTime(value)}`;
 }
 
+function LivePulseBeacon({ status = "primary" }) {
+  const colors = {
+    primary: "bg-primary",
+    success: "bg-success",
+    warning: "bg-warning",
+    danger: "bg-danger",
+    info: "bg-info",
+  };
+  const colorClass = colors[status] || colors.primary;
+  return (
+    <span className="relative flex h-2.5 w-2.5 shrink-0">
+      <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-75", colorClass)}></span>
+      <span className={cn("relative inline-flex h-2.5 w-2.5 rounded-full", colorClass)}></span>
+    </span>
+  );
+}
+
 function Panel({ title, description, action, className, children }) {
   return (
-    <Card className={cn("overflow-hidden rounded-2xl border-border/80", className)}>
-      <CardHeader className="gap-1 border-b border-border/70 p-5">
+    <Card className={cn("overflow-hidden rounded-2xl border-border/70 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] bg-surface", className)}>
+      <CardHeader className="gap-1 border-b border-border/60 p-5 bg-hover/30">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <CardTitle className="text-base">{title}</CardTitle>
+            <CardTitle className="text-[15px] font-semibold text-foreground tracking-tight">{title}</CardTitle>
             {description && <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">{description}</p>}
           </div>
           {action}
@@ -144,30 +161,35 @@ function FeedState({ queries, errorTitle = "This data is unavailable", children 
   return children;
 }
 
-function Row({ icon: Icon, title, detail, meta, status, entity, href }) {
+function Row({ icon: Icon, title, detail, meta, status, entity, href, pulse }) {
   const content = (
     <>
       {Icon && (
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-hover text-foreground-secondary">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-hover border border-border/50 text-foreground-secondary shadow-sm transition-colors group-hover:bg-surface group-hover:border-border">
           <Icon className="h-4 w-4" />
         </span>
       )}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{title}</p>
-        {detail && <p className="mt-0.5 truncate text-xs text-foreground-secondary">{detail}</p>}
+      <div className="min-w-0 flex-1 py-1">
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-[15px] font-semibold text-foreground tracking-tight leading-snug line-clamp-2">{title}</p>
+          {meta && <span className="shrink-0 text-[11.5px] font-medium tabular-nums text-foreground-muted mt-0.5">{meta}</span>}
+        </div>
+        <div className="flex items-center gap-2 mt-1.5">
+          {status && <StatusBadge status={status} entity={entity} className="shrink-0" />}
+          {detail && <p className="text-[13px] text-foreground-secondary leading-snug truncate">{detail}</p>}
+        </div>
       </div>
-      {status && <StatusBadge status={status} entity={entity} className="shrink-0" />}
-      {meta && <span className="shrink-0 text-xs tabular-nums text-foreground-muted">{meta}</span>}
-      {href && <ArrowRight className="h-4 w-4 shrink-0 text-foreground-muted" />}
+      {pulse && <LivePulseBeacon status={pulse} />}
+      {href && <ArrowRight className="h-4 w-4 shrink-0 text-foreground-muted group-hover:text-foreground group-hover:translate-x-0.5 transition-all ml-1" />}
     </>
   );
-  const classes = "flex min-h-16 items-center gap-3 px-5 py-3 transition-colors";
+  const classes = "group flex min-h-16 items-center gap-3 px-5 py-3 transition-colors";
   return href ? (
-    <Link href={href} className={cn(classes, "hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
+    <Link href={href} className={cn(classes, "hover:bg-hover/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary")}>
       {content}
     </Link>
   ) : (
-    <div className={classes}>{content}</div>
+    <div className={cn(classes, "hover:bg-hover/40")}>{content}</div>
   );
 }
 
@@ -176,16 +198,49 @@ function StatusBars({ rows }) {
   return (
     <div className="space-y-4 p-5">
       {rows.map((row) => (
-        <div key={row.label}>
+        <div key={row.label} className="group">
           <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
-            <span className="font-medium text-foreground-secondary">{row.label}</span>
-            <span className="tabular-nums text-foreground">{row.value}</span>
+            <span className="font-semibold text-foreground-secondary group-hover:text-foreground transition-colors">{row.label}</span>
+            <span className="tabular-nums font-semibold text-foreground">{row.value}</span>
           </div>
-          <div className="h-2 overflow-hidden rounded-full bg-hover">
-            <div className={cn("h-full rounded-full", row.color || "bg-primary")} style={{ width: `${Number(row.value) ? Math.max(3, (Number(row.value) / max) * 100) : 0}%` }} />
+          <div className="h-2.5 overflow-hidden rounded-full bg-hover ring-1 ring-inset ring-border/50 shadow-inner">
+            <div className={cn("h-full rounded-full transition-all duration-700 ease-out", row.color || "bg-primary")} style={{ width: `${Number(row.value) ? Math.max(3, (Number(row.value) / max) * 100) : 0}%` }} />
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function DistributionMeter({ items }) {
+  const total = Math.max(1, items.reduce((sum, item) => sum + (Number(item.value) || 0), 0));
+  return (
+    <div className="space-y-5 p-5">
+      <div className="flex h-3 w-full overflow-hidden rounded-full ring-1 ring-inset ring-border/50 shadow-inner bg-hover/50">
+        {items.map((item) => {
+          const val = Number(item.value) || 0;
+          if (val === 0) return null;
+          return (
+            <div
+              key={item.label}
+              className={cn("h-full transition-all duration-700 ease-out border-r border-surface/20 last:border-r-0", item.color)}
+              style={{ width: `${(val / total) * 100}%` }}
+              title={`${item.label}: ${val}`}
+            />
+          );
+        })}
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="group flex items-center justify-between gap-3 text-[13px]">
+            <div className="flex items-center gap-2">
+              <span className={cn("h-2.5 w-2.5 rounded-full ring-1 ring-inset ring-border/20 shadow-sm transition-transform group-hover:scale-110", item.color)} />
+              <span className="font-semibold tracking-tight text-foreground-secondary group-hover:text-foreground transition-colors">{item.label}</span>
+            </div>
+            <span className="tabular-nums font-bold text-foreground">{item.value}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -197,11 +252,11 @@ function LinkRail({ items }) {
         <Link
           key={href}
           href={href}
-          className="group flex min-h-14 items-center gap-3 rounded-2xl border border-border/80 bg-surface px-4 text-sm font-semibold text-foreground shadow-xs transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+          className="group flex min-h-14 items-center gap-3 rounded-[14px] border border-border/70 bg-surface px-4 text-sm font-semibold text-foreground tracking-tight shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all hover:bg-hover/80 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
-          <Icon className="h-4 w-4 text-primary" />
+          <Icon className="h-4 w-4 text-primary group-hover:scale-110 transition-transform" />
           <span className="flex-1">{label}</span>
-          <ArrowRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:translate-x-0.5" />
+          <ArrowRight className="h-4 w-4 text-foreground-muted transition-transform group-hover:text-foreground group-hover:translate-x-0.5" />
         </Link>
       ))}
     </nav>
@@ -247,9 +302,10 @@ function SystemAdminDashboard({ queries }) {
       ]} />
 
       {(failedJobs > 0 || unread > 0) && (
-        <div className="flex flex-col gap-3 rounded-2xl bg-danger-bg px-5 py-4 text-danger-700 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-3 rounded-[14px] bg-danger-bg px-5 py-4 text-danger-700 sm:flex-row sm:items-center border border-danger/20 shadow-sm relative overflow-hidden">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-danger"></div>
           <AlertTriangle className="h-5 w-5 shrink-0" />
-          <p className="flex-1 text-sm font-medium">
+          <p className="flex-1 text-[13px] font-medium tracking-tight">
             {failedJobs > 0 ? `${failedJobs} integration or automation failure${failedJobs === 1 ? "" : "s"} in the last 24 hours.` : ""}
             {failedJobs > 0 && unread > 0 ? " " : ""}
             {unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"} need review.` : ""}
@@ -272,6 +328,7 @@ function SystemAdminDashboard({ queries }) {
               {activity.recent.slice(0, 8).map((item) => {
                 const eventStatus = String(item.status || "").toLowerCase();
                 const health = eventStatus === "failed" ? "Critical" : ["processed", "success"].includes(eventStatus) ? "Healthy" : "Medium";
+                const needsPulse = health === "Critical";
                 return (
                 <Row
                   key={`${item.source}-${item.id}`}
@@ -281,6 +338,7 @@ function SystemAdminDashboard({ queries }) {
                   meta={formatDateTime(item.created_at)}
                   status={health}
                   entity="risk"
+                  pulse={needsPulse ? "danger" : undefined}
                 />
               );})}
             </div>
@@ -364,14 +422,23 @@ function AdminDashboard({ queries }) {
         { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
       ]} />
 
-      <Panel title="Operational attention" description="Exceptions that may block service, ordered by current volume." action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-        <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0">
-          {attention.map((item) => (
-            <Link key={item.label} href={item.href} className="flex items-center gap-3 p-4 transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
-              <item.icon className={cn("h-4 w-4 shrink-0", item.value === "—" ? "text-foreground-muted" : item.value ? "text-danger" : "text-success")} />
-              <div><p className="text-xl font-semibold tabular-nums text-foreground">{item.value}</p><p className="text-[11px] leading-snug text-foreground-secondary">{item.label}</p></div>
-            </Link>
-          ))}
+      <Panel title="Operational attention" description="Exceptions that may block service, ordered by current volume." action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>} className="border-danger/20 ring-1 ring-danger/10">
+        <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0 bg-danger/5">
+          {attention.map((item) => {
+            const hasIssues = item.value !== "—" && item.value > 0;
+            return (
+              <Link key={item.label} href={item.href} className="group flex flex-col items-center justify-center gap-2 p-5 transition-all hover:bg-hover/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+                <div className="relative">
+                  <item.icon className={cn("h-5 w-5 transition-transform group-hover:scale-110", item.value === "—" ? "text-foreground-muted" : hasIssues ? "text-danger" : "text-success")} />
+                  {hasIssues && <span className="absolute -top-1 -right-1 flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-danger opacity-75"></span><span className="relative inline-flex h-2 w-2 rounded-full bg-danger"></span></span>}
+                </div>
+                <div className="text-center">
+                  <p className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{item.value}</p>
+                  <p className="mt-1 text-[11px] font-medium leading-snug text-foreground-secondary">{item.label}</p>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </Panel>
 
@@ -384,19 +451,19 @@ function AdminDashboard({ queries }) {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Fleet health" description="Current vehicle statuses; this is an operational overview, not a dispatch eligibility check." action={<Link href="/fleet/vehicles" className={linkClass}>Fleet register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.vehicles} errorTitle="Fleet health is unavailable"><StatusBars rows={[
+          <FeedState queries={queries.vehicles} errorTitle="Fleet health is unavailable"><DistributionMeter items={[
             { label: "Available", value: vehicleCounts.Available || 0, color: "bg-success" },
             { label: "Reserved", value: vehicleCounts.Reserved || 0, color: "bg-info" },
             { label: "In use", value: vehicleCounts["In Use"] || 0, color: "bg-primary" },
-            { label: "Under maintenance", value: vehicleCounts["Under Maintenance"] || 0, color: "bg-warning" },
+            { label: "Under maint.", value: vehicleCounts["Under Maintenance"] || 0, color: "bg-warning" },
             { label: "Decommissioned", value: vehicleCounts.Decommissioned || 0, color: "bg-danger" },
           ]} /></FeedState>
         </Panel>
         <Panel title="Workforce coverage" description="Driver status across the whole operation." action={<Link href="/drivers" className={linkClass}>Driver roster <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.driverStats} errorTitle="Driver coverage is unavailable"><StatusBars rows={[
+          <FeedState queries={queries.driverStats} errorTitle="Driver coverage is unavailable"><DistributionMeter items={[
             { label: "Available", value: drivers.available || 0, color: "bg-success" },
             { label: "On trip", value: drivers.onTrip || 0, color: "bg-primary" },
-            { label: "Off duty", value: drivers.offDuty || 0, color: "bg-foreground-muted" },
+            { label: "Off duty", value: drivers.offDuty || 0, color: "bg-border" },
             { label: "On leave", value: drivers.onLeave || 0, color: "bg-info" },
             { label: "Suspended", value: drivers.suspended || 0, color: "bg-danger" },
           ]} /></FeedState>
@@ -491,22 +558,30 @@ function FleetManagerDashboard({ queries }) {
         <StatCard icon={FileWarning} label="Compliance due ≤30d" value={queries.documents.isLoading || queries.documents.isError ? "—" : Number(documents.totals?.expired || 0) + Number(documents.totals?.expiring30 || 0)} trend="Expired and near-expiry documents" tone="danger" />
       </StatGrid>
 
-        <Panel title="Driver–vehicle coverage" description="Designated pairings and today’s substitute coverage. Final eligibility remains window-aware at dispatch." action={<Link href="/fleet/assignments" className={linkClass}>Manage pairings <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+      <Panel title="Driver–vehicle coverage" description="Designated pairings and today’s substitute coverage. Final eligibility remains window-aware at dispatch." action={<Link href="/fleet/assignments" className={linkClass}>Manage pairings <ArrowRight className="h-3.5 w-3.5" /></Link>}>
         <FeedState queries={[queries.vehicles, queries.drivers, queries.assignments, queries.substitutes]} errorTitle="Driver–vehicle coverage is unavailable">{pairRows.length ? (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[720px] text-left text-sm">
-              <thead className="bg-hover text-xs text-foreground-secondary">
-                <tr><th className="px-5 py-3 font-semibold">Vehicle</th><th className="px-5 py-3 font-semibold">Designated driver</th><th className="px-5 py-3 font-semibold">Driver status</th><th className="px-5 py-3 font-semibold">Today’s coverage</th></tr>
+            <table className="w-full min-w-[720px] text-left text-sm border-collapse">
+              <thead className="bg-hover/60 text-[11px] uppercase tracking-wider text-foreground-secondary border-b border-border/60">
+                <tr><th className="px-5 py-4 font-semibold">Vehicle</th><th className="px-5 py-4 font-semibold">Designated driver</th><th className="px-5 py-4 font-semibold">Driver status</th><th className="px-5 py-4 font-semibold">Today’s coverage</th></tr>
               </thead>
-              <tbody className="divide-y divide-border/70">
-                {pairRows.slice(0, 10).map(({ assignment, driver, vehicle, substitute, coverage }) => (
-                  <tr key={assignment.assignment_id} className="hover:bg-hover/60">
-                    <td className="px-5 py-3"><p className="font-medium text-foreground">{vehicle?.plate_number || assignment.plate_number || "Unrecorded plate"}</p><StatusBadge status={vehicle?.vehicle_status || assignment.vehicle_status || "Unknown"} entity="vehicle" className="mt-1" /></td>
-                    <td className="px-5 py-3 text-foreground">{[driver?.employees?.first_name || assignment.first_name, driver?.employees?.last_name || assignment.last_name].filter(Boolean).join(" ") || `Driver #${assignment.driver_id}`}</td>
-                    <td className="px-5 py-3"><StatusBadge status={driver?.driver_status || "Unknown"} entity="driver" /></td>
-                    <td className="px-5 py-3"><StatusBadge status={coverage === "Current pair" || coverage === "Substitute covering" ? "Healthy" : coverage === "Vehicle blocked" ? "Critical" : "High"} entity="risk" /><p className="mt-1 text-xs text-foreground-secondary">{substitute ? `Covered by ${[substitute.employees?.first_name, substitute.employees?.last_name].filter(Boolean).join(" ") || `driver #${substitute.driver_id}`}` : coverage}</p></td>
+              <tbody className="divide-y divide-border/40">
+                {pairRows.slice(0, 10).map(({ assignment, driver, vehicle, substitute, coverage }) => {
+                  const hasIssue = coverage !== "Current pair" && coverage !== "Substitute covering";
+                  return (
+                  <tr key={assignment.assignment_id} className="group hover:bg-hover/40 transition-colors">
+                    <td className="px-5 py-4"><p className="font-semibold tabular-nums text-foreground">{vehicle?.plate_number || assignment.plate_number || "Unrecorded plate"}</p><StatusBadge status={vehicle?.vehicle_status || assignment.vehicle_status || "Unknown"} entity="vehicle" className="mt-1" /></td>
+                    <td className="px-5 py-4 font-medium text-foreground">{[driver?.employees?.first_name || assignment.first_name, driver?.employees?.last_name || assignment.last_name].filter(Boolean).join(" ") || `Driver #${assignment.driver_id}`}</td>
+                    <td className="px-5 py-4"><StatusBadge status={driver?.driver_status || "Unknown"} entity="driver" /></td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2">
+                        {hasIssue && <LivePulseBeacon status={coverage === "Vehicle blocked" ? "danger" : "warning"} />}
+                        <StatusBadge status={coverage === "Current pair" || coverage === "Substitute covering" ? "Healthy" : coverage === "Vehicle blocked" ? "Critical" : "High"} entity="risk" />
+                      </div>
+                      <p className="mt-1.5 text-xs text-foreground-secondary">{substitute ? `Covered by ${[substitute.employees?.first_name, substitute.employees?.last_name].filter(Boolean).join(" ") || `driver #${substitute.driver_id}`}` : coverage}</p>
+                    </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
@@ -523,9 +598,9 @@ function FleetManagerDashboard({ queries }) {
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        <Panel title="Document compliance" description="All expired and near-expiry records."><FeedState queries={queries.documents} errorTitle="Document compliance is unavailable"><StatusBars rows={[{ label: "Expired", value: documents.totals?.expired || 0, color: "bg-danger" }, { label: "Due in 30 days", value: documents.totals?.expiring30 || 0, color: "bg-warning" }, { label: "Due in 31–90 days", value: documents.totals?.expiring90 || 0, color: "bg-info" }]} /></FeedState></Panel>
-        <Panel title="Workforce exceptions" description="Approved leave and substitute coverage today."><FeedState queries={[queries.leave, queries.substitutes]} errorTitle="Workforce exceptions are unavailable"><StatusBars rows={[{ label: "Approved leave", value: approvedLeave, color: "bg-warning" }, { label: "Substitute schedules", value: substitutes.length, color: "bg-info" }, { label: "Uncovered pairings", value: pairRows.length - readyPairs, color: "bg-danger" }]} /></FeedState></Panel>
-        <Panel title="Fuel request status" description="Current request workflow volume."><FeedState queries={queries.fuelRequests} errorTitle="Fuel request status is unavailable"><StatusBars rows={[{ label: "Pending", value: fuel.counts?.pending || 0, color: "bg-warning" }, { label: "Approved", value: fuel.counts?.approved || 0, color: "bg-info" }, { label: "Fulfilled", value: fuel.counts?.fulfilled || 0, color: "bg-success" }]} /></FeedState></Panel>
+        <Panel title="Document compliance" description="All expired and near-expiry records."><FeedState queries={queries.documents} errorTitle="Document compliance is unavailable"><DistributionMeter items={[{ label: "Expired", value: documents.totals?.expired || 0, color: "bg-danger" }, { label: "Due in 30 days", value: documents.totals?.expiring30 || 0, color: "bg-warning" }, { label: "Due in 31–90 days", value: documents.totals?.expiring90 || 0, color: "bg-info" }]} /></FeedState></Panel>
+        <Panel title="Workforce exceptions" description="Approved leave and substitute coverage today."><FeedState queries={[queries.leave, queries.substitutes]} errorTitle="Workforce exceptions are unavailable"><DistributionMeter items={[{ label: "Approved leave", value: approvedLeave, color: "bg-warning" }, { label: "Substitute schedules", value: substitutes.length, color: "bg-info" }, { label: "Uncovered pairings", value: pairRows.length - readyPairs, color: "bg-danger" }]} /></FeedState></Panel>
+        <Panel title="Fuel request status" description="Current request workflow volume."><FeedState queries={queries.fuelRequests} errorTitle="Fuel request status is unavailable"><DistributionMeter items={[{ label: "Pending", value: fuel.counts?.pending || 0, color: "bg-warning" }, { label: "Approved", value: fuel.counts?.approved || 0, color: "bg-info" }, { label: "Fulfilled", value: fuel.counts?.fulfilled || 0, color: "bg-success" }]} /></FeedState></Panel>
       </div>
 
       <LinkRail items={[
@@ -538,7 +613,7 @@ function FleetManagerDashboard({ queries }) {
   );
 }
 
-function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
+function DispatcherDashboard({ queries, queueGroups }) {
   const requests = queries.reservations.data || [];
   const dispatches = queries.dispatches.data || {};
   const vehicles = queries.vehicles.data || [];
@@ -552,7 +627,6 @@ function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
   const activeTrips = dispatches.inProgress || [];
   const pendingReassignment = dispatches.pendingReassignment || [];
   const availableVehicles = vehicles.filter((vehicle) => vehicle.vehicle_status === "Available").length;
-  const recommended = recommendationQuery.data?.pair?.recommended;
 
   if (queries.reservations.isLoading || queries.dispatches.isLoading) return <LoadingDashboard />;
 
@@ -564,7 +638,6 @@ function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
         { query: queries.vehicles, title: "Vehicle status could not be loaded" },
         { query: queries.driverStats, title: "Driver status could not be loaded" },
         { query: queries.locations, title: "Live GPS positions could not be loaded" },
-        { query: recommendationQuery, title: "Smart Dispatch could not build a recommendation", description: "Open the request to retry the current, window-aware pairing check." },
       ]} />
 
       {pendingReassignment.length > 0 && (
@@ -583,12 +656,12 @@ function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(18rem,0.7fr)]">
         <Panel title="Priority transportation queue" description="Overdue first, then Critical → High → Medium → Normal → Future; ties use the earliest pickup." action={<Link href="/reservations/queue" className={linkClass}>Open queue <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.reservations} errorTitle="The priority queue is unavailable">{queue.length ? (
-            <div className="divide-y divide-border/70">
+            <div className="divide-y divide-border/40">
               {queue.map((request) => (
-                <Link key={request.request_id} href={`/reservations/${request.request_id}`} className="grid gap-3 px-5 py-4 transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:grid-cols-[7rem_minmax(0,1fr)_auto] sm:items-center">
-                  <div><p className="text-sm font-semibold tabular-nums text-foreground">{formatTime(request.pickup_datetime)}</p><p className="text-[11px] text-foreground-muted">{formatDateTime(request.pickup_datetime).split(" · ")[0]}</p></div>
-                  <div className="min-w-0"><p className="truncate text-sm font-medium text-foreground">{request.guest_name || request.reservation_number || `Request #${request.request_id}`}</p><p className="mt-0.5 truncate text-xs text-foreground-secondary">{request.pickup_location || "Pickup unrecorded"} → {request.dropoff_location || "Destination unrecorded"}</p></div>
-                  <div className="flex items-center gap-2"><StatusBadge status={request.derived_priority || "Future"} entity="priority" />{(request.is_vip || request.is_emergency) && <StatusBadge severity="danger">{request.is_emergency ? "Emergency" : "VIP"}</StatusBadge>}<ArrowRight className="h-4 w-4 text-foreground-muted" /></div>
+                <Link key={request.request_id} href={`/reservations/${request.request_id}`} className="group grid gap-4 px-5 py-4 transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary sm:grid-cols-[5rem_minmax(0,1fr)_auto] sm:items-center">
+                  <div><p className="text-[15px] font-semibold tabular-nums text-foreground tracking-tight">{formatTime(request.pickup_datetime)}</p><p className="mt-0.5 text-xs text-foreground-secondary">{formatDateTime(request.pickup_datetime).split(" · ")[0]}</p></div>
+                  <div className="min-w-0 py-1"><p className="text-[15px] font-semibold text-foreground tracking-tight leading-snug line-clamp-2">{request.guest_name || request.reservation_number || `Request #${request.request_id}`}</p><p className="mt-0.5 text-[13px] text-foreground-secondary leading-snug line-clamp-2">{request.pickup_location || "Pickup unrecorded"} → {request.dropoff_location || "Destination unrecorded"}</p></div>
+                  <div className="flex items-center gap-2"><StatusBadge status={request.derived_priority || "Future"} entity="priority" />{(request.is_vip || request.is_emergency) && <StatusBadge severity="danger">{request.is_emergency ? "Emergency" : "VIP"}</StatusBadge>}<ArrowRight className="h-5 w-5 ml-1 text-foreground-muted transition-transform group-hover:text-foreground group-hover:translate-x-0.5" /></div>
                 </Link>
               ))}
             </div>
@@ -600,26 +673,13 @@ function DispatcherDashboard({ queries, recommendationQuery, queueGroups }) {
         </Panel>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(20rem,0.75fr)]">
-        <Panel title="Trips in motion" description="Current assignment, route and latest GPS freshness from the dispatch feed." action={<Link href="/trips" className={linkClass}>Trips hub <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.dispatches} errorTitle="Active trips are unavailable">{activeTrips.length ? <div className="divide-y divide-border/70">{activeTrips.slice(0, 6).map((dispatch) => {
-            const driverName = [dispatch.drivers?.first_name, dispatch.drivers?.last_name].filter(Boolean).join(" ") || "Driver unrecorded";
-            const route = dispatch.transportation_requests;
-            return <Row key={dispatch.dispatch_id} icon={Navigation} title={`${dispatch.vehicles?.plate_number || "Vehicle unrecorded"} · ${driverName}`} detail={`${route?.pickup_location || dispatch.origin_location?.location_name || "Pickup unrecorded"} → ${route?.dropoff_location || dispatch.destination_location?.location_name || "Destination unrecorded"}`} meta={dispatch.latest_location?.recorded_at ? `GPS ${formatTime(dispatch.latest_location.recorded_at)}` : "No GPS"} status={dispatch.latest_trip?.trip_status || dispatch.status} entity={dispatch.latest_trip ? "trip" : "dispatch"} href={`/dispatch/${dispatch.dispatch_id}`} />;
-          })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here." />}</FeedState>
-        </Panel>
-
-        <Panel title="Smart Dispatch preview" description="A read-only, deterministic pairing for the first actionable request. A dispatcher still reviews and confirms it." action={queue[0] ? <Link href={`/reservations/${queue[0].request_id}`} className={linkClass}>Review request <ArrowRight className="h-3.5 w-3.5" /></Link> : null}>
-          {recommendationQuery.isError ? <div className="m-5 rounded-xl bg-danger-bg px-4 py-3 text-sm text-danger-700" role="alert">Smart Dispatch is unavailable. Use Retry in the alert above.</div> : recommendationQuery.isLoading ? <div className="p-5"><CardSkeleton /></div> : recommended ? (
-            <div className="space-y-4 p-5">
-              <div><p className="text-xs text-foreground-secondary">Vehicle</p><p className="mt-1 text-base font-semibold text-foreground">{recommended.vehicle?.plate_number || recommended.vehicle?.vehicle_name || "Not recommended"}</p></div>
-              <div><p className="text-xs text-foreground-secondary">Driver</p><p className="mt-1 text-base font-semibold text-foreground">{recommended.driver?.driver_name || "Not recommended"}</p></div>
-              {recommended.score != null && <div><p className="text-xs text-foreground-secondary">Pair score</p><p className="mt-1 text-2xl font-semibold tabular-nums text-foreground">{recommended.score}<span className="text-sm font-normal text-foreground-muted"> / 100</span></p></div>}
-              {(recommended.reasons || []).length > 0 && <p className="text-xs leading-relaxed text-foreground-secondary">{recommended.reasons.slice(0, 2).join(" · ")}</p>}
-            </div>
-          ) : <InlineEmpty icon={Brain} title={requests.length ? "No valid pair found" : "No request to score"} description={requests.length ? "Open the request to review blockers and current assignment-ready choices." : "A recommendation will appear when a request needs dispatch review."} />}
-        </Panel>
-      </div>
+      <Panel title="Trips in motion" description="Current assignment, route and latest GPS freshness from the dispatch feed." action={<Link href="/trips" className={linkClass}>Trips hub <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <FeedState queries={queries.dispatches} errorTitle="Active trips are unavailable">{activeTrips.length ? <div className="divide-y divide-border/70">{activeTrips.slice(0, 6).map((dispatch) => {
+          const driverName = [dispatch.drivers?.first_name, dispatch.drivers?.last_name].filter(Boolean).join(" ") || "Driver unrecorded";
+          const route = dispatch.transportation_requests;
+          return <Row key={dispatch.dispatch_id} icon={Navigation} title={`${dispatch.vehicles?.plate_number || "Vehicle unrecorded"} · ${driverName}`} detail={`${route?.pickup_location || dispatch.origin_location?.location_name || "Pickup unrecorded"} → ${route?.dropoff_location || dispatch.destination_location?.location_name || "Destination unrecorded"}`} meta={dispatch.latest_location?.recorded_at ? `GPS ${formatTime(dispatch.latest_location.recorded_at)}` : "No GPS"} status={dispatch.latest_trip?.trip_status || dispatch.status} entity={dispatch.latest_trip ? "trip" : "dispatch"} href={`/dispatch/${dispatch.dispatch_id}`} />;
+        })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here." />}</FeedState>
+      </Panel>
 
       <Panel title="Live operations map" description="Latest valid GPS positions for active fleet tracking." action={<Link href="/tracking/live-map" className={linkClass}>Full map <ArrowRight className="h-3.5 w-3.5" /></Link>}>
         <FeedState queries={queries.locations} errorTitle="Live GPS positions are unavailable">{validLocations.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} /></div> : <InlineEmpty icon={MapPin} title="No valid GPS positions" description="Map markers appear only when a valid latitude and longitude are recorded." />}</FeedState>
@@ -653,13 +713,6 @@ export function RoleDashboard({ role, employee }) {
   const fuelRequests = useQuery({ queryKey: ["fuel-requests"], queryFn: () => getFuelRequests(), enabled: enabled("fuelRequests") });
 
   const queueGroups = useMemo(() => groupQueue(reservations.data || []), [reservations.data]);
-  const recommendationRequest = queueGroups.today[0] || queueGroups.upcoming[0];
-  const recommendation = useQuery({
-    queryKey: ["dashboard-recommendation", recommendationRequest?.request_id],
-    queryFn: () => getRecommendation(recommendationRequest.request_id),
-    enabled: role === "dispatcher" && Boolean(recommendationRequest?.request_id),
-    staleTime: 30000,
-  });
 
   const queries = { users, sessions, notifications, audit, activity, vehicles, drivers, driverStats, reservations, dispatches, locations, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests };
 
@@ -675,7 +728,7 @@ export function RoleDashboard({ role, employee }) {
       {role === "system_admin" && <SystemAdminDashboard queries={queries} />}
       {role === "admin" && <AdminDashboard queries={queries} />}
       {role === "fleet_manager" && <FleetManagerDashboard queries={queries} />}
-      {role === "dispatcher" && <DispatcherDashboard queries={queries} recommendationQuery={recommendation} queueGroups={queueGroups} />}
+      {role === "dispatcher" && <DispatcherDashboard queries={queries} queueGroups={queueGroups} />}
     </div>
   );
 }
