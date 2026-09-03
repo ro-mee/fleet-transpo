@@ -231,14 +231,17 @@ export default function LoginPage() {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [sessionExpiredNotice] = useState(() => {
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
+  const { validate, fieldError, registerField } = useFormValidation(loginSchema);
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      return params.get("reason") === "expired";
+      if (params.get("reason") === "expired") {
+        setSessionExpiredNotice(true);
+      }
     }
-    return false;
-  });
-  const { validate, fieldError, registerField } = useFormValidation(loginSchema);
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

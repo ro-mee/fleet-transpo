@@ -133,7 +133,7 @@ export default function FleetFuelPage() {
                   </div>
                   <button 
                     onClick={() => setSelectedException(ex)}
-                    className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-bold rounded-lg hover:bg-primary/90"
+                    className="px-3 py-1.5 bg-primary text-surface text-xs font-bold rounded-lg hover:bg-primary/90"
                   >
                     Review
                   </button>

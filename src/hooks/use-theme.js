@@ -154,7 +154,7 @@ function setModeValue(next, source) {
     .then(() => {
       const animation = document.documentElement.animate(keyframes, {
         duration: 450,
-        easing: "cubic-bezier(0.25, 1, 0.5, 1)",
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
         pseudoElement,
         fill: "both",
       });

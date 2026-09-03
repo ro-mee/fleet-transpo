@@ -4,6 +4,7 @@ import { toCalendarDay } from "@/lib/dates";
 import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
 import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError, fuelTypeMismatch } from "@/lib/fuel/request-policy";
 import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
+import { authorizeCompanyCardForDriver } from "@/lib/auth/company-cards";
 
 /**
  * POST /api/mobile/fuel
@@ -25,6 +26,8 @@ const WRITABLE_COLUMNS = [
   "fuel_date",
   "receipt_url",
   "client_submission_id",
+  "payment_method",
+  "company_card_id",
 ];
 
 // Matches the tabs on the web review screen in src/app/(dashboard)/fuel/page.js.
@@ -65,6 +68,18 @@ export async function POST(req) {
       return err("amount must be a positive number", 400);
     }
     if (amount > 1000000) return err("amount exceeds the maximum allowed per fuel report", 400);
+
+    const VALID_PAYMENT_METHODS = ['Company Card', 'Cash', 'Personal Card', 'Other'];
+    if (body.payment_method && !VALID_PAYMENT_METHODS.includes(body.payment_method)) {
+      return err("Invalid payment method", 400);
+    }
+
+    if (body.payment_method === 'Company Card') {
+      if (!body.company_card_id) return err("company_card_id is required when payment method is Company Card", 400);
+    } else {
+      if (body.company_card_id) return err("company_card_id must be null for non-Company Card payments", 400);
+    }
+
     if (body.station_name !== undefined && String(body.station_name).length > 255) return err("station_name is too long", 400);
     const receiptFuelType = typeof body.receipt_fuel_type === "string" && body.receipt_fuel_type.trim()
       ? body.receipt_fuel_type.trim().slice(0, 50)
@@ -183,6 +198,16 @@ export async function POST(req) {
 
     const placeholders = columns.map((_, i) => `$${i + 1}`).join(", ");
     const record = await withTransaction(async (tx) => {
+      // Validate Company Card if applicable
+      if (body.payment_method === 'Company Card') {
+        await authorizeCompanyCardForDriver({
+          tx,
+          companyCardId: body.company_card_id,
+          employeeId: session.user.employeeId,
+          vehicleId: trip.vehicle_id
+        });
+      }
+
       const { rows: requests } = await tx.query(
         `SELECT * FROM fuelrequests
           WHERE fuel_request_id = $1 AND driver_id = $2 AND vehicle_id = $3

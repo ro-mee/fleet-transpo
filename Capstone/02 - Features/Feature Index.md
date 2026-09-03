@@ -31,6 +31,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Incidents | ✅ report→ground→resolve loop closed 2026-08-23 | [[Incidents]] |
 | Maintenance | ⚠ empty route dir; incident→emergency-repair path live | [[Maintenance]] |
 | Fuel | ⚠ Gemini scanner user-confirmed; post-change DB save pending | [[Fuel]] |
+| Travel Expenses | ⚪ built; requires audit workflow | [[Travel Expenses]] |
 | Routes registry | ✅ Canonical directional routes with location identities, post-use lock, and TomTom estimates | [[Routes]] |
 
 ## Cross-cutting
