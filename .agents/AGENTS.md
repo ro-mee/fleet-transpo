@@ -12,4 +12,6 @@ This repository contains an Obsidian vault in the `Capstone/` directory. This is
 When assisting with any coding tasks, architecture changes, or complex debugging, you MUST ALWAYS:
 1. **Search and read** the relevant markdown notes inside the `Capstone/` folder BEFORE you write an implementation plan or modify code.
 2. **Update** the relevant markdown notes inside the `Capstone/` folder AFTER you have successfully implemented the changes. Keep the documentation perfectly in sync with the codebase.
+
+3. **UPDATE** System.md
 <!-- END:obsidian-vault-rule -->
