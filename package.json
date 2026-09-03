@@ -50,6 +50,7 @@
     "date-fns": "^4.4.0",
     "exceljs": "^4.4.0",
     "framer-motion": "^12.42.2",
+    "geoip-lite": "^2.0.3",
     "jose": "^4.15.9",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",

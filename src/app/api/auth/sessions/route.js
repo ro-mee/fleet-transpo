@@ -8,7 +8,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export async function GET(req) {
   try {
     const session = await requireAuth(req, "*");
-    return ok({ sessions: await listEmployeeSessions(session.user.employeeId, session.user.sessionId) });
+    return ok({ sessions: await listEmployeeSessions(session.user.employeeId, session.user) });
   } catch (error) {
     return handleError(error);
   }

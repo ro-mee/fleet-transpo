@@ -282,6 +282,23 @@ export default function SettingsScreen() {
 
         </View>
 
+        {/* SECURITY SECTION */}
+        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>SECURITY</Text>
+        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+          <Pressable 
+            style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
+            onPress={() => router.push('/devices')}
+          >
+            <View style={styles.rowLeft}>
+              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
+                <Ionicons name="hardware-chip-outline" size={18} color={colors.onSurfaceVariant} />
+              </View>
+              <Text style={[type.bodyMd, { color: colors.onSurface }]}>Logged-in Devices</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
+          </Pressable>
+        </View>
+
         {/* PERMISSIONS SECTION */}
         <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>PERMISSIONS</Text>
         <View style={[styles.cluster, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>

@@ -29,6 +29,7 @@ const securityHeaders = [
 
 const nextConfig = {
   poweredByHeader: false,
+  serverExternalPackages: ["geoip-lite"],
   turbopack: {
     root: process.cwd(),
   },
