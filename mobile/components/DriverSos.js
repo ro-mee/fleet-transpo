@@ -126,7 +126,18 @@ export function DriverSos() {
           const location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
           latitude = location.coords.latitude;
           longitude = location.coords.longitude;
-          locationLabel = `https://maps.google.com/?q=${latitude},${longitude}`;
+          locationLabel = `${latitude},${longitude}`;
+          try {
+            const [address] = await Location.reverseGeocodeAsync({ latitude, longitude });
+            if (address) {
+              locationLabel =
+                [address.name, address.street || address.district, address.city, address.region]
+                  .filter(Boolean)
+                  .join(", ") || locationLabel;
+            }
+          } catch {
+            // Reverse geocoding is best-effort; the decimal pair above still resolves on the web.
+          }
         }
       } catch {
         // A critical report still needs to reach dispatch when GPS is denied
