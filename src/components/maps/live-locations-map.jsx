@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -8,7 +8,7 @@ import { getPublicKey, rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { getGpsHealth, isValidCoordinate, speedKmhFromMps } from "@/lib/gps";
 import { Button } from "@/components/ui/button";
-import { MapPin, Eye, Layers, ExternalLink, Navigation, Compass } from "lucide-react";
+import { MapPin, Eye, Layers, ExternalLink, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 // Map tile style options
@@ -30,16 +30,25 @@ const MAP_STYLES = {
   },
 };
 
+// Phase-coded trip colors: blue = pre-trip, amber = heading to pickup,
+// green = passenger on board / arrived. Every LIVE_TRIP_STATUSES value maps to
+// a visible color; the default is also non-gray so an unknown status never
+// renders as a hard-to-spot gray dot.
 const STATUS_COLOR = {
-  "En Route": CHART_COLORS.info,
+  Dispatched: CHART_COLORS.info,
+  "Driver Accepted": CHART_COLORS.info,
   "Trip Started": CHART_COLORS.warning,
-  "In Progress": CHART_COLORS.info,
+  "At Pickup": CHART_COLORS.warning,
+  "Passenger Onboard": CHART_COLORS.success,
+  "En Route": CHART_COLORS.success,
+  "In Progress": CHART_COLORS.success,
+  "Drop-off": CHART_COLORS.success,
   Arrived: CHART_COLORS.success,
   Idle: CHART_COLORS.danger,
   Available: CHART_COLORS.success,
   Assigned: CHART_COLORS.warning,
 };
-const DEFAULT_MARKER = CHART_COLORS.neutral;
+const DEFAULT_MARKER = CHART_COLORS.info;
 
 function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMapStyle, hasTomTomKey }) {
   return (
@@ -124,20 +133,19 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
   );
 }
 
-function MapViewport({ points, focusPoints = null, focusKey = "default" }) {
+function MapViewport({ points, focusPoints = null }) {
   const map = useMap();
-  const lastFocusKey = useRef(null);
-
+  // Always auto-fit: re-runs on every points/focusPoints change (each GPS poll
+  // produces a new array identity), keeping all pins centered in view.
   useEffect(() => {
-    if (!points.length || lastFocusKey.current === focusKey) return;
-    lastFocusKey.current = focusKey;
+    if (!points.length) return;
     const target = focusPoints?.length ? focusPoints : points;
     if (target.length === 1) {
       map.setView(target[0], Math.max(map.getZoom(), 14), { animate: false });
       return;
     }
     map.fitBounds(target, { padding: [48, 48], maxZoom: 15, animate: false });
-  }, [map, points, focusPoints, focusKey]);
+  }, [map, points, focusPoints]);
 
   return null;
 }
@@ -155,15 +163,10 @@ export default function LiveLocationsMap({
   selectedTripId = null,
   onSelectTrip = null,
   route = null,
-  routeDistanceKm = null,
-  routeTravelMin = null,
   traffic = true,
   waypoints = null,
   originName = "",
   destinationName = "",
-  instructions = [],
-  showNavigationPanel = false,
-  incidents = [],
 }) {
   const hasTomTomKey = Boolean(getPublicKey());
   const [trafficOn, setTrafficOn] = useState(traffic && hasTomTomKey);
@@ -254,25 +257,12 @@ export default function LiveLocationsMap({
     []
   );
 
-  const validIncidents = useMemo(
-    () =>
-      (incidents || []).filter(
-        (inc) => inc && (!inc.status || String(inc.status).toLowerCase() === "open") && isValidCoordinate(inc.latitude, inc.longitude)
-      ).map((incident) => ({
-        ...incident,
-        _lat: Number(incident.latitude),
-        _lng: Number(incident.longitude),
-      })),
-    [incidents]
-  );
-
   const viewportPoints = useMemo(() => [
     ...valid.map((location) => [location._lat, location._lng]),
     ...(routePts || []),
     ...(origin ? [origin] : []),
     ...(destination ? [destination] : []),
-    ...validIncidents.map((incident) => [incident._lat, incident._lng]),
-  ], [valid, routePts, origin, destination, validIncidents]);
+  ], [valid, routePts, origin, destination]);
 
   const hasContent = viewportPoints.length > 0;
   const selectedPoint = useMemo(
@@ -284,25 +274,6 @@ export default function LiveLocationsMap({
   const mapFocusPoints = useMemo(
     () => routePts || (selectedTripId != null && selectedPoint ? [[selectedPoint._lat, selectedPoint._lng]] : null),
     [routePts, selectedTripId, selectedPoint]
-  );
-  const mapFocusKey = useMemo(() => {
-    // The latest GPS row changes on every poll. Use the stable trip/vehicle
-    // identity so a fresh fix updates the marker without re-fitting the map.
-    const markerIds = valid.map((location) => location.trip_id || location.vehicle_id || `${location._lat},${location._lng}`);
-    const incidentIds = validIncidents.map((incident) => incident.incident_id || `${incident._lat},${incident._lng}`);
-    return [selectedTripId ?? "all", routePts ? "route" : "markers", markerIds.join(","), incidentIds.join(",")].join("|");
-  }, [selectedTripId, routePts, valid, validIncidents]);
-
-  const incidentIcon = useMemo(
-    () =>
-      L.divIcon({
-        className: "fleet-marker",
-        html: `<div class="fleet-incident-pin"><span class="fleet-incident-pulse"></span><span class="fleet-incident-dot"></span></div>`,
-        iconSize: [26, 26],
-        iconAnchor: [13, 13],
-        tooltipAnchor: [0, -14],
-      }),
-    []
   );
 
   const openGoogleStreetView = (lat, lng) => {
@@ -326,7 +297,7 @@ export default function LiveLocationsMap({
         style={{ height: "100%", width: "100%" }}
       >
         <ZoomControl position="bottomright" />
-        <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} focusKey={mapFocusKey} />
+        <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} />
         <TileLayer attribution={activeTile.attribution} url={activeTile.url} />
         
         {trafficOn && (
@@ -366,8 +337,11 @@ export default function LiveLocationsMap({
           const color = STATUS_COLOR[status] || DEFAULT_MARKER;
           const lat = l._lat;
           const lng = l._lng;
-          const plate = l.plate_number || l.vehicle_name || `Vehicle #${i + 1}`;
+          const plate = l.vehicles?.plate_number || l.vehicles?.vehicle_name || l.plate_number || l.vehicle_name || `Vehicle #${i + 1}`;
           const driver = l.driver_name || (l.drivers ? `${l.drivers.first_name || ""} ${l.drivers.last_name || ""}`.trim() : "");
+          // Permanent identity labels only where the data carries one (latest-locations
+          // rows); raw GPS-history rows (trips/[id]) keep the plain hover tooltip.
+          const hasIdentity = Boolean(l.vehicles || l.drivers || l.driver_name);
           const health = getGpsHealth(l.recorded_at);
           const speedKmh = l.speed_kmh ?? speedKmhFromMps(l.speed);
           const selected = selectedTripId != null && String(l.trip_id) === String(selectedTripId);
@@ -423,78 +397,24 @@ export default function LiveLocationsMap({
                 </div>
               </Popup>
 
-              <Tooltip className="fleet-tooltip">
-                <div className="font-semibold text-xs">{plate}</div>
-                {status && <div className="text-[11px] opacity-80">{status}</div>}
-                <div className="text-[11px] opacity-80">GPS: {health.label}</div>
-              </Tooltip>
-            </CircleMarker>
-          );
-        })}
-
-        {validIncidents.map((inc) => {
-          const lat = inc._lat;
-          const lng = inc._lng;
-          const type = inc.incident_type || "Incident";
-          const severity = String(inc.severity || "medium").toLowerCase();
-          const severityColor =
-            ["critical", "high"].includes(severity)
-              ? CHART_COLORS.danger
-              : severity === "low"
-              ? CHART_COLORS.info
-              : CHART_COLORS.warning;
-          const ts = inc.created_at
-            ? new Date(inc.created_at).toLocaleString(undefined, {
-                month: "short",
-                day: "numeric",
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "";
-          return (
-            <Marker
-              key={`incident-${inc.incident_id || lat + "," + lng}`}
-              position={[lat, lng]}
-              icon={incidentIcon}
-              zIndexOffset={1000}
-            >
-              <Popup className="fleet-popup">
-                <div className="p-1 space-y-2 text-foreground font-sans min-w-[200px]">
-                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                    <span className="font-bold text-sm capitalize">{type}</span>
-                    <span
-                      className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full text-white"
-                      style={{ backgroundColor: severityColor }}
-                    >
-                      {severity.toUpperCase()}
+              {hasIdentity ? (
+                <Tooltip permanent offset={[0, -12]} direction="top" className="fleet-tooltip">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-1.5 font-semibold text-xs font-data">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      {plate}
                     </span>
+                    {driver && <span className="text-[11px] font-medium">{driver}</span>}
                   </div>
-                  <div className="space-y-1 text-xs text-foreground-secondary font-medium">
-                    {inc.description && (
-                      <p className="leading-relaxed">{inc.description}</p>
-                    )}
-                    <p className="flex items-center gap-1.5 font-data">
-                      <Compass className="w-3.5 h-3.5 text-danger" />
-                      {lat.toFixed(4)}, {lng.toFixed(4)}
-                    </p>
-                    {ts && (
-                      <p className="text-[11px] text-foreground-muted font-data">
-                        Reported {ts}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </Popup>
-              <Tooltip className="fleet-tooltip">
-                <div className="font-semibold text-xs capitalize flex items-center gap-1.5">
-                  <span
-                    className="w-2 h-2 rounded-full animate-pulse shrink-0"
-                    style={{ backgroundColor: severityColor }}
-                  />
-                  {type} {severity === "high" ? "· High" : ""}
-                </div>
-              </Tooltip>
-            </Marker>
+                </Tooltip>
+              ) : (
+                <Tooltip className="fleet-tooltip">
+                  <div className="font-semibold text-xs">{plate}</div>
+                  {status && <div className="text-[11px] opacity-80">{status}</div>}
+                  <div className="text-[11px] opacity-80">GPS: {health.label}</div>
+                </Tooltip>
+              )}
+            </CircleMarker>
           );
         })}
 
@@ -520,58 +440,6 @@ export default function LiveLocationsMap({
         </div>
       )}
 
-      {/* Floating Turn-by-Turn Directions & Designated Location Panel */}
-      {showNavigationPanel && (originName || destinationName || (instructions && instructions.length > 0)) && (
-        <div className="absolute bottom-3 left-3 right-3 z-[1000] space-y-3 rounded-3xl border border-border/80 bg-surface/95 p-4 shadow-lg backdrop-blur sm:left-auto sm:w-80">
-          <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
-            <span className="text-xs font-bold text-foreground flex items-center gap-2">
-              <div className="p-1 rounded-lg bg-primary/10 text-primary">
-                <Navigation className="w-3.5 h-3.5" />
-              </div>
-              Live Route Navigation
-            </span>
-            {(routeDistanceKm != null || routeTravelMin != null) && (
-              <span className="text-[11px] font-bold font-data text-primary bg-primary/10 px-2.5 py-1 rounded-xl border border-primary/20">
-                {routeDistanceKm != null ? `${routeDistanceKm} km` : ""} {routeTravelMin != null ? `· ~${routeTravelMin} min` : ""}
-              </span>
-            )}
-          </div>
-
-          <div className="space-y-2 text-xs font-medium bg-muted/20 p-2.5 rounded-2xl border border-border/40">
-            {originName && (
-              <div className="flex items-start gap-2.5">
-                <span className="h-2.5 w-2.5 rounded-full bg-success shrink-0 mt-1 shadow-2xs" />
-                <div className="min-w-0">
-                  <p className="text-[11px] uppercase font-bold text-foreground-muted">Driver Live Location</p>
-                  <p className="text-xs text-foreground font-semibold truncate">{originName}</p>
-                </div>
-              </div>
-            )}
-            {destinationName && (
-              <div className="flex items-start gap-2.5 pt-1 border-t border-border/40">
-                <span className="h-2.5 w-2.5 rounded-full bg-danger shrink-0 mt-1 shadow-2xs" />
-                <div className="min-w-0">
-                  <p className="text-[11px] uppercase font-bold text-foreground-muted">Destination</p>
-                  <p className="text-xs text-foreground font-semibold truncate">{destinationName}</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {instructions && instructions.length > 0 && (
-            <div className="border-t border-border/60 pt-2 space-y-1.5 max-h-36 overflow-y-auto">
-              <p className="text-[11px] font-bold uppercase text-foreground-muted tracking-wider">Step-by-Step Directions</p>
-              {instructions.map((step, idx) => (
-                <div key={idx} className="flex items-center gap-2 text-[11px] text-foreground-secondary">
-                  <span className="font-bold text-primary font-data shrink-0">{idx + 1}.</span>
-                  <span className="truncate">{step.message} {step.street ? `onto ${step.street}` : ""}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Floating Legend */}
       {legendOn && (
         <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-3xl border border-border/80 bg-surface/95 p-3.5 shadow-md backdrop-blur space-y-3 max-w-[210px]">
@@ -587,23 +455,6 @@ export default function LiveLocationsMap({
                     <span className="truncate">{s}</span>
                   </li>
                 ))}
-              </ul>
-            </div>
-          )}
-
-          {validIncidents.length > 0 && (
-            <div className="border-t border-border/60 pt-2">
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
-                Incidents ({validIncidents.length})
-              </p>
-              <ul className="space-y-1 text-xs font-medium text-foreground-secondary">
-                <li className="flex items-center gap-2">
-                  <span className="relative flex h-2.5 w-2.5 shrink-0">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-danger opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-danger" />
-                  </span>
-                  <span>Reported Incident</span>
-                </li>
               </ul>
             </div>
           )}
@@ -647,32 +498,6 @@ export default function LiveLocationsMap({
           box-shadow: 0 4px 10px rgb(17 24 39 / 0.35);
         }
         .fleet-pin span { transform: rotate(45deg); color: #fff; font-size: 14px; }
-        .fleet-incident-pin {
-          position: relative;
-          width: 26px; height: 26px;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .fleet-incident-dot {
-          width: 15px; height: 15px;
-          border-radius: 50%;
-          background: #ef4444;
-          border: 2.5px solid #ffffff;
-          box-shadow: 0 2px 8px rgb(239 68 68 / 0.6);
-          z-index: 2;
-        }
-        .fleet-incident-pulse {
-          position: absolute;
-          width: 15px; height: 15px;
-          border-radius: 50%;
-          background: rgb(239 68 68 / 0.5);
-          animation: fleet-incident-blink 1.4s ease-out infinite;
-          z-index: 1;
-        }
-        @keyframes fleet-incident-blink {
-          0% { transform: scale(1); opacity: 0.9; }
-          70% { transform: scale(2.6); opacity: 0; }
-          100% { transform: scale(2.6); opacity: 0; }
-        }
         .fleet-tooltip { border: 1px solid var(--br); border-radius: 12px; box-shadow: var(--shadow-sm); font-family: var(--font-sans); }
         .leaflet-popup-content-wrapper { border-radius: 16px; border: 1px solid var(--br); background: var(--sf); box-shadow: var(--shadow-lg); }
         .leaflet-popup-tip { background: var(--sf); }

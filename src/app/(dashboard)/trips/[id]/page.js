@@ -411,12 +411,8 @@ export default function TripDetailPage() {
                 locations={locations}
                 route={routeCoords}
                 waypoints={routeMeta}
-                routeDistanceKm={routeData?.distanceKm ?? null}
-                routeTravelMin={routeData?.travelTimeMin ?? null}
                 originName={driverLiveLabel}
                 destinationName={dropoff}
-                instructions={routeData?.instructions ?? []}
-                showNavigationPanel={false}
                 traffic
               />
             ) : (

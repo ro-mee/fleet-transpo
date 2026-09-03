@@ -3,9 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import Link from "next/link";
 import { getActiveTrips, getLatestLocations } from "@/services/trip.service";
-import { getAllIncidents } from "@/services/driver.service";
 import { apiFetch } from "@/lib/api/client";
 import { formatGpsAge, getGpsHealth, isValidCoordinate, speedKmhFromMps } from "@/lib/gps";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +17,6 @@ import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import {
   Activity,
-  AlertTriangle,
   Building2,
   Clock3,
   Eye,
@@ -152,12 +149,6 @@ export default function LiveMapPage() {
     refetchInterval: 15000,
   });
 
-  const incidentsQuery = useQuery({
-    queryKey: ["open-map-incidents"],
-    queryFn: () => getAllIncidents({ status: "Open", coords: true, limit: 200 }),
-    refetchInterval: 60000,
-  });
-
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 15000);
     return () => window.clearInterval(timer);
@@ -170,12 +161,6 @@ export default function LiveMapPage() {
   const locations = useMemo(
     () => (Array.isArray(locationsQuery.data) ? locationsQuery.data : []),
     [locationsQuery.data]
-  );
-  const incidents = useMemo(
-    () => (Array.isArray(incidentsQuery.data)
-      ? incidentsQuery.data.filter((incident) => isValidCoordinate(incident?.latitude, incident?.longitude))
-      : []),
-    [incidentsQuery.data]
   );
 
   // The initial view is a fleet overview. A trip becomes route-focused only
@@ -258,7 +243,7 @@ export default function LiveMapPage() {
   );
 
   const selectedHealth = getGpsHealth(selectedLocation?.recorded_at, now);
-  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || incidentsQuery.isFetching || routeQuery.isFetching;
+  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || routeQuery.isFetching;
   const routePoints = routeQuery.data?.coordinates;
   const routeReady = Array.isArray(routePoints) && routePoints.length >= 2;
   const driverName = driverNameFor(activeTrip);
@@ -270,7 +255,6 @@ export default function LiveMapPage() {
     await Promise.all([
       tripsQuery.refetch(),
       locationsQuery.refetch(),
-      incidentsQuery.refetch(),
       routeQuery.refetch(),
     ]);
   };
@@ -283,7 +267,7 @@ export default function LiveMapPage() {
         badge="Operations"
         description={activeTrip
           ? `${driverName} · ${driverPlate} · ${activeTrip.trip_status}. ${mapTarget.kind ? `Next stop: ${targetName}.` : "Marker context only until the trip starts."}`
-          : "Monitor active trip positions, GPS health, routes, and open incidents from one operational map."}
+          : "Monitor active trip positions, GPS health, and routes from one operational map."}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge
@@ -307,11 +291,10 @@ export default function LiveMapPage() {
         }
       />
 
-      <StatGrid cols={4}>
+      <StatGrid cols={3}>
         <StatCard icon={Navigation} label="Active trips" value={activeTrips.length} tone="primary" trend="currently in the live-trip window" />
         <StatCard icon={Signal} label="Fresh GPS" value={gpsSummary.fresh} tone="success" trend={`${gpsSummary.positioned} active trips have coordinates`} />
         <StatCard icon={Clock3} label="Delayed / offline" value={gpsSummary.delayed + gpsSummary.offline} tone={gpsSummary.delayed + gpsSummary.offline ? "warning" : "neutral"} trend={`${gpsSummary.noSignal} active trips have no measurement`} />
-        <StatCard icon={AlertTriangle} label="Open incidents" value={incidents.length} tone={incidents.length ? "danger" : "neutral"} trend="with valid map coordinates" />
       </StatGrid>
 
       {tripsQuery.isError && (
@@ -328,14 +311,6 @@ export default function LiveMapPage() {
           description="Trip records remain visible, but their positions may be unavailable or outdated."
         />
       )}
-      {incidentsQuery.isError && (
-        <QueryErrorBanner
-          query={incidentsQuery}
-          title="Unable to refresh open incidents"
-          description="Vehicle positions remain available; incident markers may be incomplete."
-        />
-      )}
-
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8 xl:col-span-9">
           <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
@@ -345,7 +320,7 @@ export default function LiveMapPage() {
                 Operations map
               </CardTitle>
               <span className="font-data text-xs text-foreground-muted">
-                {mapLocations.length} positioned · {incidents.length} open incident{incidents.length === 1 ? "" : "s"}
+                {mapLocations.length} positioned
               </span>
             </CardHeader>
             <CardContent className="p-0">
@@ -366,7 +341,7 @@ export default function LiveMapPage() {
                       description="The live map will populate when a trip enters the operational tracking window."
                     />
                   </div>
-                ) : mapLocations.length === 0 && incidents.length === 0 ? (
+                ) : mapLocations.length === 0 ? (
                   <div className="flex h-full items-center justify-center">
                     <EmptyState
                       icon={Signal}
@@ -386,11 +361,6 @@ export default function LiveMapPage() {
                     waypoints={{ origin: originCoords, destination: targetCoords }}
                     originName={originCoords ? `Driver: ${driverName} (${driverPlate})` : ""}
                     destinationName={targetCoords ? targetName : ""}
-                    routeDistanceKm={routeQuery.data?.distanceKm ?? null}
-                    routeTravelMin={routeQuery.data?.travelTimeMin ?? null}
-                    instructions={routeQuery.data?.instructions ?? []}
-                    showNavigationPanel={Boolean(activeTrip && (originCoords || targetCoords || routeReady))}
-                    incidents={incidents}
                     traffic
                   />
                 )}
@@ -544,33 +514,6 @@ export default function LiveMapPage() {
                       </div>
                     );
                   })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
-            <CardHeader className="flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-3.5">
-              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <AlertTriangle className="h-4 w-4 text-danger" />
-                Open incidents
-              </CardTitle>
-              <Link href="/incidents" className="text-xs font-semibold text-primary hover:underline">View all</Link>
-            </CardHeader>
-            <CardContent className="p-0">
-              {incidents.length === 0 ? (
-                <p className="p-5 text-center text-xs text-foreground-muted">No open incidents with map coordinates.</p>
-              ) : (
-                <div className="divide-y divide-border/60">
-                  {incidents.slice(0, 4).map((incident) => (
-                    <Link key={incident.incident_id} href="/incidents" className="block p-3.5 transition-colors hover:bg-hover">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="truncate text-xs font-semibold capitalize text-foreground">{incident.incident_type || "Incident"}</p>
-                        <StatusBadge severity={incident.severity} className="shrink-0 text-[11px]" />
-                      </div>
-                      <p className="mt-1 truncate text-[11px] text-foreground-muted">{incident.plate_number || "Vehicle not identified"} · {formatDateTime(incident.incident_date || incident.created_at)}</p>
-                    </Link>
-                  ))}
                 </div>
               )}
             </CardContent>

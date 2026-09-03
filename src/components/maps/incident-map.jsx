@@ -213,13 +213,17 @@ export default function IncidentMap({ incidents = [] }) {
                     </div>
                   </div>
                 </Popup>
-                <Tooltip className="fleet-tooltip">
-                  <div className="font-semibold text-xs capitalize flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full animate-pulse shrink-0"
-                      style={{ backgroundColor: color }}
-                    />
-                    {type} · {severity}
+                <Tooltip permanent offset={[0, -16]} direction="top" className="fleet-tooltip">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="flex items-center gap-1.5 font-semibold text-xs capitalize">
+                      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                      {type} · {severity}
+                    </span>
+                    {inc.driver && (
+                      <span className="text-[11px] font-medium">
+                        {inc.driver.first_name} {inc.driver.last_name}
+                      </span>
+                    )}
                   </div>
                 </Tooltip>
               </Marker>
