@@ -380,9 +380,9 @@ export default function IncidentsPage() {
                   setActionsTaken("");
                   setResolveModal({ open: true, incident: row });
                 }}
-                disabled={maintenanceMutation.isPending}
-                aria-label="Resolve incident"
-                title="Resolve incident"
+                disabled={!row.acknowledged_at || maintenanceMutation.isPending}
+                aria-label={!row.acknowledged_at ? "Acknowledge incident before resolving" : "Resolve incident"}
+                title={!row.acknowledged_at ? "Acknowledge incident before resolving" : "Resolve incident"}
               >
                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Resolve</span>
@@ -724,15 +724,24 @@ export default function IncidentsPage() {
                     });
                   }
                 }}
-                disabled={resolveMutation.isPending || !actionsTaken.trim() || groundingMutation.isPending || acknowledgeMutation.isPending || groundingBlocked}
+                disabled={resolveMutation.isPending || !actionsTaken.trim() || groundingMutation.isPending || acknowledgeMutation.isPending || groundingBlocked || !detailIncident.acknowledged_at}
                 className="text-xs h-9 px-5 font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
               >
-                {groundingBlocked ? "Complete safety actions first" : resolveMutation.isPending ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                {groundingBlocked ? (
+                  "Complete safety actions first"
+                ) : !detailIncident.acknowledged_at ? (
+                  "Acknowledge first"
+                ) : resolveMutation.isPending ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                    Marking...
+                  </>
                 ) : (
-                  <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                    Mark as Resolved
+                  </>
                 )}
-                Mark as Resolved
               </Button>
             )}
           </div>
