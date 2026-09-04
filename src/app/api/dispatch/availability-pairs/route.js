@@ -23,10 +23,14 @@ import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 //
 // Query:
 //   pickup_at / return_at (explicit window from the client),
-//   min_capacity (optional seat floor), category_id (optional).
+//   min_capacity (optional seat floor), category_id (optional),
+//   mode=today|exact (default exact — unknown callers get the strict,
+//   authoritative behavior; today answers "valid working day?" and skips
+//   exact-trip schedule signals, see day-eligibility.js).
 // Response:
-//   ready[] = hard-ok (each with clashes[]), blocked[] = hard-blocked
-//   (each with clashes[]), unpaired_vehicles[], unassigned_drivers[].
+//   ready[] = hard-ok (each with clashes[] and, in today mode, duty_window),
+//   blocked[] = hard-blocked (each with clashes[]), unpaired_vehicles[],
+//   unassigned_drivers[].
 function actionFor({ reason = "", vehicleId, driverId, unpaired }) {
   if (/No substitute driver is assigned/i.test(reason)) {
     return { label: "Assign Substitute", href: `/fleet/assignments?vehicle=${vehicleId}` };
@@ -66,6 +70,9 @@ export async function GET(req) {
     }
     const minCapacity = sp.get("min_capacity") ? Number(sp.get("min_capacity")) : null;
     const categoryId = sp.get("category_id") ? Number(sp.get("category_id")) : null;
+    // Strict default: only an explicit mode=today opts into the day-scoped
+    // overview interpretation. Never inferred from the window shape.
+    const dayScope = sp.get("mode") === "today";
 
     const [vehiclesRes, driversRes, pairsRes, subsRes, clashesRes] = await Promise.all([
       query(
@@ -199,7 +206,8 @@ export async function GET(req) {
         continue;
       }
 
-      // THE shared rule — same function the assign path enforces.
+      // THE shared rule — same function the assign path enforces. dayScope
+      // only changes the driver-schedule interpretation (see pair-scoring).
       const pairing = resolveVehiclePairing({
         vehicleId,
         pickupDate: pickupAt,
@@ -209,6 +217,7 @@ export async function GET(req) {
         now,
         returnAt,
         scheduleContext: scheduleCtx,
+        dayScope,
       });
 
       if (!pairing.ok) {
@@ -233,6 +242,7 @@ export async function GET(req) {
         pairing_kind: pairing.kind,
         pairing_note: pairing.kind === PAIRING_KIND.SUBSTITUTE ? pairing.reason : null,
         clashes: tripClashes,
+        duty_window: pairing.duty_window ?? null,
       });
     }
 
@@ -257,7 +267,11 @@ export async function GET(req) {
     const unpairedVehicles = blocked.filter((b) => b.unpaired);
 
     return ok({
-      window: { pickup_at: pickupAt.toISOString(), return_at: returnAt.toISOString() },
+      window: {
+        pickup_at: pickupAt.toISOString(),
+        return_at: returnAt.toISOString(),
+        mode: dayScope ? "today" : "exact",
+      },
       counts: {
         ready: ready.length,
         blocked: blocked.length,

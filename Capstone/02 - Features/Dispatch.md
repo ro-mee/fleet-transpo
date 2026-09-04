@@ -178,6 +178,18 @@ window?"
   docs/coding, custodial pairing via `resolveVehiclePairing`) plus every
   overlapping dispatch as `clashes[]` data — never a verdict. Classification
   happens board-side. Read-only; no migration.
+- **Today mode is day-scoped, exact mode is authoritative — CONFIRMED 2026-09-04.**
+  The full-day default window could never fit inside a shift, so shift
+  containment + schedule load always zeroed the board. Today-mode (`mode=today`)
+  now answers "valid working day?" only: approved leave, schedule-exists
+  (fail-closed), rest day — via new pure `driverDayEligibility`
+  (`src/lib/scheduling/day-eligibility.js`), with the shift span returned as
+  `duty_window` for display ("Duty: 6:00 AM–10:00 PM"). `driver-schedule.js`
+  has zero edits; `pair-scoring.js` gained opt-in `dayScope` (default false —
+  assign, recommendation, and dashboard callers byte-identical). Exact mode
+  (`mode=exact`, the default for unknown callers) keeps load + containment +
+  overlap strictness untouched. Timed leave touching the day blocks the
+  overview (no silent partial availability).
 - **Today mode = overview, exact-window mode = authoritative check.** Today:
   `Clear Schedule Today` (hard-ok, 0 trips) / `Has Trips Today` (hard-ok, 1+
   trips, upcoming-first sort, full trip chips) / `Blocked` (hard blocker wins

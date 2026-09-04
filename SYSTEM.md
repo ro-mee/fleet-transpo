@@ -1252,6 +1252,10 @@ dashboards, and `/trips/[id]`):
   "requires reassignment"). Backend `GET /api/dispatch/availability-pairs`
   reports hard eligibility + `clashes[]` using the shared `resolveVehiclePairing`
   rule — read-only, no new eligibility. Request prefill via query params.
+  Today-mode (`mode=today`) evaluates day-scoped schedule eligibility only
+  (leave / schedule-exists / rest day via `driverDayEligibility`, shift span
+  shown as duty window); `driver-schedule.js` untouched, exact mode keeps load
+  + containment strictness.
 - **Fuel is one ops console.** `/fuel` holds registry/budget/permits/review
   (Needs-review pins atop Registry when flagged; smart Pending/All default;
   full-set CSV export); `fleet/fuel` is a redirect stub; driver web Log Fuel

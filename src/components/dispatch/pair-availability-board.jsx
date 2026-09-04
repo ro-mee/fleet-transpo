@@ -70,11 +70,16 @@ export function PairAvailabilityBoard({
   onWindowChange,
   onResetWindow,
 }) {
+  // The mode MUST travel explicitly: the endpoint defaults to exact (strict),
+  // so a missing mode would silently never enter dayScope. It also splits the
+  // React Query cache between today and exact data via qs.
+  const mode = isCustomWindow ? "exact" : "today";
   const qs = buildQuery({
     pickup_at: pickupAt ? new Date(pickupAt).toISOString() : undefined,
     return_at: returnAt ? new Date(returnAt).toISOString() : undefined,
     min_capacity: minCapacity || undefined,
     category_id: categoryId || undefined,
+    mode,
   });
 
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
@@ -413,6 +418,15 @@ export function PairAvailabilityBoard({
 
 // --- Shared card pieces (Operate mode: one shell, status carried by badge) ---
 
+/** "06:00:00" wall-clock shift string -> "6:00 AM" for duty display. */
+function fmtShift(value) {
+  if (value == null) return "—";
+  const m = String(value).match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return String(value);
+  const hour = Number(m[1]);
+  return `${hour % 12 || 12}:${m[2]} ${hour >= 12 ? "PM" : "AM"}`;
+}
+
 /** "8:00 AM" short clock for trip chips. */
 function fmtTime(iso) {
   const d = new Date(iso);
@@ -496,6 +510,7 @@ function DriverLine({ entry }) {
         </p>
         <p className="text-xs font-medium text-foreground-secondary">
           {entry.pairing_kind === "substitute" ? "Substitute" : "Designated pair"}
+          {entry.duty_window ? ` · Duty ${fmtShift(entry.duty_window.start)}–${fmtShift(entry.duty_window.end)}` : ""}
         </p>
       </div>
     </div>
