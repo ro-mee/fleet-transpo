@@ -18,6 +18,7 @@ import {
   setRequestFlags,
 } from "@/services/transport.service";
 import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
+import { smartQueueTab } from "@/lib/scheduling/smart-default-tab";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
@@ -70,6 +71,7 @@ export default function UnifiedQueuePage() {
   // completed fetch then steer the *override* once via a deferred update, so
   // the query key follows on the next render. Manual tab clicks win outright.
   const [tabOverride, setTabOverride] = useState(null); // tab id | null
+  const [page, setPage] = useState(1);
   const steerTimer = useRef(null);
   const pickTab = (id) => {
     clearTimeout(steerTimer.current);
@@ -77,7 +79,6 @@ export default function UnifiedQueuePage() {
     setPage(1);
   };
   const fetchTab = tabOverride ?? "today";
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [assigning, setAssigning] = useState(null);
@@ -138,13 +139,7 @@ export default function UnifiedQueuePage() {
   // Displayed tab: user pick wins; otherwise Today while loading, else the
   // first non-empty tab in work order (archive tabs never greet).
   const countsReady = !isLoading && !isError;
-  const smartTab = (() => {
-    if (!countsReady) return "today";
-    for (const id of ["today", "upcoming", "assigned", "inProgress"]) {
-      if (Number(counts[id]) > 0) return id;
-    }
-    return "today";
-  })();
+  const smartTab = smartQueueTab(counts, { ready: countsReady });
   const tab = tabOverride ?? smartTab;
 
   useEffect(() => {

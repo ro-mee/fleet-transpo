@@ -52,6 +52,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { LIMITS } from "@/lib/validation";
 import { fuelTypeMismatch } from "@/lib/fuel/request-policy";
+import { smartFuelTab } from "@/lib/scheduling/smart-default-tab";
 import { ReceiptVerificationModal } from "@/components/fuel/receipt-verification-modal";
 import { RejectClaimDialog } from "@/components/fuel/reject-claim-dialog";
 import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
@@ -103,6 +104,7 @@ export default function FuelPage() {
   // completed fetch then steer the *override* once via a deferred update, so
   // the query key follows on the next render. Manual pill picks win outright.
   const [tabOverride, setTabOverride] = useState(null); // 'Pending' | 'Approved' | 'Rejected' | 'all' | null
+  const [page, setPage] = useState(1);
   const steerTimer = useRef(null);
   const pickTab = (tab) => {
     clearTimeout(steerTimer.current);
@@ -110,7 +112,6 @@ export default function FuelPage() {
     setPage(1);
   };
   const fetchTab = tabOverride ?? "Pending";
-  const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState([]);
@@ -178,7 +179,7 @@ export default function FuelPage() {
   // review work exists, All when healthy-but-nonempty. Steering the override
   // (deferred, once) pulls the query key along — polls never yank it after.
   const activeTab =
-    tabOverride ?? (countsReady && counts.total > 0 && !(counts.pending > 0) ? "all" : "Pending");
+    tabOverride ?? smartFuelTab(counts, { ready: countsReady });
 
   useEffect(() => {
     if (tabOverride || !countsReady) return;
@@ -381,6 +382,29 @@ export default function FuelPage() {
   }).length;
 
   const reviewFacts = reviewRequest ? requestReviewFacts(reviewRequest) : null;
+
+  const handleApprove = (rec) => {
+    updateStatusMutation.mutate({ id: rec.fuel_record_id, status: "Approved" });
+  };
+
+  const openRejectPrompt = (rec) => {
+    setTargetRejectRecord(rec);
+    setRejectionReason("");
+    resetRejectValidation();
+    setRejectDialogOpen(true);
+  };
+
+  const handleOpenEdit = (rec) => {
+    setEditRecord(rec);
+    setEditForm({
+      station_name: rec.station_name || "",
+      liters: rec.liters != null ? String(rec.liters) : "",
+      amount: rec.amount != null ? String(rec.amount) : "",
+      price_per_liter: rec.price_per_liter != null ? String(rec.price_per_liter) : "",
+      odometer: rec.odometer != null ? String(rec.odometer) : "",
+      fuel_date: rec.fuel_date ? String(rec.fuel_date).substring(0, 10) : "",
+    });
+  };
 
   const columns = [
     {
@@ -663,17 +687,6 @@ export default function FuelPage() {
     }),
   ];
 
-  const handleApprove = (rec) => {
-    updateStatusMutation.mutate({ id: rec.fuel_record_id, status: "Approved" });
-  };
-
-  const openRejectPrompt = (rec) => {
-    setTargetRejectRecord(rec);
-    setRejectionReason("");
-    resetRejectValidation();
-    setRejectDialogOpen(true);
-  };
-
   const handleRejectConfirm = () => {
     if (!targetRejectRecord) return;
     const isValid = validateReject(
@@ -689,18 +702,6 @@ export default function FuelPage() {
       }
     );
     if (!isValid) return;
-  };
-
-  const handleOpenEdit = (rec) => {
-    setEditRecord(rec);
-    setEditForm({
-      station_name: rec.station_name || "",
-      liters: rec.liters != null ? String(rec.liters) : "",
-      amount: rec.amount != null ? String(rec.amount) : "",
-      price_per_liter: rec.price_per_liter != null ? String(rec.price_per_liter) : "",
-      odometer: rec.odometer != null ? String(rec.odometer) : "",
-      fuel_date: rec.fuel_date ? String(rec.fuel_date).substring(0, 10) : "",
-    });
   };
 
   const handleEditSubmit = (e) => {
