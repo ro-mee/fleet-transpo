@@ -27,7 +27,13 @@ executive boards** (`/fleet/documents`, `/drivers/performance`, `/reports/cost`,
 endpoints `GET /api/documents/expiring`, `GET /api/reports/fleet-cost`. The
 `/fleet/availability` + `/drivers/availability` boards were merged **2026-08-23**
 into the dispatch module as `/dispatch/availability` (one page, Drivers |
-Vehicles tabs); management gained Vehicles visibility in the merge.
+Vehicles tabs); management gained Vehicles visibility in the merge. **2026-09-04:**
+the page went **pairs-only** — the separate status lists re-proved misleading
+(`5 Available vehicles + 5 Available drivers` reading as 5 dispatchable), so
+`/dispatch/availability` now answers "which actual vehicle + driver pairs can
+dispatch in this window?" Full-day default (`Showing dispatchability for today`),
+optional exact-window picker, hard-blocker precedence, collapsed may-be-affected
+trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
 
 **Latest changes** (the current feature wave — details in §7/§8/§9/§12):
 
@@ -132,8 +138,8 @@ fleet-transpo/
 │   │   │   ├── drivers/        # list, new, [id] (detail+account), [id]/edit, performance
 │   │   │   ├── trips/          # register, active (live cards), [id]
 │   │   │   ├── reservations/   # register, queue (dispatcher workspace), new (dev mock), [id]
-│   │   │   ├── dispatch/       # kanban board, calendar, availability (drivers+vehicles), [id]
-│   │   │   ├── fuel/           # records (approval workflow), analytics
+│   │   │   ├── dispatch/       # kanban board, calendar, pair-first availability (today/exact-window), [id]
+│   │   │   ├── fuel/           # ops console (registry/budget/permits/review), analytics
 │   │   │   ├── maintenance/    # records, predictive (AI)
 │   │   │   ├── incidents/      # ★ Fleet Incidents Registry (staff read-only + resolve, live map)
 │   │   │   ├── tracking/       # live-map, history
@@ -145,7 +151,7 @@ fleet-transpo/
 │   │   │   ├── notifications/  # feed, preferences, templates
 │   │   │   ├── system/         # ★ System Console (admin) — audit log (system_admin only)
 │   │   │   └── settings/       # general, profile, security, users/new, api, ai/logs, number-coding (UVVRP), dispatch (smart queue)
-│   │   └── api/                # 162 route handler files (see §6)
+│   │   └── api/                # 183 route handler files (see §6)
 │   ├── components/
 │   │   ├── layout/             # app-shell, dashboard-layout (+RouteGuard)
 │   │   ├── dashboard/          # ★ role-dashboard renderer + dashboard-configs.js
@@ -389,6 +395,9 @@ These predicates are enforced at: `GET /api/drivers` (picker filters blocked
 drivers with a reason), `GET /api/vehicles/available`, `validatePairing`
 (`recommendation.service.js`) + `pair-scoring.js`, conflict checks
 (`conflicts.js`), and the trip-start guard (`PUT /api/trips/[id]/start`).
+`GET /api/dispatch/availability-pairs` reports (not enforces) the same rules
+for the availability board — classification only, assignment authority stays
+with the gates above.
 
 #### 4.8.2 Future availability (current status ≠ future availability)
 
@@ -493,7 +502,7 @@ The checked-in `schema.sql` currently declares **50 tables, 1 view (`driver_stat
 not the source. Dispatch numbers are random strings, while serial-backed tables
 still use PostgreSQL sequences in the live database.
 
-There are **93 migration files** in `supabase/migrations/`, numbered through 089.
+There are **105 migration files** in `supabase/migrations/`, numbered through 102 (090 unused).
 Exactly four numeric versions are duplicated historically — **036, 037, 059, and
 060** each have two files, applied in filename order. The checked-in schema includes
 the server-backed session/MFA tables and the `idle_timeout_seconds` column from
@@ -606,6 +615,18 @@ places, so a migration has to be a safe no-op there.
 | 087 | `auth_security_lifecycle.sql` | adds auth-version invalidation, shared rate limits, mobile token families, and password reset tokens |
 | 088 | `auth_sessions_mfa.sql` | adds server-backed web sessions, encrypted employee MFA, recovery codes, and supporting indexes |
 | 089 | `session_idle_timeout.sql` | adds the configurable `web_sessions.idle_timeout_seconds` defaulting to 3600 seconds |
+| 091 | `company_cards_and_assignments.sql` | `company_cards` + `company_card_assignments` (fleet fuel payment cards) |
+| 092 | `expense_records.sql` | `expense_records` (driver expenses, idempotent `client_submission_id`) |
+| 093 | `fuelrecords_payment_method.sql` | `fuelrecords.payment_method` + `company_card_id` + consistency CHECK |
+| 094 | `expense_receipt_scans.sql` | `expense_receipt_scans` (receipt storage key + sha + OCR snapshot) |
+| 095 | `expense_receipts_rls_fix.sql` | locks down `expense-receipts` storage to backend-signed URLs only |
+| 096 | `company_card_unique_assignment.sql` | one active assignment per company card (partial UNIQUE) |
+| 097 | `incident_production_remediation.sql` | incident remediation fields (confidentiality, injury, police/insurance refs, SLA dates) |
+| 098 | `incident_overdue.sql` | `update_incident_sla_breaches()` helper for SLA-breach marking |
+| 099 | `pg_cron_sla.sql` | pg_cron schedule running the SLA-breach check every minute |
+| 100 | `enable_rls_all.sql` | enables RLS across tables (still inert at runtime — §4.1) |
+| 101 | `incident_response_tracking.sql` | physical-rescue columns on incidents (response status/type/ETA, history via `incident_comments`) |
+| 102 | `incident_responder_tracking.sql` | links incidents to a GPS-tracked fleet responder driver (auto-advance Dispatched→En Route→Arrived) |
 
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
@@ -743,6 +764,12 @@ is the only reservation concept, and `integration/` is its only door.
 
 ### Dispatch & assignments
 - `dispatch/` (GET/POST), `dispatch/[id]` (GET/PUT), `dispatch/[id]/status` (PUT), `dispatch/calendar` (GET), `dispatch/by-status` (GET). Dispatch numbers are random `DSP-XXXX` assigned by the DB trigger (`trg_dispatch_number`), with a JS fallback in the autocreate service.
+- `dispatch/availability-pairs` (GET) ★ — pair-first read surface for
+  `/dispatch/availability`: hard eligibility per vehicle (capacity, operational
+  status, travel docs/coding, custodial pairing via the shared
+  `resolveVehiclePairing` rule) plus every overlapping dispatch as `clashes[]`
+  data. Classification is board-side (today overview vs exact-window check);
+  no new eligibility, read-only.
 - `driver-assignments/` (GET/POST), `driver-assignments/[id]` (DELETE) — transactional pairings.
 - `substitute-driver-schedules/` (GET; POST; `[id]` PATCH/DELETE) ★ — substitute custodian coverage per vehicle/date window; overlap-guarded 409s, audited.
 
@@ -1102,13 +1129,16 @@ future developer/AI must know:
 - Staff account management: `/settings/users` index +
   `GET/PUT /api/settings/users` (disable = soft-delete;
   that is what blocks sign-in; status='Inactive' is the readable flag).
-- Availability boards tab vocabulary mirrors canonical DB CHECK values exactly.
+- Availability is pair-first (2026-09-04): `/dispatch/availability` shows
+  vehicle + driver pairs for a window, not separate Drivers/Vehicles status
+  lists (removed — they re-proved misleading). Do not reintroduce standalone
+  status lists as dispatch truth.
 - Mobile: SwipeButton exposes accessibility actions; offline-queued incident
   reports say "saved offline", never claim dispatch receipt.
 
 ---
 
-## 12. ★ Current wave (2026-08-15 → 2026-09-03) — schedules, leave, fuel requests, push, auth, map UX
+## 12. ★ Current wave (2026-08-15 → 2026-09-04) — schedules, leave, fuel requests, push, auth, map UX, availability, fuel console
 
 The newest feature set after §9/§11. Everything here is shipped and enforced in code; the auth/session items were added 2026-09-02.
 
@@ -1210,3 +1240,30 @@ dashboards, and `/trips/[id]`):
   instructions, distance/ETA). The route polyline, origin/destination labels,
   and sidebar trip metrics remain; the `incidents`, `instructions`,
   `routeDistanceKm`, `routeTravelMin`, and `showNavigationPanel` props are gone.
+
+### 12.11 Pair-first availability, fuel console, dashboard wave (2026-09-04)
+- **Availability is pairs, not lists.** `/dispatch/availability` dropped the
+  Drivers | Vehicles tabs: default is the full day (`Showing dispatchability
+  for today`), with an optional exact-window picker behind `Set exact window`.
+  Today-mode classifies Clear Schedule Today / Has Trips Today (upcoming-first)
+  / Blocked; exact-window mode stays strict (Ready / Blocked, overlap blocks).
+  Hard blockers always outrank schedule activity; blocked cards with trips get
+  a collapsed `N scheduled trips today — may be affected` warning (never
+  "requires reassignment"). Backend `GET /api/dispatch/availability-pairs`
+  reports hard eligibility + `clashes[]` using the shared `resolveVehiclePairing`
+  rule — read-only, no new eligibility. Request prefill via query params.
+- **Fuel is one ops console.** `/fuel` holds registry/budget/permits/review
+  (Needs-review pins atop Registry when flagged; smart Pending/All default;
+  full-set CSV export); `fleet/fuel` is a redirect stub; driver web Log Fuel
+  (direct-record bypass) is replaced with mobile-request guidance; driver role
+  removed from `/fuel` nav.
+- **Dashboards answer their primary question first.** Dispatcher opens with
+  Needs-attention + Next-departures (live countdowns); fleet manager has
+  readiness + utilization/workload strips; admin swaps status meters for request
+  pipeline + document-compliance donuts; linked StatCards navigate; executive
+  gains MoM trend chips; reservation queue lands on the first non-empty work tab.
+- **Merged incident responder work (origin/main):** GPS-tracked fleet responders
+  on incidents (101–102, auto-advance Dispatched→En Route→Arrived), SLA-breach
+  marking + pg_cron schedule (098–099), incident remediation fields (097),
+  company cards + expense records/receipts (091–096); dispatcher live map plots
+  active rescuers alongside GPS.
