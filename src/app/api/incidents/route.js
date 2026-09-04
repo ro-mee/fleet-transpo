@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
+import { escalateOverdueIncidents } from "@/lib/incidents/sla";
 
 // Staff view of all driver-reported incidents (dispatcher, management, ops).
 // Read-only. The driver self-service endpoint (/api/driver/incidents) remains
@@ -32,11 +33,19 @@ export async function GET(req) {
     const where = conditions.join(" AND ");
 
     if (sp.get("summary") === "true") {
+      // Lazy SLA escalation: a Critical/Major incident past due_at with no
+      // acknowledgement re-alerts the overseers once. Fire-and-forget — the
+      // summary must never fail because escalation did.
+      escalateOverdueIncidents().catch((e) =>
+        console.warn("sla escalation failed:", e?.message || e)
+      );
+
       const { rows: summaryRows } = await query(
         `SELECT
            COUNT(*)::int AS total,
            COUNT(*) FILTER (WHERE i.status = 'Open')::int AS open,
            COUNT(*) FILTER (WHERE i.status = 'Open' AND i.acknowledged_at IS NULL)::int AS unacknowledged,
+           COUNT(*) FILTER (WHERE i.status = 'Open' AND i.due_at IS NOT NULL AND i.due_at < NOW())::int AS overdue,
            COUNT(*) FILTER (WHERE i.status = 'Open' AND i.severity IN ('Major', 'Critical'))::int AS critical_major_open,
            COUNT(*) FILTER (WHERE i.status = 'Open' AND COALESCE(array_length(i.assistance_needed, 1), 0) > 0)::int AS assistance_open,
            COUNT(*) FILTER (WHERE i.status = 'Open' AND i.grounding_status = 'Failed')::int AS grounding_failed,
@@ -48,7 +57,7 @@ export async function GET(req) {
         WHERE ${where}`,
         params
       );
-      return ok(summaryRows[0] || { total: 0, open: 0, unacknowledged: 0, critical_major_open: 0, assistance_open: 0, grounding_failed: 0, maintenance_pending: 0, attention: 0 });
+      return ok(summaryRows[0] || { total: 0, open: 0, unacknowledged: 0, overdue: 0, critical_major_open: 0, assistance_open: 0, grounding_failed: 0, maintenance_pending: 0, attention: 0 });
     }
 
     let sql = `
@@ -59,21 +68,34 @@ export async function GET(req) {
              i.actions_taken, i.acknowledged_at, i.acknowledged_by,
              i.resolved_at, i.resolved_by, i.grounding_status, i.grounding_error,
              i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
+             i.due_at,
+             (i.status = 'Open' AND i.due_at IS NOT NULL AND i.due_at < NOW()) AS overdue,
+             i.response_status, i.driver_confirmed_at, i.reopened_at,
+             i.responder_driver_id,
+             rd.current_latitude AS responder_latitude,
+             rd.current_longitude AS responder_longitude,
+             rd.last_location_update AS responder_location_at,
              i.created_at, i.assistance_needed, i.expense_amount,
              COALESCE(array_length(i.photo_urls, 1), 0) AS photo_count,
              v.plate_number, m.maintenance_id AS linked_maintenance_id,
              m.status AS maintenance_status, m.maintenance_type,
              CASE WHEN d.driver_id IS NULL THEN NULL ELSE
                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
-             END AS driver
+             END AS driver,
+             CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
+               json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name)
+             END AS responder
         FROM driverincidents i
         LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
         LEFT JOIN vehiclemaintenance m ON m.source_incident_id = i.incident_id AND m.deleted_at IS NULL
         LEFT JOIN drivers d ON d.driver_id = i.driver_id
         LEFT JOIN employees e ON e.employee_id = d.employee_id
+        LEFT JOIN drivers rd ON rd.driver_id = i.responder_driver_id
+        LEFT JOIN employees re ON re.employee_id = rd.employee_id
        WHERE ${where}
        ORDER BY
       CASE WHEN i.status = 'Open' THEN 0 ELSE 1 END,
+      CASE WHEN (i.status = 'Open' AND i.due_at IS NOT NULL AND i.due_at < NOW()) THEN 0 ELSE 1 END,
       CASE i.severity WHEN 'Critical' THEN 0 WHEN 'Major' THEN 1 WHEN 'Moderate' THEN 2 ELSE 3 END,
       i.created_at DESC, i.incident_date DESC`;
 

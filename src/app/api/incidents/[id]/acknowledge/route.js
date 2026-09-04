@@ -1,11 +1,15 @@
 import { query, withTransaction } from "@/lib/db";
-import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
+import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 
 /**
  * Explicitly acknowledge an open incident. Reading the registry never clears
  * the safety queue; only this action records that a responder took ownership.
+ *
+ * An optional `note` travels with the acknowledgement ("Tow truck dispatched,
+ * ETA 20 minutes") — it is stored as an incident_comments row and pushed to
+ * the driver, who otherwise has no way to know help is actually coming.
  */
 export async function POST(req, props) {
   try {
@@ -13,6 +17,16 @@ export async function POST(req, props) {
     const params = await props.params;
     const id = params.id;
     if (!id) return err("Incident ID is required", 400);
+
+    const parsedBody = await parseBody(req);
+    const body = parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody) ? parsedBody : {};
+    let note = null;
+    if (body.note != null) {
+      if (typeof body.note !== "string" || !body.note.trim()) {
+        return errValidation({ note: "Response note must be non-empty text" });
+      }
+      note = body.note.trim().slice(0, 500);
+    }
 
     const result = await withTransaction(async (tx) => {
       const current = await tx.query(
@@ -39,7 +53,16 @@ export async function POST(req, props) {
           RETURNING incident_id, status, acknowledged_at, acknowledged_by`,
         [id, session.user.employeeId ?? null]
       );
-      return { row: rows[0], current: current.rows[0], changed: rows.length > 0 };
+      if (!rows[0]) return { row: current.rows[0], changed: false };
+
+      if (note) {
+        await tx.query(
+          `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
+           VALUES ($1, $2, $3, $4)`,
+          [id, session.user.employeeId ?? null, "ACKNOWLEDGED", note]
+        );
+      }
+      return { row: rows[0], current: current.rows[0], changed: true };
     });
 
     if (result.notFound) return err("Incident not found", 404);
@@ -50,12 +73,13 @@ export async function POST(req, props) {
       resource: "driverincidents",
       resourceId: id,
       oldValues: { acknowledged_at: null },
-      newValues: { acknowledged_at: result.row.acknowledged_at, acknowledged_by: result.row.acknowledged_by },
+      newValues: { acknowledged_at: result.row.acknowledged_at, acknowledged_by: result.row.acknowledged_by, note },
     });
 
     if (result.current?.reporter_employee_id) {
       try {
-        const message = `Your incident report (#${id}) has been acknowledged by the fleet team.`;
+        const base = `Your incident report (#${id}) has been acknowledged by the fleet team.`;
+        const message = note ? `${base} ${note}` : base;
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,

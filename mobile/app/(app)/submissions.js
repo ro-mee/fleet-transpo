@@ -38,6 +38,8 @@ function LogCard({ item, colors, onPress }) {
       // the driver now sees the outcome instead of a static ALERT label.
       const s = item.status?.toLowerCase();
       if (s === "resolved") return { text: "RESOLVED", bg: tone("success").bg, textCol: tone("success").fg };
+      // Acknowledged = the fleet team has taken ownership; help is on the way.
+      if (item.acknowledged_at) return { text: "ACKNOWLEDGED", bg: tone("info").bg, textCol: tone("info").fg };
       if (!s) return { text: "ALERT", bg: colors.errorContainer, textCol: colors.onErrorContainer };
       return { text: "OPEN", bg: tone("warning").bg, textCol: tone("warning").fg };
     }
@@ -112,6 +114,26 @@ function LogCard({ item, colors, onPress }) {
             backgroundColor: colors.surfaceContainerLow,
             borderColor: colors.error,
             transform: [{ scale: pressed ? 0.97 : 1 }],
+            opacity: pressed ? 0.9 : 1,
+          },
+        ]}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  // Incident cards open the live status screen (timeline + fleet response).
+  if (isIncident) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.logCard,
+          {
+            backgroundColor: colors.surfaceContainerLow,
+            borderColor: colors.outlineVariant + '40',
+            transform: [{ scale: pressed ? 0.98 : 1 }],
             opacity: pressed ? 0.9 : 1,
           },
         ]}
@@ -363,6 +385,9 @@ export default function SubmissionsScreen() {
                       fuelDate: String(item.date || ""),
                     },
                   });
+                } else if (item.recordType === "INCIDENT") {
+                  const incidentId = String(item.id).replace(/^inc_/, "");
+                  if (incidentId) router.push(`/incident/${incidentId}`);
                 }
               }}
             />

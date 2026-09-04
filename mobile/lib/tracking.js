@@ -33,8 +33,9 @@ export function usePosterStatus() {
 
 // ── The single GPS poster ──────────────────────────────────────────────────
 /**
- * Posts the driver's location to the active trip every 30 seconds while the
- * app is foregrounded.
+ * Posts the driver's location every 30 seconds while the app is foregrounded:
+ * to the active trip when there is one, otherwise to any incident this driver
+ * is the assigned fleet responder on (the rescue that tracks itself).
  *
  * Mounted ONCE, in the (app) layout — screens never post. Previously each
  * screen had its own poster: the tab screens stay mounted after being visited,
@@ -55,6 +56,7 @@ export function useActiveTripGpsPoster(enabled) {
     let cancelled = false;
     let interval = null;
     let tripId = null;
+    let responderIncidentId = null;
     let lastTripFetch = 0;
 
     publishStatus({ error: null });
@@ -87,28 +89,59 @@ export function useActiveTripGpsPoster(enabled) {
         }
       };
 
+      // A responder mission is checked on the same 60s cadence: if this driver
+      // was assigned to help a stranded driver and is not on a trip, their
+      // position feeds the incident's rescue ladder (En Route / Arrived / ETA).
+      const findResponderMission = async () => {
+        try {
+          const missions = await api.get("/api/driver/incidents?role=responder");
+          if (cancelled) return;
+          responderIncidentId =
+            Array.isArray(missions) && missions.length ? missions[0].incident_id : null;
+        } catch {
+          // Keep the previous assignment; the next refresh retries.
+        }
+      };
+
       const tick = async () => {
         if (cancelled || AppState.currentState.match(/background|inactive/)) return;
         const now = Date.now();
         if (now - lastTripFetch >= TRIP_REFRESH_MS) {
           lastTripFetch = now;
           await findActiveTrip();
+          await findResponderMission();
         }
-        if (!tripId) return;
+        if (!tripId && !responderIncidentId) return;
         try {
           const loc = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
           if (cancelled) return;
-          await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            speed: loc.coords.speed ?? null,
-            heading: loc.coords.heading ?? null,
-            altitude: loc.coords.altitude ?? null,
-            accuracy: loc.coords.accuracy ?? null,
-            recorded_at: new Date(loc.timestamp).toISOString(),
-          });
+          if (tripId) {
+            // Trip GPS wins when both exist: it updates the same
+            // drivers.current_* columns the responder evaluation reads, so
+            // posting twice would only be a duplicate.
+            await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+              speed: loc.coords.speed ?? null,
+              heading: loc.coords.heading ?? null,
+              altitude: loc.coords.altitude ?? null,
+              accuracy: loc.coords.accuracy ?? null,
+              recorded_at: new Date(loc.timestamp).toISOString(),
+            });
+          } else {
+            // Never queued offline — a stale replayed fix must not overwrite
+            // the live position driving the rescue status.
+            await api.post(
+              "/api/driver/responder/location",
+              {
+                latitude: loc.coords.latitude,
+                longitude: loc.coords.longitude,
+              },
+              { queueOnFailure: false }
+            );
+          }
           if (!cancelled) publishStatus({ lastSentAt: new Date().toISOString(), error: null });
         } catch {
           // A dropped post is not worth interrupting the driver over; the next

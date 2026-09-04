@@ -619,6 +619,10 @@ function DispatcherDashboard({ queries, queueGroups }) {
   const vehicles = queries.vehicles.data || [];
   const drivers = queries.driverStats.data || {};
   const validLocations = (queries.locations.data || []).filter((location) => isValidCoordinate(location?.latitude, location?.longitude));
+  // Active rescue missions (open incidents with a fleet responder assigned) —
+  // rendered on the same operations map so a rescue is visible even with zero
+  // live trips, exactly like the guest-transport flow.
+  const rescues = Array.isArray(queries.rescues?.data) ? queries.rescues.data : [];
   const queue = [...queueGroups.today, ...queueGroups.upcoming].sort(compareByPriority).slice(0, 10);
   const reviewCount = queueGroups.today.length + queueGroups.upcoming.filter((request) => request.derived_priority === "Overdue").length;
   const timeline = [...queueGroups.today, ...queueGroups.assigned, ...queueGroups.upcoming]
@@ -681,8 +685,8 @@ function DispatcherDashboard({ queries, queueGroups }) {
         })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here." />}</FeedState>
       </Panel>
 
-      <Panel title="Live operations map" description="Latest valid GPS positions for active fleet tracking." action={<Link href="/tracking/live-map" className={linkClass}>Full map <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-        <FeedState queries={queries.locations} errorTitle="Live GPS positions are unavailable">{validLocations.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} /></div> : <InlineEmpty icon={MapPin} title="No valid GPS positions" description="Map markers appear only when a valid latitude and longitude are recorded." />}</FeedState>
+      <Panel title="Live operations map" description="Latest valid GPS positions for active fleet tracking and rescue missions." action={<Link href="/tracking/live-map" className={linkClass}>Full map <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <FeedState queries={[queries.locations, queries.rescues]} errorTitle="Live GPS positions are unavailable">{validLocations.length || rescues.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} responders={rescues} /></div> : <InlineEmpty icon={MapPin} title="No valid GPS positions" description="Map markers appear only when a valid latitude and longitude are recorded." />}</FeedState>
       </Panel>
     </div>
   );
@@ -704,6 +708,10 @@ export function RoleDashboard({ role, employee }) {
   const reservations = useQuery({ queryKey: ["transport-requests"], queryFn: () => getTransportRequests(), enabled: enabled("reservations"), refetchInterval: enabled("reservations") ? 30000 : false });
   const dispatches = useQuery({ queryKey: ["dispatches-by-status"], queryFn: getDispatchesByStatus, enabled: enabled("dispatches"), refetchInterval: enabled("dispatches") ? 30000 : false });
   const locations = useQuery({ queryKey: ["latest-locations"], queryFn: getLatestLocations, enabled: enabled("locations"), refetchInterval: enabled("locations") ? 15000 : false });
+  // Rescue missions ride along with the live-map panel: a dispatched fleet
+  // responder should show on the dispatcher's operations map even with zero
+  // active trips. Keyed identically to the full live-map page's query.
+  const rescues = useQuery({ queryKey: ["active-rescues"], queryFn: () => apiFetch("/api/incidents/responders/active"), enabled: enabled("locations"), refetchInterval: enabled("locations") ? 30000 : false });
   const assignments = useQuery({ queryKey: ["driver-assignments"], queryFn: () => getDriverAssignments(), enabled: enabled("assignments") });
   const substitutes = useQuery({ queryKey: ["substitute-schedules", today], queryFn: () => getSubstituteSchedules({ date: today }), enabled: enabled("substitutes") });
   const leave = useQuery({ queryKey: ["driver-leave-requests"], queryFn: () => getDriverLeaveRequests(), enabled: enabled("leave") });
@@ -714,7 +722,7 @@ export function RoleDashboard({ role, employee }) {
 
   const queueGroups = useMemo(() => groupQueue(reservations.data || []), [reservations.data]);
 
-  const queries = { users, sessions, notifications, audit, activity, vehicles, drivers, driverStats, reservations, dispatches, locations, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests };
+  const queries = { users, sessions, notifications, audit, activity, vehicles, drivers, driverStats, reservations, dispatches, locations, rescues, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests };
 
   return (
     <div className="space-y-6">

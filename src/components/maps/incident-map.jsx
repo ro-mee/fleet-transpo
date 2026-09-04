@@ -10,6 +10,9 @@ import { ImageViewer } from "@/components/ui/image-viewer";
 import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 
 const SEVERITY_COLOR = { Critical: "#dc2626", Major: "#ef4444", Moderate: "#f97316", Minor: "#f59e0b" };
+// Rescue units stand apart from the severity dots (all warm hues) — blue reads
+// as "help coming" at a glance.
+const RESPONDER_COLOR = "#2563eb";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -21,7 +24,13 @@ function FitBounds({ points }) {
   return null;
 }
 
-export default function IncidentMap({ incidents = [] }) {
+/**
+ * @param {Array} incidents incident rows with latitude/longitude
+ * @param {Array} [responders] optional live rescue-unit positions:
+ *   `{ latitude, longitude, label, incident_id }` each — GPS-tracked fleet
+ *   responders assigned to open incidents.
+ */
+export default function IncidentMap({ incidents = [], responders = [] }) {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [showZoomMessage, setShowZoomMessage] = useState(false);
   const key = process.env.NEXT_PUBLIC_TOMTOM_API_KEY || "";
@@ -32,6 +41,18 @@ export default function IncidentMap({ incidents = [] }) {
         .filter((i) => i && i.latitude != null && i.longitude != null)
         .map((i) => [Number(i.latitude), Number(i.longitude)]),
     [incidents]
+  );
+
+  const responderMarkers = useMemo(
+    () =>
+      (responders || [])
+        .filter((r) => r && r.latitude != null && r.longitude != null)
+        .map((r) => ({
+          ...r,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        })),
+    [responders]
   );
 
 
@@ -197,7 +218,38 @@ export default function IncidentMap({ incidents = [] }) {
             );
           })}
 
-        <FitBounds points={points} />
+        {responderMarkers.map((r, index) => {
+          const markerIcon = L.divIcon({
+            className: "fleet-marker",
+            html: `
+              <div class="fleet-incident-pin">
+                <span class="fleet-incident-pulse" style="background-color: ${RESPONDER_COLOR}; opacity: 0.4;"></span>
+                <span class="fleet-incident-dot" style="background-color: ${RESPONDER_COLOR}; box-shadow: 0 0 8px ${RESPONDER_COLOR};"></span>
+              </div>
+            `,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            tooltipAnchor: [0, -14],
+          });
+
+          return (
+            <Marker
+              key={`responder-${r.incident_id || index}`}
+              position={[r.latitude, r.longitude]}
+              icon={markerIcon}
+              zIndexOffset={1200}
+            >
+              <Tooltip permanent offset={[0, -16]} direction="top" className="fleet-tooltip">
+                <span className="flex items-center gap-1.5 font-semibold text-xs">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: RESPONDER_COLOR }} />
+                  {r.label || "Rescue unit"}
+                </span>
+              </Tooltip>
+            </Marker>
+          );
+        })}
+
+        <FitBounds points={points.concat(responderMarkers.map((r) => [r.latitude, r.longitude]))} />
       </MapContainer>
 
       <style jsx global>{`

@@ -24,8 +24,9 @@ export async function GET(req) {
 
     // Fetch Incidents
     const { rows: incidents } = await query(
-      `SELECT i.incident_id as id, i.incident_type as type, i.incident_date as date, 
-              i.status, i.severity, i.description, i.actions_taken, i.created_at, v.plate_number
+      `SELECT i.incident_id as id, i.incident_type as type, i.incident_date as date,
+              i.status, i.severity, i.description, i.actions_taken, i.created_at,
+              i.acknowledged_at, i.resolved_at, i.response_status, v.plate_number
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
         WHERE i.driver_id = $1 AND i.deleted_at IS NULL
@@ -56,6 +57,9 @@ export async function GET(req) {
         status: i.status || "Open",
         description: i.description,
         actions_taken: i.actions_taken,
+        acknowledged_at: i.acknowledged_at,
+        resolved_at: i.resolved_at,
+        response_status: i.response_status,
         amount: null,
         plate_number: i.plate_number,
         created_at: i.created_at,

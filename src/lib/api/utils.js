@@ -205,6 +205,23 @@ export async function parseBody(req) {
   }
 }
 
+/**
+ * Like parseBody, but a request with NO body at all parses to {} instead of
+ * throwing — for endpoints whose payload is entirely optional (e.g. field
+ * resolution, where the mobile app posts with no body when there is no note;
+ * JSON.stringify(undefined) sends nothing and req.json() would 400).
+ * Non-empty input that is not valid JSON is still a 400.
+ */
+export async function parseOptionalBody(req) {
+  const raw = await req.text();
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new AuthError("Invalid JSON body", 400, "BAD_REQUEST");
+  }
+}
+
 export function ok(data, status = 200) {
   return Response.json(data, { status });
 }

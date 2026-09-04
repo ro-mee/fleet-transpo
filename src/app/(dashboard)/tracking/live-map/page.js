@@ -26,6 +26,7 @@ import {
   RefreshCw,
   Route,
   Signal,
+  Siren,
   Truck,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -135,7 +136,19 @@ export default function LiveMapPage() {
   useRequireRole();
 
   const [selectedTripId, setSelectedTripId] = useState(null);
+  const [selectedRescueId, setSelectedRescueId] = useState(null);
   const [now, setNow] = useState(() => Date.now());
+
+  // Trip and rescue selections are mutually exclusive — picking one clears the
+  // other so the map's route/waypoint props always describe a single mission.
+  const selectTrip = (tripId) => {
+    setSelectedTripId(tripId ?? null);
+    setSelectedRescueId(null);
+  };
+  const selectRescue = (incidentId) => {
+    setSelectedRescueId(incidentId ?? null);
+    setSelectedTripId(null);
+  };
 
   const tripsQuery = useQuery({
     queryKey: ["trips-active"],
@@ -147,6 +160,15 @@ export default function LiveMapPage() {
     queryKey: ["latest-locations"],
     queryFn: () => getLatestLocations(),
     refetchInterval: 15000,
+  });
+
+  // Rescue missions (open incidents with a fleet responder assigned) — the
+  // responder's counterpart to the trip feed, so a rescue shows on this map
+  // exactly like a guest trip does.
+  const respondersQuery = useQuery({
+    queryKey: ["active-rescues"],
+    queryFn: () => apiFetch("/api/incidents/responders/active"),
+    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -162,6 +184,10 @@ export default function LiveMapPage() {
     () => (Array.isArray(locationsQuery.data) ? locationsQuery.data : []),
     [locationsQuery.data]
   );
+  const rescueRows = useMemo(
+    () => (Array.isArray(respondersQuery.data) ? respondersQuery.data : []),
+    [respondersQuery.data]
+  );
 
   // The initial view is a fleet overview. A trip becomes route-focused only
   // after the dispatcher explicitly selects it.
@@ -170,6 +196,13 @@ export default function LiveMapPage() {
       ? null
       : activeTrips.find((trip) => String(trip.trip_id) === String(selectedTripId)) || null,
     [activeTrips, selectedTripId]
+  );
+
+  const selectedRescue = useMemo(
+    () => selectedRescueId == null
+      ? null
+      : rescueRows.find((rescue) => String(rescue.incident_id) === String(selectedRescueId)) || null,
+    [rescueRows, selectedRescueId]
   );
 
   const selectedLocation = useMemo(
@@ -194,21 +227,42 @@ export default function LiveMapPage() {
     return [Number(selectedLocation.latitude), Number(selectedLocation.longitude)];
   }, [selectedLocation, now]);
 
+  // Same freshness rule for the rescue route: the responder's live position is
+  // the origin, the stranded driver's position the destination.
+  const rescueOriginCoords = useMemo(() => {
+    if (!isValidCoordinate(selectedRescue?.responder?.latitude, selectedRescue?.responder?.longitude)) return null;
+    if (getGpsHealth(selectedRescue?.responder?.last_location_update, now).key !== "fresh") return null;
+    return [Number(selectedRescue.responder.latitude), Number(selectedRescue.responder.longitude)];
+  }, [selectedRescue, now]);
+  const rescueTargetCoords = useMemo(
+    () => (isValidCoordinate(selectedRescue?.driver?.latitude, selectedRescue?.driver?.longitude)
+      ? [Number(selectedRescue.driver.latitude), Number(selectedRescue.driver.longitude)]
+      : null),
+    [selectedRescue]
+  );
+
+  // One route query for whichever mission is selected — a guest trip or a
+  // rescue. Both draw the same TomTom polyline via the shared endpoint.
+  const isRescueSelection = !activeTrip && Boolean(selectedRescue);
+  const routeOriginCoords = activeTrip ? originCoords : rescueOriginCoords;
+  const routeTargetCoords = activeTrip ? targetCoords : rescueTargetCoords;
+  const routeDrawEnabled = activeTrip ? Boolean(mapTarget.drawRoute) : true;
+
   const routeQuery = useQuery({
     queryKey: [
-      "driver-trip-route",
-      activeTrip?.trip_id ?? null,
-      originCoords?.join(",") ?? null,
-      targetCoords?.join(",") ?? null,
-      mapTarget.drawRoute,
+      isRescueSelection ? "rescue-route" : "driver-trip-route",
+      activeTrip?.trip_id ?? selectedRescue?.incident_id ?? null,
+      routeOriginCoords?.join(",") ?? null,
+      routeTargetCoords?.join(",") ?? null,
+      routeDrawEnabled,
     ],
     queryFn: async () => {
-      if (!originCoords || !targetCoords || !mapTarget.drawRoute) return null;
+      if (!routeOriginCoords || !routeTargetCoords || !routeDrawEnabled) return null;
       return apiFetch(
-        `/api/tomtom/route?origin=${originCoords[1]},${originCoords[0]}&destination=${targetCoords[1]},${targetCoords[0]}`
+        `/api/tomtom/route?origin=${routeOriginCoords[1]},${routeOriginCoords[0]}&destination=${routeTargetCoords[1]},${routeTargetCoords[0]}`
       );
     },
-    enabled: Boolean(activeTrip && originCoords && targetCoords && mapTarget.drawRoute),
+    enabled: Boolean((activeTrip || selectedRescue) && routeOriginCoords && routeTargetCoords && routeDrawEnabled),
     retry: 0,
     staleTime: 10000,
   });
@@ -243,7 +297,7 @@ export default function LiveMapPage() {
   );
 
   const selectedHealth = getGpsHealth(selectedLocation?.recorded_at, now);
-  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || routeQuery.isFetching;
+  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || respondersQuery.isFetching || routeQuery.isFetching;
   const routePoints = routeQuery.data?.coordinates;
   const routeReady = Array.isArray(routePoints) && routePoints.length >= 2;
   const driverName = driverNameFor(activeTrip);
@@ -255,6 +309,7 @@ export default function LiveMapPage() {
     await Promise.all([
       tripsQuery.refetch(),
       locationsQuery.refetch(),
+      respondersQuery.refetch(),
       routeQuery.refetch(),
     ]);
   };
@@ -267,6 +322,10 @@ export default function LiveMapPage() {
         badge="Operations"
         description={activeTrip
           ? `${driverName} · ${driverPlate} · ${activeTrip.trip_status}. ${mapTarget.kind ? `Next stop: ${targetName}.` : "Marker context only until the trip starts."}`
+          : selectedRescue
+          ? `Rescue mission — ${selectedRescue.responder?.name || "responder"} going to ${selectedRescue.driver?.name || "stranded driver"}. ${selectedRescue.response_status || "Dispatched"}.`
+          : rescueRows.length
+          ? `Monitor active trip positions, GPS health, and routes from one operational map. ${rescueRows.length} rescue ${rescueRows.length === 1 ? "mission is" : "missions are"} in progress.`
           : "Monitor active trip positions, GPS health, and routes from one operational map."}
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -311,6 +370,13 @@ export default function LiveMapPage() {
           description="Trip records remain visible, but their positions may be unavailable or outdated."
         />
       )}
+      {respondersQuery.isError && (
+        <QueryErrorBanner
+          query={respondersQuery}
+          title="Unable to load rescue missions"
+          description="Active trips remain visible, but responder positions may be missing from the map."
+        />
+      )}
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8 xl:col-span-9">
           <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
@@ -325,7 +391,7 @@ export default function LiveMapPage() {
             </CardHeader>
             <CardContent className="p-0">
               <div className="h-[min(640px,70vh)] min-h-[420px] bg-muted/20">
-                {locationsQuery.isLoading || tripsQuery.isLoading ? (
+                {locationsQuery.isLoading || tripsQuery.isLoading || respondersQuery.isLoading ? (
                   <div className="flex h-full items-center justify-center bg-hover/40" aria-busy="true">
                     <div className="w-full max-w-sm space-y-3 px-6">
                       <div className="h-4 w-32 animate-pulse rounded bg-muted" />
@@ -333,34 +399,32 @@ export default function LiveMapPage() {
                       <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
                     </div>
                   </div>
-                ) : activeTrips.length === 0 ? (
+                ) : mapLocations.length === 0 && rescueRows.length === 0 ? (
                   <div className="flex h-full items-center justify-center">
                     <EmptyState
                       icon={Navigation}
-                      title="No active trips"
-                      description="The live map will populate when a trip enters the operational tracking window."
-                    />
-                  </div>
-                ) : mapLocations.length === 0 ? (
-                  <div className="flex h-full items-center justify-center">
-                    <EmptyState
-                      icon={Signal}
-                      title="No current GPS positions"
-                      description="Active trips are present, but none has a valid trip-scoped GPS measurement yet."
+                      title="Nothing on the map"
+                      description="The live map will populate when a trip enters the operational tracking window or a rescue is dispatched."
                     />
                   </div>
                 ) : (
                   <LiveLocationsMap
                     locations={mapLocations}
+                    responders={rescueRows}
                     // Pass the resolved trip, not stale selection state, so a
                     // completed/removed trip cannot leave the map highlighting
                     // or focusing a different marker than the selected panel.
                     selectedTripId={activeTrip?.trip_id ?? null}
-                    onSelectTrip={setSelectedTripId}
+                    onSelectTrip={selectTrip}
+                    selectedResponderId={selectedRescue?.incident_id ?? null}
+                    onSelectResponder={selectRescue}
                     route={routeReady ? routePoints : null}
-                    waypoints={{ origin: originCoords, destination: targetCoords }}
-                    originName={originCoords ? `Driver: ${driverName} (${driverPlate})` : ""}
-                    destinationName={targetCoords ? targetName : ""}
+                    // Rescue markers come from the responders feed — waypoints
+                    // (green origin / red destination pins) only describe a
+                    // selected trip.
+                    waypoints={activeTrip ? { origin: originCoords, destination: targetCoords } : { origin: null, destination: null }}
+                    originName={activeTrip && originCoords ? `Driver: ${driverName} (${driverPlate})` : ""}
+                    destinationName={activeTrip && targetCoords ? targetName : ""}
                     traffic
                   />
                 )}
@@ -374,13 +438,13 @@ export default function LiveMapPage() {
             <CardHeader className="border-b border-border/60 bg-muted/20 pb-3.5">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
                 <Activity className="h-4 w-4 text-primary" />
-                Selected trip
+                Selected mission
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4 p-4">
-              {!activeTrip ? (
-                <p className="text-sm text-foreground-secondary">Select an active trip when one is available.</p>
-              ) : (
+              {!activeTrip && !selectedRescue ? (
+                <p className="text-sm text-foreground-secondary">Select an active trip or rescue mission when one is available.</p>
+              ) : activeTrip ? (
                 <>
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -434,6 +498,52 @@ export default function LiveMapPage() {
                     <Metric label="Destination" value={destinationName} icon={Navigation} />
                   </div>
                 </>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-data text-base font-semibold text-foreground">
+                        Rescue — {selectedRescue.responder?.name || "Fleet responder"}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-foreground-secondary">
+                        Going to {selectedRescue.driver?.name || "stranded driver"}
+                      </p>
+                    </div>
+                    <StatusBadge status={selectedRescue.response_status || "Dispatched"} entity="trip" className="shrink-0 text-[11px]" />
+                  </div>
+                  <div className="flex items-center justify-between gap-2 border-y border-border/60 py-3">
+                    <span className="text-xs font-semibold text-foreground-muted">Responder GPS</span>
+                    <StatusBadge status={getGpsHealth(selectedRescue.responder?.last_location_update, now).label} entity="gps" className="text-[11px]" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Metric
+                      label="ETA"
+                      value={selectedRescue.response_eta && selectedRescue.response_status !== "Arrived"
+                        ? new Date(selectedRescue.response_eta).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+                        : "—"}
+                      icon={Clock3}
+                    />
+                    <Metric label="Last update" value={formatDateTime(selectedRescue.responder?.last_location_update)} icon={Activity} />
+                    <Metric label="Incident" value={selectedRescue.incident_type || "—"} icon={Siren} />
+                    <Metric label="Location" value={selectedRescue.location || "—"} icon={MapPin} />
+                  </div>
+                  {routeReady ? (
+                    <p className="font-data text-xs text-primary">
+                      {routeQuery.data.distanceKm != null ? `${routeQuery.data.distanceKm} km` : "Distance unavailable"}
+                      {routeQuery.data.travelTimeMin != null ? ` · ~${routeQuery.data.travelTimeMin} min` : ""}
+                    </p>
+                  ) : (
+                    <p className="text-xs text-foreground-muted">
+                      {routeQuery.isError
+                        ? "Route unavailable"
+                        : !routeOriginCoords
+                        ? "Waiting for a fresh responder GPS fix"
+                        : !routeTargetCoords
+                        ? "Stranded driver coordinates unavailable"
+                        : "Calculating route"}
+                    </p>
+                  )}
+                </>
               )}
             </CardContent>
           </Card>
@@ -445,12 +555,12 @@ export default function LiveMapPage() {
                 Active trips
               </CardTitle>
               <div className="flex items-center gap-2">
-                {activeTrip && (
+                {(activeTrip || selectedRescue) && (
                   <Button
                     type="button"
                     size="xs"
                     variant="ghost"
-                    onClick={() => setSelectedTripId(null)}
+                    onClick={() => selectTrip(null)}
                     className="h-7 rounded-xl px-2 text-[11px] font-semibold"
                   >
                     Fleet overview
@@ -472,7 +582,7 @@ export default function LiveMapPage() {
                       <div key={trip.trip_id} className={cn("p-3.5", isSelected && "bg-primary/10")}>
                         <button
                           type="button"
-                          onClick={() => setSelectedTripId(trip.trip_id)}
+                          onClick={() => selectTrip(trip.trip_id)}
                           className="flex w-full items-start justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
                           aria-pressed={isSelected}
                         >
@@ -492,7 +602,7 @@ export default function LiveMapPage() {
                             type="button"
                             size="xs"
                             variant={isSelected ? "default" : "outline"}
-                            onClick={() => setSelectedTripId(trip.trip_id)}
+                            onClick={() => selectTrip(trip.trip_id)}
                             className="h-7 flex-1 rounded-xl text-[11px] font-semibold"
                           >
                             <Route className="mr-1 h-3 w-3" />
@@ -518,6 +628,68 @@ export default function LiveMapPage() {
               )}
             </CardContent>
           </Card>
+
+          {rescueRows.length > 0 && (
+            <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
+              <CardHeader className="flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-3.5">
+                <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <Siren className="h-4 w-4 text-primary" />
+                  Rescue missions
+                </CardTitle>
+                <Badge variant="outline" className="rounded-full font-data text-[11px]">{rescueRows.length}</Badge>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="max-h-[360px] divide-y divide-border/60 overflow-y-auto">
+                  {rescueRows.map((rescue) => {
+                    const isSelected = selectedRescue?.incident_id === rescue.incident_id;
+                    const health = getGpsHealth(rescue.responder?.last_location_update, now);
+                    return (
+                      <div key={rescue.incident_id} className={cn("p-3.5", isSelected && "bg-primary/10")}>
+                        <button
+                          type="button"
+                          onClick={() => selectRescue(rescue.incident_id)}
+                          className="flex w-full items-start justify-between gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
+                          aria-pressed={isSelected}
+                        >
+                          <span className="flex min-w-0 items-center gap-2.5">
+                            <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border", health.key === "fresh" ? "border-success/20 bg-success/10 text-success" : health.key === "stale" ? "border-danger/20 bg-danger/10 text-danger-700" : "border-warning/20 bg-warning/10 text-warning-700")}>
+                              <Siren className="h-4 w-4" />
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate font-data text-xs font-semibold text-foreground">
+                                {rescue.responder?.name || "Fleet responder"}
+                              </span>
+                              <span className="mt-0.5 block truncate text-[11px] text-foreground-muted">
+                                → {rescue.driver?.name || "stranded driver"}
+                              </span>
+                            </span>
+                          </span>
+                          <StatusBadge status={rescue.response_status || "Dispatched"} entity="trip" className="shrink-0 text-[11px]" />
+                        </button>
+                        <div className="mt-2 flex items-center gap-1.5">
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant={isSelected ? "default" : "outline"}
+                            onClick={() => selectRescue(rescue.incident_id)}
+                            className="h-7 flex-1 rounded-xl text-[11px] font-semibold"
+                          >
+                            <Route className="mr-1 h-3 w-3" />
+                            {isSelected ? "Tracking route" : "Show route"}
+                          </Button>
+                          {rescue.response_eta && rescue.response_status !== "Arrived" && (
+                            <span className="font-data text-[11px] font-semibold text-foreground-muted">
+                              ETA {new Date(rescue.response_eta).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </aside>
       </div>
     </div>

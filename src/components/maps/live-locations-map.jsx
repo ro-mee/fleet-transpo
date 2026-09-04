@@ -50,6 +50,9 @@ const STATUS_COLOR = {
   Assigned: CHART_COLORS.warning,
 };
 const DEFAULT_MARKER = CHART_COLORS.info;
+// Rescue units (fleet responders driving to a stranded driver) — the same blue
+// the incidents map uses, kept distinct from every trip-phase color.
+const RESCUE_COLOR = "#2563eb";
 
 function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMapStyle, hasTomTomKey }) {
   return (
@@ -168,6 +171,9 @@ export default function LiveLocationsMap({
   waypoints = null,
   originName = "",
   destinationName = "",
+  responders = [],
+  selectedResponderId = null,
+  onSelectResponder = null,
 }) {
   const hasTomTomKey = Boolean(getPublicKey());
   const [trafficOn, setTrafficOn] = useState(traffic && hasTomTomKey);
@@ -184,6 +190,21 @@ export default function LiveLocationsMap({
       }))
       .filter((location) => isValidCoordinate(location._lat, location._lng)),
     [locations]
+  );
+  // Rescue missions (open incidents with a fleet responder assigned): one blue
+  // marker for the responder's live position, one red pin for the stranded
+  // driver they are driving to. Feed shape: /api/incidents/responders/active.
+  const rescueUnits = useMemo(
+    () => (responders || [])
+      .map((rescue) => ({
+        ...rescue,
+        _lat: Number(rescue?.responder?.latitude),
+        _lng: Number(rescue?.responder?.longitude),
+        _tLat: Number(rescue?.driver?.latitude),
+        _tLng: Number(rescue?.driver?.longitude),
+      }))
+      .filter((rescue) => isValidCoordinate(rescue._lat, rescue._lng)),
+    [responders]
   );
   const routePts = useMemo(() => {
     if (!Array.isArray(route)) return null;
@@ -221,10 +242,11 @@ export default function LiveLocationsMap({
 
   const center = useMemo(() => {
     if (valid.length > 0) return [valid[0]._lat, valid[0]._lng];
+    if (rescueUnits.length > 0) return [rescueUnits[0]._lat, rescueUnits[0]._lng];
     if (origin) return origin;
     if (routePts) return routePts[0];
     return [14.6, 121.0];
-  }, [valid, origin, routePts]);
+  }, [valid, rescueUnits, origin, routePts]);
 
   const legendStatuses = useMemo(() => {
     const seen = new Set();
@@ -234,6 +256,14 @@ export default function LiveLocationsMap({
     }
     return [...seen];
   }, [valid]);
+
+  const rescueStatuses = useMemo(() => {
+    const seen = new Set();
+    for (const r of rescueUnits) {
+      if (r.response_status) seen.add(r.response_status);
+    }
+    return [...seen];
+  }, [rescueUnits]);
 
   const originIcon = useMemo(
     () =>
@@ -259,12 +289,29 @@ export default function LiveLocationsMap({
     []
   );
 
+  const strandedIcon = useMemo(
+    () =>
+      L.divIcon({
+        className: "fleet-marker",
+        html: `<div class="fleet-pin" style="--pin:#ef4444"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>`,
+        iconSize: [34, 34],
+        iconAnchor: [17, 30],
+        tooltipAnchor: [0, -30],
+      }),
+    []
+  );
+
   const viewportPoints = useMemo(() => [
     ...valid.map((location) => [location._lat, location._lng]),
+    ...rescueUnits.flatMap((rescue) => {
+      const points = [[rescue._lat, rescue._lng]];
+      if (isValidCoordinate(rescue._tLat, rescue._tLng)) points.push([rescue._tLat, rescue._tLng]);
+      return points;
+    }),
     ...(routePts || []),
     ...(origin ? [origin] : []),
     ...(destination ? [destination] : []),
-  ], [valid, routePts, origin, destination]);
+  ], [valid, rescueUnits, routePts, origin, destination]);
 
   const hasContent = viewportPoints.length > 0;
   const selectedPoint = useMemo(
@@ -426,6 +473,74 @@ export default function LiveLocationsMap({
           );
         })}
 
+        {/* Rescue missions: red pin where the stranded driver is, blue pulsing
+            marker for the responder driving to them. Rendered independently of
+            trips, so an active rescue shows even with zero live trips. */}
+        {rescueUnits.filter((rescue) => isValidCoordinate(rescue._tLat, rescue._tLng)).map((rescue) => (
+          <Marker
+            key={`rescue-target-${rescue.incident_id}`}
+            position={[rescue._tLat, rescue._tLng]}
+            icon={strandedIcon}
+          >
+            <Tooltip permanent offset={[0, -24]} direction="top" className="fleet-tooltip font-semibold text-xs shadow-md">
+              <span className="flex items-center gap-1.5 font-medium">
+                <MapPin className="h-3 w-3 text-danger" />
+                {rescue.driver?.name || "Stranded driver"}
+              </span>
+            </Tooltip>
+          </Marker>
+        ))}
+
+        {rescueUnits.map((rescue) => {
+          const selected = selectedResponderId != null && String(rescue.incident_id) === String(selectedResponderId);
+          const health = getGpsHealth(rescue.responder?.last_location_update);
+          return (
+            <CircleMarker
+              key={`rescue-unit-${rescue.incident_id}`}
+              center={[rescue._lat, rescue._lng]}
+              eventHandlers={onSelectResponder ? { click: () => onSelectResponder(rescue.incident_id) } : undefined}
+              radius={selected ? 11 : 8}
+              pathOptions={{
+                color: "#ffffff",
+                weight: selected ? 3 : 2.5,
+                fillColor: RESCUE_COLOR,
+                fillOpacity: selected ? 1 : 0.85,
+              }}
+            >
+              <Popup className="fleet-popup">
+                <div className="p-1 space-y-2 text-foreground font-sans min-w-[210px]">
+                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                    <span className="font-bold text-sm font-data">Rescue — {rescue.responder?.name || "Fleet responder"}</span>
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                      {rescue.response_status || "Dispatched"}
+                    </span>
+                  </div>
+                  <div className="space-y-1 text-xs text-foreground-secondary font-medium">
+                    {rescue.driver?.name && <p className="truncate">Going to: {rescue.driver.name}</p>}
+                    {rescue.incident_type && <p className="truncate">{rescue.incident_type}</p>}
+                    {rescue.response_eta && rescue.response_status !== "Arrived" && (
+                      <p className="font-data">ETA: {new Date(rescue.response_eta).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</p>
+                    )}
+                    <p className="text-[11px] font-semibold text-foreground-muted">GPS: {health.label}</p>
+                    {rescue.responder?.last_location_update && (
+                      <p className="text-[11px] text-foreground-muted font-data">Last update: {new Date(rescue.responder.last_location_update).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>
+                    )}
+                  </div>
+                </div>
+              </Popup>
+              <Tooltip permanent offset={[0, -12]} direction="top" className="fleet-tooltip">
+                <div className="flex flex-col gap-0.5">
+                  <span className="flex items-center gap-1.5 font-semibold text-xs font-data">
+                    <span className="h-2 w-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: RESCUE_COLOR }} />
+                    Rescue — {rescue.responder?.name || "Fleet responder"}
+                  </span>
+                  {rescue.driver?.name && <span className="text-[11px] font-medium">→ {rescue.driver.name}</span>}
+                </div>
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
+
         <MapControls
           trafficOn={trafficOn}
           onTraffic={() => setTrafficOn((v) => !v)}
@@ -463,6 +578,22 @@ export default function LiveLocationsMap({
                 {legendStatuses.map((s) => (
                   <li key={s} className="flex items-center gap-2 text-xs font-medium text-foreground-secondary">
                     <span className="h-2.5 w-2.5 rounded-full shadow-2xs shrink-0" style={{ backgroundColor: STATUS_COLOR[s] || DEFAULT_MARKER }} />
+                    <span className="truncate">{s}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {rescueStatuses.length > 0 && (
+            <div>
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
+                Rescue Units
+              </p>
+              <ul className="space-y-1">
+                {rescueStatuses.map((s) => (
+                  <li key={s} className="flex items-center gap-2 text-xs font-medium text-foreground-secondary">
+                    <span className="h-2.5 w-2.5 rounded-full shadow-2xs shrink-0 animate-pulse" style={{ backgroundColor: RESCUE_COLOR }} />
                     <span className="truncate">{s}</span>
                   </li>
                 ))}

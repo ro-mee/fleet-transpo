@@ -8,7 +8,7 @@ import { getAllIncidents, getIncidentSummary } from "@/services/driver.service";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink, X, Clock, Ambulance } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { rolesFor } from "@/lib/auth/permissions";
@@ -43,14 +43,37 @@ const SEVERITY_VARIANT = {
   Critical: "danger",
 };
 
+// Attribution for a resolved incident: a staff resolve carries a dashboard
+// employee id, while a field resolution (driver or responder confirming on
+// their phone) matches one of the two field parties.
+function resolveAttribution(incident) {
+  if (!incident?.resolved_at) return null;
+  const when = new Date(incident.resolved_at).toLocaleString("en-PH");
+  const resolverName = [incident.resolved_by_first_name, incident.resolved_by_last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  if (incident.resolved_by != null && incident.reporter_employee_id === incident.resolved_by) {
+    return "Resolved by the driver · confirmed on their phone · " + when;
+  }
+  if (incident.resolved_by != null && incident.responder_employee_id === incident.resolved_by) {
+    return `Resolved by ${resolverName || "the fleet responder"} · confirmed on their phone · ${when}`;
+  }
+  return `Resolved by ${resolverName || "the fleet team"} · ${when}`;
+}
+
 export default function IncidentsPage() {
   const { role } = useRequireRole();
   const canAct = rolesFor("incidents", "resolve").includes(role);
+  const canRespond = rolesFor("incidents", "acknowledge").includes(role);
   const canRouteMaintenance = rolesFor("incidents", "route_to_maintenance").includes(role);
   const queryClient = useQueryClient();
 
   const [resolveModal, setResolveModal] = useState({ open: false, incident: null });
   const [actionsTaken, setActionsTaken] = useState("");
+  const [acknowledgeNote, setAcknowledgeNote] = useState("");
+  const [responseForm, setResponseForm] = useState({ status: "Dispatched", type: "", details: "", eta: "" });
+  const [responderDriverId, setResponderDriverId] = useState("");
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
@@ -83,15 +106,47 @@ export default function IncidentsPage() {
   });
 
   const acknowledgeMutation = useMutation({
-    mutationFn: (id) => apiFetch(`/api/incidents/${id}/acknowledge`, { method: "POST" }),
+    mutationFn: ({ id, note }) =>
+      apiFetch(`/api/incidents/${id}/acknowledge`, {
+        method: "POST",
+        body: { note: note?.trim() ? note.trim().slice(0, 500) : undefined },
+      }),
     onSuccess: () => {
-      toast.success("Incident acknowledged");
+      toast.success("Incident acknowledged — the driver has been notified");
       queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
       queryClient.invalidateQueries({ queryKey: ["incident-summary"] });
       queryClient.invalidateQueries({ queryKey: ["pending-incidents"] });
       queryClient.invalidateQueries({ queryKey: ["incident-detail", resolveModal.incident?.incident_id] });
+      setAcknowledgeNote("");
     },
     onError: (err) => toast.error(err.message || "Failed to acknowledge incident"),
+  });
+
+  const responseMutation = useMutation({
+    mutationFn: ({ id, payload }) =>
+      apiFetch(`/api/incidents/${id}/response`, { method: "POST", body: payload }),
+    onSuccess: () => {
+      toast.success("Response updated — the driver has been notified");
+      queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["incident-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["incident-detail", resolveModal.incident?.incident_id] });
+    },
+    onError: (err) => toast.error(err.message || "Failed to update the response"),
+  });
+
+  // Assign a fleet driver as the responder — that driver's GPS then drives the
+  // response ladder (En Route / Arrived / ETA) automatically.
+  const responderMutation = useMutation({
+    mutationFn: ({ id, driverId }) =>
+      apiFetch(`/api/incidents/${id}/responder`, { method: "POST", body: { driver_id: driverId } }),
+    onSuccess: (data) => {
+      toast.success(data?.unchanged ? "Responder unchanged" : "Responder updated — GPS tracking is live");
+      queryClient.invalidateQueries({ queryKey: ["all-incidents"] });
+      queryClient.invalidateQueries({ queryKey: ["incident-summary"] });
+      queryClient.invalidateQueries({ queryKey: ["incident-detail", resolveModal.incident?.incident_id] });
+      setResponderDriverId("");
+    },
+    onError: (err) => toast.error(err.message || "Failed to assign responder"),
   });
 
   const groundingMutation = useMutation({
@@ -114,10 +169,19 @@ export default function IncidentsPage() {
   });
   const detailIncident = detailQuery.data || resolveModal.incident;
   const isResolved = String(detailIncident?.status || "").toLowerCase() === "resolved";
+  const resolutionAttribution = resolveAttribution(detailIncident);
   const groundingBlocked = ["Pending", "Failed"].includes(detailIncident?.grounding_status);
   const detailMaintenanceId = detailIncident?.maintenance_id
     || detailIncident?.linked_maintenance_id
     || detailQuery.data?.linked_maintenance?.[0]?.maintenance_id;
+
+  // Candidate fleet responders for the open incident in the modal: active
+  // drivers (excluding the reporter) with their current distance/freshness.
+  const respondersQuery = useQuery({
+    queryKey: ["incident-responders", resolveModal.incident?.incident_id],
+    queryFn: () => apiFetch(`/api/incidents/${resolveModal.incident.incident_id}/responder`),
+    enabled: resolveModal.open && !!resolveModal.incident && !isResolved && canRespond,
+  });
 
   const maintenanceMutation = useMutation({
     mutationFn: (id) => apiFetch(`/api/incidents/${id}/maintenance`, { method: "POST" }),
@@ -143,6 +207,21 @@ export default function IncidentsPage() {
     return incidents.filter((i) => (i.status || "").toLowerCase() !== "resolved");
   }, [incidents]);
 
+  // Live rescue units for the map: one blue marker per open incident that has
+  // a GPS-tracked fleet responder with a current position.
+  const responderMarkers = useMemo(() => {
+    return activeIncidents
+      .filter((i) => i.responder_latitude != null && i.responder_longitude != null)
+      .map((i) => ({
+        incident_id: i.incident_id,
+        latitude: i.responder_latitude,
+        longitude: i.responder_longitude,
+        label: i.responder
+          ? `Rescue unit — ${i.responder.first_name} ${i.responder.last_name}`
+          : "Rescue unit",
+      }));
+  }, [activeIncidents]);
+
   const counts = useMemo(() => {
     const c = { Critical: 0, Major: 0, Moderate: 0, Minor: 0, Open: 0, Unacknowledged: 0 };
     incidents.forEach((i) => {
@@ -157,6 +236,9 @@ export default function IncidentsPage() {
   const totalCount = Number.isFinite(Number(summary.total)) ? Number(summary.total) : incidents.length;
   const openCount = Number.isFinite(Number(summary.open)) ? Number(summary.open) : counts.Open;
   const unacknowledgedCount = Number.isFinite(Number(summary.unacknowledged)) ? Number(summary.unacknowledged) : counts.Unacknowledged;
+  const overdueCount = Number.isFinite(Number(summary.overdue))
+    ? Number(summary.overdue)
+    : incidents.filter((i) => i.status === "Open" && i.due_at && new Date(i.due_at) < new Date()).length;
   const criticalMajorOpen = Number.isFinite(Number(summary.critical_major_open))
     ? Number(summary.critical_major_open)
     : incidents.filter((i) => i.status === "Open" && ["Critical", "Major"].includes(i.severity)).length;
@@ -314,18 +396,38 @@ export default function IncidentsPage() {
         className: "w-[13%] sm:w-[10%] lg:w-[10%] min-w-0 whitespace-normal align-top",
         headerClassName: "w-[13%] sm:w-[10%] lg:w-[10%]",
       },
-      render: (val) => {
+      render: (val, row) => {
         const status = val || "Open";
         const compactStatus = { Resolved: "Done", "In Progress": "Active", Pending: "New" }[status] || status;
         return (
-          <StatusBadge
-            status={status}
-            entity="incident"
-            title={status}
-            aria-label={`Status: ${status}`}
-            className="max-w-full truncate rounded-full px-1.5 py-1 text-[10px] font-bold lg:px-3 lg:text-xs"
-            label={<><span className="lg:hidden">{compactStatus}</span><span className="hidden lg:inline">{status}</span></>}
-          />
+          <div className="space-y-1">
+            <StatusBadge
+              status={status}
+              entity="incident"
+              title={status}
+              aria-label={`Status: ${status}`}
+              className="max-w-full truncate rounded-full px-1.5 py-1 text-[10px] font-bold lg:px-3 lg:text-xs"
+              label={<><span className="lg:hidden">{compactStatus}</span><span className="hidden lg:inline">{status}</span></>}
+            />
+            {row.overdue && (
+              <span
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-danger/30 bg-danger/10 px-1.5 py-0.5 text-[10px] font-bold text-danger"
+                title={row.due_at ? `Response SLA breached — due ${new Date(row.due_at).toLocaleString("en-PH")}` : "Response SLA breached"}
+              >
+                <Clock className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 truncate">SLA breached</span>
+              </span>
+            )}
+            {row.response_status && status === "Open" && (
+              <span
+                className="inline-flex max-w-full items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary"
+                title={`Help ${row.response_status}`}
+              >
+                <Ambulance className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 truncate">Help: {row.response_status}</span>
+              </span>
+            )}
+          </div>
         );
       },
     },
@@ -377,6 +479,7 @@ export default function IncidentsPage() {
                 size="sm"
                 className="gap-1.5 text-xs font-semibold hover:text-primary hover:border-primary"
                 onClick={() => {
+                  setAcknowledgeNote("");
                   setActionsTaken("");
                   setResolveModal({ open: true, incident: row });
                 }}
@@ -394,6 +497,8 @@ export default function IncidentsPage() {
               size="sm"
               className="gap-1.5 text-xs font-semibold text-foreground-secondary hover:text-foreground hover:bg-surface"
               onClick={() => {
+                setAcknowledgeNote("");
+                setResponseForm({ status: "Dispatched", type: "", details: "", eta: "" });
                 setActionsTaken(row.actions_taken || "");
                 setResolveModal({ open: true, incident: row });
               }}
@@ -408,7 +513,12 @@ export default function IncidentsPage() {
                 variant="outline"
                 size="sm"
                 className="gap-1.5 text-xs font-semibold text-primary border-primary/30 hover:bg-primary/5"
-                onClick={() => acknowledgeMutation.mutate(row.incident_id)}
+                onClick={() => {
+                  setAcknowledgeNote("");
+                  setResponseForm({ status: "Dispatched", type: "", details: "", eta: "" });
+                  setActionsTaken(row.actions_taken || "");
+                  setResolveModal({ open: true, incident: row });
+                }}
                 disabled={acknowledgeMutation.isPending}
                 aria-label="Acknowledge incident"
                 title="Acknowledge incident"
@@ -447,10 +557,11 @@ export default function IncidentsPage() {
         }
       />
 
-      <StatGrid cols={4}>
+      <StatGrid cols={5}>
         <StatCard icon={AlertTriangle} label="Total Incidents" value={isLoading || summaryLoading ? "-" : totalCount} tone="primary" />
         <StatCard icon={AlertCircle} label="Open" value={isLoading || summaryLoading ? "-" : openCount} tone="warning" />
         <StatCard icon={UserCheck} label="Unacknowledged" value={isLoading || summaryLoading ? "-" : unacknowledgedCount} tone="warning" />
+        <StatCard icon={Clock} label="SLA Overdue" value={isLoading || summaryLoading ? "-" : overdueCount} tone="danger" />
         <StatCard icon={Wrench} label="Critical / Major Open" value={isLoading || summaryLoading ? "-" : criticalMajorOpen} tone="danger" />
       </StatGrid>
 
@@ -479,7 +590,7 @@ export default function IncidentsPage() {
             </Button>
           </div>
           <div className="h-[340px] w-full">
-            <IncidentMap incidents={activeIncidents} />
+            <IncidentMap incidents={activeIncidents} responders={responderMarkers} />
           </div>
         </CardContent>
       </Card>
@@ -516,7 +627,7 @@ export default function IncidentsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={resolveModal.open} onOpenChange={(open) => !open && setResolveModal({ open: false, incident: null })}>
+      <Dialog open={resolveModal.open} onOpenChange={(open) => { if (!open) { setAcknowledgeNote(""); setResponseForm({ status: "Dispatched", type: "", details: "", eta: "" }); setResolveModal({ open: false, incident: null }); } }}>
         <DialogContent 
           onInteractOutside={(e) => {
             if (fullScreenImage) e.preventDefault();
@@ -566,8 +677,178 @@ export default function IncidentsPage() {
                   {detailIncident.description && <p className="sm:col-span-2 whitespace-pre-wrap text-foreground-secondary">{detailIncident.description}</p>}
                   {detailIncident.location && <p className="flex items-center gap-1.5 text-foreground-secondary"><MapPin className="h-3.5 w-3.5 text-danger" />{detailIncident.location}</p>}
                   {detailIncident.latitude != null && detailIncident.longitude != null && <a className="inline-flex items-center gap-1.5 font-semibold text-primary hover:underline" href={`https://www.google.com/maps?q=${detailIncident.latitude},${detailIncident.longitude}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" />Open exact location</a>}
+                  {detailIncident.driver_latitude != null && detailIncident.driver_longitude != null && (
+                    <p className="sm:col-span-2 flex flex-wrap items-center gap-1.5 text-foreground-secondary">
+                      <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+                      <span>Driver last seen {detailIncident.driver_location_at ? new Date(detailIncident.driver_location_at).toLocaleString("en-PH") : "recently"}</span>
+                      <a className="inline-flex items-center gap-1 font-semibold text-primary hover:underline" href={`https://www.google.com/maps?q=${detailIncident.driver_latitude},${detailIncident.driver_longitude}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-3.5 w-3.5" />Map</a>
+                    </p>
+                  )}
                 </div>
                 {Array.isArray(detailIncident.assistance_needed) && detailIncident.assistance_needed.length > 0 && <div className="flex flex-wrap gap-1.5"><span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Assistance:</span>{detailIncident.assistance_needed.map((need) => <Badge key={need} variant="warning">{need}</Badge>)}</div>}
+
+                {/* Emergency response — the physical rescue the driver watches live */}
+                {(detailIncident.response_status || (!isResolved && canRespond)) && (
+                  <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                        <Ambulance className="h-4 w-4 text-primary" /> Emergency response
+                      </span>
+                      {detailIncident.response_status && (
+                        <Badge variant={detailIncident.response_status === "Arrived" ? "success" : "warning"}>{detailIncident.response_status}</Badge>
+                      )}
+                    </div>
+                    {detailIncident.response_status ? (
+                      <div className="space-y-0.5 text-xs text-foreground-secondary">
+                        <p className="text-foreground"><span className="font-semibold">{detailIncident.response_type}</span>{detailIncident.response_details ? ` · ${detailIncident.response_details}` : ""}</p>
+                        {detailIncident.response_eta && (
+                          <p>ETA {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-foreground-muted">Nothing dispatched yet. Log what help is on the way — the driver sees it live on their phone.</p>
+                    )}
+                    {!isResolved && canRespond && (
+                      <div className="rounded-xl border border-border/80 bg-surface p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold text-foreground">Fleet responder</span>
+                          {detailIncident.responder ? (
+                            <Badge variant="info">{detailIncident.responder.first_name} {detailIncident.responder.last_name}</Badge>
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">GPS-tracked</span>
+                          )}
+                        </div>
+                        {detailIncident.responder ? (
+                          <div className="space-y-2">
+                            <p className="text-[11px] text-foreground-secondary">
+                              GPS-tracked — status and ETA update automatically as they drive
+                              {detailIncident.responder_location_at ? ` (last position ${new Date(detailIncident.responder_location_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })})` : ""}.
+                            </p>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1.5 text-xs font-semibold"
+                              disabled={responderMutation.isPending}
+                              onClick={() =>
+                                responderMutation.mutate({ id: detailIncident.incident_id, driverId: null })
+                              }
+                            >
+                              {responderMutation.isPending ? "Updating…" : "Unassign — back to manual response"}
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                              <label className="space-y-1">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Send a fleet driver</span>
+                                <select
+                                  value={responderDriverId}
+                                  onChange={(e) => setResponderDriverId(e.target.value)}
+                                  className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                >
+                                  <option value="">
+                                    {respondersQuery.isLoading ? "Loading drivers…" : "Choose a driver…"}
+                                  </option>
+                                  {(respondersQuery.data || []).map((d) => (
+                                    <option key={d.driver_id} value={d.driver_id}>
+                                      {d.name}
+                                      {d.distance_km != null ? ` — ${d.distance_km} km away` : ""}
+                                      {d.position_fresh ? "" : " (position not fresh)"}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                              <Button
+                                size="sm"
+                                className="text-xs font-semibold"
+                                disabled={!responderDriverId || responderMutation.isPending}
+                                onClick={() =>
+                                  responderMutation.mutate({
+                                    id: detailIncident.incident_id,
+                                    driverId: Number(responderDriverId),
+                                  })
+                                }
+                              >
+                                {responderMutation.isPending ? "Assigning…" : "Assign responder"}
+                              </Button>
+                            </div>
+                            <p className="text-[10px] text-foreground-muted">
+                              A fleet responder&rsquo;s phone GPS drives En Route / Arrived / ETA automatically. For external help (ambulance, tow company), use the manual response below.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {!isResolved && canRespond && (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Status</span>
+                          <select
+                            value={responseForm.status}
+                            onChange={(e) => setResponseForm((f) => ({ ...f, status: e.target.value }))}
+                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                          >
+                            <option value="Dispatched">Dispatched</option>
+                            <option value="En Route">En Route</option>
+                            <option value="Arrived">Arrived</option>
+                          </select>
+                        </label>
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">What is coming {!detailIncident.response_type && <span className="text-danger">*</span>}</span>
+                          <input
+                            value={responseForm.type}
+                            onChange={(e) => setResponseForm((f) => ({ ...f, type: e.target.value }))}
+                            maxLength={50}
+                            placeholder={detailIncident.response_type || "e.g., Ambulance"}
+                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">ETA (minutes)</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="1440"
+                            value={responseForm.eta}
+                            onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
+                            placeholder="e.g., 20"
+                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                          />
+                        </label>
+                        <label className="space-y-1">
+                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Responder details</span>
+                          <input
+                            value={responseForm.details}
+                            onChange={(e) => setResponseForm((f) => ({ ...f, details: e.target.value }))}
+                            maxLength={200}
+                            placeholder="e.g., AC Medical ambulance · 0917…"
+                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                          />
+                        </label>
+                        <div className="sm:col-span-2">
+                          <Button
+                            size="sm"
+                            className="gap-1.5 text-xs font-semibold"
+                            disabled={responseMutation.isPending || (!detailIncident.response_type && !responseForm.type.trim())}
+                            onClick={() =>
+                              responseMutation.mutate({
+                                id: detailIncident.incident_id,
+                                payload: {
+                                  response_status: responseForm.status,
+                                  response_type: responseForm.type.trim() || undefined,
+                                  response_details: responseForm.details.trim() || undefined,
+                                  eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
+                                },
+                              })
+                            }
+                          >
+                            {responseMutation.isPending ? "Updating…" : "Update response & notify driver"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {detailIncident.grounding_status && detailIncident.grounding_status !== "Not Required" && <div className={`rounded-xl border px-3 py-2 text-xs ${detailIncident.grounding_status === "Failed" ? "border-danger/30 bg-danger/5 text-danger" : "border-warning/30 bg-warning/5 text-warning-700"}`}><span className="font-bold">Vehicle safety: {detailIncident.grounding_status}</span>{detailIncident.grounding_error && <span className="ml-2">{detailIncident.grounding_error}</span>}</div>}
                 {!isResolved && detailIncident.requires_vehicle_maintenance && !detailMaintenanceId && <div role={detailIncident.maintenance_error ? "alert" : "status"} className={`rounded-xl border px-3 py-2 text-xs ${detailIncident.maintenance_error ? "border-danger/30 bg-danger/5 text-danger" : "border-warning/30 bg-warning/5 text-warning-700"}`}><span className="font-bold">Maintenance work order: {detailIncident.maintenance_error ? "needs retry" : "being created"}</span>{detailIncident.maintenance_error && <span className="ml-2">{detailIncident.maintenance_error}</span>}</div>}
                 {(detailQuery.data?.affected_dispatches?.length > 0 ||
@@ -640,6 +921,68 @@ export default function IncidentsPage() {
               </div>
             )}
 
+            {!isResolved && canAct && detailIncident && !detailIncident.acknowledged_at && (
+              <div className="space-y-1.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-foreground">
+                    Acknowledge with a response to the driver <span className="font-normal text-foreground-muted">(optional)</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-foreground-muted">{acknowledgeNote.length}/500</span>
+                </div>
+                <p className="text-[11px] text-foreground-muted">
+                  This is pushed straight to the driver&rsquo;s phone — tell them what help is coming, e.g. &ldquo;Tow truck dispatched, ETA 20 minutes.&rdquo;
+                </p>
+                <textarea
+                  value={acknowledgeNote}
+                  onChange={(e) => setAcknowledgeNote(e.target.value)}
+                  maxLength={500}
+                  placeholder="e.g., Tow truck dispatched, ETA 20 minutes. Stay with the vehicle."
+                  className="w-full min-h-[64px] rounded-xl border border-border/80 bg-surface px-3.5 py-2.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary resize-y shadow-2xs"
+                />
+              </div>
+            )}
+            {detailIncident?.acknowledged_at && (
+              <div className="grid gap-2 rounded-2xl border border-success/30 bg-success/5 p-3 text-xs sm:grid-cols-2">
+                <div>
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Acknowledged</span>
+                  <span className="font-medium text-foreground">{new Date(detailIncident.acknowledged_at).toLocaleString("en-PH")}</span>
+                </div>
+                {detailIncident.acknowledge_note && (
+                  <div className="sm:col-span-2">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Response sent to the driver</span>
+                    <p className="whitespace-pre-wrap font-medium text-foreground">{detailIncident.acknowledge_note}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {detailIncident?.reopened_at ? (
+              <div className="space-y-1 rounded-2xl border border-danger/30 bg-danger/5 p-3 text-xs">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-danger">Reopened by the driver</span>
+                <span className="font-medium text-foreground">{new Date(detailIncident.reopened_at).toLocaleString("en-PH")}</span>
+                {detailIncident.reopen_reason && (
+                  <p className="whitespace-pre-wrap font-medium text-foreground-secondary">“{detailIncident.reopen_reason}”</p>
+                )}
+              </div>
+            ) : detailIncident?.driver_confirmed_at ? (
+              <div className="space-y-1 rounded-2xl border border-success/30 bg-success/5 p-3 text-xs">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Driver confirmation</span>
+                <span className="font-medium text-foreground">Driver confirmed this resolution · {new Date(detailIncident.driver_confirmed_at).toLocaleString("en-PH")}</span>
+              </div>
+            ) : isResolved && detailIncident ? (
+              <div className="space-y-1 rounded-2xl border border-border/80 bg-muted/30 p-3 text-xs">
+                <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Driver confirmation</span>
+                <span className="font-medium text-foreground-secondary">Awaiting driver confirmation — they can confirm or dispute from the mobile app.</span>
+              </div>
+            ) : null}
+
+            {isResolved && resolutionAttribution ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-border/80 bg-muted/20 p-3 text-xs">
+                <UserCheck className="h-3.5 w-3.5 shrink-0 text-foreground-muted" />
+                <span className="font-medium text-foreground-secondary">{resolutionAttribution}</span>
+              </div>
+            ) : null}
+
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold text-foreground">
@@ -684,12 +1027,12 @@ export default function IncidentsPage() {
             {!isResolved && canAct && detailIncident && !detailIncident.acknowledged_at && (
               <Button
                 variant="outline"
-                onClick={() => acknowledgeMutation.mutate(detailIncident.incident_id)}
+                onClick={() => acknowledgeMutation.mutate({ id: detailIncident.incident_id, note: acknowledgeNote })}
                 disabled={acknowledgeMutation.isPending}
                 className="gap-1.5 text-xs h-9 px-4 font-semibold text-primary border-primary/30"
               >
                 <UserCheck className="h-3.5 w-3.5" />
-                {acknowledgeMutation.isPending ? "Acknowledging…" : "Acknowledge"}
+                {acknowledgeMutation.isPending ? "Acknowledging…" : "Acknowledge & Notify Driver"}
               </Button>
             )}
             {detailIncident?.grounding_status === "Failed" && canAct && (
@@ -780,7 +1123,7 @@ export default function IncidentsPage() {
             </Button>
           </div>
           <div className="flex-1 w-full h-full relative">
-            <IncidentMap incidents={activeIncidents} />
+            <IncidentMap incidents={activeIncidents} responders={responderMarkers} />
           </div>
         </div>
       )}

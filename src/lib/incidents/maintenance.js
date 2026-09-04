@@ -117,12 +117,16 @@ export async function notifyMaintenanceTeam(workOrder, incidentId) {
   const inserted = [];
   for (const recipient of recipients) {
     const { rows } = await query(
+      // $2/$5 carry explicit ::varchar casts: Postgres deduces SELECT-list
+      // parameters as text but the NOT EXISTS comparison as varchar, and the
+      // 42P08 conflict makes the whole statement fail to parse. Without the
+      // casts this notifier failed silently on every call (best-effort catch).
       `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-       SELECT $1, $2, $3, $4, $5, $6
+       SELECT $1, $2::varchar, $3, $4, $5::varchar, $6
         WHERE NOT EXISTS (
           SELECT 1 FROM notifications
-           WHERE employee_id = $1 AND title = $2
-             AND reference_type = $5 AND reference_id = $6
+           WHERE employee_id = $1 AND title = $2::varchar
+             AND reference_type = $5::varchar AND reference_id = $6
         )
        RETURNING employee_id`,
       [recipient.employee_id, title, message, "Alert", "maintenance", workOrder.maintenance_id]

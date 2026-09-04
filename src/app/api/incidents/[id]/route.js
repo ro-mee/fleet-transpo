@@ -11,6 +11,7 @@ import {
   resolutionActionsError,
   shouldKeepVehicleGrounded,
 } from "@/lib/incidents/resolution";
+import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 
 // Staff resolution endpoints. Resolving is no longer just a row edit: it also
 // restores the vehicle's availability (grounding automation set it to
@@ -44,14 +45,49 @@ export async function GET(req, props) {
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
               i.assistance_needed, i.expense_amount, i.photo_urls, v.plate_number,
               i.is_confidential,
+              i.response_status, i.response_type, i.response_details, i.response_eta,
+              i.responded_at, i.responded_by, i.driver_confirmed_at, i.reopened_at,
+              i.medical_assistance_required,
+              i.responder_driver_id, i.responder_assigned_at,
+              rd.current_latitude AS responder_latitude,
+              rd.current_longitude AS responder_longitude,
+              rd.last_location_update AS responder_location_at,
+              ack.comment_text AS acknowledge_note,
+              reopen.comment_text AS reopen_reason,
+              d.current_latitude AS driver_latitude,
+              d.current_longitude AS driver_longitude,
+              d.last_location_update AS driver_location_at,
               e.employee_id AS reporter_employee_id,
+              re.employee_id AS responder_employee_id,
+              rbe.first_name AS resolved_by_first_name,
+              rbe.last_name AS resolved_by_last_name,
               CASE WHEN d.driver_id IS NULL THEN NULL ELSE
                 json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
-              END AS driver
+              END AS driver,
+              CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
+                json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name)
+              END AS responder
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
          LEFT JOIN drivers d ON d.driver_id = i.driver_id
          LEFT JOIN employees e ON e.employee_id = d.employee_id
+         LEFT JOIN drivers rd ON rd.driver_id = i.responder_driver_id
+         LEFT JOIN employees re ON re.employee_id = rd.employee_id
+         LEFT JOIN employees rbe ON rbe.employee_id = i.resolved_by
+         LEFT JOIN LATERAL (
+           SELECT comment_text
+             FROM incident_comments
+            WHERE incident_id = i.incident_id AND action_type = 'ACKNOWLEDGED'
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) ack ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT comment_text
+             FROM incident_comments
+            WHERE incident_id = i.incident_id AND action_type = 'REOPENED'
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) reopen ON TRUE
         WHERE i.incident_id = $1 AND i.deleted_at IS NULL`,
       [id]
     );
@@ -93,6 +129,21 @@ export async function GET(req, props) {
     );
 
     const photoUrls = await getIncidentPhotoUrls(rows[0].photo_urls, { driverId: rows[0].driver_id });
+
+    // Lazy rescue tracking: whoever opens this incident nudges the responder's
+    // GPS ladder forward (the staff dashboard polls this detail view).
+    // Fire-and-forget — the response reflects the pre-evaluation state and the
+    // next poll sees the advance.
+    if (
+      rows[0].status === "Open" &&
+      rows[0].responder_driver_id &&
+      rows[0].response_status !== "Arrived"
+    ) {
+      evaluateResponder(Number(id)).catch((e) =>
+        console.warn("responder evaluation failed:", e?.message || e)
+      );
+    }
+
     return ok({
       ...rows[0],
       photo_urls: photoUrls,
