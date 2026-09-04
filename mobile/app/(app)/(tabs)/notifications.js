@@ -21,13 +21,23 @@ const NOTIF_TYPE_ICONS = {
   trip_cancelled: { icon: "close-circle", color: "error" },
   trip_updated: { icon: "refresh-circle", color: "secondary" },
   fuel_alert: { icon: "water", color: "warning" },
-  sos_acknowledged: { icon: "checkmark-circle", color: "secondary" },
   dispatch_message: { icon: "megaphone", color: "primary" },
+  // The server labels incident rows "Info"/"Alert" — resolve them by
+  // reference_type in NotifCard instead of this vocabulary.
+};
+
+// reference_type fallback for server types that have no icon entry above.
+const REFERENCE_TYPE_ICONS = {
+  incident: { icon: "warning", color: "error" },
+  maintenance: { icon: "build", color: "warning" },
 };
 
 function NotifCard({ notif, colors, onPress }) {
   const { type } = useTheme();
-  const typeInfo = NOTIF_TYPE_ICONS[notif.type] || { icon: "notifications", color: "primary" };
+  const typeInfo =
+    NOTIF_TYPE_ICONS[notif.type] ||
+    REFERENCE_TYPE_ICONS[notif.reference_type] ||
+    { icon: "notifications", color: "primary" };
   const iconColor =
     typeInfo.color === "error"
       ? colors.error

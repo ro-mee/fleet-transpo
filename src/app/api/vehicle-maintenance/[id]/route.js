@@ -34,6 +34,9 @@ const FIELD_TO_COLUMN = {
   service_center: "service_center",
   remarks: "remarks",
   deleted_at: "deleted_at",
+  inspection_required: "inspection_required",
+  inspection_completed_at: "inspection_completed_at",
+  inspection_notes: "inspection_notes",
 };
 
 export async function PUT(req, { params }) {
@@ -49,9 +52,6 @@ export async function PUT(req, { params }) {
       description: { maxLength: 1000, label: "Description" },
       cost: { type: "positiveNumber", label: "Cost" },
       status: { maxLength: 30, label: "Status" },
-      // Bounded for the same reason as on POST: these are the body fields
-      // recomputeVehicleSchedule turns into the vehicle's due-dates, under a
-      // forward-only clamp that makes an out-of-range value permanent.
       mileage_at_service: { type: "positiveNumber", label: "Mileage at service", max: MAX_ODOMETER_KM },
       next_service_date: { type: "date", label: "Next service date" },
       next_service_mileage: { type: "positiveNumber", label: "Next service mileage", max: MAX_ODOMETER_KM },
@@ -65,23 +65,15 @@ export async function PUT(req, { params }) {
       service_provider: { maxLength: 255, label: "Technician name" },
       service_center: { maxLength: 255, label: "Service center" },
       remarks: { maxLength: 1000, label: "Notes" },
-      // Writable but previously never type-checked, so any JSON value reached
-      // the column. The `date` type routes through isIsoDate, which accepts a
-      // full timestamp as well as a bare YYYY-MM-DD — archiveVehicleMaintenance
-      // sends new Date().toISOString(), so it has to.
-      //
-      // There is no un-archive path today: nothing in the app sends
-      // deleted_at: null, and the WHERE clause below would not match an
-      // archived row anyway. Restoring a maintenance record needs its own
-      // route, not a loosened predicate here.
       deleted_at: { type: "date", label: "Archived at" },
+      inspection_required: { type: "boolean", label: "Inspection required" },
+      inspection_completed_at: { type: "date", label: "Inspection completed at" },
+      inspection_notes: { maxLength: 1000, label: "Inspection notes" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
 
-    // Deduplicated by column: an alias and its column name both resolve to one
-    // column, and setting the same column twice in one UPDATE is an error.
     const sets = [];
     const values = [];
     const seen = new Set();
@@ -98,25 +90,62 @@ export async function PUT(req, { params }) {
     // amend a soft-deleted row and the recompute below would then push the
     // vehicle's schedule from a record that is supposed to be gone.
     values.push(id);
+    const idParamIndex = values.length;
     
     // Check prior state before allowing changes
     const beforeRow = (await query(
-      `SELECT status FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
-      [values.length]
+      `SELECT status, created_by, inspection_required, inspection_completed_at, inspected_by FROM vehiclemaintenance WHERE maintenance_id = $${idParamIndex} AND deleted_at IS NULL`,
+      values
     )).rows[0];
     
     if (!beforeRow) return err("Maintenance record not found", 404);
     
     const beforeStatus = beforeRow.status;
     const isTransitioningToCompleted = body.status === 'Completed' && beforeStatus !== 'Completed';
+    const isTransitioningToPendingInspection = body.status === 'Pending Inspection' && beforeStatus !== 'Pending Inspection';
 
-    // P1 Fix: Completed records are terminal. Cannot revert to Scheduled/In Progress,
-    // and cannot modify completed_by / completed_at.
     if (beforeStatus === 'Completed' && body.status && body.status !== 'Completed') {
       return err("Completed maintenance records cannot be reopened.", 409);
     }
     
+    if (isTransitioningToPendingInspection) {
+      sets.push(`repair_completed_at = CURRENT_TIMESTAMP`);
+    }
+
     if (isTransitioningToCompleted) {
+      const { hasRole } = await import("@/lib/auth/permissions");
+      if (!hasRole(session.user, ["system_admin", "admin", "fleet_manager"])) {
+        return err("Only a Fleet Manager or Admin can approve maintenance completion.", 403);
+      }
+
+      if (beforeRow.created_by === session.user.employeeId) {
+        return err("Mechanics cannot approve their own repairs. Manager inspection required.", 403);
+      }
+      
+      const requiresInspection = body.inspection_required !== undefined ? body.inspection_required : beforeRow.inspection_required;
+      if (requiresInspection) {
+        if (!body.inspection_completed_at && !beforeRow.inspection_completed_at) {
+          return err("Inspection must be completed before marking as Completed", 400);
+        }
+        if (body.inspection_completed_at && !beforeRow.inspection_completed_at) {
+          sets.push(`inspected_by = $${values.length + 1}`);
+          values.push(session.user.employeeId);
+        }
+      }
+
+      // Remove any client-supplied approval fields
+      const approvalFields = ["manager_approved_by", "manager_approved_at", "completed_by", "completed_at"];
+      for (let i = sets.length - 1; i >= 0; i--) {
+        if (approvalFields.some(f => sets[i].startsWith(f))) {
+          sets.splice(i, 1);
+        }
+      }
+
+      sets.push(`manager_approved_by = $${values.length + 1}`);
+      values.push(session.user.employeeId);
+      
+      sets.push(`manager_approved_at = CURRENT_TIMESTAMP`);
+      
       sets.push(`completed_by = $${values.length + 1}`);
       values.push(session.user.employeeId);
       
@@ -125,7 +154,7 @@ export async function PUT(req, { params }) {
 
     const { rows } = await query(
       `UPDATE vehiclemaintenance SET ${sets.join(", ")}
-        WHERE maintenance_id = $${isTransitioningToCompleted ? values.length - 1 : values.length} AND deleted_at IS NULL RETURNING *`,
+        WHERE maintenance_id = $${idParamIndex} AND deleted_at IS NULL RETURNING *`,
       values
     );
     if (!rows[0]) return err("Maintenance record not found", 404);

@@ -6,7 +6,7 @@
 // expiry alerts. A null target means "no deep link — just mark read".
 
 export function mobileNotificationTarget(notification = {}) {
-  const { reference_type: type } = notification;
+  const { reference_type: type, reference_id: referenceId } = notification;
   switch (type) {
     case "dispatch":
     case "trip":
@@ -15,7 +15,10 @@ export function mobileNotificationTarget(notification = {}) {
     case "vehicle":
       return "/profile";
     case "incident":
-      return "/incidents";
+      // Deep-link to the live status screen (timeline + fleet response), not
+      // the report form — the driver wants to see "help is on the way", not
+      // file another report.
+      return referenceId ? `/incident/${referenceId}` : "/submissions";
     default:
       return null;
   }

@@ -1,13 +1,18 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { rasterTileUrl } from "@/lib/tomtom";
 import { Compass, AlertTriangle, Eye } from "lucide-react";
+import { ImageViewer } from "@/components/ui/image-viewer";
+import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 
 const SEVERITY_COLOR = { Critical: "#dc2626", Major: "#ef4444", Moderate: "#f97316", Minor: "#f59e0b" };
+// Rescue units stand apart from the severity dots (all warm hues) — blue reads
+// as "help coming" at a glance.
+const RESPONDER_COLOR = "#2563eb";
 
 function FitBounds({ points }) {
   const map = useMap();
@@ -19,42 +24,13 @@ function FitBounds({ points }) {
   return null;
 }
 
-function MapZoomHandler({ setShowOverlay }) {
-  const map = useMap();
-  const timeoutRef = useRef(null);
-
-  useEffect(() => {
-    map.scrollWheelZoom.disable();
-
-    const onWheel = (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (!map.scrollWheelZoom.enabled()) {
-          map.scrollWheelZoom.enable();
-        }
-        setShowOverlay(false);
-      } else {
-        if (map.scrollWheelZoom.enabled()) {
-          map.scrollWheelZoom.disable();
-        }
-        setShowOverlay(true);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => setShowOverlay(false), 1200);
-      }
-    };
-
-    const container = map.getContainer();
-    container.addEventListener('wheel', onWheel, { capture: true });
-    
-    return () => {
-      container.removeEventListener('wheel', onWheel, { capture: true });
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [map, setShowOverlay]);
-
-  return null;
-}
-
-export default function IncidentMap({ incidents = [] }) {
+/**
+ * @param {Array} incidents incident rows with latitude/longitude
+ * @param {Array} [responders] optional live rescue-unit positions:
+ *   `{ latitude, longitude, label, incident_id }` each — GPS-tracked fleet
+ *   responders assigned to open incidents.
+ */
+export default function IncidentMap({ incidents = [], responders = [] }) {
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [showZoomMessage, setShowZoomMessage] = useState(false);
   const key = process.env.NEXT_PUBLIC_TOMTOM_API_KEY || "";
@@ -65,6 +41,18 @@ export default function IncidentMap({ incidents = [] }) {
         .filter((i) => i && i.latitude != null && i.longitude != null)
         .map((i) => [Number(i.latitude), Number(i.longitude)]),
     [incidents]
+  );
+
+  const responderMarkers = useMemo(
+    () =>
+      (responders || [])
+        .filter((r) => r && r.latitude != null && r.longitude != null)
+        .map((r) => ({
+          ...r,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+        })),
+    [responders]
   );
 
 
@@ -82,7 +70,7 @@ export default function IncidentMap({ incidents = [] }) {
         className="h-full w-full z-0"
         style={{ height: "100%", width: "100%" }}
       >
-        <MapZoomHandler setShowOverlay={setShowZoomMessage} />
+        <MapCtrlZoom setShowHint={setShowZoomMessage} />
         <TileLayer
           attribution='&copy; <a href="https://developer.tomtom.com">TomTom</a>'
           url={rasterTileUrl()}
@@ -230,7 +218,38 @@ export default function IncidentMap({ incidents = [] }) {
             );
           })}
 
-        <FitBounds points={points} />
+        {responderMarkers.map((r, index) => {
+          const markerIcon = L.divIcon({
+            className: "fleet-marker",
+            html: `
+              <div class="fleet-incident-pin">
+                <span class="fleet-incident-pulse" style="background-color: ${RESPONDER_COLOR}; opacity: 0.4;"></span>
+                <span class="fleet-incident-dot" style="background-color: ${RESPONDER_COLOR}; box-shadow: 0 0 8px ${RESPONDER_COLOR};"></span>
+              </div>
+            `,
+            iconSize: [26, 26],
+            iconAnchor: [13, 13],
+            tooltipAnchor: [0, -14],
+          });
+
+          return (
+            <Marker
+              key={`responder-${r.incident_id || index}`}
+              position={[r.latitude, r.longitude]}
+              icon={markerIcon}
+              zIndexOffset={1200}
+            >
+              <Tooltip permanent offset={[0, -16]} direction="top" className="fleet-tooltip">
+                <span className="flex items-center gap-1.5 font-semibold text-xs">
+                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: RESPONDER_COLOR }} />
+                  {r.label || "Rescue unit"}
+                </span>
+              </Tooltip>
+            </Marker>
+          );
+        })}
+
+        <FitBounds points={points.concat(responderMarkers.map((r) => [r.latitude, r.longitude]))} />
       </MapContainer>
 
       <style jsx global>{`
@@ -265,30 +284,13 @@ export default function IncidentMap({ incidents = [] }) {
       `}</style>
 
       {/* Zoom Message Overlay */}
-      {showZoomMessage && (
-        <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-black/20 pointer-events-none transition-opacity duration-300">
-          <p className="px-5 py-2.5 bg-surface/90 backdrop-blur-md rounded-xl text-foreground font-semibold shadow-lg text-sm text-center">
-            Use <kbd className="font-mono bg-muted/80 border border-border/50 px-1.5 py-0.5 rounded text-[11px] mx-1">ctrl</kbd> + scroll to zoom the map
-          </p>
-        </div>
-      )}
+      <ZoomHintOverlay show={showZoomMessage} />
 
       {/* Full Screen Image Viewer Overlay */}
-      {fullScreenImage && (
-        <div 
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
-          onClick={(e) => {
-            e.stopPropagation();
-            setFullScreenImage(null);
-          }}
-        >
-          <img 
-            src={fullScreenImage} 
-            alt="Full screen incident photo" 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-          />
-        </div>
-      )}
+      <ImageViewer 
+        url={fullScreenImage} 
+        onClose={() => setFullScreenImage(null)} 
+      />
     </div>
   );
 }

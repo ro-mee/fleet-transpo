@@ -10,6 +10,7 @@ import {
 } from "@/lib/incidents/resolution";
 import { groundIncident } from "@/lib/incidents/grounding";
 import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
+import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 import { writeAudit } from "@/lib/audit";
 
 async function resolveDriver(employeeId) {
@@ -89,19 +90,79 @@ export async function GET(req) {
     const driver = await resolveDriver(session.user.employeeId);
     if (!driver) return err("No driver record is linked to this account", 403);
 
+    // Responder mode: this driver was assigned as fleet help on someone else's
+    // incident (notification deep-links here). Returns their open missions with
+    // the stranded driver's live position for navigation.
+    if (new URL(req.url).searchParams.get("role") === "responder") {
+      const { rows: missions } = await query(
+        `SELECT i.incident_id, i.incident_type, i.incident_date, i.description,
+                i.location, i.latitude, i.longitude, i.severity, i.status,
+                i.response_status, i.response_eta, i.responded_at,
+                i.responder_assigned_at, v.plate_number,
+                de.first_name AS driver_first_name, de.last_name AS driver_last_name,
+                dd.current_latitude AS driver_latitude,
+                dd.current_longitude AS driver_longitude,
+                dd.last_location_update AS driver_location_at
+           FROM driverincidents i
+           LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
+           LEFT JOIN drivers dd ON dd.driver_id = i.driver_id
+           LEFT JOIN employees de ON de.employee_id = dd.employee_id
+          WHERE i.responder_driver_id = $1
+            AND i.status = 'Open'
+            AND i.deleted_at IS NULL
+          ORDER BY i.responder_assigned_at DESC NULLS LAST
+          LIMIT 10`,
+        [driver.driver_id]
+      );
+      return ok(missions || []);
+    }
+
     const { rows } = await query(
       `SELECT i.incident_id, i.vehicle_id, i.trip_id, i.incident_type, i.incident_date,
               i.description, i.location, i.latitude, i.longitude, i.severity, i.status,
               i.actions_taken, i.acknowledged_at, i.resolved_at, i.grounding_status,
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
-              i.created_at, v.plate_number
+              i.created_at, v.plate_number,
+              i.response_status, i.response_type, i.response_details, i.response_eta,
+              i.responded_at, i.driver_confirmed_at, i.reopened_at,
+              i.responder_driver_id, i.responder_assigned_at,
+              re.first_name AS responder_first_name, re.last_name AS responder_last_name,
+              rd.last_location_update AS responder_last_seen,
+              ack.comment_text AS acknowledge_note
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
+         LEFT JOIN drivers rd ON rd.driver_id = i.responder_driver_id
+         LEFT JOIN employees re ON re.employee_id = rd.employee_id
+         LEFT JOIN LATERAL (
+           SELECT comment_text
+             FROM incident_comments
+            WHERE incident_id = i.incident_id AND action_type = 'ACKNOWLEDGED'
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) ack ON TRUE
         WHERE i.driver_id = $1 AND i.deleted_at IS NULL
         ORDER BY i.created_at DESC, i.incident_date DESC
         LIMIT 50`,
       [driver.driver_id]
     );
+
+    // Lazy rescue tracking: the stranded driver polls this list every 30s, so
+    // their poll is what advances the response ladder even when the responder
+    // is driving with a trip (trip GPS updates their position; this turns the
+    // movement into status/ETA). Fire-and-forget, like the SLA escalation —
+    // the list must never wait on or fail from it.
+    for (const incident of rows || []) {
+      if (
+        incident.status === "Open" &&
+        incident.responder_driver_id &&
+        incident.response_status !== "Arrived"
+      ) {
+        evaluateResponder(incident.incident_id).catch((e) =>
+          console.warn("responder evaluation failed:", e?.message || e)
+        );
+      }
+    }
+
     return ok(rows || []);
   } catch (e) {
     return handleError(e);
@@ -206,16 +267,22 @@ export async function POST(req) {
       `INSERT INTO driverincidents
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
           description, location, latitude, longitude, severity, assistance_needed,
-          expense_amount, client_submission_id, photo_urls, grounding_status,
-          requires_vehicle_maintenance)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          medical_assistance_required, expense_amount, client_submission_id, photo_urls,
+          grounding_status, requires_vehicle_maintenance, due_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+          CASE $10::varchar
+            WHEN 'Critical' THEN NOW() + interval '2 hours'
+            WHEN 'Major' THEN NOW() + interval '24 hours'
+            WHEN 'Moderate' THEN NOW() + interval '72 hours'
+            ELSE NOW() + interval '7 days'
+          END)
        ON CONFLICT (driver_id, client_submission_id)
          WHERE deleted_at IS NULL AND client_submission_id IS NOT NULL
        DO NOTHING
        RETURNING incident_id, incident_type, incident_date, description, location,
                  latitude, longitude, severity, status, created_at, vehicle_id,
-                 assistance_needed, expense_amount, photo_urls, grounding_status,
-                 requires_vehicle_maintenance`,
+                 assistance_needed, medical_assistance_required, expense_amount,
+                 photo_urls, grounding_status, requires_vehicle_maintenance`,
       [
         driver.driver_id,
         context.vehicleId,
@@ -228,6 +295,9 @@ export async function POST(req) {
         longitude,
         severity,
         assistanceNeeded,
+        // Structured medical urgency — previously a dead column; the SOS and
+        // the Medical Assistance chip both set it so triage can filter on it.
+        Array.isArray(assistanceNeeded) && assistanceNeeded.includes("Medical Assistance"),
         body.expense_amount || null,
         clientSubmissionId,
         photoRefs,
@@ -302,6 +372,14 @@ export async function POST(req) {
           resourceId: incident.incident_id,
           newValues: { grounding_status: "Failed" },
         });
+
+        // Fail-safe fallback to ensure the vehicle is safely grounded
+        try {
+          const { syncVehicleStatus } = await import("@/services/status.service");
+          await syncVehicleStatus(incident.vehicle_id);
+        } catch (syncErr) {
+          console.error("CRITICAL: Failed to execute fallback syncVehicleStatus during incident grounding:", syncErr);
+        }
       }
     }
 

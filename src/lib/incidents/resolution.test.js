@@ -9,6 +9,9 @@ import {
   shouldKeepVehicleGrounded,
   buildEmergencyMaintenancePayload,
   buildIncidentMaintenancePayload,
+  buildFieldResolutionNarrative,
+  fieldResolutionGuards,
+  fieldResolutionGuardMessage,
 } from "@/lib/incidents/resolution";
 
 describe("normalizeIncidentStatus", () => {
@@ -145,5 +148,59 @@ describe("buildIncidentMaintenancePayload", () => {
   it("keeps breakdowns as emergency repairs", () => {
     expect(buildIncidentMaintenancePayload({ incident_id: 10, incident_type: "breakdown" }).maintenance_type)
       .toBe("Emergency Repair");
+  });
+});
+
+const RESOLVABLE_ROW = {
+  status: "Open",
+  acknowledged_at: new Date(),
+  grounding_status: "Not Required",
+  response_status: "Arrived",
+};
+
+describe("buildFieldResolutionNarrative", () => {
+  it("names the confirmer, their role, and the device origin", () => {
+    expect(buildFieldResolutionNarrative({ role: "responder", name: "Rome Lorente" }))
+      .toBe("Resolved by Rome Lorente (Fleet responder) from the mobile app");
+    expect(buildFieldResolutionNarrative({ role: "driver", name: "Juan Dela Cruz" }))
+      .toBe("Resolved by Juan Dela Cruz (Driver) from the mobile app");
+  });
+
+  it("appends an optional note and tolerates a missing name", () => {
+    expect(buildFieldResolutionNarrative({ role: "driver", name: "Juan", note: " Tire changed, all good." }))
+      .toBe("Resolved by Juan (Driver) from the mobile app — Tire changed, all good.");
+    expect(buildFieldResolutionNarrative({ role: "driver" }))
+      .toBe("Resolved by Field reporter (Driver) from the mobile app");
+    expect(buildFieldResolutionNarrative({ role: "responder", name: "  ", note: "   " }))
+      .not.toContain("—");
+  });
+});
+
+describe("fieldResolutionGuards", () => {
+  it("allows an acknowledged open incident for either role", () => {
+    expect(fieldResolutionGuards({ currentRow: RESOLVABLE_ROW, confirmerRole: "driver" })).toEqual({ ok: true });
+    expect(fieldResolutionGuards({ currentRow: RESOLVABLE_ROW, confirmerRole: "responder" })).toEqual({ ok: true });
+  });
+
+  it("enforces the same preconditions as the staff resolve", () => {
+    expect(fieldResolutionGuards({ currentRow: null, confirmerRole: "driver" }).reason).toBe("not-found");
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, status: "Resolved" }, confirmerRole: "driver" }).reason).toBe("not-open");
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, acknowledged_at: null }, confirmerRole: "driver" }).reason).toBe("not-acknowledged");
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, grounding_status: "Pending" }, confirmerRole: "driver" }).reason).toBe("grounding");
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, grounding_status: "Failed" }, confirmerRole: "driver" }).reason).toBe("grounding");
+  });
+
+  it("only lets a responder resolve once help is on scene", () => {
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, response_status: "En Route" }, confirmerRole: "responder" }).reason).toBe("not-arrived");
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, response_status: null }, confirmerRole: "responder" }).reason).toBe("not-arrived");
+    // ...but a driver may resolve a false alarm with no response dispatched.
+    expect(fieldResolutionGuards({ currentRow: { ...RESOLVABLE_ROW, response_status: null }, confirmerRole: "driver" })).toEqual({ ok: true });
+  });
+
+  it("maps every reason onto a user-facing message", () => {
+    for (const reason of ["not-found", "not-open", "not-acknowledged", "grounding", "not-arrived", "anything-else"]) {
+      expect(typeof fieldResolutionGuardMessage(reason)).toBe("string");
+      expect(fieldResolutionGuardMessage(reason).length).toBeGreaterThan(0);
+    }
   });
 });

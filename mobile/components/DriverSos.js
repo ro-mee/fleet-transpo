@@ -153,6 +153,9 @@ export function DriverSos() {
         severity: "Critical",
         incident_date: new Date().toISOString(),
         client_submission_id: clientSubmissionId,
+        // The SOS is inherently medical — carry the structured flag so triage
+        // can filter on medical_assistance_required instead of parsing prose.
+        assistance_needed: ["Medical Assistance"],
       });
       setOpen(false);
       AppAlert.alert(

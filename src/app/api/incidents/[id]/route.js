@@ -11,6 +11,7 @@ import {
   resolutionActionsError,
   shouldKeepVehicleGrounded,
 } from "@/lib/incidents/resolution";
+import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 
 // Staff resolution endpoints. Resolving is no longer just a row edit: it also
 // restores the vehicle's availability (grounding automation set it to
@@ -29,7 +30,7 @@ import {
  */
 export async function GET(req, props) {
   try {
-    await requirePermission(req, "incidents", "read");
+    const session = await requirePermission(req, "incidents", "read");
 
     const params = await props.params;
     const id = params.id;
@@ -43,17 +44,63 @@ export async function GET(req, props) {
               i.grounding_status, i.grounding_completed_at, i.grounding_error,
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
               i.assistance_needed, i.expense_amount, i.photo_urls, v.plate_number,
+              i.is_confidential,
+              i.response_status, i.response_type, i.response_details, i.response_eta,
+              i.responded_at, i.responded_by, i.driver_confirmed_at, i.reopened_at,
+              i.medical_assistance_required,
+              i.responder_driver_id, i.responder_assigned_at,
+              rd.current_latitude AS responder_latitude,
+              rd.current_longitude AS responder_longitude,
+              rd.last_location_update AS responder_location_at,
+              ack.comment_text AS acknowledge_note,
+              reopen.comment_text AS reopen_reason,
+              d.current_latitude AS driver_latitude,
+              d.current_longitude AS driver_longitude,
+              d.last_location_update AS driver_location_at,
+              e.employee_id AS reporter_employee_id,
+              re.employee_id AS responder_employee_id,
+              rbe.first_name AS resolved_by_first_name,
+              rbe.last_name AS resolved_by_last_name,
               CASE WHEN d.driver_id IS NULL THEN NULL ELSE
                 json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
-              END AS driver
+              END AS driver,
+              CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
+                json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name)
+              END AS responder
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
          LEFT JOIN drivers d ON d.driver_id = i.driver_id
          LEFT JOIN employees e ON e.employee_id = d.employee_id
+         LEFT JOIN drivers rd ON rd.driver_id = i.responder_driver_id
+         LEFT JOIN employees re ON re.employee_id = rd.employee_id
+         LEFT JOIN employees rbe ON rbe.employee_id = i.resolved_by
+         LEFT JOIN LATERAL (
+           SELECT comment_text
+             FROM incident_comments
+            WHERE incident_id = i.incident_id AND action_type = 'ACKNOWLEDGED'
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) ack ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT comment_text
+             FROM incident_comments
+            WHERE incident_id = i.incident_id AND action_type = 'REOPENED'
+            ORDER BY created_at DESC
+            LIMIT 1
+         ) reopen ON TRUE
         WHERE i.incident_id = $1 AND i.deleted_at IS NULL`,
       [id]
     );
     if (!rows[0]) return err("Incident not found", 404);
+
+    if (
+      rows[0].is_confidential && 
+      session.user.role !== "system_admin" && 
+      session.user.role !== "hr_admin" && 
+      rows[0].reporter_employee_id !== session.user.employeeId
+    ) {
+      return err("Forbidden", 403);
+    }
 
     // Grounding writes one audit entry per interrupted dispatch with this exact
     // reason string (src/app/api/driver/incidents/route.js).
@@ -82,6 +129,21 @@ export async function GET(req, props) {
     );
 
     const photoUrls = await getIncidentPhotoUrls(rows[0].photo_urls, { driverId: rows[0].driver_id });
+
+    // Lazy rescue tracking: whoever opens this incident nudges the responder's
+    // GPS ladder forward (the staff dashboard polls this detail view).
+    // Fire-and-forget — the response reflects the pre-evaluation state and the
+    // next poll sees the advance.
+    if (
+      rows[0].status === "Open" &&
+      rows[0].responder_driver_id &&
+      rows[0].response_status !== "Arrived"
+    ) {
+      evaluateResponder(Number(id)).catch((e) =>
+        console.warn("responder evaluation failed:", e?.message || e)
+      );
+    }
+
     return ok({
       ...rows[0],
       photo_urls: photoUrls,
@@ -140,8 +202,15 @@ export async function PATCH(req, props) {
 
       const transition = canTransition(normalizeIncidentStatus(currentRow.status), status);
       if (!transition.ok) return { conflict: true };
-      if (status === "Resolved" && ["Pending", "Failed"].includes(currentRow.grounding_status)) {
-        return { groundingConflict: true };
+      
+      // State machine enforcement
+      if (status === "Resolved") {
+        if (!currentRow.acknowledged_at) {
+          return { validationError: "Incident must be acknowledged before it can be resolved." };
+        }
+        if (["Pending", "Failed"].includes(currentRow.grounding_status)) {
+          return { groundingConflict: true };
+        }
       }
 
       // A resolve without a documented narrative is not auditable.
@@ -154,26 +223,24 @@ export async function PATCH(req, props) {
         finalActions = actionsTaken ?? currentRow.actions_taken ?? null;
       }
 
+      if (finalActions) {
+        await tx.query(
+          `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
+           VALUES ($1, $2, $3, $4)`,
+          [id, session.user.employeeId ?? null, status === "Resolved" ? "RESOLVED" : "NOTE_ADDED", finalActions]
+        );
+      }
+
       const { rows } = await tx.query(
         `UPDATE driverincidents
-            SET status = $1,
+            SET status = $1::varchar,
                 actions_taken = $2,
-                acknowledged_at = CASE
-                  WHEN $1 = 'Resolved' THEN COALESCE(acknowledged_at, NOW())
-                  WHEN $1 = 'Open' AND status = 'Resolved' THEN NULL
-                  ELSE acknowledged_at
-                END,
-                acknowledged_by = CASE
-                  WHEN $1 = 'Resolved' THEN COALESCE(acknowledged_by, $4)
-                  WHEN $1 = 'Open' AND status = 'Resolved' THEN NULL
-                  ELSE acknowledged_by
-                END,
                 resolved_at = CASE
-                  WHEN $1 = 'Resolved' THEN COALESCE(resolved_at, NOW())
+                  WHEN $1::varchar = 'Resolved' THEN COALESCE(resolved_at, NOW())
                   ELSE NULL
                 END,
                 resolved_by = CASE
-                  WHEN $1 = 'Resolved' THEN COALESCE(resolved_by, $4)
+                  WHEN $1::varchar = 'Resolved' THEN COALESCE(resolved_by, $4::int)
                   ELSE NULL
                 END,
                 updated_at = NOW()

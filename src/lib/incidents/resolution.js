@@ -115,6 +115,72 @@ export function resolutionActionsError(actionsTaken) {
   return null;
 }
 
+// Field resolution: the reporting driver or the assigned fleet responder can
+// close an incident from the mobile app. The narrative is generated (audit
+// still gets an actions_taken trail) and the guards mirror the staff resolve
+// rules in PATCH /api/incidents/[id], plus one responder-specific rule.
+
+/** Who may field-resolve an incident. */
+export const FIELD_RESOLVER_ROLES = ["driver", "responder"];
+
+/**
+ * Build the actions_taken narrative for a field resolution.
+ * @param {{ role?: string, name?: string, note?: string }} fields
+ * @returns {string}
+ */
+export function buildFieldResolutionNarrative({ role, name, note } = {}) {
+  const who = typeof name === "string" && name.trim() ? name.trim() : "Field reporter";
+  const label = role === "responder" ? "Fleet responder" : "Driver";
+  const base = `Resolved by ${who} (${label}) from the mobile app`;
+  const trimmedNote = typeof note === "string" ? note.trim() : "";
+  return trimmedNote ? `${base} — ${trimmedNote}` : base;
+}
+
+/**
+ * Decide whether a field confirmer may resolve the incident right now.
+ *
+ * Same rules as the staff resolve (open, acknowledged, grounding settled) plus
+ * the responder-specific one: help must be on scene — a responder cannot
+ * confirm a rescue resolved from kilometres away. A driver may resolve any
+ * acknowledged incident, with or without a dispatched response (false alarm,
+ * self-fixed).
+ *
+ * @param {{ status?: string, acknowledged_at?: unknown, grounding_status?: string,
+ *           response_status?: string }|null} currentRow
+ * @param {{ confirmerRole?: string }} options
+ * @returns {{ ok: boolean, reason?: "not-found"|"not-open"|"not-acknowledged"|"grounding"|"not-arrived" }}
+ */
+export function fieldResolutionGuards({ currentRow, confirmerRole } = {}) {
+  if (!currentRow) return { ok: false, reason: "not-found" };
+  if (currentRow.status !== "Open") return { ok: false, reason: "not-open" };
+  if (!currentRow.acknowledged_at) return { ok: false, reason: "not-acknowledged" };
+  if (["Pending", "Failed"].includes(currentRow.grounding_status)) {
+    return { ok: false, reason: "grounding" };
+  }
+  if (confirmerRole === "responder" && currentRow.response_status !== "Arrived") {
+    return { ok: false, reason: "not-arrived" };
+  }
+  return { ok: true };
+}
+
+/** Map a fieldResolutionGuards reason onto the API error message. */
+export function fieldResolutionGuardMessage(reason) {
+  switch (reason) {
+    case "not-found":
+      return "Incident not found";
+    case "not-open":
+      return "This incident has already been resolved";
+    case "not-acknowledged":
+      return "The fleet team must acknowledge this incident before it can be resolved";
+    case "grounding":
+      return "Vehicle safety actions are still in progress for this incident";
+    case "not-arrived":
+      return "Confirm you have reached the driver before resolving this incident";
+    default:
+      return "This incident cannot be resolved yet";
+  }
+}
+
 /**
  * Incident resolution must not release a vehicle whose required work order is
  * still open (or has not been created after an automation failure).

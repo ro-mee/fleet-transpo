@@ -62,6 +62,10 @@ function ActionLink({ href, icon: Icon, label, detail }) {
       <Icon className="h-5 w-5 shrink-0 text-primary group-hover:scale-110 transition-transform" />
       <div className="min-w-0 flex-1"><p className="text-[15px] font-semibold text-foreground tracking-tight">{label}</p><p className="mt-0.5 truncate text-[13px] text-foreground-secondary">{detail}</p></div>
       <ArrowRight className="h-5 w-5 text-foreground-muted transition-transform group-hover:text-foreground group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
 function FeedState({ queries, children, errorTitle = "This information is unavailable" }) {
   const feeds = Array.isArray(queries) ? queries : [queries];
   if (feeds.some((query) => query.isLoading)) return <Skeleton className="h-32 w-full rounded-xl" />;

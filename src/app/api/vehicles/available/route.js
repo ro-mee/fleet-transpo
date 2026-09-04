@@ -59,6 +59,30 @@ export async function GET(req) {
       params.push(end, pickupAt);
     }
 
+    // Safety invariant: exclude vehicles with Open Major/Critical incidents
+    sql += `
+      AND NOT EXISTS (
+        SELECT 1 FROM driverincidents di
+        WHERE di.vehicle_id = v.vehicle_id
+          AND di.deleted_at IS NULL
+          AND di.status = 'Open'
+          AND di.severity IN ('Major', 'Critical')
+      )
+    `;
+
+    // Safety invariant: exclude vehicles with blocking maintenance (Pending Inspection, In Progress, or Scheduled today/past)
+    sql += `
+      AND NOT EXISTS (
+        SELECT 1 FROM vehiclemaintenance vm
+        WHERE vm.vehicle_id = v.vehicle_id
+          AND vm.deleted_at IS NULL
+          AND (
+            vm.status IN ('In Progress', 'Pending Inspection')
+            OR (vm.status = 'Scheduled' AND vm.maintenance_date <= CURRENT_DATE)
+          )
+      )
+    `;
+
     const { rows } = await query(sql, params);
 
     // Travel-date, pair-coupled availability. The date is the proposed
