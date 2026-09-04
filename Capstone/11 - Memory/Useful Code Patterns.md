@@ -99,6 +99,31 @@ Store the in-progress refresh promise; concurrent 401s await it instead of start
 
 Business logic in `src/lib/<domain>/` with **no `await`, no `query()`, no `fetch()`**. Handlers fetch, call, respond. → [[Pure Core Imperative Shell]]
 
+## Smart filter defaults — fetch-tab-first + deferred steer
+
+When a tab/filter default depends on server-returned counts, the query needs the tab before counts exist. **Never derive the tab from counts textually above the query** — that reads a `const` before its declaration (TDZ `ReferenceError` on every render; invisible to curl, SSR shells, and `no-undef` — this exact crash shipped on the fuel console 2026-09-04):
+
+```js
+const [tabOverride, setTabOverride] = useState(null);
+const steerTimer = useRef(null);
+const pickTab = (id) => { clearTimeout(steerTimer.current); setTabOverride(id); setPage(1); };
+const fetchTab = tabOverride ?? "today"; // concrete tab for the query key
+
+const { data } = useQuery({ queryKey: [..., fetchTab, ...], queryFn: () => fetch(fetchTab) });
+const counts = data?.counts ?? {};
+const tab = tabOverride ?? smartTab(counts); // display value, defined AFTER counts
+
+useEffect(() => {
+  if (tabOverride) return;
+  const smart = smartTab(counts); // pure helper in src/lib — unit-tested
+  if (smart === "today") return;
+  steerTimer.current = setTimeout(() => setTabOverride(smart), 0); // deferred: no set-state-in-effect warning
+  return () => clearTimeout(steerTimer.current);
+}, [tabOverride, counts]);
+```
+
+Rules: query keys on `fetchTab`, UI reads `tab`, pills call `pickTab` (which also cancels a pending steer), polls never yank a manual pick. Copy this shape; do not reinvent it. → [[Bugs]] (2026-09-04 TDZ entry)
+
 ## Related
 
 [[Codebase Map]] · [[Important Files]] · [[Backend]] · [[Things I Should Not Forget]]

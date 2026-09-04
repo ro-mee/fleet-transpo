@@ -45,6 +45,7 @@ Open, verified defects. Each links to a full note with root cause and fix.
 ## Fixed — 2026-09-04
 
 - **Fuel console TDZ crash (`activeTab` read before declaration).** The smart-default derivation was textually ordered after the query that consumed it — a certain `ReferenceError` on every render in a real browser (invisible to curl/SSR checks and to eslint; caught by auditing declaration order after spotting the pattern). Restructured to fetch-tab-first + deferred override steering, verified by line-order audit on both fuel and queue pages.
+- **Prevention layers landed 2026-09-04:** `no-use-before-define` (variables-only; classes off for the throw-from-function pattern, mobile off for file-bottom `StyleSheet`) is now an eslint error — triage fixed 14 textual hits by pure declaration reordering across fuel, queue, both driver form pages, vehicles form, and one test file (all deferred-execution closures, none live crashes; verified each). Smart-tab decisions extracted to pure `src/lib/scheduling/smart-default-tab.js` with 9 unit tests. Blessed pattern recorded in [[Useful Code Patterns]]. Gate status identical to main (0 errors; same 5 pre-existing warnings in untouched files).
 
 - **`/settings/users/new` 404 on a running dev server (stale route manifest).**
   The file `src/app/(dashboard)/settings/users/new/page.js` existed and was
