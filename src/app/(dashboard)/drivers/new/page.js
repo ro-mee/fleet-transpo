@@ -101,64 +101,6 @@ export default function NewDriverPage() {
     },
   });
 
-  // Handle Front License Upload
-  const handleFrontUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseImagePreview(result);
-        form.setValue("license_image_url", result);
-        toast.success("Front License attached! Scanning automatically...");
-        handleAiScanFront(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Handle Back License Upload
-  const handleBackUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error("File size must be less than 10MB");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseBackImagePreview(result);
-        form.setValue("license_back_image_url", result);
-        toast.success("Back of License attached! Scanning automatically...");
-        handleAiScanBack(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Rotate Front Image 90 Degrees Clockwise
-  const handleRotateFront = async () => {
-    if (!licenseImagePreview) return;
-    const rotated = await rotateBase64Image(licenseImagePreview, 90);
-    setLicenseImagePreview(rotated);
-    form.setValue("license_image_url", rotated);
-    toast.success("Rotated Front License 90°");
-  };
-
-  // Rotate Back Image 90 Degrees Clockwise
-  const handleRotateBack = async () => {
-    if (!licenseBackImagePreview) return;
-    const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
-    setLicenseBackImagePreview(rotated);
-    form.setValue("license_back_image_url", rotated);
-    toast.success("Rotated Back License 90°");
-  };
-
   // Fill ONLY currently-blank form fields from an extraction result — never
   // overwrites anything already typed. Returns how many fields were filled.
   const fillLicenseFields = (data) => {
@@ -242,6 +184,64 @@ export default function NewDriverPage() {
     } finally {
       setIsScanningBack(false);
     }
+  };
+
+  // Handle Front License Upload
+  const handleFrontUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("File size must be less than 10MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        setLicenseImagePreview(result);
+        form.setValue("license_image_url", result);
+        toast.success("Front License attached! Scanning automatically...");
+        handleAiScanFront(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Handle Back License Upload
+  const handleBackUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        toast.error("File size must be less than 10MB");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        setLicenseBackImagePreview(result);
+        form.setValue("license_back_image_url", result);
+        toast.success("Back of License attached! Scanning automatically...");
+        handleAiScanBack(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Rotate Front Image 90 Degrees Clockwise
+  const handleRotateFront = async () => {
+    if (!licenseImagePreview) return;
+    const rotated = await rotateBase64Image(licenseImagePreview, 90);
+    setLicenseImagePreview(rotated);
+    form.setValue("license_image_url", rotated);
+    toast.success("Rotated Front License 90°");
+  };
+
+  // Rotate Back Image 90 Degrees Clockwise
+  const handleRotateBack = async () => {
+    if (!licenseBackImagePreview) return;
+    const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
+    setLicenseBackImagePreview(rotated);
+    form.setValue("license_back_image_url", rotated);
+    toast.success("Rotated Back License 90°");
   };
 
   const onSubmit = (data) => {

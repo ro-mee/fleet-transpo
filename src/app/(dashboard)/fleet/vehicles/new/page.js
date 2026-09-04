@@ -64,6 +64,28 @@ export default function VehicleFormPage({ params }) {
   // AI Scan State
   const [scanningDocType, setScanningDocType] = useState(null);
 
+  const form = useForm({
+    resolver: zodResolver(vehicleSchema),
+    defaultValues: {
+      plate_number: "",
+      vehicle_name: "",
+      model: "",
+      manufacturer: "",
+      year: new Date().getFullYear(),
+      color: "",
+      fuel_type: "Gasoline",
+      seating_capacity: 4,
+      vehicle_status: "Available",
+      purchase_price: undefined,
+      purchase_date: "",
+      insurance_expiry: "",
+      next_service_date: "",
+      next_service_mileage: undefined,
+      service_interval_km: undefined,
+      service_interval_days: undefined,
+    },
+  });
+
   // Fill fields from an AI extraction result. A field is only written when it
   // is empty or still pristine (untouched by the user) — anything staff has
   // typed always wins. Returns how many fields were filled.
@@ -149,28 +171,6 @@ export default function VehicleFormPage({ params }) {
     queryFn: () => getVehicleCategories(),
   });
 
-  const form = useForm({
-    resolver: zodResolver(vehicleSchema),
-    defaultValues: {
-      plate_number: "",
-      vehicle_name: "",
-      model: "",
-      manufacturer: "",
-      year: new Date().getFullYear(),
-      color: "",
-      fuel_type: "Gasoline",
-      seating_capacity: 4,
-      vehicle_status: "Available",
-      purchase_price: undefined,
-      purchase_date: "",
-      insurance_expiry: "",
-      next_service_date: "",
-      next_service_mileage: undefined,
-      service_interval_km: undefined,
-      service_interval_days: undefined,
-    },
-  });
-
   useEffect(() => {
     if (vehicle) {
       form.reset({
@@ -195,7 +195,6 @@ export default function VehicleFormPage({ params }) {
 
       if (Array.isArray(vehicle.documents)) {
         const orCr = vehicle.documents.find((d) => d.document_type === "OR_CR");
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrating local doc draft from the loaded vehicle record
         if (orCr) setOrCrDoc({ document_number: orCr.document_number || "", file_url: orCr.file_url || "" });
 
         const ins = vehicle.documents.find((d) => d.document_type === "Insurance");
@@ -204,7 +203,7 @@ export default function VehicleFormPage({ params }) {
     }
   }, [vehicle, form]);
 
-  const watchedPlate = form.watch("plate_number");
+  const watchedPlate = form.watch("plate_number"); // eslint-disable-line react-hooks/incompatible-library -- RHF watch subscription is the documented pattern; compiler memo-skip is acceptable here
   const ltoSchedule = calculateLtoRenewalSchedule(watchedPlate || "");
 
   const createMutation = useMutation({

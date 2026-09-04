@@ -125,68 +125,6 @@ export default function EditDriverPage() {
     });
   }, [driver, form]);
 
-  const handleFrontUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB");
-        return;
-      }
-      if (file.type !== "image/jpeg" && file.type !== "image/png") {
-        toast.error("Scan must be a JPEG or PNG image");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseImagePreview(result);
-        form.setValue("license_image_url", result);
-        toast.success("Front License scan updated! Scanning automatically...");
-        handleAiScanFront(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleBackUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB");
-        return;
-      }
-      if (file.type !== "image/jpeg" && file.type !== "image/png") {
-        toast.error("Scan must be a JPEG or PNG image");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        setLicenseBackImagePreview(result);
-        form.setValue("license_back_image_url", result);
-        toast.success("Back License scan updated! Scanning automatically...");
-        handleAiScanBack(result);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleRotateFront = async () => {
-    if (!licenseImagePreview) return;
-    const rotated = await rotateBase64Image(licenseImagePreview, 90);
-    setLicenseImagePreview(rotated);
-    form.setValue("license_image_url", rotated);
-    toast.success("Rotated Front License 90°");
-  };
-
-  const handleRotateBack = async () => {
-    if (!licenseBackImagePreview) return;
-    const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
-    setLicenseBackImagePreview(rotated);
-    form.setValue("license_back_image_url", rotated);
-    toast.success("Rotated Back License 90°");
-  };
-
   // Fill ONLY currently-blank form fields from an extraction result — never
   // overwrites anything already typed. Returns how many fields were filled.
   const fillLicenseFields = (data) => {
@@ -268,6 +206,68 @@ export default function EditDriverPage() {
     } finally {
       setIsScanningBack(false);
     }
+  };
+
+  const handleFrontUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      if (file.type !== "image/jpeg" && file.type !== "image/png") {
+        toast.error("Scan must be a JPEG or PNG image");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        setLicenseImagePreview(result);
+        form.setValue("license_image_url", result);
+        toast.success("Front License scan updated! Scanning automatically...");
+        handleAiScanFront(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleBackUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("File size must be less than 5MB");
+        return;
+      }
+      if (file.type !== "image/jpeg" && file.type !== "image/png") {
+        toast.error("Scan must be a JPEG or PNG image");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        setLicenseBackImagePreview(result);
+        form.setValue("license_back_image_url", result);
+        toast.success("Back License scan updated! Scanning automatically...");
+        handleAiScanBack(result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRotateFront = async () => {
+    if (!licenseImagePreview) return;
+    const rotated = await rotateBase64Image(licenseImagePreview, 90);
+    setLicenseImagePreview(rotated);
+    form.setValue("license_image_url", rotated);
+    toast.success("Rotated Front License 90°");
+  };
+
+  const handleRotateBack = async () => {
+    if (!licenseBackImagePreview) return;
+    const rotated = await rotateBase64Image(licenseBackImagePreview, 90);
+    setLicenseBackImagePreview(rotated);
+    form.setValue("license_back_image_url", rotated);
+    toast.success("Rotated Back License 90°");
   };
 
   const updateMutation = useMutation({
