@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState } from "react";
 import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { rasterTileUrl } from "@/lib/tomtom";
 import { Compass, AlertTriangle, Eye } from "lucide-react";
 import { ImageViewer } from "@/components/ui/image-viewer";
+import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 
 const SEVERITY_COLOR = { Critical: "#dc2626", Major: "#ef4444", Moderate: "#f97316", Minor: "#f59e0b" };
 
@@ -17,41 +18,6 @@ function FitBounds({ points }) {
     const bounds = L.latLngBounds(points.map(([lat, lng]) => [lat, lng]));
     map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
   }, [points, map]);
-  return null;
-}
-
-function MapZoomHandler({ setShowOverlay }) {
-  const map = useMap();
-  const timeoutRef = useRef(null);
-
-  useEffect(() => {
-    map.scrollWheelZoom.disable();
-
-    const onWheel = (e) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (!map.scrollWheelZoom.enabled()) {
-          map.scrollWheelZoom.enable();
-        }
-        setShowOverlay(false);
-      } else {
-        if (map.scrollWheelZoom.enabled()) {
-          map.scrollWheelZoom.disable();
-        }
-        setShowOverlay(true);
-        if (timeoutRef.current) clearTimeout(timeoutRef.current);
-        timeoutRef.current = setTimeout(() => setShowOverlay(false), 1200);
-      }
-    };
-
-    const container = map.getContainer();
-    container.addEventListener('wheel', onWheel, { capture: true });
-    
-    return () => {
-      container.removeEventListener('wheel', onWheel, { capture: true });
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [map, setShowOverlay]);
-
   return null;
 }
 
@@ -83,7 +49,7 @@ export default function IncidentMap({ incidents = [] }) {
         className="h-full w-full z-0"
         style={{ height: "100%", width: "100%" }}
       >
-        <MapZoomHandler setShowOverlay={setShowZoomMessage} />
+        <MapCtrlZoom setShowHint={setShowZoomMessage} />
         <TileLayer
           attribution='&copy; <a href="https://developer.tomtom.com">TomTom</a>'
           url={rasterTileUrl()}
@@ -266,13 +232,7 @@ export default function IncidentMap({ incidents = [] }) {
       `}</style>
 
       {/* Zoom Message Overlay */}
-      {showZoomMessage && (
-        <div className="absolute inset-0 z-[1000] flex items-center justify-center bg-black/20 pointer-events-none transition-opacity duration-300">
-          <p className="px-5 py-2.5 bg-surface/90 backdrop-blur-md rounded-xl text-foreground font-semibold shadow-lg text-sm text-center">
-            Use <kbd className="font-mono bg-muted/80 border border-border/50 px-1.5 py-0.5 rounded text-[11px] mx-1">ctrl</kbd> + scroll to zoom the map
-          </p>
-        </div>
-      )}
+      <ZoomHintOverlay show={showZoomMessage} />
 
       {/* Full Screen Image Viewer Overlay */}
       <ImageViewer 

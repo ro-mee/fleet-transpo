@@ -7,6 +7,7 @@ import "leaflet/dist/leaflet.css";
 import { getPublicKey, rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { getGpsHealth, isValidCoordinate, speedKmhFromMps } from "@/lib/gps";
+import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 import { Button } from "@/components/ui/button";
 import { MapPin, Eye, Layers, ExternalLink, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -172,6 +173,7 @@ export default function LiveLocationsMap({
   const [trafficOn, setTrafficOn] = useState(traffic && hasTomTomKey);
   const [legendOn, setLegendOn] = useState(true);
   const [mapStyle, setMapStyle] = useState(hasTomTomKey ? "tomtom" : "street");
+  const [showZoomHint, setShowZoomHint] = useState(false);
 
   const valid = useMemo(
     () => (locations || [])
@@ -297,6 +299,7 @@ export default function LiveLocationsMap({
         style={{ height: "100%", width: "100%" }}
       >
         <ZoomControl position="bottomright" />
+        <MapCtrlZoom setShowHint={setShowZoomHint} />
         <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} />
         <TileLayer attribution={activeTile.attribution} url={activeTile.url} />
         
@@ -348,7 +351,12 @@ export default function LiveLocationsMap({
 
           return (
             <CircleMarker
-              key={l.trip_id || l.vehicle_id || l.tracking_id || `${lat},${lng}`}
+              // Per-row unique id first: GPS-history rows (trips/[id]) all share
+              // the same trip_id/vehicle_id, so keying on those collides across
+              // every breadcrumb of the trip. tracking_id is the gpstracking PK
+              // (gps_tracking_id on latest-locations rows); the index suffix
+              // keeps the coordinate fallback unique for stationary vehicles.
+              key={l.tracking_id || l.gps_tracking_id || l.trip_id || l.vehicle_id || `${lat},${lng},${i}`}
               center={[lat, lng]}
               eventHandlers={onSelectTrip && l.trip_id != null ? { click: () => onSelectTrip(l.trip_id) } : undefined}
               radius={selected ? 11 : 8}
@@ -428,6 +436,9 @@ export default function LiveLocationsMap({
           hasTomTomKey={hasTomTomKey}
         />
       </MapContainer>
+
+      {/* Ctrl + scroll zoom hint (flashed on plain wheel scroll) */}
+      <ZoomHintOverlay show={showZoomHint} />
 
       {/* Floating Traffic Active Indicator */}
       {trafficOn && (
