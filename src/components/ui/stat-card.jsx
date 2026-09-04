@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 // Chip + valueNote text render small — status tones use the AA-safe -700
@@ -21,17 +22,22 @@ export function StatCard({
   color,
   active = false,
   interactive = false,
+  href,
   className,
   onClick,
   ...props
 }) {
   const t = tones[tone || color] || tones.primary;
-  const isInteractive = interactive || Boolean(onClick);
-  const Component = onClick ? "button" : "div";
+  const isInteractive = interactive || Boolean(onClick) || Boolean(href);
+  // A linked card is a real navigation target: same tactile physics as a
+  // button card, with the anchor carrying focus + label semantics.
+  const Component = href ? Link : onClick ? "button" : "div";
   return (
     <Component
-      type={onClick ? "button" : undefined}
-      aria-pressed={onClick ? active : undefined}
+      type={!href && onClick ? "button" : undefined}
+      href={href}
+      aria-pressed={!href && onClick ? active : undefined}
+      aria-label={href ? `${label}: ${value}. Open ${label}.` : undefined}
       className={cn(
         "kpi-stat-card w-full rounded-3xl border border-border/80 bg-surface p-4 shadow-xs flex flex-col justify-between space-y-3 text-left select-none",
         isInteractive && "kpi-stat-card--interactive cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",

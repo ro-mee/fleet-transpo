@@ -32,9 +32,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { QueryErrorBanner } from "@/components/ui/query-feedback";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
+import { DonutMeter } from "@/components/dashboard/role-dashboard";
 import { CardSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
+import { CHART_COLORS } from "@/lib/chart-tokens";
 
 const tooltipStyle = {
   background: "var(--sf)",
@@ -42,6 +44,18 @@ const tooltipStyle = {
   borderRadius: "12px",
   fontSize: "12px",
 };
+
+// Month-over-month delta from a monthlyData series (same convention as the
+// analytics fuel page). Null when fewer than two months exist or the previous
+// value is zero — absence renders as no chip, never as 0%.
+function momChange(points, pick) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const latest = Number(pick(points[points.length - 1])) || 0;
+  const prev = Number(pick(points[points.length - 2])) || 0;
+  if (!(prev > 0)) return null;
+  const pct = ((latest - prev) / prev) * 100;
+  return `${pct > 0 ? "↑" : pct < 0 ? "↓" : "→"} ${Math.abs(pct).toFixed(1)}% vs last month`;
+}
 
 function LivePulseBeacon({ status = "primary" }) {
   const colors = {
@@ -114,6 +128,8 @@ export default function ExecutiveKpiPage() {
     ? measuredDrivers.reduce((sum, driver) => sum + Number(driver.on_time_rate) * Number(driver.total_trips), 0) / measuredTrips
     : null;
   const costTrend = (fin.monthlyData || []).slice(-12);
+  const tripsTrend = momChange(util.monthlyData, (m) => m.trips);
+  const costMom = momChange(fin.monthlyData, (m) => (Number(m.fuelCost) || 0) + (Number(m.maintenanceCost) || 0));
   const reportLink = <Link href="/reports" className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline-offset-4 hover:underline">Open reports <ArrowRight className="h-3.5 w-3.5" /></Link>;
 
   return (
@@ -139,9 +155,9 @@ export default function ExecutiveKpiPage() {
 
       <StatGrid cols={6}>
         <StatCard icon={Gauge} label="Fleet in use now" value={utilization.isLoading || utilization.isError ? "—" : `${Number(util.utilization) || 0}%`} trend={utilization.isLoading || utilization.isError ? "Unavailable while utilization refreshes" : `${util.vehiclesInUse || 0} of ${util.fleetSize || 0} vehicles currently In Use`} tone="primary" />
-        <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : perf.totalTrips || 0} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : "Completed trips in the report period"} tone="success" />
+        <StatCard icon={CheckCircle2} label="Completed trips" value={performance.isLoading || performance.isError ? "—" : perf.totalTrips || 0} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : tripsTrend ? `Completed trips in the report period · ${tripsTrend}` : "Completed trips in the report period"} tone="success" />
         <StatCard icon={TrendingUp} label="On-time rate" value={performance.isLoading || performance.isError ? "—" : onTimeRate == null ? "—" : `${Math.round(onTimeRate * 100)}%`} trend={performance.isLoading || performance.isError ? "Unavailable while performance refreshes" : onTimeRate == null ? "Insufficient completed-trip measurements" : `${measuredTrips} measured completed trips`} tone="info" />
-        <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : "Fuel plus maintenance records"} tone="primary" />
+        <StatCard icon={Wallet} label="Recorded operating cost" value={financial.isLoading || financial.isError ? "—" : formatCurrency(fin.totalCost || 0)} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : costMom ? `Fuel plus maintenance records · ${costMom}` : "Fuel plus maintenance records"} tone="primary" />
         <StatCard icon={Route} label="Cost per km" value={financial.isLoading || financial.isError ? "—" : fin.totalDistance ? formatCurrency(fin.costPerKm || 0) : "—"} trend={financial.isLoading || financial.isError ? "Unavailable while financial data refreshes" : fin.totalDistance ? `${Number(fin.totalDistance).toLocaleString()} km recorded` : "No recorded distance denominator"} tone="warning" />
         <StatCard icon={ShieldAlert} label="Critical / major open" value={incidents.isLoading || incidents.isError ? "—" : risk.critical_major_open || 0} trend="Open incident severity exposure" tone="danger" />
       </StatGrid>
@@ -166,20 +182,20 @@ export default function ExecutiveKpiPage() {
         </Panel>
 
         <Panel title="Fleet activity state" description="Current roster status, separate from historical trip volume." action={<Link href="/analytics" className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline">View analytics <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState query={utilization} errorTitle="Fleet activity state is unavailable"><DistributionMeter items={[
-            { label: "In use", value: vehicleStatus["In Use"] || 0, color: "bg-primary" },
-            { label: "Reserved", value: vehicleStatus.Reserved || 0, color: "bg-info" },
-            { label: "Under maintenance", value: vehicleStatus["Under Maintenance"] || 0, color: "bg-warning" },
-            { label: "Decommissioned", value: vehicleStatus.Decommissioned || 0, color: "bg-danger" },
+          <FeedState query={utilization} errorTitle="Fleet activity state is unavailable"><DonutMeter totalLabel="vehicles" items={[
+            { label: "In use", value: vehicleStatus["In Use"] || 0, fill: CHART_COLORS.info },
+            { label: "Reserved", value: vehicleStatus.Reserved || 0, fill: CHART_COLORS.neutral },
+            { label: "Under maintenance", value: vehicleStatus["Under Maintenance"] || 0, fill: CHART_COLORS.warning },
+            { label: "Decommissioned", value: vehicleStatus.Decommissioned || 0, fill: CHART_COLORS.danger },
           ]} /></FeedState>
         </Panel>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-3">
         <Panel title="Service reliability" description="Stored trip outcomes in the report period.">
-          <FeedState query={utilization} errorTitle="Service reliability is unavailable"><DistributionMeter items={[
-            { label: "Completed", value: statusTrips.Completed || 0, color: "bg-success" },
-            { label: "Cancelled", value: statusTrips.Cancelled || 0, color: "bg-danger" },
+          <FeedState query={utilization} errorTitle="Service reliability is unavailable"><DonutMeter totalLabel="trips" items={[
+            { label: "Completed", value: statusTrips.Completed || 0, fill: CHART_COLORS.success },
+            { label: "Cancelled", value: statusTrips.Cancelled || 0, fill: CHART_COLORS.danger },
           ]} /></FeedState>
         </Panel>
         <Panel title="Cost mix" description="Recorded components only; unrecorded trip cost is not estimated.">
