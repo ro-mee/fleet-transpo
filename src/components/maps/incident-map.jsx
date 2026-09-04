@@ -6,6 +6,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { rasterTileUrl } from "@/lib/tomtom";
 import { Compass, AlertTriangle, Eye } from "lucide-react";
+import { ImageViewer } from "@/components/ui/image-viewer";
 
 const SEVERITY_COLOR = { Critical: "#dc2626", Major: "#ef4444", Moderate: "#f97316", Minor: "#f59e0b" };
 
@@ -274,21 +275,10 @@ export default function IncidentMap({ incidents = [] }) {
       )}
 
       {/* Full Screen Image Viewer Overlay */}
-      {fullScreenImage && (
-        <div 
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
-          onClick={(e) => {
-            e.stopPropagation();
-            setFullScreenImage(null);
-          }}
-        >
-          <img 
-            src={fullScreenImage} 
-            alt="Full screen incident photo" 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-          />
-        </div>
-      )}
+      <ImageViewer 
+        url={fullScreenImage} 
+        onClose={() => setFullScreenImage(null)} 
+      />
     </div>
   );
 }

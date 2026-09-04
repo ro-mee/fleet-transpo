@@ -35,6 +35,7 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { CardSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { cn } from "@/lib/utils";
+import { DistributionMeter } from "@/components/dashboard/role-dashboard";
 
 const tooltipStyle = {
   background: "var(--sf)",

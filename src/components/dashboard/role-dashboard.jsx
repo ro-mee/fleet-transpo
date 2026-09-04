@@ -212,7 +212,7 @@ function StatusBars({ rows }) {
   );
 }
 
-function DistributionMeter({ items }) {
+export function DistributionMeter({ items }) {
   const total = Math.max(1, items.reduce((sum, item) => sum + (Number(item.value) || 0), 0));
   return (
     <div className="space-y-5 p-5">

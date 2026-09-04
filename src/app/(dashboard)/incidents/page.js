@@ -8,7 +8,7 @@ import { getAllIncidents, getIncidentSummary } from "@/services/driver.service";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink } from "lucide-react";
+import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { rolesFor } from "@/lib/auth/permissions";
@@ -26,6 +26,7 @@ import { getIncidentWorkbook } from "@/services/report.service";
 import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
 import { incidentTypeLabel } from "@/lib/incidents/resolution";
+import { ImageViewer } from "@/components/ui/image-viewer";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -516,8 +517,16 @@ export default function IncidentsPage() {
       </Card>
 
       <Dialog open={resolveModal.open} onOpenChange={(open) => !open && setResolveModal({ open: false, incident: null })}>
-        <DialogContent className="max-w-2xl w-[95vw] md:w-[620px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
-          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+        <DialogContent 
+          onInteractOutside={(e) => {
+            if (fullScreenImage) e.preventDefault();
+          }}
+          onEscapeKeyDown={(e) => {
+            if (fullScreenImage) e.preventDefault();
+          }}
+          className="max-w-2xl w-[95vw] md:w-[620px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl flex flex-col max-h-[90dvh]"
+        >
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between shrink-0">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-success/10 text-success border border-success/20 shadow-2xs">
                 <CheckCircle2 className="h-5 w-5" />
@@ -540,7 +549,7 @@ export default function IncidentsPage() {
             </div>
           </div>
 
-          <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+          <div className="p-6 space-y-4 flex-1 overflow-y-auto">
             {detailQuery.isLoading && <p className="rounded-xl bg-muted/40 px-3 py-2 text-xs font-medium text-foreground-muted">Loading incident details…</p>}
             {detailQuery.isError && <p role="alert" className="rounded-xl border border-danger/30 bg-danger/5 px-3 py-2 text-xs font-semibold text-danger">Detailed incident context could not be loaded. The registry record is still available.</p>}
             {detailIncident && (
@@ -731,18 +740,10 @@ export default function IncidentsPage() {
       </Dialog>
 
       {/* Full Screen Image Viewer Overlay */}
-      {fullScreenImage && (
-        <div 
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/90 p-4 cursor-zoom-out"
-          onClick={() => setFullScreenImage(null)}
-        >
-          <img 
-            src={fullScreenImage} 
-            alt="Full screen incident photo" 
-            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
-          />
-        </div>
-      )}
+      <ImageViewer 
+        url={fullScreenImage} 
+        onClose={() => setFullScreenImage(null)} 
+      />
 
       {/* Full Screen Map Overlay */}
       {isMapFullscreen && (
