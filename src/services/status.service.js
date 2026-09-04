@@ -22,16 +22,31 @@ export async function syncVehicleStatus(vehicleId) {  const supabase = getAdminC
     .maybeSingle();
   if (!vehicle || vehicle.vehicle_status === "Decommissioned") return;
 
+  // SAFETY INVARIANT: Unresolved Major/Critical incidents unconditionally ground the vehicle
+  const { data: incident } = await supabase
+    .from("driverincidents")
+    .select("incident_id")
+    .eq("vehicle_id", vehicleId)
+    .in("severity", ["Major", "Critical"])
+    .eq("status", "Open")
+    .is("deleted_at", null)
+    .limit(1);
+    
+  if (incident?.length) {
+    await supabase.from("vehicles").update({ vehicle_status: "Under Maintenance" }).eq("vehicle_id", vehicleId);
+    return;
+  }
+
   const { data: maintenance } = await supabase
     .from("vehiclemaintenance")
     .select("maintenance_id, status, maintenance_date")
     .eq("vehicle_id", vehicleId)
-    .in("status", ["Scheduled", "In Progress"])
+    .in("status", ["Scheduled", "In Progress", "Pending Inspection"])
     .is("deleted_at", null);
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const hasActiveMaintenance = (maintenance || []).some((m) => {
-    if (m.status === "In Progress") return true;
+    if (m.status === "In Progress" || m.status === "Pending Inspection") return true;
     const d = new Date(`${String(m.maintenance_date).slice(0, 10)}T00:00:00`);
     return !Number.isNaN(d.getTime()) && d.getTime() <= today.getTime();
   });

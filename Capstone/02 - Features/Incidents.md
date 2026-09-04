@@ -39,6 +39,11 @@ Drivers report breakdowns and emergencies from the mobile app; staff triage them
 
 | Rule | Where | Why |
 |---|---|---|
+| Maintenance clearance before release | `api/vehicle-maintenance/[id]/route.js` | Vehicles with critical incidents must pass a manager inspection before `Completed` status |
+| Strict State Machine | `api/incidents/[id]/route.js` | Incidents require `acknowledged_at` before resolution. Audit history via `incident_comments`. |
+| Incident Confidentiality | `api/incidents/route.js` | HR/Admin reports are shielded from general staff visibility based on role |
+| Dynamic SLAs | `api/driver/incidents/route.js`, `pg_cron` | `due_at` calculated server-side based on severity (Critical = 2h, Major = 24h). `pg_cron` idempotently processes breaches into `overdue_at` automatically. |
+| Active Trip Aborts | `src/lib/incidents/grounding.js` | Grounding an `In Progress` dispatch aborts the request entirely and pages Guest Services |
 | Maintenance completion restores availability | PUT `/api/vehicle-maintenance/[id]` calls `syncVehicleStatus` after `Completed` | Resolving the incident must not release a vehicle that still needs repair |
 | Resolution is documented | server-side required `actions_taken`; CHECK constrains status to Open/Resolved | Resolve-with-no-narrative was unauditable; status was free-form |
 | One incident, one repair record | automatic helper + incident row lock + unique `source_incident_id` index | Retries and concurrent reports cannot duplicate the work order |
@@ -56,11 +61,11 @@ Pure decision logic lives in `src/lib/incidents/resolution.js` and `src/lib/driv
 - Reassigning dispatches interrupted by grounding stays manual — the resolve modal now *shows* them (and their live status), but nothing auto-reassigns.
 - A failed automatic work-order or grounding attempt remains visible as a retry state; the recovery endpoint is not a general-purpose manual maintenance action.
 
-Closed 2026-08-31: automatic maintenance gates on the incident's own vehicle
+Closed 2026-09-04: automatic maintenance gates on the incident's own vehicle
 and rule-based category/severity; the mobile form offers all four severities
 including Critical; repairs carry both incident/work-order links and completing
 one notifies the reporting driver; expense claims are reviewed, not auto-booked;
-assistance requests are structured chips.
+assistance requests are structured chips. Active trips are aborted and Guest Services notified. Managers must approve clearance.
 
 ## Manual QA checklist (needs two real sessions)
 

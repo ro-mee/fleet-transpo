@@ -1,4 +1,4 @@
-import geoip from 'geoip-lite';
+let geoip = null;
 
 /**
  * Derives an approximate human-readable location from an IP address.
@@ -6,11 +6,16 @@ import geoip from 'geoip-lite';
  * @param {string} ip - The IP address to look up
  * @returns {string} - E.g. "Manila, Philippines" or "Unknown Location"
  */
-export function getLocationFromIp(ip) {
+export async function getLocationFromIp(ip) {
   if (!ip) return 'Unknown Location';
   
   try {
-    const geo = geoip.lookup(ip);
+    if (!geoip) {
+      // Hide from Turbopack static analysis to prevent OOM during build
+      const pkg = 'geoip-lite';
+      geoip = await import(pkg);
+    }
+    const geo = (geoip.default || geoip).lookup(ip);
     if (geo && geo.country) {
       const city = geo.city || 'Unknown City';
       

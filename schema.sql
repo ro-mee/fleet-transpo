@@ -118,6 +118,31 @@ CREATE TABLE booking_channels (
   CONSTRAINT booking_channels_pkey PRIMARY KEY (channel_id)
 );
 
+CREATE TABLE company_card_assignments (
+  id integer DEFAULT nextval('company_card_assignments_id_seq'::regclass) NOT NULL,
+  company_card_id integer NOT NULL,
+  employee_id integer,
+  vehicle_id integer,
+  assigned_at timestamptz DEFAULT now() NOT NULL,
+  unassigned_at timestamptz,
+  assigned_by integer NOT NULL,
+  assignment_type varchar(100),
+  CONSTRAINT company_card_assignments_pkey PRIMARY KEY (id)
+);
+
+CREATE TABLE company_cards (
+  id integer DEFAULT nextval('company_cards_id_seq'::regclass) NOT NULL,
+  card_label varchar(255),
+  card_last_four varchar(4) NOT NULL,
+  provider varchar(100),
+  status varchar(50) DEFAULT 'Active'::character varying,
+  monthly_limit numeric(12,2),
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT chk_company_cards_status CHECK (((status)::text = ANY ((ARRAY['Active'::character varying, 'Suspended'::character varying, 'Cancelled'::character varying])::text[]))),
+  CONSTRAINT company_cards_pkey PRIMARY KEY (id)
+);
+
 CREATE TABLE device_tokens (
   device_token_id integer DEFAULT nextval('device_tokens_device_token_id_seq'::regclass) NOT NULL,
   employee_id integer,
@@ -285,6 +310,14 @@ CREATE TABLE driverincidents (
   requires_vehicle_maintenance boolean DEFAULT false NOT NULL,
   maintenance_id integer,
   maintenance_error text,
+  is_confidential boolean DEFAULT false,
+  passenger_injured boolean DEFAULT false,
+  medical_assistance_required boolean DEFAULT false,
+  third_party_involved boolean DEFAULT false,
+  police_report_number varchar(100),
+  insurance_claim_number varchar(100),
+  due_at timestamptz,
+  overdue_at timestamptz,
   CONSTRAINT chk_driverincidents_grounding_status CHECK (((grounding_status)::text = ANY ((ARRAY['Not Required'::character varying, 'Pending'::character varying, 'Complete'::character varying, 'Failed'::character varying])::text[]))),
   CONSTRAINT chk_driverincidents_severity CHECK (((severity)::text = ANY ((ARRAY['Minor'::character varying, 'Moderate'::character varying, 'Major'::character varying, 'Critical'::character varying])::text[]))),
   CONSTRAINT chk_driverincidents_status CHECK (((status)::text = ANY ((ARRAY['Open'::character varying, 'Resolved'::character varying])::text[]))),
@@ -358,6 +391,52 @@ CREATE TABLE employees (
   CONSTRAINT employees_email_key UNIQUE (email)
 );
 
+CREATE TABLE expense_receipt_scans (
+  client_submission_id uuid NOT NULL,
+  driver_id integer NOT NULL,
+  receipt_storage_key varchar(255) NOT NULL,
+  receipt_sha256 varchar(255) NOT NULL,
+  ocr_snapshot jsonb,
+  is_submitted boolean DEFAULT false NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT expense_receipt_scans_pkey PRIMARY KEY (client_submission_id)
+);
+
+CREATE TABLE expense_records (
+  id integer DEFAULT nextval('expense_records_id_seq'::regclass) NOT NULL,
+  client_submission_id uuid NOT NULL,
+  driver_id integer NOT NULL,
+  trip_id integer,
+  vehicle_id integer,
+  category varchar(100) NOT NULL,
+  merchant_name varchar(255),
+  amount numeric(10,2) NOT NULL,
+  currency varchar(10) DEFAULT 'PHP'::character varying,
+  expense_date timestamptz NOT NULL,
+  submitted_at timestamptz NOT NULL,
+  payment_method varchar(50) NOT NULL,
+  company_card_id integer,
+  receipt_storage_key varchar(255) NOT NULL,
+  receipt_sha256 varchar(255) NOT NULL,
+  receipt_uploaded_at timestamptz NOT NULL,
+  ocr_snapshot jsonb NOT NULL,
+  driver_edits jsonb,
+  flags jsonb,
+  status varchar(50) DEFAULT 'Pending'::character varying,
+  review_remarks text,
+  reviewed_by integer,
+  reviewed_at timestamptz,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  CONSTRAINT chk_expense_category CHECK (((category)::text = ANY ((ARRAY['Toll'::character varying, 'Parking'::character varying, 'Meals'::character varying, 'Lodging'::character varying, 'Other'::character varying])::text[]))),
+  CONSTRAINT chk_expense_company_card CHECK (((((payment_method)::text = 'Company Card'::text) AND (company_card_id IS NOT NULL)) OR (((payment_method)::text <> 'Company Card'::text) AND (company_card_id IS NULL)))),
+  CONSTRAINT chk_expense_payment_method CHECK (((payment_method)::text = ANY ((ARRAY['Company Card'::character varying, 'Cash'::character varying, 'Personal Card'::character varying, 'Other'::character varying])::text[]))),
+  CONSTRAINT chk_expense_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying])::text[]))),
+  CONSTRAINT expense_records_pkey PRIMARY KEY (id),
+  CONSTRAINT expense_records_client_submission_id_key UNIQUE (client_submission_id)
+);
+
 CREATE TABLE fuelallocations (
   allocation_id integer DEFAULT nextval('fuelallocations_allocation_id_seq'::regclass) NOT NULL,
   vehicle_id integer NOT NULL,
@@ -402,6 +481,9 @@ CREATE TABLE fuelrecords (
   flags jsonb,
   receipt_transaction_id varchar(64),
   review_remarks text,
+  payment_method varchar(50),
+  company_card_id integer,
+  CONSTRAINT chk_fuel_company_card CHECK (((((payment_method)::text = 'Company Card'::text) AND (company_card_id IS NOT NULL)) OR (((payment_method)::text <> 'Company Card'::text) AND (company_card_id IS NULL)) OR (payment_method IS NULL))),
   CONSTRAINT chk_fuel_status CHECK (((status)::text = ANY ((ARRAY['Pending'::character varying, 'Approved'::character varying, 'Rejected'::character varying, 'Completed'::character varying])::text[]))),
   CONSTRAINT fuelrecords_pkey PRIMARY KEY (fuel_record_id)
 );
@@ -447,6 +529,16 @@ CREATE TABLE gpstracking (
   accuracy numeric(5,2) DEFAULT 0,
   recorded_at timestamptz DEFAULT now(),
   CONSTRAINT gpstracking_pkey PRIMARY KEY (tracking_id)
+);
+
+CREATE TABLE incident_comments (
+  comment_id integer DEFAULT nextval('incident_comments_comment_id_seq'::regclass) NOT NULL,
+  incident_id integer NOT NULL,
+  user_id integer,
+  action_type varchar(50) NOT NULL,
+  comment_text text,
+  created_at timestamptz DEFAULT now(),
+  CONSTRAINT incident_comments_pkey PRIMARY KEY (comment_id)
 );
 
 CREATE TABLE integration_log (
@@ -864,6 +956,13 @@ CREATE TABLE vehiclemaintenance (
   source_incident_id integer,
   completed_by integer,
   completed_at timestamptz,
+  repair_completed_at timestamptz,
+  inspection_required boolean DEFAULT true,
+  inspection_completed_at timestamptz,
+  inspected_by integer,
+  inspection_notes text,
+  manager_approved_at timestamptz,
+  manager_approved_by integer,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -924,6 +1023,10 @@ CREATE TABLE web_sessions (
 
 ALTER TABLE ai_recommendations ADD CONSTRAINT ai_recommendations_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE audit_logs ADD CONSTRAINT audit_logs_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES employees(employee_id);
+ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_company_card_id_fkey FOREIGN KEY (company_card_id) REFERENCES company_cards(id);
+ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE company_card_assignments ADD CONSTRAINT company_card_assignments_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE device_tokens ADD CONSTRAINT device_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE dispatchschedules ADD CONSTRAINT dispatchschedules_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
@@ -957,11 +1060,18 @@ ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (crea
 ALTER TABLE employees ADD CONSTRAINT employees_role_id_fkey FOREIGN KEY (role_id) REFERENCES roles(role_id);
 ALTER TABLE employees ADD CONSTRAINT employees_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE employees ADD CONSTRAINT employees_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+ALTER TABLE expense_receipt_scans ADD CONSTRAINT expense_receipt_scans_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE expense_records ADD CONSTRAINT expense_records_company_card_id_fkey FOREIGN KEY (company_card_id) REFERENCES company_cards(id);
+ALTER TABLE expense_records ADD CONSTRAINT expense_records_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
+ALTER TABLE expense_records ADD CONSTRAINT expense_records_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
+ALTER TABLE expense_records ADD CONSTRAINT expense_records_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
+ALTER TABLE expense_records ADD CONSTRAINT expense_records_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelallocations ADD CONSTRAINT fuelallocations_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fk_fuelrecords_fuel_request FOREIGN KEY (fuel_request_id) REFERENCES fuelrequests(fuel_request_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_approved_by_fkey FOREIGN KEY (approved_by) REFERENCES employees(employee_id);
+ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_company_card_id_fkey FOREIGN KEY (company_card_id) REFERENCES company_cards(id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
 ALTER TABLE fuelrecords ADD CONSTRAINT fuelrecords_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
@@ -973,6 +1083,8 @@ ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_trip_id_fkey FOREIGN KEY (t
 ALTER TABLE fuelrequests ADD CONSTRAINT fuelrequests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE gpstracking ADD CONSTRAINT gpstracking_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_incident_id_fkey FOREIGN KEY (incident_id) REFERENCES driverincidents(incident_id);
+ALTER TABLE incident_comments ADD CONSTRAINT incident_comments_user_id_fkey FOREIGN KEY (user_id) REFERENCES employees(employee_id);
 ALTER TABLE mfa_recovery_codes ADD CONSTRAINT mfa_recovery_codes_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE mobile_refresh_tokens ADD CONSTRAINT mobile_refresh_tokens_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE notification_preferences ADD CONSTRAINT notification_preferences_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
@@ -1017,6 +1129,8 @@ ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_trip_id_fkey FORE
 ALTER TABLE vehicleinspection ADD CONSTRAINT vehicleinspection_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_completed_by_fkey FOREIGN KEY (completed_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fkey FOREIGN KEY (inspected_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_manager_approved_by_fkey FOREIGN KEY (manager_approved_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
@@ -1039,6 +1153,11 @@ CREATE INDEX idx_audit_created ON public.audit_logs USING btree (created_at);
 CREATE INDEX idx_audit_employee ON public.audit_logs USING btree (employee_id);
 CREATE INDEX idx_audit_resource ON public.audit_logs USING btree (resource, resource_id);
 CREATE INDEX idx_auth_rate_limits_updated ON public.auth_rate_limits USING btree (updated_at);
+CREATE UNIQUE INDEX idx_company_card_active_assignment ON public.company_card_assignments USING btree (company_card_id) WHERE (unassigned_at IS NULL);
+CREATE INDEX idx_company_card_assignments_card_id ON public.company_card_assignments USING btree (company_card_id);
+CREATE INDEX idx_company_card_assignments_employee ON public.company_card_assignments USING btree (employee_id);
+CREATE INDEX idx_company_card_assignments_vehicle ON public.company_card_assignments USING btree (vehicle_id);
+CREATE INDEX idx_company_cards_status ON public.company_cards USING btree (status);
 CREATE INDEX idx_device_tokens_employee_active ON public.device_tokens USING btree (employee_id) WHERE active;
 CREATE INDEX idx_dispatch_active_departure ON public.dispatchschedules USING btree (scheduled_departure) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_dispatch_date ON public.dispatchschedules USING btree (scheduled_departure);
@@ -1049,7 +1168,9 @@ CREATE INDEX idx_dispatch_vehicle ON public.dispatchschedules USING btree (vehic
 CREATE INDEX idx_dispatchschedules_request_id ON public.dispatchschedules USING btree (request_id);
 CREATE INDEX idx_driver_consents_driver ON public.driver_consents USING btree (driver_id, accepted_at DESC);
 CREATE INDEX idx_driverincidents_attention ON public.driverincidents USING btree (status, severity, created_at DESC) WHERE (deleted_at IS NULL);
+CREATE INDEX idx_driverincidents_confidential ON public.driverincidents USING btree (is_confidential);
 CREATE INDEX idx_driverincidents_driver ON public.driverincidents USING btree (driver_id, created_at DESC);
+CREATE INDEX idx_driverincidents_due_at ON public.driverincidents USING btree (due_at);
 CREATE INDEX idx_driverincidents_grounding_retry ON public.driverincidents USING btree (grounding_status, created_at DESC) WHERE ((deleted_at IS NULL) AND ((grounding_status)::text = ANY ((ARRAY['Pending'::character varying, 'Failed'::character varying])::text[])));
 CREATE INDEX idx_driverincidents_status ON public.driverincidents USING btree (status, incident_date DESC);
 CREATE INDEX idx_drivers_employee ON public.drivers USING btree (employee_id);
@@ -1062,6 +1183,15 @@ CREATE INDEX idx_employee_mfa_enabled ON public.employee_mfa USING btree (enable
 CREATE INDEX idx_employees_email ON public.employees USING btree (email);
 CREATE INDEX idx_employees_role ON public.employees USING btree (role_id);
 CREATE INDEX idx_employees_status ON public.employees USING btree (status);
+CREATE INDEX idx_expense_receipt_scans_driver_id ON public.expense_receipt_scans USING btree (driver_id);
+CREATE INDEX idx_expense_records_company_card_id ON public.expense_records USING btree (company_card_id);
+CREATE INDEX idx_expense_records_driver_id ON public.expense_records USING btree (driver_id);
+CREATE INDEX idx_expense_records_expense_date ON public.expense_records USING btree (expense_date);
+CREATE INDEX idx_expense_records_receipt_sha256 ON public.expense_records USING btree (receipt_sha256);
+CREATE INDEX idx_expense_records_status ON public.expense_records USING btree (status);
+CREATE INDEX idx_expense_records_submitted_at ON public.expense_records USING btree (submitted_at);
+CREATE INDEX idx_expense_records_trip_id ON public.expense_records USING btree (trip_id);
+CREATE INDEX idx_expense_records_vehicle_id ON public.expense_records USING btree (vehicle_id);
 CREATE INDEX idx_fuel_date ON public.fuelrecords USING btree (fuel_date);
 CREATE INDEX idx_fuel_vehicle ON public.fuelrecords USING btree (vehicle_id);
 CREATE INDEX idx_fuelallocations_month ON public.fuelallocations USING btree (allocation_month, vehicle_id);
@@ -1070,6 +1200,8 @@ CREATE INDEX idx_fuelrecords_receipt_txn ON public.fuelrecords USING btree (rece
 CREATE INDEX idx_fuelrequests_allocation_month ON public.fuelrequests USING btree (allocation_month, vehicle_id);
 CREATE INDEX idx_fuelrequests_driver_created ON public.fuelrequests USING btree (driver_id, created_at DESC);
 CREATE INDEX idx_fuelrequests_status_created ON public.fuelrequests USING btree (status, created_at DESC);
+CREATE INDEX idx_incident_comments_action_type ON public.incident_comments USING btree (action_type);
+CREATE INDEX idx_incident_comments_incident_id ON public.incident_comments USING btree (incident_id);
 CREATE INDEX idx_integration_event ON public.integration_log USING btree (event_type);
 CREATE INDEX idx_integration_external ON public.integration_log USING btree (external_booking_id);
 CREATE INDEX idx_integration_status ON public.integration_log USING btree (status);
@@ -1493,6 +1625,23 @@ BEGIN
     );
   END IF;
   RETURN NEW;
+END;
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.update_incident_sla_breaches()
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+AS $function$
+BEGIN
+  UPDATE public.driverincidents
+  SET overdue_at = due_at
+  WHERE status = 'Open'
+    AND due_at IS NOT NULL
+    AND due_at < NOW()
+    AND overdue_at IS NULL
+    AND deleted_at IS NULL;
 END;
 $function$
 ;

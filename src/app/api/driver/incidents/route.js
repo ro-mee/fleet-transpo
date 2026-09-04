@@ -207,8 +207,14 @@ export async function POST(req) {
          (driver_id, vehicle_id, trip_id, incident_type, incident_date,
           description, location, latitude, longitude, severity, assistance_needed,
           expense_amount, client_submission_id, photo_urls, grounding_status,
-          requires_vehicle_maintenance)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          requires_vehicle_maintenance, due_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+          CASE $10::varchar
+            WHEN 'Critical' THEN NOW() + interval '2 hours'
+            WHEN 'Major' THEN NOW() + interval '24 hours'
+            WHEN 'Moderate' THEN NOW() + interval '72 hours'
+            ELSE NOW() + interval '7 days'
+          END)
        ON CONFLICT (driver_id, client_submission_id)
          WHERE deleted_at IS NULL AND client_submission_id IS NOT NULL
        DO NOTHING
@@ -302,6 +308,14 @@ export async function POST(req) {
           resourceId: incident.incident_id,
           newValues: { grounding_status: "Failed" },
         });
+
+        // Fail-safe fallback to ensure the vehicle is safely grounded
+        try {
+          const { syncVehicleStatus } = await import("@/services/status.service");
+          await syncVehicleStatus(incident.vehicle_id);
+        } catch (syncErr) {
+          console.error("CRITICAL: Failed to execute fallback syncVehicleStatus during incident grounding:", syncErr);
+        }
       }
     }
 

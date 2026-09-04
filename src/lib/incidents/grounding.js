@@ -88,7 +88,7 @@ export async function groundIncident({ incident, session, req = null }) {
 
   const interval = incident.severity === "Major" || incident.severity === "Critical" ? "48 hours" : "2 hours";
   const activeDispatches = await query(
-    `SELECT ds.dispatch_id, ds.dispatch_number, r.guest_name
+    `SELECT ds.dispatch_id, ds.dispatch_number, r.guest_name, ds.status, r.request_id
        FROM dispatchschedules ds
        LEFT JOIN transportation_requests r ON r.request_id = ds.request_id
       WHERE ds.vehicle_id = $1
@@ -98,33 +98,99 @@ export async function groundIncident({ incident, session, req = null }) {
     [vehicleId, interval]
   );
 
-  for (const dispatch of activeDispatches.rows || []) {
-    await setDispatchStatus({
-      dispatchId: dispatch.dispatch_id,
-      to: "Pending Reassignment",
-      session,
-      reason: `Incident #${incident.incident_id} grounded the vehicle.`,
-    });
+  const { withTransaction } = await import("@/lib/db");
+  const notificationsToSend = [];
+  const pushesToSend = [];
 
-    const title = "🚨 URGENT: Active Dispatch Interrupted";
-    if (recipients.length) {
-      const guestName = dispatch.guest_name || "Unknown Guest";
-      const message = `Vehicle ${vehicle?.plate_number || `#${vehicleId}`} had an incident while assigned to guest ${guestName} (Dispatch #${dispatch.dispatch_number}). Vehicle has been unassigned. Reassign immediately!`;
-      const rows = recipients.map((employee) => ({
-        employee_id: employee.employee_id,
-        title,
-        message,
-        type: "Alert",
-        reference_type: "dispatch",
-        reference_id: dispatch.dispatch_id,
-      }));
-      const inserted = await insertNotifications(rows);
-      if (inserted.length) await sendPush({
-        employeeIds: inserted.map((employee) => employee.employee_id),
-        title,
-        body: message,
-        data: { reference_type: "dispatch", reference_id: dispatch.dispatch_id },
+  for (const dispatch of activeDispatches.rows || []) {
+    if (dispatch.status === 'In Progress' && dispatch.request_id) {
+      await withTransaction(async (tx) => {
+        // Cancel the dispatch schedule and trip
+        await tx.query(`UPDATE trips SET trip_status = 'Cancelled', updated_at = NOW() WHERE dispatch_id = $1 AND deleted_at IS NULL AND trip_status NOT IN ('Completed', 'Cancelled')`, [dispatch.dispatch_id]);
+        await tx.query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [dispatch.dispatch_id]);
+
+        // Cancel the request manually to ensure transactional safety
+        const reason = `ABORTED: Vehicle involved in incident #${incident.incident_id}. Guest stranded. Replacement required immediately.`;
+        await tx.query(
+          `UPDATE transportation_requests SET fleet_status = 'Cancelled', status_reason = $1, vehicle_id = NULL, driver_id = NULL WHERE request_id = $2`,
+          [reason, dispatch.request_id]
+        );
+        await tx.query(
+          `INSERT INTO reservation_events (request_id, event_type, from_status, to_status, description, metadata) VALUES ($1, 'CANCELLED', 'In Progress', 'Cancelled', $2, $3)`,
+          [dispatch.request_id, reason, JSON.stringify({ reason, incident_id: incident.incident_id })]
+        );
       });
+
+      // Notify guest services and dispatch
+      const { rows: gsRecipients } = await query(
+        `SELECT e.employee_id
+           FROM employees e
+           JOIN roles r ON r.role_id = e.role_id
+          WHERE r.role_name IN ('guest_services', 'system_admin', 'dispatch') AND e.deleted_at IS NULL`
+      );
+      
+      const title = "🚨 GUEST STRANDED: Active Trip Aborted";
+      const message = `Vehicle ${vehicle?.plate_number || `#${vehicleId}`} had an incident while actively transporting guest ${dispatch.guest_name || "Unknown"} (Dispatch #${dispatch.dispatch_number}). Replacement transportation is required IMMEDIATELY!`;
+      
+      if (gsRecipients.length) {
+        const rows = gsRecipients.map((employee) => ({
+          employee_id: employee.employee_id,
+          title,
+          message,
+          type: "Alert",
+          reference_type: "dispatch",
+          reference_id: dispatch.dispatch_id,
+        }));
+        const inserted = await insertNotifications(rows);
+        if (inserted.length) {
+          pushesToSend.push({
+            employeeIds: inserted.map((employee) => employee.employee_id),
+            title,
+            body: message,
+            data: { reference_type: "dispatch", reference_id: dispatch.dispatch_id },
+          });
+        }
+      }
+    } else {
+      // Future scheduled trip, just drop back to Pending Reassignment
+      await setDispatchStatus({
+        dispatchId: dispatch.dispatch_id,
+        to: "Pending Reassignment",
+        session,
+        reason: `Incident #${incident.incident_id} grounded the vehicle.`,
+      });
+
+      const title = "🚨 URGENT: Scheduled Dispatch Interrupted";
+      if (recipients.length) {
+        const guestName = dispatch.guest_name || "Unknown Guest";
+        const message = `Vehicle ${vehicle?.plate_number || `#${vehicleId}`} had an incident while assigned to guest ${guestName} (Dispatch #${dispatch.dispatch_number}). Vehicle has been unassigned. Reassign immediately!`;
+        const rows = recipients.map((employee) => ({
+          employee_id: employee.employee_id,
+          title,
+          message,
+          type: "Alert",
+          reference_type: "dispatch",
+          reference_id: dispatch.dispatch_id,
+        }));
+        const inserted = await insertNotifications(rows);
+        if (inserted.length) {
+          pushesToSend.push({
+            employeeIds: inserted.map((employee) => employee.employee_id),
+            title,
+            body: message,
+            data: { reference_type: "dispatch", reference_id: dispatch.dispatch_id },
+          });
+        }
+      }
+    }
+  }
+
+  // Send collected push notifications outside DB transactions and wrapped in try/catch
+  for (const push of pushesToSend) {
+    try {
+      await sendPush(push);
+    } catch (e) {
+      console.warn("groundIncident push notification failed:", e?.message || e);
     }
   }
 

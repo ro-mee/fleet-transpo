@@ -62,7 +62,6 @@ const WRITABLE_COLUMNS = [
   "service_interval_km",
   "service_interval_days",
   "fuel_type",
-  "vehicle_status",
 ];
 
 export async function GET(req, { params }) {
@@ -175,13 +174,29 @@ export async function PUT(req, { params }) {
       }
     }
 
-    if (updatedVehicle.vehicle_status !== "Decommissioned" && vehicleData.registration_expiry !== undefined) {
-      const { syncVehicleStatus } = await import("@/services/status.service");
-      await syncVehicleStatus(id);
+    const { syncVehicleStatus } = await import("@/services/status.service");
+
+    // Explicitly allow setting Decommissioned, but no other status can be forced.
+    if (vehicleData.vehicle_status === "Decommissioned") {
+      await query(`UPDATE vehicles SET vehicle_status = 'Decommissioned' WHERE vehicle_id = $1`, [id]);
     }
 
-    return ok(updatedVehicle);
-  } catch (e) { return handleError(e); }
+    // Reassert safety invariant
+    await syncVehicleStatus(id);
+
+    // Fetch the final, fully-sync'd row
+    const { rows: finalRows } = await query(
+      `SELECT v.*, row_to_json(vc.*) as vehiclecategories
+       FROM vehicles v
+       LEFT JOIN vehiclecategories vc ON v.category_id = vc.category_id
+       WHERE v.vehicle_id = $1 AND v.deleted_at IS NULL LIMIT 1`,
+      [id]
+    );
+
+    return ok(finalRows[0]);
+  } catch (e) {
+    return handleError(e);
+  }
 }
 
 export async function DELETE(req, { params }) {

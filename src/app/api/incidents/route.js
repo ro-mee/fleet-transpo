@@ -6,11 +6,16 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
 // driver-scoped; this one surfaces every incident with its vehicle/driver.
 export async function GET(req) {
   try {
-    await requirePermission(req, "incidents", "read");
+    const session = await requirePermission(req, "incidents", "read");
     const sp = new URL(req.url).searchParams;
 
     const conditions = ["i.deleted_at IS NULL"];
     const params = [];
+
+    if (session.user.role !== "system_admin" && session.user.role !== "hr_admin") {
+      conditions.push(`(i.is_confidential = false OR e.employee_id = $${params.length + 1})`);
+      params.push(session.user.employeeId);
+    }
 
     const severity = sp.get("severity");
     if (severity) { params.push(severity); conditions.push(`i.severity = $${params.length}`); }
@@ -38,6 +43,8 @@ export async function GET(req) {
            COUNT(*) FILTER (WHERE i.status = 'Open' AND (i.requires_vehicle_maintenance AND i.maintenance_id IS NULL))::int AS maintenance_pending,
            COUNT(*) FILTER (WHERE i.status = 'Open' AND (i.acknowledged_at IS NULL OR i.grounding_status IN ('Pending', 'Failed') OR (i.requires_vehicle_maintenance AND i.maintenance_id IS NULL) OR i.maintenance_error IS NOT NULL OR COALESCE(array_length(i.assistance_needed, 1), 0) > 0))::int AS attention
          FROM driverincidents i
+         LEFT JOIN drivers d ON d.driver_id = i.driver_id
+         LEFT JOIN employees e ON e.employee_id = d.employee_id
         WHERE ${where}`,
         params
       );

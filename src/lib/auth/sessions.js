@@ -59,11 +59,13 @@ export function maskIp(ip) {
   return `${value.slice(0, 8)}…`;
 }
 
-export function sessionDto(row, kind, currentUser = null) {
+export async function sessionDto(row, kind, currentUser = null) {
   const id = kind === "web" ? row.session_id : row.family_id;
   const is_current = kind === "web" 
     ? String(id) === String(currentUser?.sessionId || "")
     : String(id) === String(currentUser?.familyId || "");
+
+  const location = await getLocationFromIp(row.ip_address);
 
   return {
     id: String(id),
@@ -73,7 +75,7 @@ export function sessionDto(row, kind, currentUser = null) {
     createdAt: row.created_at,
     lastActiveAt: row.last_seen_at || row.last_used_at || row.created_at,
     expiresAt: row.expires_at,
-    location: getLocationFromIp(row.ip_address),
+    location,
     is_current,
     current: is_current // Backwards compatibility for existing web UI
   };
@@ -103,9 +105,12 @@ export async function listEmployeeSessions(employeeId, currentUser) {
     ),
   ]);
 
+  const webSessions = await Promise.all(web.rows.map((row) => sessionDto(row, "web", currentUser)));
+  const mobileSessions = await Promise.all(mobile.rows.map((row) => sessionDto(row, "mobile", currentUser)));
+
   const sessions = [
-    ...web.rows.map((row) => sessionDto(row, "web", currentUser)),
-    ...mobile.rows.map((row) => sessionDto(row, "mobile", currentUser)),
+    ...webSessions,
+    ...mobileSessions,
   ];
 
   // Sort: current first, then by lastActiveAt descending

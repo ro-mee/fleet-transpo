@@ -29,7 +29,7 @@ import {
  */
 export async function GET(req, props) {
   try {
-    await requirePermission(req, "incidents", "read");
+    const session = await requirePermission(req, "incidents", "read");
 
     const params = await props.params;
     const id = params.id;
@@ -43,6 +43,8 @@ export async function GET(req, props) {
               i.grounding_status, i.grounding_completed_at, i.grounding_error,
               i.requires_vehicle_maintenance, i.maintenance_id, i.maintenance_error,
               i.assistance_needed, i.expense_amount, i.photo_urls, v.plate_number,
+              i.is_confidential,
+              e.employee_id AS reporter_employee_id,
               CASE WHEN d.driver_id IS NULL THEN NULL ELSE
                 json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
               END AS driver
@@ -54,6 +56,15 @@ export async function GET(req, props) {
       [id]
     );
     if (!rows[0]) return err("Incident not found", 404);
+
+    if (
+      rows[0].is_confidential && 
+      session.user.role !== "system_admin" && 
+      session.user.role !== "hr_admin" && 
+      rows[0].reporter_employee_id !== session.user.employeeId
+    ) {
+      return err("Forbidden", 403);
+    }
 
     // Grounding writes one audit entry per interrupted dispatch with this exact
     // reason string (src/app/api/driver/incidents/route.js).
@@ -140,8 +151,15 @@ export async function PATCH(req, props) {
 
       const transition = canTransition(normalizeIncidentStatus(currentRow.status), status);
       if (!transition.ok) return { conflict: true };
-      if (status === "Resolved" && ["Pending", "Failed"].includes(currentRow.grounding_status)) {
-        return { groundingConflict: true };
+      
+      // State machine enforcement
+      if (status === "Resolved") {
+        if (!currentRow.acknowledged_at) {
+          return { validationError: "Incident must be acknowledged before it can be resolved." };
+        }
+        if (["Pending", "Failed"].includes(currentRow.grounding_status)) {
+          return { groundingConflict: true };
+        }
       }
 
       // A resolve without a documented narrative is not auditable.
@@ -154,20 +172,18 @@ export async function PATCH(req, props) {
         finalActions = actionsTaken ?? currentRow.actions_taken ?? null;
       }
 
+      if (finalActions) {
+        await tx.query(
+          `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
+           VALUES ($1, $2, $3, $4)`,
+          [id, session.user.employeeId ?? null, status === "Resolved" ? "RESOLVED" : "NOTE_ADDED", finalActions]
+        );
+      }
+
       const { rows } = await tx.query(
         `UPDATE driverincidents
             SET status = $1::varchar,
                 actions_taken = $2,
-                acknowledged_at = CASE
-                  WHEN $1::varchar = 'Resolved' THEN COALESCE(acknowledged_at, NOW())
-                  WHEN $1::varchar = 'Open' AND status = 'Resolved' THEN NULL
-                  ELSE acknowledged_at
-                END,
-                acknowledged_by = CASE
-                  WHEN $1::varchar = 'Resolved' THEN COALESCE(acknowledged_by, $4::int)
-                  WHEN $1::varchar = 'Open' AND status = 'Resolved' THEN NULL
-                  ELSE acknowledged_by
-                END,
                 resolved_at = CASE
                   WHEN $1::varchar = 'Resolved' THEN COALESCE(resolved_at, NOW())
                   ELSE NULL
