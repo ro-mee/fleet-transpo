@@ -18,6 +18,7 @@ import {
   Settings, Users, BarChart2, Wrench, Radio,
 } from "lucide-react";
 import { FloatingField } from "@/components/ui/field";
+import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { PageEntrance, CARD_SHADOW } from "@/components/ui/page-entrance";
@@ -125,6 +126,7 @@ export default function AddUserPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
+  const { capsOn, bind: capsBind } = useCapsLock();
 
   const form = useForm({
     resolver: zodResolver(createUserSchema),
@@ -235,7 +237,7 @@ export default function AddUserPage() {
                 <FloatingField label="Initial Password" icon={Lock} required error={form.formState.errors.password?.message}>
                   <div className="relative flex items-center">
                     <input id="password" type={showPassword ? "text" : "password"} {...form.register("password")} placeholder="Min. 6 characters" autoComplete="new-password"
-                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/50 py-1 pr-8" />
+                      className="w-full bg-transparent text-xs font-semibold text-foreground focus:outline-hidden placeholder:text-foreground-muted/50 py-1 pr-8" {...capsBind} />
                     <button type="button" onClick={() => setShowPassword(!showPassword)}
                       className="absolute right-0 text-foreground-muted hover:text-foreground p-1 cursor-pointer transition-colors duration-200"
                       aria-label={showPassword ? "Hide password" : "Show password"}>
@@ -243,6 +245,7 @@ export default function AddUserPage() {
                     </button>
                   </div>
                 </FloatingField>
+                <CapsLockHint on={capsOn} />
               </div>
             </div>
 

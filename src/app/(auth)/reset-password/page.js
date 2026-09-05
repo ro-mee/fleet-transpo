@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, CarFront, Eye, EyeOff } from "lucide-react";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { isPasswordByteLengthAllowed } from "@/lib/validation/helpers";
 
 // Same policy as /settings/security so both change paths enforce identical rules.
@@ -52,6 +53,9 @@ function ResetPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const { capsOn: capsOnCurrent, bind: capsBindCurrent } = useCapsLock();
+  const { capsOn: capsOnPassword, bind: capsBindPassword } = useCapsLock();
+  const { capsOn: capsOnConfirm, bind: capsBindConfirm } = useCapsLock();
   const { validate, fieldError, registerField } = useFormValidation(resetSchema);
 
   // The reset endpoint changes the SESSION user's password — an anonymous
@@ -163,7 +167,9 @@ function ResetPasswordForm() {
                     onChange={(e) => setCurrentPassword(e.target.value)}
                     ref={registerField("currentPassword")}
                     invalid={fieldError("currentPassword").invalid}
+                    {...capsBindCurrent}
                   />
+                  <CapsLockHint on={capsOnCurrent} />
                   {fieldError("currentPassword").error && <p className="text-xs text-danger">{fieldError("currentPassword").error}</p>}
                 </div>
               )}
@@ -177,7 +183,9 @@ function ResetPasswordForm() {
                     onChange={(e) => setPassword(e.target.value)}
                     ref={registerField("password")}
                     invalid={fieldError("password").invalid}
+                    {...capsBindPassword}
                   />
+                  <CapsLockHint on={capsOnPassword} />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
@@ -198,7 +206,9 @@ function ResetPasswordForm() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   ref={registerField("confirmPassword")}
                   invalid={fieldError("confirmPassword").invalid}
+                  {...capsBindConfirm}
                 />
+                <CapsLockHint on={capsOnConfirm} />
                 {fieldError("confirmPassword").error && <p className="text-xs text-danger">{fieldError("confirmPassword").error}</p>}
               </div>
               <Button type="submit" className="w-full h-11" disabled={loading}>

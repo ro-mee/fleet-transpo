@@ -358,6 +358,30 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
   }
 }
 
+/* ── Caps Lock hint entrance ──
+   Rise-and-settle on mount (transform + opacity only, GPU-safe). The hint
+   mounts conditionally, so the entrance plays exactly once per appearance. */
+.caps-hint-enter {
+  animation: caps-hint-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes caps-hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caps-hint-enter {
+    animation: none;
+  }
+}
+
 /* ── Theme fallback fade (no View Transition API) ──
    use-theme.js adds `theme-fade` to <html> only around the synchronous class
    commit when document.startViewTransition is unavailable (or its animation

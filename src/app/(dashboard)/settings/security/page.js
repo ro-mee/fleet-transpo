@@ -34,6 +34,7 @@ import {
   isPasswordByteLengthAllowed,
 } from "@/lib/validation/helpers";
 import { useAuth } from "@/hooks/use-auth";
+import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { cn } from "@/lib/utils";
 
 const securitySchema = {
@@ -58,7 +59,9 @@ const securitySchema = {
   },
 };
 
-function PasswordField({ id, name, label, value, onChange, visible, onToggle, inputRef, autoComplete, invalid, describedBy, help, error }) {  return (
+function PasswordField({ id, name, label, value, onChange, visible, onToggle, inputRef, autoComplete, invalid, describedBy, help, error }) {
+  const { capsOn, bind } = useCapsLock();
+  return (
     <div className="space-y-2">
       <label htmlFor={id} className="text-sm text-foreground-secondary">{label}</label>
       <div className="relative">
@@ -73,6 +76,7 @@ function PasswordField({ id, name, label, value, onChange, visible, onToggle, in
           invalid={invalid}
           aria-describedby={describedBy}
           className="pr-11"
+          {...bind}
         />
         <button
           type="button"
@@ -85,16 +89,17 @@ function PasswordField({ id, name, label, value, onChange, visible, onToggle, in
         </button>
       </div>
       {help && <p id={`${id}-help`} className="text-xs text-foreground-muted">{help}</p>}
+      <CapsLockHint on={capsOn} />
       {error && <p id={`${id}-error`} role="alert" className="text-xs text-danger">{error}</p>}
     </div>
   );
 }
 
-// The five user-facing rules (the 72-byte cap is technical — validated always,
-// surfaced only when the input gets long enough to matter).
+// The four user-facing rules (the 72-byte cap is technical — validated always,
+// surfaced only when the input gets long enough to matter; the lowercase
+// class is still enforced server-side as a backstop but no longer listed).
 const CORE_REQUIREMENTS = [
   { label: "At least 8 characters", valid: (v) => v.length >= 8 },
-  { label: "A lowercase letter", valid: hasPasswordLowercase },
   { label: "An uppercase letter", valid: hasPasswordUppercase },
   { label: "A number", valid: hasPasswordNumber },
   { label: "A special character", valid: hasPasswordSpecial },
@@ -110,10 +115,9 @@ function utf8Length(value) {
 
 const STRENGTH_META = {
   1: { label: "Weak", bar: "bg-danger", text: "text-danger-700" },
-  2: { label: "Weak", bar: "bg-danger", text: "text-danger-700" },
-  3: { label: "Fair", bar: "bg-warning", text: "text-warning-700" },
-  4: { label: "Good", bar: "bg-info", text: "text-info-700" },
-  5: { label: "Strong", bar: "bg-success", text: "text-success-700" },
+  2: { label: "Fair", bar: "bg-warning", text: "text-warning-700" },
+  3: { label: "Good", bar: "bg-info", text: "text-info-700" },
+  4: { label: "Strong", bar: "bg-success", text: "text-success-700" },
 };
 
 // Segmented strength meter. Renders only once the user starts typing; the

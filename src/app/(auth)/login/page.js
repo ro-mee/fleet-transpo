@@ -32,6 +32,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
+import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { cn } from "@/lib/utils";
 import { getAndClearReturnTo } from "@/lib/auth/return-to";
@@ -232,6 +233,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
+  const { capsOn, bind: capsBind } = useCapsLock();
   const { validate, fieldError, registerField } = useFormValidation(loginSchema);
 
   useEffect(() => {
@@ -487,6 +489,7 @@ export default function LoginPage() {
                         invalid={passwordField.invalid}
                         autoComplete="current-password"
                         className="h-12 rounded-[0.9rem] bg-surface pl-11 pr-12 text-[15px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface"
+                        {...capsBind}
                       />
                       <button
                         type="button"
@@ -502,6 +505,7 @@ export default function LoginPage() {
                       </button>
                     </div>
                     {passwordField.error && <p className="text-xs text-danger">{passwordField.error}</p>}
+                    <CapsLockHint on={capsOn} />
                   </div>
 
                   {mfaRequired && (
