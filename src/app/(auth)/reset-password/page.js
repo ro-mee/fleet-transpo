@@ -53,9 +53,9 @@ function ResetPasswordForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
-  const { capsOn: capsOnCurrent, bind: capsBindCurrent } = useCapsLock();
-  const { capsOn: capsOnPassword, bind: capsBindPassword } = useCapsLock();
-  const { capsOn: capsOnConfirm, bind: capsBindConfirm } = useCapsLock();
+  const { active: capsOnCurrent, bind: capsBindCurrent } = useCapsLock();
+  const { active: capsOnPassword, bind: capsBindPassword } = useCapsLock();
+  const { active: capsOnConfirm, bind: capsBindConfirm } = useCapsLock();
   const { validate, fieldError, registerField } = useFormValidation(resetSchema);
 
   // The reset endpoint changes the SESSION user's password — an anonymous

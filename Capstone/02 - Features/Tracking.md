@@ -33,9 +33,12 @@ POST `/api/mobile/driver/trips/${tripId}/gps`
 
 `distanceInterval: 10` (metres) plus `accuracy: Balanced` further reduces sensor wake-ups — a stationary vehicle produces almost no updates.
 
-## Location unavailable — hardened 2026-08-22 (WIP)
+## Location unavailable — hardened 2026-08-22
 
-Both the map watcher and `useTripTracking()` now catch failures from permission/location initialization. If location services are disabled or the current fix is unavailable, the app stops the posting state, shows a recoverable message, logs a warning, and continues running instead of producing an unhandled promise rejection/red error screen. These changes are currently uncommitted.
+Both the map watcher and `useTripTracking()` now catch failures from permission/location initialization. If location services are disabled or the current fix is unavailable, the app stops the posting state, shows a recoverable message, logs a warning, and continues running instead of producing an unhandled promise rejection/red error screen.
+The screen-side hook also derives the settings-disabled state and suppresses stale
+errors when no trip is selected, so tab focus changes cannot leave a false posting
+indicator or old trip error visible.
 
 ## Background — added 2026-08-19 (`mobile/lib/background-tracking.js`)
 

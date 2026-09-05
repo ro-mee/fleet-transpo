@@ -358,11 +358,42 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
   }
 }
 
-/* ── Caps Lock hint entrance ──
-   Rise-and-settle on mount (transform + opacity only, GPU-safe). The hint
-   mounts conditionally, so the entrance plays exactly once per appearance. */
+/* ── Caps Lock active states ──
+   Unlayered so they beat the global `* { border-color: var(--br) }` reset:
+   unlayered author CSS outranks layered utilities regardless of
+   specificity, which is why `border-danger/*` utilities alone cannot tint
+   these borders. */
+.caps-field-active {
+  border-color: #f87171 !important;
+}
+
+.caps-hint-pill,
+.caps-hint-bubble {
+  background-color: #fff1f2;
+  border-color: rgba(254, 205, 211, 0.85);
+}
+
+:where(.dark) .caps-field-active {
+  border-color: rgba(244, 63, 94, 0.8) !important;
+}
+
+:where(.dark) .caps-hint-pill,
+:where(.dark) .caps-hint-bubble {
+  background-color: #200c11;
+  border-color: rgba(159, 18, 57, 0.6);
+}
+
+/* ── Caps Lock hint entrance / exit ──
+   Rise-and-settle on mount, quiet fade on unmount (transform + opacity
+   only, GPU-safe). The hint mounts conditionally, so the entrance plays
+   exactly once per appearance; the component delays unmount ~180ms so the
+   exit can play out. */
 .caps-hint-enter {
   animation: caps-hint-in 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.caps-hint-exit {
+  animation: caps-hint-out 180ms ease-out both;
 }
 
 @keyframes caps-hint-in {
@@ -376,8 +407,20 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
   }
 }
 
+@keyframes caps-hint-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .caps-hint-enter {
+  .caps-hint-enter,
+  .caps-hint-exit {
     animation: none;
   }
 }

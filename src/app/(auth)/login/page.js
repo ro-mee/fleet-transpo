@@ -232,18 +232,14 @@ export default function LoginPage() {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [sessionExpiredNotice, setSessionExpiredNotice] = useState(false);
-  const { capsOn, bind: capsBind } = useCapsLock();
-  const { validate, fieldError, registerField } = useFormValidation(loginSchema);
-
-  useEffect(() => {
+  const [sessionExpiredNotice] = useState(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("reason") === "expired") {
-        setSessionExpiredNotice(true);
-      }
+      return params.get("reason") === "expired";
     }
-  }, []);
+  });
+  const { active: capsActive, bind: capsBind } = useCapsLock();
+  const { validate, fieldError, registerField } = useFormValidation(loginSchema);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -488,7 +484,7 @@ export default function LoginPage() {
                         ref={registerField("password")}
                         invalid={passwordField.invalid}
                         autoComplete="current-password"
-                        className="h-12 rounded-[0.9rem] bg-surface pl-11 pr-12 text-[15px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface"
+                        className={cn("h-12 rounded-[0.9rem] bg-surface pl-11 pr-12 text-[15px] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] caret-primary focus-visible:ring-offset-surface", capsActive && "caps-field-active")}
                         {...capsBind}
                       />
                       <button
@@ -505,7 +501,7 @@ export default function LoginPage() {
                       </button>
                     </div>
                     {passwordField.error && <p className="text-xs text-danger">{passwordField.error}</p>}
-                    <CapsLockHint on={capsOn} />
+                    <CapsLockHint on={capsActive} />
                   </div>
 
                   {mfaRequired && (

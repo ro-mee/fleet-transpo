@@ -67,6 +67,9 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
   expiry; heartbeat activity, cross-tab session events, validated return-to
   redirects, TOTP MFA, and hashed recovery codes are shipped. Production requires
   distinct `MOBILE_JWT_SECRET` and dedicated `MFA_ENCRYPTION_KEY` secrets.
+  The password field Caps Lock warning UI matches the reference design with an
+  upward speech-notch pointer, a coral "Aa" badge, and an active coral input border,
+  also extended to Confirm New Password for live match/mismatch feedback.
 - **Live map & incident-map UX polish** (2026-09-03): the live map always
   auto-fits to all pins on every GPS poll, vehicle markers carry permanent
   plate + driver labels (no hover/click), marker colors are phase-coded with
@@ -1223,6 +1226,19 @@ TOTP enrollment and login MFA use encrypted per-employee secrets, a v9-compatibl
 `otpauth` implementation, hashed single-use recovery codes, replay protection, and
 separate IP/account throttles. Production deployments must set both
 `MOBILE_JWT_SECRET` and `MFA_ENCRYPTION_KEY` as distinct server-side secrets.
+
+The `/settings/security` UI uses a compact two-column password/MFA layout with a
+full-width session manager recreated with pixel-level parity to the reference design.
+It renders live password validation with a segmented strength meter, a 2-column requirements checklist,
+all real MFA states, recovery codes, and owner-scoped session rows through the existing auth
+endpoints; the redesign did not change authentication, revocation, or
+authorization behavior. The vendor-neutral RFC 6238 helper is paired with local
+brand marks for Google Authenticator, Microsoft Authenticator, Authy, and 1Password;
+session rows render official browser marks (e.g. Google Chrome) and accurate metadata.
+Responsive composition and dark mode inherit the shared FleetOps semantic tokens.
+The enrollment QR is rendered through the Next image boundary without changing
+the data URI flow, and session rows expose only implemented actions.
+
 
 ### 12.10 Live map & SOS UX polish (2026-09-03)
 `src/components/maps/live-locations-map.jsx` (used by `/tracking/live-map`, role
