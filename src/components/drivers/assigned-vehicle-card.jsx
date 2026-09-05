@@ -223,7 +223,12 @@ export function AssignedVehicleCard({ side, id, canManage = false }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-foreground-secondary">{copy.empty}</p>
+            <div className="flex items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-hover text-foreground-secondary shadow-xs">
+                <HeadIcon className="h-4 w-4" aria-hidden="true" />
+              </span>
+              <p className="pt-1.5 text-[13px] leading-relaxed text-foreground-secondary">{copy.empty}</p>
+            </div>
             {canManage && (
               <div className="space-y-2">
                 <Select value={picked || undefined} onValueChange={setPicked}>

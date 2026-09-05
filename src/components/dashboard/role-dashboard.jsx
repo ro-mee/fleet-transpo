@@ -58,6 +58,7 @@ import { isValidCoordinate } from "@/lib/gps";
 import { cn } from "@/lib/utils";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { HeroHeader } from "@/components/ui/hero-header";
 import { PageEntrance } from "@/components/ui/page-entrance";
@@ -135,8 +136,8 @@ function Panel({ title, description, action, className, children }) {
   );
 }
 
-function InlineEmpty({ icon = Inbox, title, description }) {
-  return <EmptyState icon={icon} title={title} description={description} className="py-12" />;
+function InlineEmpty({ icon = Inbox, title, description, variant, action }) {
+  return <EmptyState icon={icon} title={title} description={description} variant={variant} action={action} size="compact" />;
 }
 
 function QueryErrors({ items }) {
@@ -462,7 +463,7 @@ function SystemAdminDashboard({ queries }) {
                 />
               );})}
             </div>
-          ) : <InlineEmpty icon={Activity} title="No platform events recorded" description="Integration and automation activity will appear here." />}</FeedState>
+          ) : <InlineEmpty icon={Activity} title="No platform events yet" description="Integration and automation activity will appear here once requests flow through the system." variant="waiting" />}</FeedState>
         </Panel>
 
         <Panel title="Account posture" description="Role distribution across all employee accounts.">
@@ -489,7 +490,7 @@ function SystemAdminDashboard({ queries }) {
               </div>
             )}
             </>
-          ) : <InlineEmpty icon={Users} title="No accounts found" description="Create an employee account to establish role coverage." />}</FeedState>
+          ) : <InlineEmpty icon={Users} title="No accounts found" description="Create an employee account to establish role coverage." variant="first-run" action={<Button variant="outline" size="sm" asChild><Link href="/settings/users/new">New account</Link></Button>} />}</FeedState>
         </Panel>
       </div>
 
@@ -506,7 +507,7 @@ function SystemAdminDashboard({ queries }) {
               />
             ))}
           </div>
-        ) : <InlineEmpty icon={ShieldCheck} title="No audit events recorded" description="Tracked system changes will appear here." />}</FeedState>
+        ) : <InlineEmpty icon={ShieldCheck} title="No audit events yet" description="Tracked system changes will appear here as activity occurs." variant="waiting" />}</FeedState>
       </Panel>
 
       <LinkRail items={[
@@ -640,7 +641,7 @@ function AdminDashboard({ queries }) {
                 <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || `Scheduled ${formatDateTime(item.maintenance_date)}`} status={item.status} entity="maintenance" />
               ))}
             </div>
-          ) : <InlineEmpty icon={Wrench} title="No active maintenance work" description="Scheduled or in-progress records will appear here." />}</FeedState>
+          ) : <InlineEmpty icon={Wrench} title="No active maintenance work" description="New work orders will appear here once maintenance is scheduled." variant="waiting" />}</FeedState>
         </Panel>
         <Panel title="Incident risk" description="Counts from the current incident attention summary.">
           <FeedState queries={queries.incidents} errorTitle="Incident risk is unavailable"><StatusBars rows={[
@@ -768,7 +769,7 @@ function FleetManagerDashboard({ queries }) {
               </tbody>
             </table>
           </div>
-        ) : <InlineEmpty icon={UserCheck} title="No active pairings" description="Assign designated drivers before planning normal vehicle coverage." />}</FeedState>
+        ) : <InlineEmpty icon={UserCheck} title="No active pairings" description="Assign designated drivers before planning normal vehicle coverage." variant="first-run" action={<Button variant="outline" size="sm" asChild><Link href="/fleet/assignments">Open assignments</Link></Button>} />}</FeedState>
       </Panel>
 
       <Panel title="Utilization & workload" description="Lightest-used vehicles against hardest-working drivers in the report period — rebalance before fatigue or neglect becomes a failure." action={<Link href="/reports" className={linkClass}>Open reports <ArrowRight className="h-3.5 w-3.5" /></Link>}>
@@ -777,12 +778,12 @@ function FleetManagerDashboard({ queries }) {
             <div className="divide-y divide-border/40">
               {utilizationRows.length ? utilizationRows.map((row) => (
                 <Row key={row.vehicle_id || row.plate} icon={Truck} title={row.plate || row.vehicle || "Vehicle"} detail={`${Number(row.trips) || 0} trips · ${Number(row.distance || 0).toLocaleString()} km`} meta="lightest use" />
-              )) : <InlineEmpty icon={Truck} title="No utilization data" description="Vehicle trip volume will appear here." />}
+              )) : <InlineEmpty icon={Truck} title="No utilization data yet" description="Vehicle trip volume will appear here once trips complete." variant="waiting" />}
             </div>
             <div className="divide-y divide-border/40 border-t border-border/40 sm:border-t-0">
               {workloadRows.length ? workloadRows.map((row) => (
                 <Row key={row.driver_id} icon={Users} title={row.name || `Driver #${row.driver_id}`} detail={`${Number(row.total_trips) || 0} trips · ${Number(row.total_distance || 0).toLocaleString()} km`} meta="heaviest load" />
-              )) : <InlineEmpty icon={Users} title="No workload data" description="Driver trip volume will appear here." />}
+              )) : <InlineEmpty icon={Users} title="No workload data yet" description="Driver trip volume will appear here once trips complete." variant="waiting" />}
             </div>
           </div>
         </FeedState>
@@ -790,10 +791,10 @@ function FleetManagerDashboard({ queries }) {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Maintenance pressure" description="Active work ordered by the API’s current maintenance date." action={<Link href="/maintenance" className={linkClass}>Maintenance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.maintenance} errorTitle="Maintenance pressure is unavailable">{activeMaintenance.length ? <div className="divide-y divide-border/70">{activeMaintenance.slice(0, 6).map((item) => <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || "No work description recorded"} meta={formatDateTime(item.maintenance_date)} status={item.status} entity="maintenance" />)}</div> : <InlineEmpty icon={Wrench} title="No active maintenance work" description="Scheduled and in-progress work will appear here." />}</FeedState>
+          <FeedState queries={queries.maintenance} errorTitle="Maintenance pressure is unavailable">{activeMaintenance.length ? <div className="divide-y divide-border/70">{activeMaintenance.slice(0, 6).map((item) => <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || "No work description recorded"} meta={formatDateTime(item.maintenance_date)} status={item.status} entity="maintenance" />)}</div> : <InlineEmpty icon={Wrench} title="No active maintenance work" description="New work orders will appear here once maintenance is scheduled." variant="waiting" />}</FeedState>
         </Panel>
         <Panel title="Upcoming fleet schedule" description="Nearest scheduled departures and reassignment exceptions." action={<Link href="/dispatch" className={linkClass}>Dispatch board <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.dispatches} errorTitle="The fleet schedule is unavailable">{nextDispatches.length ? <div className="divide-y divide-border/70">{nextDispatches.map((item) => <Row key={item.dispatch_id} icon={CalendarClock} title={`${item.vehicles?.plate_number || "Unassigned vehicle"} · ${item.transportation_requests?.guest_name || item.routes?.route_name || "Scheduled service"}`} detail={`${item.transportation_requests?.pickup_location || item.origin_location?.location_name || "Pickup unrecorded"} → ${item.transportation_requests?.dropoff_location || item.destination_location?.location_name || "Destination unrecorded"}`} meta={formatDateTime(item.scheduled_departure)} status={item.status} entity="dispatch" href={`/dispatch/${item.dispatch_id}`} />)}</div> : <InlineEmpty icon={CalendarClock} title="No upcoming dispatches" description="Scheduled departures will appear here." />}</FeedState>
+          <FeedState queries={queries.dispatches} errorTitle="The fleet schedule is unavailable">{nextDispatches.length ? <div className="divide-y divide-border/70">{nextDispatches.map((item) => <Row key={item.dispatch_id} icon={CalendarClock} title={`${item.vehicles?.plate_number || "Unassigned vehicle"} · ${item.transportation_requests?.guest_name || item.routes?.route_name || "Scheduled service"}`} detail={`${item.transportation_requests?.pickup_location || item.origin_location?.location_name || "Pickup unrecorded"} → ${item.transportation_requests?.dropoff_location || item.destination_location?.location_name || "Destination unrecorded"}`} meta={formatDateTime(item.scheduled_departure)} status={item.status} entity="dispatch" href={`/dispatch/${item.dispatch_id}`} />)}</div> : <InlineEmpty icon={CalendarClock} title="No upcoming dispatches" description="Scheduled departures will appear here once requests are assigned." variant="waiting" />}</FeedState>
         </Panel>
       </div>
 
@@ -987,7 +988,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
               );
             })}
           </div>
-        ) : <InlineEmpty icon={CalendarClock} title="No upcoming departures" description="Scheduled runs and unassigned pickups will appear here in time order." />}</FeedState>
+        ) : <InlineEmpty icon={CalendarClock} title="No upcoming departures" description="Scheduled runs and unassigned pickups will appear here once trips are scheduled." variant="waiting" />}</FeedState>
       </Panel>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -1023,7 +1024,7 @@ function DispatcherDashboard({ queries, queueGroups }) {
                 </Link>
               ))}
             </div>
-          ) : <InlineEmpty icon={Inbox} title="No requests awaiting dispatch" description="New and upcoming requests will appear here in priority order." />}</FeedState>
+          ) : <InlineEmpty icon={Inbox} title="Queue is clear" description="New and upcoming requests will appear here in priority order." variant="relief" />}</FeedState>
         </Panel>
 
         <Panel title="Trips in motion" description="Current assignment, route and latest GPS freshness from the dispatch feed." action={<Link href="/trips" className={linkClass}>Trips hub <ArrowRight className="h-3.5 w-3.5" /></Link>}>
@@ -1031,12 +1032,12 @@ function DispatcherDashboard({ queries, queueGroups }) {
             const driverName = [dispatch.drivers?.first_name, dispatch.drivers?.last_name].filter(Boolean).join(" ") || "Driver unrecorded";
             const route = dispatch.transportation_requests;
             return <Row key={dispatch.dispatch_id} icon={Navigation} title={`${dispatch.vehicles?.plate_number || "Vehicle unrecorded"} · ${driverName}`} detail={`${route?.pickup_location || dispatch.origin_location?.location_name || "Pickup unrecorded"} → ${route?.dropoff_location || dispatch.destination_location?.location_name || "Destination unrecorded"}`} meta={dispatch.latest_location?.recorded_at ? `GPS ${formatTime(dispatch.latest_location.recorded_at)}` : "No GPS"} status={dispatch.latest_trip?.trip_status || dispatch.status} entity={dispatch.latest_trip ? "trip" : "dispatch"} href={`/dispatch/${dispatch.dispatch_id}`} />;
-          })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here." />}</FeedState>
+          })}</div> : <InlineEmpty icon={Navigation} title="No trips in progress" description="Active dispatches will appear here once drivers start their trips." variant="waiting" />}</FeedState>
         </Panel>
       </div>
 
       <Panel title="Live operations map" description="Latest valid GPS positions for active fleet tracking and rescue missions." action={<Link href="/tracking/live-map" className={linkClass}>Full map <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-        <FeedState queries={[queries.locations, queries.rescues]} errorTitle="Live GPS positions are unavailable">{validLocations.length || rescues.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} responders={rescues} /></div> : <InlineEmpty icon={MapPin} title="No valid GPS positions" description="Map markers appear only when a valid latitude and longitude are recorded." />}</FeedState>
+        <FeedState queries={[queries.locations, queries.rescues]} errorTitle="Live GPS positions are unavailable">{validLocations.length || rescues.length ? <div className="h-[420px]"><LiveLocationsMap locations={validLocations} responders={rescues} /></div> : <InlineEmpty icon={MapPin} title="No live positions" description="Map markers appear once trips enter the tracking window with valid coordinates." variant="waiting" />}</FeedState>
       </Panel>
     </div>
   );

@@ -130,13 +130,24 @@ export function NotificationDropdown() {
     },
   });
 
+  // Dedupe by stable id so two genuinely different notifications with identical
+  // text never collapse into one row. Falls back to the content key only when
+  // an id is missing, keeping the list stable either way.
   const uniqueNotifications = (notifications || []).filter((notif, index, self) =>
-    index === self.findIndex((n) => n.message === notif.message && n.title === notif.title)
+    index === self.findIndex((n) =>
+      notif.notification_id && n.notification_id
+        ? n.notification_id === notif.notification_id
+        : n.message === notif.message && n.title === notif.title
+    )
   );
 
   const unreadCount = uniqueNotifications.filter((n) => !n.is_read).length;
 
-  const recent = uniqueNotifications.slice(0, 5);
+  // Unread first so a fresh unread item is never buried below read ones.
+  // Read items stay visible (dimmed) for traceability instead of vanishing.
+  const recent = [...uniqueNotifications]
+    .sort((a, b) => Number(Boolean(a.is_read)) - Number(Boolean(b.is_read)))
+    .slice(0, 5);
 
   const openNotification = (notif) => {
     if (!notif.is_read) markReadMut.mutate(notif.notification_id);
@@ -237,7 +248,7 @@ export function NotificationDropdown() {
                   className={cn(
                     "group relative flex items-start gap-3.5 p-3.5 rounded-[18px] bg-gradient-to-r border transition-all duration-300 cursor-pointer shadow-xs hover:shadow-md hover:-translate-y-0.5",
                     cardStyle,
-                    isUnread && "ring-1 ring-primary/40 shadow-sm"
+                    isUnread ? "ring-1 ring-primary/40 shadow-sm" : "opacity-70 hover:opacity-100"
                   )}
                 >
                   {/* Glowing Squircle Icon Container */}

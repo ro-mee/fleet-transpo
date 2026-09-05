@@ -419,6 +419,7 @@ export default function TripsPage() {
             searchPlaceholder="Search trips by vehicle, driver, or route..."
             emptyTitle="No trips found"
             emptyDescription="Trips will appear here once dispatches are scheduled."
+            emptyVariant="waiting"
             onRowClick={(row) => router.push(`/trips/${row.trip_id}`)}
             manualPagination
             pageIndex={page - 1}

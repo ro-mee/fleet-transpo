@@ -255,6 +255,7 @@ export default function UsersPage() {
           }
           emptyTitle={rows.length === 0 ? "No staff accounts yet" : "No accounts match"}
           emptyDescription={rows.length === 0 ? "Create the first staff account to grant dashboard access." : "Try a different name, email or filter."}
+          emptyVariant={rows.length === 0 ? "first-run" : "filtered"}
           emptyAction={
             rows.length === 0 ? (
               <Link href="/settings/users/new">

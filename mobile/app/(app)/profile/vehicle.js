@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 import { AppAlert } from '../../../components/AppAlert';
 
@@ -92,7 +92,9 @@ export default function VehicleInformation() {
           </View>
         ) : (
           <View style={[styles.emptyBox, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-            <Ionicons name="car-outline" size={48} color={colors.onSurfaceVariant} />
+            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
+              <Ionicons name="car-outline" size={24} color={statusColorForTone(colors, "neutral").fg} />
+            </View>
             <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>No vehicle assigned</Text>
             <Text style={[type.bodyMd, styles.emptySubtitle, { color: colors.onSurfaceVariant }]}>
               You do not have a vehicle actively assigned to you at this time.
@@ -144,6 +146,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold, marginTop: 8 },
+  emptyTile: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   emptySubtitle: { fontSize: 14, fontFamily: fonts.body, textAlign: "center", lineHeight: 20 },
   
   vehicleImage: {

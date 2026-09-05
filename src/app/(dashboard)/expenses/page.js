@@ -325,6 +325,7 @@ export default function ExpensesPage() {
         onPageChange={setPage}
         pageSize={10}
         emptyTitle="No expenses found"
+        emptyDescription="Driver-submitted expenses will appear here for review."
         onRowClick={(row) => setInspectRecord(row)}
       />
 

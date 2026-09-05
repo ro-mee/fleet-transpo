@@ -62,7 +62,7 @@ export default function DriverLeaveRequestsPage() {
       {isLoading ? (
         <div className="h-64 bg-muted rounded-3xl animate-pulse" />
       ) : isError ? (
-        <EmptyState icon={CalendarClock} title="Could not load leave requests" description="Try again shortly." />
+        <EmptyState icon={CalendarClock} title="Could not load leave requests" description="Try again shortly." tone="danger" size="compact" />
       ) : (
         <Card className="border-0 shadow-sm rounded-3xl overflow-hidden">
           <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20">
@@ -92,6 +92,8 @@ export default function DriverLeaveRequestsPage() {
                 icon={CalendarClock}
                 title={`No ${filter === "All" ? "" : filter.toLowerCase()} requests`}
                 description={filter === "Pending" ? "You're all caught up." : "No requests in this state."}
+                variant={filter === "Pending" ? "relief" : "filtered"}
+                size="compact"
               />
             ) : (
               <div className="space-y-2.5">

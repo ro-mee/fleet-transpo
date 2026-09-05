@@ -150,6 +150,7 @@ export default function TripDetailPage() {
           icon={TriangleAlert}
           title="Trip not found"
           description="The requested trip record could not be found."
+          variant="waiting"
           action={<Button onClick={() => router.push("/trips")}>Back to Trips</Button>}
         />
       </div>

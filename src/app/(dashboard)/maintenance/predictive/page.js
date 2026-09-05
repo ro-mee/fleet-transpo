@@ -144,7 +144,8 @@ export default function PredictiveMaintenancePage() {
                   ? "Add vehicles and set service intervals to generate predictive telemetry."
                   : "No fleet vehicles match the selected risk category."
               }
-              className="py-12"
+              variant={riskFilter === "all" ? "first-run" : "filtered"}
+              size="compact"
             />
           ) : (
             <div className="divide-y divide-border/60">

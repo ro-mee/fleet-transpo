@@ -22,6 +22,8 @@ export default function NotificationTemplatesPage() {
             icon={FileText}
             title="Email templates coming soon"
             description="Customize templates for reservation confirmations, trip alerts, and maintenance reminders."
+            variant="waiting"
+            size="compact"
           />
         </CardContent>
       </Card>

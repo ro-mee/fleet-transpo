@@ -22,7 +22,7 @@ source:
   - src/app/api/auth/mfa/disable/route.js
   - src/app/api/auth/mfa/recovery-codes/route.js
   - src/lib/auth/reset-token.js
-last_verified: 2026-09-02
+last_verified: 2026-09-05
 ---
 
 # Authentication
@@ -189,6 +189,27 @@ until their provider or deployment decisions are made.
 - **Warning UX**: A double-bezel modal appears at 5 minutes before idle expiry (55m of inactivity) and 5 minutes before absolute expiry (11h55m). Error toasts are suppressed (`setSuppressAuthToasts(true)`) while any session modal is open.
 - **Multi-tab synchronization**: `BroadcastChannel("fleetops_session_bus")` broadcasts auth failures, session extensions, and explicit logouts across open tabs.
 - **Return-to-route protection**: `sessionStorage` preserves the user's current route across re-authentication, strictly validated against open-redirect and protocol vulnerabilities via `isValidInternalPath()`.
+
+## Login-first landing & client guard split — CONFIRMED (2026-09-05)
+
+`/` is a server component (`src/app/page.js`) that redirects via `auth()`:
+no session → `/login`, driver → `/driver`, other staff → `/dashboard`.
+No `Loading...`, no dashboard-chrome flash.
+
+The client guard (`useRequireRole()` in `src/lib/auth/role-guard.js` +
+`RouteGuard`/`DashboardLayout` in `src/components/layout/dashboard-layout.jsx`)
+distinguishes three states — `employee` is null only when there is no session:
+
+- **loading** → wait, shell withheld.
+- **no session** → `saveReturnTo()` + `router.replace("/login")`; `RouteGuard`
+  renders null (auth-neutral) and `DashboardLayout` withholds `Sidebar`/`TopNav`
+  until a session exists, so logged-out deep-route visits never flash dashboard
+  chrome and never show the access-denied panel. The protected tree is never
+  rendered shell-less.
+- **session without role** → renders the role-not-configured card, never
+  `/login` (that would loop: login → same session → guard → login).
+- **wrong role** → role home (`/driver` or `/dashboard`) with the
+  access-restricted panel while the redirect fires.
 
 ## Related
 

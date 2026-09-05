@@ -31,6 +31,8 @@ export default function DashboardError({ error, unstable_retry, reset }) {
     <EmptyState
       icon={TriangleAlert}
       title="Something went wrong on this page"
+      tone="danger"
+      size="hero"
       description={
         // Server Component errors arrive redacted in production, so message is
         // not always something a user can act on — hence the generic fallback.

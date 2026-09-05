@@ -137,6 +137,7 @@ export default function DriverFuelPage() {
               searchable={false}
               emptyTitle="No fuel requests yet"
               emptyDescription="Requests you file from the mobile app will appear here with their approval status."
+              emptyVariant="waiting"
               isLoading={requestsLoading}
             />
           </CardContent>
@@ -153,6 +154,7 @@ export default function DriverFuelPage() {
               searchable={false}
               emptyTitle="No fuel records yet"
               emptyDescription="Fuel records you submit will appear here for verification."
+              emptyVariant="waiting"
               isLoading={isLoading}
             />
           </CardContent>

@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiFetch, buildQuery } from "@/lib/api/client";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -255,8 +256,14 @@ export function PairAvailabilityBoard({
                   No scheduled trips today. Select an exact pickup window to verify assignment readiness.
                 </p>
                 {clearToday.length === 0 ? (
-                  <div className="rounded-3xl border border-border/60 bg-surface p-6 text-sm font-medium text-foreground-secondary">
-                    No pair is free of scheduled trips today. Check the sections below.
+                  <div className="rounded-3xl border border-border/60 bg-surface">
+                    <EmptyState
+                      icon={CalendarClock}
+                      title="Every pair has trips today"
+                      description="Check the sections below before assigning more."
+                      variant="waiting"
+                      size="compact"
+                    />
                   </div>
                 ) : (
                   <ul className="grid gap-3 md:grid-cols-2">
@@ -317,8 +324,14 @@ export function PairAvailabilityBoard({
                 <span className="font-data text-xs font-bold text-foreground-secondary">({exactReady.length})</span>
               </h2>
               {exactReady.length === 0 ? (
-                <div className="rounded-3xl border border-border/60 bg-surface p-6 text-sm font-medium text-foreground-secondary">
-                  No dispatchable pair in this window. Check blocked pairs below for the fix, or pick another window.
+                <div className="rounded-3xl border border-border/60 bg-surface">
+                  <EmptyState
+                    icon={AlertTriangle}
+                    title="No dispatchable pair in this window"
+                    description="Check blocked pairs below for the fix, or pick another window."
+                    variant="blocked"
+                    size="compact"
+                  />
                 </div>
               ) : (
                 <ul className="grid gap-3 md:grid-cols-2">
@@ -347,10 +360,14 @@ export function PairAvailabilityBoard({
               </span>
             </h2>
             {blockedList.length === 0 ? (
-              <div className="rounded-3xl border border-border/60 bg-surface p-6 text-sm font-medium text-foreground-secondary">
-                {isCustomWindow
-                  ? "Nothing blocked — every vehicle has a cleared driver for this window."
-                  : "Nothing blocked — every vehicle has a cleared driver today."}
+              <div className="rounded-3xl border border-border/60 bg-surface">
+                <EmptyState
+                  icon={CheckCircle2}
+                  title={isCustomWindow ? "Nothing blocked in this window" : "Nothing blocked today"}
+                  description="Every vehicle has a cleared driver for this window."
+                  variant="relief"
+                  size="compact"
+                />
               </div>
             ) : (
               <>

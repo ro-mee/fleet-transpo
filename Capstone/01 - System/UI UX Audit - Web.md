@@ -199,8 +199,17 @@ impeccable (Operate critique + craft floor + mechanical detector), taste
   counts (incident risk) stay bars everywhere.
 
 ## Known remaining gaps (post-waves)
-
 - Per-device web session history isn't tracked (security page explains honestly).
 - Email delivery (reset links, notification email/push channels) still not implemented — UI copy no longer claims otherwise.
 - Trips list lacks a Guest column because `TRIPS_LIST_SELECT` doesn't expose request/guest fields (backend change required).
 - Dispatch reassign conflicts arrive as plain strings from `PUT /api/dispatch/[id]` (no structured `conflicts[]`) — inline rendering handles both shapes today.
+
+### Security password live-validation elevation (2026-09-05)
+
+Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restraint: no new colors, no decoration), ui-ux-pro-max (inline-validation + error-clarity + focus-management guidance). File: `src/app/(dashboard)/settings/security/page.js`. No validation logic touched — `securitySchema` and `lib/validation/helpers` unchanged.
+
+- Segmented **strength meter** (5 segments, Weak danger → Fair warning → Good info → Strong success) rendering only once typing starts; value announced via `aria-live="polite"`, bars `aria-hidden`.
+- Checklist refined: bordered surface card, semibold met rows in `success-700`, icon swap in a fixed-size slot (no layout shift), `motion-reduce` respected.
+- 72-byte technical cap moved to **progressive disclosure**: row appears only past 64 bytes or on violation, with a live byte counter.
+- Live **confirm-match hint** ("Passwords match." / "Passwords do not match yet.") mirroring the submit validator.
+- Verified: focused ESLint clean.

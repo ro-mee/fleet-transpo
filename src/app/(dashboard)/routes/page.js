@@ -630,6 +630,7 @@ export default function RoutesPage() {
             icon={RouteIcon}
             emptyTitle="No routes match this view"
             emptyDescription="Adjust the status or quality filter, or add a route with two configured locations."
+            emptyVariant="filtered"
             isLoading={routesQuery.isLoading}
             onRowClick={(route) => { setSelectedRoute(route); setDetailsOpen(true); }}
             getRowLabel={(route) => `View ${route.route_name}`}

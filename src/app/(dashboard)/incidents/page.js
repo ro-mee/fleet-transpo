@@ -622,7 +622,8 @@ export default function IncidentsPage() {
             searchPlaceholder="Search incidents by type, location, or description..."
             isLoading={isLoading}
             emptyTitle="No incidents reported"
-            emptyDescription="Driver incident reports will appear here."
+            emptyDescription="Driver incident reports will appear here for review."
+            emptyVariant="relief"
           />
         </CardContent>
       </Card>

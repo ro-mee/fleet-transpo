@@ -1,25 +1,16 @@
-"use client";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+// Login-first landing: server-side redirect, no client wait, no shell flash.
+// - no session  → /login
+// - driver      → /driver
+// - other staff → /dashboard (which further routes management → /executive)
+export default async function Home() {
+  const session = await auth();
 
-export default function Home() {
-  const router = useRouter();
-  const { data: session, status } = useSession();
+  if (!session?.user) {
+    redirect("/login");
+  }
 
-  useEffect(() => {
-    if (status === "loading") return;
-    if (session) {
-      router.push("/dashboard");
-    } else {
-      router.push("/login");
-    }
-  }, [session, status, router]);
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="animate-pulse text-foreground-secondary">Loading...</div>
-    </div>
-  );
+  redirect(session.user.role === "driver" ? "/driver" : "/dashboard");
 }

@@ -329,6 +329,7 @@ export default function ReservationsPage() {
         icon={TriangleAlert}
         title="Could not load reservations"
         description={error?.message || "Something went wrong reading the request register."}
+        tone="danger"
         action={<Button onClick={() => refetch()}>Try again</Button>}
       />
     );
@@ -407,6 +408,7 @@ export default function ReservationsPage() {
             }
             emptyTitle="No transportation requests yet"
             emptyDescription="Requests ingested from Booking will appear here."
+            emptyVariant="waiting"
             emptyAction={
               <Button
                 variant="outline"

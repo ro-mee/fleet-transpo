@@ -114,8 +114,10 @@ export default function DriverSchedulePage() {
                 ) : days.length === 0 ? (
                   <EmptyState
                     icon={CalendarDays}
-                    title="No schedule found"
-                    description="No weekly schedule on file yet. Ask your fleet manager to set your work schedule."
+                    title="No schedule on file yet"
+                    description="Ask your fleet manager to set your weekly work schedule."
+                    variant="waiting"
+                    size="compact"
                   />
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
@@ -286,7 +288,8 @@ export default function DriverSchedulePage() {
                       icon={CalendarClock}
                       title="No leave requests"
                       description="Requests you file will appear here."
-                      className="py-12"
+                      variant="waiting"
+                      size="compact"
                     />
                   ) : (
                     <div className="w-full overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">

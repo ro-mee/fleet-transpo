@@ -2,11 +2,12 @@
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { TONE_CHIP, TONE_TEXT } from "@/components/ui/status-badge";
-import { Sparkles, Bot, Radar, RefreshCw, CheckCircle2, ArrowUpRight, Crosshair, ListChecks } from "lucide-react";
+import { Sparkles, Bot, Radar, RefreshCw, CheckCircle2, ArrowUpRight, Crosshair, ListChecks, Clock } from "lucide-react";
 
 // Reusable "AI Analyst" card for the reports & analytics pages (Tier 1).
 //
@@ -77,41 +78,35 @@ export function AiAnalystCard({
               </div>
             </div>
           ) : data?.mode === "no-data" ? (
-            <div className="relative p-4 rounded-3xl bg-surface/50 border border-border/60 flex gap-3 items-start">
-              <div className="flex-shrink-0 mt-0.5">
-                <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/50 text-foreground-muted border border-border/60">
-                  <Radar className="w-4 h-4" />
-                </div>
-              </div>
-              <p className="text-[13px] text-foreground-secondary leading-relaxed font-medium">
-                <span className="font-bold text-foreground">Insufficient live data</span> — this report currently has no
-                recorded activity for the selected period, so no analytical narrative can be generated.
-              </p>
+            <div className="rounded-3xl border border-border/60 bg-surface">
+              <EmptyState
+                icon={Radar}
+                title="No activity in this period"
+                description="Trips, fuel, or maintenance recorded in the selected dates will feed the narrative — try widening the date range."
+                variant="waiting"
+                size="compact"
+              />
             </div>
           ) : !data?.narrative ? (
             data?.mode === "rate-limited" ? (
-              <div className="relative p-4 rounded-3xl bg-surface/50 border border-border/60 flex gap-3 items-start">
-                <div className="flex-shrink-0 mt-0.5">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/50 text-foreground-muted border border-border/60">
-                    <Radar className="w-4 h-4" />
-                  </div>
-                </div>
-                <p className="text-[13px] text-foreground-secondary leading-relaxed font-medium">
-                  <span className="font-bold text-foreground">Daily regenerate limit reached</span> — you can refresh this
-                  AI analysis up to 3 times per day.
-                </p>
+              <div className="rounded-3xl border border-border/60 bg-surface">
+                <EmptyState
+                  icon={Clock}
+                  title="Daily limit reached"
+                  description="You've used all 3 regenerations for today — come back tomorrow for a fresh analysis."
+                  tone="warning"
+                  size="compact"
+                />
               </div>
             ) : (
-              <div className="relative p-4 rounded-3xl bg-surface/50 border border-border/60 flex gap-3 items-start">
-                <div className="flex-shrink-0 mt-0.5">
-                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted/50 text-foreground-muted border border-border/60">
-                    <Radar className="w-4 h-4" />
-                  </div>
-                </div>
-                <p className="text-[13px] text-foreground-secondary leading-relaxed font-medium">
-                  Live reporting is operating in <span className="font-bold text-foreground">Deterministic Mode</span>.
-                  Generative analysis is temporarily unavailable; number-grounded analytical fallback is shown below.
-                </p>
+              <div className="rounded-3xl border border-border/60 bg-surface">
+                <EmptyState
+                  icon={Bot}
+                  title="Deterministic mode"
+                  description="Generative analysis is temporarily unavailable; the number-grounded fallback is shown below."
+                  tone="info"
+                  size="compact"
+                />
               </div>
             )
           ) : (

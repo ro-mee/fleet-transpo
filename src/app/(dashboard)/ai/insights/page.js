@@ -275,12 +275,13 @@ export default function AiInsightsPage() {
               icon={Radar}
               title="Fleet is running clean"
               description="No anomalies detected right now. Alerts will surface here as vehicles approach service dates or registrations reach their renewal window."
+              variant="relief"
+              size="compact"
               action={
                 <Button variant="outline" size="sm" onClick={() => refetch()} className="rounded-2xl text-xs font-bold mt-2">
                   <RefreshCw className="w-3.5 h-3.5 mr-2" /> Check Fleet Status
                 </Button>
               }
-              className="py-12"
             />
           ) : (
             <div className="space-y-3">

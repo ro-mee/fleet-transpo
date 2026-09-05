@@ -129,7 +129,7 @@ fleet-transpo/
 │   ├── security-boundaries.test.js  # vitest guard for the boundaries above
 │   ├── app/
 │   │   ├── layout.js           # ONLY root layout; wraps all pages in DashboardLayout
-│   │   ├── page.js             # "/" → redirect /dashboard or /login
+│   │   ├── page.js             # "/" → server redirect: no session → /login, driver → /driver, else /dashboard
 │   │   ├── globals.css
 │   │   ├── (auth)/             # login, register(→redirect /login), forgot-password, reset-password
 │   │   ├── (dashboard)/        # all app modules (no group layout; chrome from DashboardLayout)
@@ -822,7 +822,7 @@ Thin `apiFetch` wrappers per domain plus server-only business-logic services. Cu
 - `NAV_ROLES[path]` drives the sidebar + route guard; `hasRole()`, `can()`, `filterNavItems()`, `getRequiredRolesForPath()`.
 - **Per-role workspaces:** `src/lib/workspaces.js` maps each role to a workspace (name, tagline, accent, home route, role-specific `nav` groups). `getWorkspace(role)` falls back to `WORKS.admin` for unknown roles. The sidebar/top-nav render the active role's workspace; `filterNavItems` further gates each item by `NAV_ROLES[item.href]`.
 - **Role dashboards:** `src/components/dashboard/role-dashboard.jsx` renders role-specific KPIs/widgets defined in `src/components/dashboard/dashboard-configs.js`.
-- **Enforcement layers:** per-route `requireAuth(req, [...])` on the server (the real boundary); `useRequireRole()` / `RouteGuard` + `useRoleAccess()` on the client (convenience; brief render flash before redirect is documented).
+- **Enforcement layers:** per-route `requireAuth(req, [...])` on the server (the real boundary); `useRequireRole()` / `RouteGuard` + `useRoleAccess()` on the client (convenience). `/` redirects server-side (no flash). For deep protected routes the client guard distinguishes no-session (`!employee` → `saveReturnTo()` + `/login`, shell withheld until a session exists so no dashboard chrome flashes) from session-without-role (renders the role-not-configured card, never `/login`, to avoid a login loop); wrong-role sessions fall back to the role home with an access-restricted panel.
 - **Routes permissions:** dispatcher and management are read-only; create/update is limited to `system_admin`, `admin`, and `fleet_manager`; route DELETE/archive is limited to `system_admin` and `admin`. `scripts/verify-rbac.mjs` covers the UI/API agreement.
 - `scripts/verify-rbac.mjs` asserts the UI matrix and API role lists agree.
 - Role **assignment** is itself guarded: only `system_admin` can grant `system_admin` (`canAssignRole`; asserted in `src/security-boundaries.test.js`).

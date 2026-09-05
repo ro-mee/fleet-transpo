@@ -805,6 +805,8 @@ export default function DispatchCalendarPage() {
               icon={CalendarDays}
               title="No schedules match the selected filters"
               description="Try adjusting your search query, type filter, or date window."
+              variant="filtered"
+              size="compact"
               action={
                 <Button
                   size="sm"

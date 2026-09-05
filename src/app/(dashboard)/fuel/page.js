@@ -837,6 +837,7 @@ export default function FuelPage() {
           </Badge>
         }
         emptyTitle="No active vehicles found"
+        emptyDescription="Activate a vehicle to configure its monthly fuel allocation."
       />
       )}
 
@@ -856,6 +857,7 @@ export default function FuelPage() {
           </Badge>
         }
         emptyTitle="No fuel requests yet"
+        emptyDescription="Permits will appear here once drivers submit fuel requests."
       />
       )}
 

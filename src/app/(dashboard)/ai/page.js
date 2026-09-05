@@ -129,7 +129,8 @@ export default function AiDashboardPage() {
               icon={Lightbulb}
               title="No active insights yet"
               description="Insights will appear as the AI system analyzes fleet operational patterns."
-              className="py-12"
+              variant="waiting"
+              size="compact"
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -200,7 +201,8 @@ export default function AiDashboardPage() {
               icon={Wrench}
               title="No vehicles registered in telemetry"
               description="Add vehicles to initialize AI predictive health scoring."
-              className="py-12"
+              variant="first-run"
+              size="compact"
             />
           ) : (
             <div className="divide-y divide-border/60">

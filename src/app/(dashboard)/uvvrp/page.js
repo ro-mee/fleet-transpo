@@ -228,7 +228,7 @@ export default function UvvrpBoardPage() {
 
           <CardContent className="p-0 flex-1 min-h-[320px]">
             {upcoming.length === 0 ? (
-              <EmptyState icon={Calendar} title="No restrictions scheduled" description="Upcoming coding windows will appear here." className="py-12" />
+              <EmptyState icon={Calendar} title="No restrictions scheduled" description="Upcoming coding windows will appear here once scheduled." variant="waiting" size="compact" />
             ) : (
               <div className="divide-y divide-border/60 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
                 {upcoming.map((u) => {
@@ -332,6 +332,7 @@ export default function UvvrpBoardPage() {
         }
         emptyTitle="No coding violations recorded"
         emptyDescription="Coding enforcement events will appear here as dispatches occur."
+        emptyVariant="relief"
       />
     </div>
   );

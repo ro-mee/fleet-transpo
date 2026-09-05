@@ -220,6 +220,7 @@ export default function DispatchDetailPage() {
         icon={TriangleAlert}
         title="Could not load this dispatch"
         description={error?.message || "Something went wrong reading the dispatch."}
+        tone="danger"
         action={<Button onClick={() => refetch()}>Try again</Button>}
       />
     );

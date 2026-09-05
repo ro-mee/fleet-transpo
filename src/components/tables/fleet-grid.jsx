@@ -7,12 +7,16 @@ import { getVehicles } from "@/services/vehicle.service";
 import { getUvvrpPolicy } from "@/services/settings.service";
 import { isRestricted } from "@/lib/uvvrp/policy";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { Users, Fuel, Settings, Truck } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 
 export function FleetGrid({ filters = {} }) {
   const router = useRouter();
+  const { can } = useRoleAccess();
+  const canAddVehicle = can("vehicles", "create");
   const { data: allVehicles = [], isLoading } = useQuery({
     queryKey: ["vehicles"],
     queryFn: () => getVehicles(),
@@ -60,12 +64,28 @@ export function FleetGrid({ filters = {} }) {
   }
 
   if (vehicles.length === 0) {
+    const isFiltered = Boolean(filters.status || filters.restrictedOnly);
     return (
       <Card className="border-0 shadow-sm rounded-[24px] overflow-hidden bg-surface">
-        <CardContent className="py-16 text-center text-foreground-muted flex flex-col items-center">
-          <Truck className="w-12 h-12 mb-4 opacity-20" />
-          <p className="font-bold text-foreground text-lg">No vehicles found</p>
-          <p className="text-sm mt-1">Try adjusting your filters to see more results.</p>
+        <CardContent className="py-4">
+          <EmptyState
+            icon={Truck}
+            eyebrow="Fleet"
+            title="No vehicles found"
+            description={
+              isFiltered
+                ? "No vehicles match these filters. Try widening the criteria."
+                : "Add the first vehicle to start building the fleet record."
+            }
+            variant={isFiltered ? "filtered" : "first-run"}
+            action={
+              !isFiltered && canAddVehicle ? (
+                <Button size="sm" onClick={() => router.push("/fleet/vehicles/new")}>
+                  Add vehicle
+                </Button>
+              ) : undefined
+            }
+          />
         </CardContent>
       </Card>
     );

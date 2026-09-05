@@ -102,7 +102,7 @@ export default function FleetCostPage() {
               </button>
             </div>
           ) : details.length === 0 ? (
-            <EmptyState icon={Wallet} title="No cost data" description="Fuel, maintenance and trip data will populate costs." className="py-16" />
+            <EmptyState icon={Wallet} title="No cost data yet" description="Fuel, maintenance and trip data will populate costs." variant="waiting" size="compact" />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

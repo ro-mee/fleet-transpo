@@ -404,6 +404,7 @@ export default function UnifiedQueuePage() {
                 ? "Try a different term or clear the search."
                 : "Requests from Booking and active dispatches appear here. Use “Pull from Booking” to fetch new ones."
             }
+            variant={searching ? "filtered" : "waiting"}
             action={
               searching ? (
                 <Button variant="outline" size="sm" onClick={() => setSearch("")}>
