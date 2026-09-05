@@ -34,7 +34,7 @@ last_verified: 2026-09-03
 
 | Key | Consequence of absence |
 |---|---|
-| `MOBILE_JWT_SECRET` | **Required in production.** Mobile token signing fails closed; development/test may fall back to `NEXTAUTH_SECRET` with a warning. It must differ from `NEXTAUTH_SECRET` in production. |
+| `MOBILE_JWT_SECRET` | **Required in production.** Mobile token signing fails closed; development/test may fall back to `NEXTAUTH_SECRET` with a warning. It must differ from `NEXTAUTH_SECRET` in production. **CONFIRMED 2026-09-06: its absence on Vercel was the cause of the mobile APK login returning 500 "Internal server error"** — credentials validated, then `getSigningKey()` threw (`src/lib/auth/mobile-token.js:35`). Fix: generate `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"`, set it as a Production env var on Vercel, redeploy. No APK rebuild needed — the fix is server-side only. |
 | `MFA_ENCRYPTION_KEY` | **Required in production for MFA.** MFA setup/verification fails closed without a dedicated 32-byte hex/base64 AES-256-GCM key. Generate once and keep it stable after enrollment. |
 | `CRON_SECRET` | Protected cron endpoints reject requests when the secret is unset. |
 | `BOOKING_WEBHOOK_SECRET` | The inbound webhook rejects requests because it cannot verify Booking. |
@@ -58,6 +58,16 @@ cd mobile && npx expo start
 ```
 
 Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **487/487 tests across 46 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
+
+## Mobile APK builds — CONFIRMED 2026-09-06
+
+The mobile app is a standalone native client: it bundles `EXPO_PUBLIC_*` values at **build time** (EAS inlines them into the JS bundle) and talks to the deployed web backend at `https://fleet-transpo.vercel.app/api/mobile/*`, which shares the same Supabase DB as the web app. No server needs to run locally for a release APK.
+
+- `mobile/eas.json` profiles:
+  - `development` — dev client; **requires `expo start` on the dev machine**. An APK built from this profile only works while Metro is running; this is by design, not a bug.
+  - `preview` / `production` — both now `distribution: internal` + `android.buildType: apk` with the production env block (`EXPO_PUBLIC_API_URL`, Supabase URL/anon key, demo flag, TomTom key, dispatcher phone). `production` was previously `{}` (empty), which produced an `.aab` with missing env — fixed 2026-09-06.
+- Build command: `cd mobile && eas build -p android --profile production` (or `preview`).
+- Backend prerequisite: `MOBILE_JWT_SECRET` must be set on Vercel and differ from `NEXTAUTH_SECRET` (see `src/lib/auth/mobile-token.js` — it throws in production otherwise, so mobile login fails closed against the deployed site).
 
 ## What you cannot do here — CONFIRMED
 

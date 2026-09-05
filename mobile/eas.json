@@ -22,7 +22,20 @@
         "EXPO_PUBLIC_DISPATCHER_PHONE": "+1234567890"
       }
     },
-    "production": {}
+    "production": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://fleet-transpo.vercel.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://dnxuphhxlzidvwtdqqkq.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRueHVwaGh4bHppZHZ3dGRxcWtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQ4NzUyMzcsImV4cCI6MjEwMDQ1MTIzN30.Hc2E104WITdUs_TZJH-6NHxSK2c8HpDLskz2oi5G87o",
+        "EXPO_PUBLIC_ENABLE_DEMO": "false",
+        "EXPO_PUBLIC_TOMTOM_API_KEY": "Eovwxfb6mUlNub48iBOiYpuQBZZWQHne",
+        "EXPO_PUBLIC_DISPATCHER_PHONE": "+1234567890"
+      }
+    }
   },
   "submit": {
     "production": {}
