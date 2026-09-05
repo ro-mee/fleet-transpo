@@ -52,6 +52,43 @@ function applyTheme(mode) {
   document.documentElement.classList.toggle("dark", effectiveTheme(mode) === "dark");
 }
 
+function reduceMotion() {
+  return (
+    typeof window !== "undefined" &&
+    !!window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+
+// Fallback when the View Transition API cannot run (unsupported browser,
+// hidden page, or its clip animation fails to attach): cross-fade theme
+// colors via the `theme-fade` class instead of snapping the whole page
+// instantly. Reduced-motion keeps the instant cut, per user preference.
+let fadeTimer = null;
+let transitionGen = 0;
+function commitWithFade(commit) {
+  if (typeof document === "undefined" || reduceMotion()) {
+    commit();
+    return;
+  }
+  const root = document.documentElement;
+  try {
+    root.classList.add("theme-fade");
+  } catch {
+    // Non-DOM environment — just commit.
+  }
+  commit();
+  if (fadeTimer) clearTimeout(fadeTimer);
+  fadeTimer = setTimeout(() => {
+    try {
+      root.classList.remove("theme-fade");
+    } catch {
+      // Already gone.
+    }
+    fadeTimer = null;
+  }, 350);
+}
+
 // Cache the snapshot object so useSyncExternalStore sees a stable reference
 // between actual changes (Object.is comparison would otherwise loop forever).
 let cache = null;
@@ -76,7 +113,7 @@ function setModeValue(next, source) {
     typeof document !== "undefined" &&
     typeof document.startViewTransition === "function" &&
     !document.hidden &&
-    !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    !reduceMotion();
 
   const commit = () => {
     try {
@@ -88,8 +125,13 @@ function setModeValue(next, source) {
     listeners.forEach((l) => l());
   };
 
-  if (!canAnimate || currentEffective === nextEffective) {
+  if (currentEffective === nextEffective) {
     commit();
+    return;
+  }
+
+  if (!canAnimate) {
+    commitWithFade(commit);
     return;
   }
 
@@ -105,9 +147,9 @@ function setModeValue(next, source) {
 
   const rect = button?.getBoundingClientRect?.();
 
-  // If no element or invalid geometry, fall back to immediate change
+  // If no element or invalid geometry, fall back to the cross-fade
   if (!rect || rect.width <= 0 || rect.height <= 0) {
-    commit();
+    commitWithFade(commit);
     return;
   }
 
@@ -122,51 +164,46 @@ function setModeValue(next, source) {
     )
   ) + 10;
 
+  // Generation guard: a rapid second toggle skips the first transition, and
+  // its `finished` settlement must not wipe the newer transition's state.
+  transitionGen += 1;
+  const gen = transitionGen;
+
   const root = document.documentElement;
+  // The clip origin/radius are plain CSS — set synchronously BEFORE
+  // startViewTransition so the very first paint of the transition pseudo-tree
+  // is already clipped. (Attaching the clip only via WAAPI after
+  // `transition.ready` leaves a gap where the new layer paints full-screen —
+  // the whole page flashing dark before the circle even starts.)
+  root.style.setProperty("--theme-x", `${x}px`);
+  root.style.setProperty("--theme-y", `${y}px`);
+  root.style.setProperty("--theme-r", `${endRadius}px`);
   root.dataset.themeTransition = isGoingDark ? "expand" : "shrink";
 
-  let transition;
+  const cleanup = () => {
+    if (gen !== transitionGen) return;
+    delete root.dataset.themeTransition;
+    root.style.removeProperty("--theme-x");
+    root.style.removeProperty("--theme-y");
+    root.style.removeProperty("--theme-r");
+  };
+
   try {
-    transition = document.startViewTransition(() => {
+    document.startViewTransition(() => {
       commit();
     });
   } catch {
-    delete root.dataset.themeTransition;
-    commit();
+    cleanup();
+    commitWithFade(commit);
     return;
   }
 
-  const pseudoElement = isGoingDark
-    ? "::view-transition-new(root)"
-    : "::view-transition-old(root)";
-
-  const keyframes = isGoingDark
-    ? [
-        { clipPath: `circle(0px at ${x}px ${y}px)` },
-        { clipPath: `circle(${endRadius}px at ${x}px ${y}px)` },
-      ]
-    : [
-        { clipPath: `circle(${endRadius}px at ${x}px ${y}px)` },
-        { clipPath: `circle(0px at ${x}px ${y}px)` },
-      ];
-
-  transition.ready
-    .then(() => {
-      const animation = document.documentElement.animate(keyframes, {
-        duration: 450,
-        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
-        pseudoElement,
-        fill: "both",
-      });
-      return animation.finished.catch(() => {});
-    })
-    .catch(() => {});
-
-  transition.finished
-    .catch(() => {})
-    .finally(() => {
-      delete root.dataset.themeTransition;
-    });
+  // Declarative CSS keyframes (globals.css) drive the reveal — no WAAPI
+  // needed, so there is no attach gap. Cleanup is purely time-based (600ms >
+  // the 450ms animation): the transition's `finished` promise is NOT used
+  // because author CSS animations may not extend it, and an early settle
+  // would strip the dataset mid-reveal and snap the page.
+  setTimeout(cleanup, 600);
 }
 
 // Re-resolve `system` when the OS preference flips. Snapshot caching keeps

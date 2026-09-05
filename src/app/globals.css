@@ -69,6 +69,7 @@
  */
 
 :root {
+  color-scheme: light;
   /* Semantic status colors are ALSO emitted as raw custom properties so
      non-Tailwind consumers (recharts SVG attributes, JS chart palettes) can
      read them without duplicating hex values per page. Keep @theme inline and
@@ -104,6 +105,7 @@
 }
 
 :root.dark {
+  color-scheme: dark;
   --bg: #111111;
   --sf: #1a1a1a;
   --br: #2a2a2a;
@@ -316,6 +318,11 @@ html[data-theme-transition="expand"]::view-transition-old(root) {
 :root[data-theme-transition="expand"]::view-transition-new(root),
 html[data-theme-transition="expand"]::view-transition-new(root) {
   z-index: 9999;
+  /* Initial clip in plain CSS (origin/radius via --theme-* set synchronously
+     before startViewTransition) so the first paint is already a dot — the
+     dark layer must never flash full-screen before the circle starts. */
+  clip-path: circle(0px at var(--theme-x) var(--theme-y));
+  animation: theme-reveal 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Shrink mode (Dark -> Light): the JS animation clips the old layer while the
@@ -323,10 +330,24 @@ html[data-theme-transition="expand"]::view-transition-new(root) {
 :root[data-theme-transition="shrink"]::view-transition-old(root),
 html[data-theme-transition="shrink"]::view-transition-old(root) {
   z-index: 9999;
+  clip-path: circle(var(--theme-r) at var(--theme-x) var(--theme-y));
+  animation: theme-conceal 450ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 :root[data-theme-transition="shrink"]::view-transition-new(root),
 html[data-theme-transition="shrink"]::view-transition-new(root) {
   z-index: 1;
+}
+
+@keyframes theme-reveal {
+  to {
+    clip-path: circle(var(--theme-r) at var(--theme-x) var(--theme-y));
+  }
+}
+
+@keyframes theme-conceal {
+  to {
+    clip-path: circle(0px at var(--theme-x) var(--theme-y));
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -334,5 +355,33 @@ html[data-theme-transition="shrink"]::view-transition-new(root) {
   ::view-transition-old(*),
   ::view-transition-new(*) {
     animation: none !important;
+  }
+}
+
+/* ── Theme fallback fade (no View Transition API) ──
+   use-theme.js adds `theme-fade` to <html> only around the synchronous class
+   commit when document.startViewTransition is unavailable (or its animation
+   fails to attach), then removes it ~350ms later. Color-bearing properties
+   cross-fade instead of snapping. The toggle button subtree is excluded so
+   its own sun/moon morph keeps its 500ms timing. box-shadow is deliberately
+   excluded (expensive to animate across the whole tree). */
+html.theme-fade,
+html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *),
+html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *)::before,
+html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *)::after {
+  transition:
+    background-color 0.3s ease,
+    border-color 0.3s ease,
+    color 0.3s ease,
+    fill 0.3s ease,
+    stroke 0.3s ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-fade,
+  html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *),
+  html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *)::before,
+  html.theme-fade *:not(.theme-toggle-btn):not(.theme-toggle-btn *)::after {
+    transition: none !important;
   }
 }
