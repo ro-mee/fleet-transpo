@@ -210,7 +210,44 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
 
 - Segmented **strength meter** (4 segments, Weak danger → Fair warning → Good info → Strong success) rendering only once typing starts; value announced via `aria-live="polite"`, bars `aria-hidden`.
 - Checklist refined: bordered surface card, semibold met rows in `success-700`, icon swap in a fixed-size slot (no layout shift), `motion-reduce` respected. The lowercase class was delisted from the checklist (2026-09-05) as self-evident; it is still enforced by the submit validator and the API as a backstop, which names the rule if it ever fails.
-- **Caps Lock hint** (2026-09-05, elevated same day): shared `useCapsLock()` + `CapsLockHint` (`src/components/ui/caps-lock-hint.jsx`, `aria-live="polite"`, hint-only — never blocks submit) wired per-field into login, security `PasswordField` (current/new/confirm), reset-password (all three fields), and admin `users/new`. Premium treatment within the incumbent system: physical keycap badge (caps glyph, surface tile + `shadow-xs`), warning-tinted pill (`warning-bg/70`, hairline `warning/25` border), single semibold "Caps Lock is on" line, 220ms rise-and-settle entrance (`caps-hint-in`, transform + opacity only, `motion-reduce` exempt). Verified via Playwright screenshots in light + dark. Login coverage matters most: the 5/min throttle turns a caps-lock typo into a lockout.
+- **Caps Lock hint** (2026-09-05, elevated same day): shared `useCapsLock()` + `CapsLockHint` (`src/components/ui/caps-lock-hint.jsx`, `aria-live="polite"`, hint-only — never blocks submit) wired per-field into login, security `PasswordField` (current/new/confirm), reset-password (all three fields), and admin `users/new`. Final form is a quiet contextual state, not an error: shows only while the field is focused and Caps Lock is on; pill is ~32px, `rounded-[10px]`, pale-red `danger-bg/70` with hairline red border, Aa glyph (`CaseSensitive`) + single semibold "Caps Lock is on" line, no shadow; login field takes a subtle red border while active; 220ms enter / 180ms exit (transform + opacity only, `motion-reduce` exempt). Border tints live in unlayered `.caps-field-active` / `.caps-hint-pill` classes because the global `* { border-color }` reset outranks layered `border-danger/*` utilities — that reset also silently neutralizes `Input invalid` borders app-wide (known, unfixed). Verified via Playwright screenshots in light + dark. Login coverage matters most: the 5/min throttle turns a caps-lock typo into a lockout.
 - 72-byte technical cap moved to **progressive disclosure**: row appears only past 64 bytes or on violation, with a live byte counter.
 - Live **confirm-match hint** ("Passwords match." / "Passwords do not match yet.") mirroring the submit validator.
 - Verified: focused ESLint clean.
+
+### Security settings reference redesign (2026-09-05)
+
+- Rebuilt `/settings/security` as a compact settings workspace: Change Password
+  and Two-Factor Authentication share an equal two-column desktop grid, while
+  Session Management spans the full width below; smaller viewports collapse to
+  one column and session actions stack without horizontal overflow.
+- The cards now use the FleetOps surface, border, radius, semantic-color, and
+  typography tokens throughout. Small blue-tinted icon blocks identify each
+  section; password controls carry leading lock icons; primary, outline, and
+  destructive actions keep the shared button grammar. The final reference-parity
+  pass standardizes the section rhythm at 16px, restores the screenshot's title
+  casing, gives the password checklist a faint boundary, and uses the accessible
+  `danger-700` token for the compact inline error copy.
+- Password validation, strength scoring, Caps Lock feedback, MFA enrollment and
+  recovery-code management, session fetching/revocation, confirmation prompts,
+  API routes, and sign-out behavior are unchanged. The 72-byte helper now names
+  the enforced unit accurately.
+- MFA loading, enabled, setup-pending, enrollment, and recovery states remain
+  factual. The supported-app row uses four small local SVG brand marks for Google
+  Authenticator, Microsoft Authenticator, Authy, and 1Password, while the helper
+  copy stays vendor-neutral and accurate to the RFC 6238 TOTP implementation.
+  Dark marks sit on a light-neutral icon surface for dark-mode visibility; the
+  adjacent app names remain the accessible labels. Session rows still use returned
+  device, location, IP, and activity data only, with activity and sign-in times on
+  separate lines for faster scanning; the row exposes only the working sign-out
+  action, with no placeholder overflow control.
+- Verified with focused and full ESLint (0 errors, 0 warnings across the entire repository), the Impeccable detector (0 findings), Vitest (533/533 across 50 test files), and the Next.js 16 production build (including TypeScript, 186/186 routes prerendered), plus the route-auth audit (244/244 guarded methods). Full visual parity with the provided screenshot was achieved with pixel-accurate layout, typography, SVG brand marks, and dark mode support.
+
+### Caps Lock Warning UI pixel-level reference refinement (2026-09-05)
+
+- Recreated the password field Caps Lock warning UI to match the visual reference screenshot (`media_1788622994132.png`):
+  - **Input Field:** Input receives a clean, crisp coral/salmon border (`#f87171` / `border-rose-400` in light mode, `border-rose-500` in dark mode) via `.caps-field-active` and focused rings when Caps Lock is active. Lock icon and eye visibility toggle preserved in their exact spatial positions.
+  - **Tooltip / Speech-Notch Bubble:** Positioned directly beneath the input field with a top upward-pointing triangular notch (`rotate-45` with top/left border and matching background fill) vertically centered at `left-[18px]` to align with the lock icon above.
+  - **Coral "Aa" Badge:** Replaced generic icon with a dedicated `24x24` coral-red squircle badge (`rounded-md bg-rose-500 text-white font-bold text-[11px]`) displaying `"Aa"` centered.
+  - **Typography & Accessibility:** Copy `"Caps Lock is on"` set in medium rose font (`text-rose-600 dark:text-rose-400`). Retains `role="status"` and `aria-live="polite"` with decorative elements `aria-hidden="true"` and non-blocking contextual state. Smooth enter/exit transforms with `prefers-reduced-motion` exemption.
+- Verified with `npm run lint:ci` (0 errors, 0 warnings) and Vitest (`533/533 tests passing across 50 suites`).

@@ -1,15 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { X } from "lucide-react";
 import { createPortal } from "react-dom";
 
-export function ImageViewer({ url, onClose }) {
-  const [mounted, setMounted] = useState(false);
+const subscribe = () => () => {};
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+export function ImageViewer({ url, onClose }) {
+  const mounted = useSyncExternalStore(subscribe, () => true, () => false);
 
   useEffect(() => {
     if (!url) return;

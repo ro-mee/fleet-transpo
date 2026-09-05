@@ -10,22 +10,36 @@ import { Label } from "@/components/ui/label";
 
 export function ExpenseVerificationModal({ record, onClose, onReview, isSubmitting }) {
   const [receiptUrl, setReceiptUrl] = useState(null);
-  const [loadingReceipt, setLoadingReceipt] = useState(true);
+  const [loadingReceipt, setLoadingReceipt] = useState(Boolean(record?.id));
   const [remarks, setRemarks] = useState("");
   const [isRejecting, setIsRejecting] = useState(false);
 
   useEffect(() => {
-    if (!record?.id) return;
+    let cancelled = false;
+    if (!record?.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear async preview when the selected record closes
+      setReceiptUrl(null);
+      setLoadingReceipt(false);
+      return;
+    }
+    setReceiptUrl(null);
     setLoadingReceipt(true);
     getExpenseReceiptUrl(record.id)
       .then((url) => {
-        setReceiptUrl(url);
-        setLoadingReceipt(false);
+        if (!cancelled) {
+          setReceiptUrl(url);
+          setLoadingReceipt(false);
+        }
       })
       .catch((err) => {
         console.error("Failed to load receipt URL", err);
-        setLoadingReceipt(false);
+        if (!cancelled) {
+          setLoadingReceipt(false);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [record?.id]);
 
   if (!record) return null;
@@ -165,7 +179,7 @@ export function ExpenseVerificationModal({ record, onClose, onReview, isSubmitti
                 <div className="p-3 bg-muted/30 rounded-lg text-sm">
                   <p className="font-semibold">This expense has been {record.status.toLowerCase()}.</p>
                   {record.review_remarks && (
-                    <p className="text-foreground-muted mt-1 italic">"{record.review_remarks}"</p>
+                    <p className="text-foreground-muted mt-1 italic">&ldquo;{record.review_remarks}&rdquo;</p>
                   )}
                   {record.reviewer && (
                     <p className="text-xs text-foreground-muted mt-2">

@@ -40,6 +40,9 @@ The review modal presents a side-by-side comparison:
 - OCR Extracted values vs Driver Confirmed values.
 - Trip and Vehicle attribution context.
 - System-generated Anomaly Flags.
+- The secure receipt preview resets its loading state and cancels the previous
+  URL request when reviewers switch records, so a prior receipt cannot appear
+  under a newly selected expense.
 
 The reviewer can:
 - **Approve**: Marks the expense as verified. It now contributes to analytics.

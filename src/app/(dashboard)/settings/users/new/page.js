@@ -126,7 +126,7 @@ export default function AddUserPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [showPassword, setShowPassword] = useState(false);
-  const { capsOn, bind: capsBind } = useCapsLock();
+  const { active: capsOn, bind: capsBind } = useCapsLock();
 
   const form = useForm({
     resolver: zodResolver(createUserSchema),

@@ -186,24 +186,15 @@ export function useTripTracking(tripId) {
   const [localError, setLocalError] = useState(null);
   const [latestFix, setLatestFix] = useState(null);
 
-  useEffect(() => {
-    setLatestFix(null);
-    if (!tripId || !settings.locationTracking) {
-      setWatching(false);
-      if (!settings.locationTracking && tripId) {
-        setLocalError("Location tracking disabled in Settings.");
-      } else {
-        setLocalError(null);
-      }
-      return;
-    }
-    if (!focused) {
-      setWatching(false);
-      return;
-    }
+  const configError = !settings.locationTracking && tripId ? "Location tracking disabled in Settings." : null;
 
+  useEffect(() => {
     let subscription = null;
     let cancelled = false;
+
+    if (!tripId || !settings.locationTracking || !focused) {
+      return;
+    }
 
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -240,9 +231,9 @@ export function useTripTracking(tripId) {
   }, [tripId, settings.locationTracking, focused]);
 
   return {
-    posting: watching,
+    posting: watching && !configError,
     lastSentAt: poster.lastSentAt,
-    error: localError || poster.error,
+    error: configError || (tripId ? localError : null) || poster.error,
     latestFix,
   };
 }
