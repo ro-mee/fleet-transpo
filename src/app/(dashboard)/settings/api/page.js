@@ -35,7 +35,8 @@ export default function ApiKeysPage() {
             icon={Key}
             title="API key management is coming soon"
             description="FleetOps doesn't issue browser-managed API keys yet. Integrations today authenticate with server-side secrets configured by your administrator — nothing to rotate from this screen."
-            className="py-14"
+            variant="waiting"
+            size="compact"
           />
           <div className="mt-2 rounded-2xl border border-border bg-surface p-5">
             <p className="flex items-center gap-2 text-sm font-bold text-foreground mb-1.5">

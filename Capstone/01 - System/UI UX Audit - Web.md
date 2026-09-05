@@ -110,9 +110,106 @@ See `UI UX Audit - Mobile.md` ("Changes Applied — Round 2"). Headlines: SwipeB
 - Fixed Priority Queue and Pickup timeline text truncation issues by swapping `truncate` with `line-clamp-2` to allow text to wrap onto a second line instead of disappearing.
 - Tightened the time-column width on the Priority Queue grid (`sm:grid-cols-[5rem...]`) to reclaim empty whitespace and give more room to the important text.
 
-## Known remaining gaps (post-waves)
+### Phase 10 — Admin dashboard premium refinement (2026-09-04)
 
+Refinement inside the committed light Executive Dashboard world (Operate mode;
+dark-theme direction explicitly rejected for consistency). Skills driving:
+impeccable (Operate critique + craft floor + mechanical detector), taste
+(anti-slop: no glassmorphism-everywhere, shape/contrast locks), ui-ux-pro-max
+(design-system search + pre-delivery checklist: contrast, focus, reduced-motion).
+
+- `StatCard` gained an `href` prop: linked cards render Next `Link` with the
+  existing `kpi-stat-card--interactive` tactile physics + focus ring + an
+  `aria-label` (`stat-card.jsx`). Admin cards now navigate: open requests →
+  `/reservations/queue`, scheduled → `/dispatch`, in-progress/completed →
+  `/trips`; System Admin cards → `/settings/users`, sessions →
+  `/settings/security`.
+- Admin Operational Attention is now three-state: danger treatment only while a
+  real count exists, success-calm when all zeros, neutral while feeds resolve
+  (previously always danger-styled, a false alarm on a healthy operation).
+  Cells use severity-tinted icon chips with `aria-label`s; ping dots only on
+  real issues (`role-dashboard.jsx` AdminDashboard).
+- System Admin failure banner lost its 4px colored `border-left` (craft-floor
+  ban) in favor of a tinted icon chip + `role="alert"`.
+- `DistributionMeter` bar is now `role="img"` with a text summary; decorative
+  segments are `aria-hidden` (legend already carries the numbers).
+- One authored entrance moment: `RoleDashboard` root wraps in the existing
+  `PageEntrance` fade-up (reduced-motion collapses via `MotionConfig`).
+- Fleet health + Workforce coverage upgraded from stacked-bar meters to
+  `DonutMeter` (recharts donut + center total + text legend; hex fills from
+  `chart-tokens.js`, tooltips in the repo's `--sf`/`--br` style, animation gated
+  on `prefers-reduced-motion`, neutral ring + total when empty). Incident risk
+  deliberately stays bars — its counts overlap, so a donut would lie; rows
+  gained severity icon chips + larger tabular values instead
+  (`role-dashboard.jsx`).
+- Verified: eslint clean on both touched files; `/dashboard`,
+  `/settings/users`, `/settings/users/new` all 200 with no compile errors;
+  impeccable detector reports 7 advisories, all pre-existing off-ramp type
+  sizes on untouched lines; full suite 487 passed, 5 failed in
+  `final-verification.test.js` (DB-dependent, fails identically on the clean
+  tree — unrelated).
+- Role panel reshuffle (2026-09-04): Fleet health + Workforce coverage moved to
+  the dispatcher dashboard (after the stat cards, actions point at the
+  role-admitted `/dispatch/availability` — never `/fleet/vehicles`, which
+  forbids dispatcher). Admin replacements are oversight-only: Request pipeline
+  funnel (Pending→Scheduled→Assigned→In Progress→Completed/Cancelled + neutral
+  Other bucket; Assigned is info blue and In Progress a deepened blue — no
+  black slices) and Document compliance (Expired / Due ≤30d / Due 31–90d /
+  computed Valid remainder, labeled as tracked remainder). Admin stopped
+  fetching `vehicles`/`driverStats` (`dashboard-configs.js` + layout tokens
+  updated; config test green).
+- Role primary-question round (2026-09-04): dispatcher opens with a Needs-attention
+  strip (needs assignment · unassigned departing ≤30 min · reassignment · delayed
+  running trips via `tripProgress().overdue`) + a Next-departures panel (assigned
+  runs + unassigned requests in time order, live 60s-tick countdown chips,
+  Smart-match badge from the existing snapshot fields, Unassigned fallback
+  badge; order is attention → KPI cards → departures; urgent rows carry
+  danger/warning washes, severity-tinted time, and assignment icon chips).
+  4th stat card is now Departing ≤30 min (resource-pulse card removed as
+  donut-duplicated). Fleet Manager gained a readiness strip (ready x/y vehicles,
+  covered pairings, leave) + a Utilization & workload panel (lightest-used
+  vehicles + hardest-working drivers from the utilization/performance reports —
+  newly fetched, matrix-allowed). System Admin banner now also surfaces push-outbox
+  failures and 24h failed sign-ins (counters added to sysadmin-only
+  `system/activity`; no new endpoint). Management gets MoM trend chips on trips +
+  cost (client math over existing `monthlyData`, null-safe like analytics).
+  Fixed a live crash found en route: `executive/page.js` used an unimported
+  `DistributionMeter` (now a named export of `role-dashboard.jsx`).
+- Dispatcher streamlining (2026-09-04): Pickup-timeline panel removed (fully
+  duplicated by Next departures); Priority queue + Trips in motion now share one
+  equal-column grid (`xl:grid-cols-2`); orphaned `timeline` derivation and
+  `Clock3` import deleted.
+- Dispatcher donuts name their exceptions (2026-09-04): blocked plates
+  (maintenance/decommissioned) and blocked drivers (suspended/on-leave) render
+  as max-3 chips + "+N more", each linking to the availability board; healthy
+  slices stay counts-only. Required adding the drivers-list fetch to the
+  dispatcher config (matrix already allowed `drivers: read`).
+- Smart filter defaults (2026-09-04): fuel registry lands Pending when review
+  work exists else All; reservation queue lands on the first non-empty tab in
+  Today → Upcoming → Assigned → In Progress (archive tabs never greet). Both
+  use fetch-tab-first + deferred-override steering (no TDZ, no set-state-in-
+  effect, polls never yank a manual pick).
+- Per-role viz unification (2026-09-04): Fleet Manager's Document compliance,
+  Workforce exceptions, and Fuel request status meters became `DonutMeter`s
+  (each gained the panel action its meter lacked); Management's Fleet activity
+  state + Service reliability meters became `DonutMeter`s (fills from
+  `chart-tokens.js`, no black slices). System Admin posture lists disabled
+  accounts as name + status chips; Admin compliance donut names expired units
+  as plate + document-type chips. Donuts remain partitions-only — overlapping
+  counts (incident risk) stay bars everywhere.
+
+## Known remaining gaps (post-waves)
 - Per-device web session history isn't tracked (security page explains honestly).
 - Email delivery (reset links, notification email/push channels) still not implemented — UI copy no longer claims otherwise.
 - Trips list lacks a Guest column because `TRIPS_LIST_SELECT` doesn't expose request/guest fields (backend change required).
 - Dispatch reassign conflicts arrive as plain strings from `PUT /api/dispatch/[id]` (no structured `conflicts[]`) — inline rendering handles both shapes today.
+
+### Security password live-validation elevation (2026-09-05)
+
+Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restraint: no new colors, no decoration), ui-ux-pro-max (inline-validation + error-clarity + focus-management guidance). File: `src/app/(dashboard)/settings/security/page.js`. No validation logic touched — `securitySchema` and `lib/validation/helpers` unchanged.
+
+- Segmented **strength meter** (5 segments, Weak danger → Fair warning → Good info → Strong success) rendering only once typing starts; value announced via `aria-live="polite"`, bars `aria-hidden`.
+- Checklist refined: bordered surface card, semibold met rows in `success-700`, icon swap in a fixed-size slot (no layout shift), `motion-reduce` respected.
+- 72-byte technical cap moved to **progressive disclosure**: row appears only past 64 bytes or on violation, with a live byte counter.
+- Live **confirm-match hint** ("Passwords match." / "Passwords do not match yet.") mirroring the submit validator.
+- Verified: focused ESLint clean.

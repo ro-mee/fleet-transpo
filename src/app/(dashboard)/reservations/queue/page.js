@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -18,6 +18,7 @@ import {
   setRequestFlags,
 } from "@/services/transport.service";
 import { QUEUE_TABS } from "@/lib/scheduling/queue-grouping";
+import { smartQueueTab } from "@/lib/scheduling/smart-default-tab";
 import { cn } from "@/lib/utils";
 import {
   CalendarClock,
@@ -65,8 +66,19 @@ const TAB_ACTIVE = {
 export default function UnifiedQueuePage() {
   const queryClient = useQueryClient();
   const { can } = useRoleAccess();
-  const [tab, setTab] = useState("today");
+  // Smart default without render-phase or effect-phase pitfalls: the query
+  // always fetches a concrete tab (override, else Today); counts from any
+  // completed fetch then steer the *override* once via a deferred update, so
+  // the query key follows on the next render. Manual tab clicks win outright.
+  const [tabOverride, setTabOverride] = useState(null); // tab id | null
   const [page, setPage] = useState(1);
+  const steerTimer = useRef(null);
+  const pickTab = (id) => {
+    clearTimeout(steerTimer.current);
+    setTabOverride(id);
+    setPage(1);
+  };
+  const fetchTab = tabOverride ?? "today";
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [assigning, setAssigning] = useState(null);
@@ -108,10 +120,10 @@ export default function UnifiedQueuePage() {
     error,
     refetch,
   } = useQuery({
-    queryKey: ["transport-requests", "unified-queue", tab, page, debouncedSearch],
+    queryKey: ["transport-requests", "unified-queue", fetchTab, page, debouncedSearch],
     queryFn: () =>
       getTransportRequests({
-        tab,
+        tab: fetchTab,
         page,
         pageSize: PAGE_SIZE,
         search: debouncedSearch || undefined,
@@ -124,6 +136,18 @@ export default function UnifiedQueuePage() {
   const total = data?.total || 0;
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const counts = data?.counts?.tabs || {};
+  // Displayed tab: user pick wins; otherwise Today while loading, else the
+  // first non-empty tab in work order (archive tabs never greet).
+  const countsReady = !isLoading && !isError;
+  const smartTab = smartQueueTab(counts, { ready: countsReady });
+  const tab = tabOverride ?? smartTab;
+
+  useEffect(() => {
+    if (tabOverride || !countsReady) return;
+    if (smartTab === "today") return;
+    steerTimer.current = setTimeout(() => setTabOverride(smartTab), 0);
+    return () => clearTimeout(steerTimer.current);
+  }, [tabOverride, countsReady, smartTab]);
 
   // Compact page-number list with ellipses, mirroring the DataTable footer.
   const pageNumbers = useMemo(() => {
@@ -211,7 +235,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => { setTab("today"); setPage(1); }}
+              onClick={() => pickTab("today")}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "today"
@@ -235,7 +259,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => { setTab("upcoming"); setPage(1); }}
+              onClick={() => pickTab("upcoming")}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "upcoming"
@@ -259,7 +283,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => { setTab("inProgress"); setPage(1); }}
+              onClick={() => pickTab("inProgress")}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "inProgress"
@@ -283,7 +307,7 @@ export default function UnifiedQueuePage() {
           return (
             <button
               type="button"
-              onClick={() => { setTab("assigned"); setPage(1); }}
+              onClick={() => pickTab("assigned")}
               className={cn(
                 "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
                 tab === "assigned"
@@ -316,7 +340,7 @@ export default function UnifiedQueuePage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => { setTab(id); setPage(1); }}
+                onClick={() => pickTab(id)}
                 className={cn(
                   "inline-flex items-center gap-2 px-4 h-8 rounded-full text-xs font-bold border transition-all cursor-pointer",
                   active
@@ -380,6 +404,7 @@ export default function UnifiedQueuePage() {
                 ? "Try a different term or clear the search."
                 : "Requests from Booking and active dispatches appear here. Use “Pull from Booking” to fetch new ones."
             }
+            variant={searching ? "filtered" : "waiting"}
             action={
               searching ? (
                 <Button variant="outline" size="sm" onClick={() => setSearch("")}>

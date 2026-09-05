@@ -9,7 +9,7 @@ source:
   - src/lib/scheduling/conflicts.js
   - src/lib/scheduling/dispatch-state.js
   - supabase/migrations/023_dispatch_overlap_guard.sql
-last_verified: 2026-08-15
+last_verified: 2026-09-04
 related: ["[[Reservations]]", "[[Trips]]"]
 ---
 
@@ -156,6 +156,67 @@ with `status: "Available"` but filters out `Suspended` / `On Leave` / `Off Duty`
 manual override was removed 2026-08-18 — it now embeds the shared `AiRecommendationPanel`,
 which renders the engine's eligible pair directly. This mirrors the AI engine, which already
 ranked the whole roster and answered availability by schedule overlap.
+
+## Resource Availability is pair-first — CONFIRMED 2026-09-04
+
+`/dispatch/availability` previously showed separate Drivers | Vehicles status
+tabs — point-in-time labels with no window, so `5 Available vehicles +
+5 Available drivers` read as 5 dispatchable when the pairing rule might allow 2.
+The page is pairs-only (`[ Dispatchable Pairs ]` tabs removed 2026-09-04 —
+separate status lists re-proved misleading, so they were cut instead of kept
+as secondary; individual lookups live on the Fleet/Driver pages), answering
+"which actual vehicle + driver pairs can dispatch in this
+window?"
+
+- **Window is always explicit, never blank.** Default is the full day
+  (`00:00 → 23:59 today`), labeled `Showing dispatchability for today (Sep 4)`
+  — no times. The exact pickup/return picker sits behind an optional
+  `Set exact window` toggle. "Available" without a time context was the
+  original misleading state.
+- **Same hard rules, no new eligibility.** `GET /api/dispatch/availability-pairs`
+  reports hard eligibility per vehicle (capacity, operational status, travel
+  docs/coding, custodial pairing via `resolveVehiclePairing`) plus every
+  overlapping dispatch as `clashes[]` data — never a verdict. Classification
+  happens board-side. Read-only; no migration.
+- **Today mode is day-scoped, exact mode is authoritative — CONFIRMED 2026-09-04.**
+  The full-day default window could never fit inside a shift, so shift
+  containment + schedule load always zeroed the board. Today-mode (`mode=today`)
+  now answers "valid working day?" only: approved leave, schedule-exists
+  (fail-closed), rest day — via new pure `driverDayEligibility`
+  (`src/lib/scheduling/day-eligibility.js`), with the shift span returned as
+  `duty_window` for display ("Duty: 6:00 AM–10:00 PM"). `driver-schedule.js`
+  has zero edits; `pair-scoring.js` gained opt-in `dayScope` (default false —
+  assign, recommendation, and dashboard callers byte-identical). Exact mode
+  (`mode=exact`, the default for unknown callers) keeps load + containment +
+  overlap strictness untouched. Timed leave touching the day blocks the
+  overview (no silent partial availability).
+- **Today mode = overview, exact-window mode = authoritative check.** Today:
+  `Clear Schedule Today` (hard-ok, 0 trips) / `Has Trips Today` (hard-ok, 1+
+  trips, upcoming-first sort, full trip chips) / `Blocked` (hard blocker wins
+  over trips, always). Exact window: `Ready` / `Blocked`, overlap legitimately
+  blocks. "Clear Schedule Today" wording + helper text keep it from reading as
+  a dispatch guarantee.
+- **Blocked cards carry trips as secondary, collapsed context.** `Blocked ·
+  Needs Attention` badge + `<details>` warning (`N scheduled trips today — may
+  be affected`, never "requires reassignment") expanding to per-trip chips, so
+  a dispatcher sees affected trips (e.g. maintenance + 6 PM dispatch) without
+  card clutter. Hard reason + primary action stay primary.
+- **Blocked reasons are mandatory + actionable.** Each blocked pair carries the
+  engine's reason string plus `action { label, href }`: no substitute →
+  `/fleet/assignments?vehicle=X`; maintenance / docs / coding → respective
+  record. Leave/schedule blocks have no override. Overlap in exact-mode links
+  to `/dispatch`.
+- **Individual tabs removed, not demoted.** Kept-as-secondary still presented
+  status lists as an answer to "what can I dispatch?" — cut entirely.
+  Registration/insurance and leave detail live on the Fleet/Driver pages.
+- **Long lists paginated at 8/page** (Has-trips + Blocked). Page resets on
+  window/filter change.
+- **Request prefill via query params** (`request_number, passengers, category,
+  requested_capacity, pickup_at, return_at`): shows which pairs fulfill one
+  request in its window; `requested_capacity|passengers` becomes `min_capacity`.
+  Header badge/description switch per mode (Today Overview vs exact window).
+  Source: `src/app/api/dispatch/availability-pairs/route.js`,
+  `src/components/dispatch/pair-availability-board.jsx`.
 
 ## What I learned
 

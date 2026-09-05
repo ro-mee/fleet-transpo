@@ -111,7 +111,8 @@ export default function DriverVehiclePage() {
                 icon={CarFront}
                 title="No vehicle assigned"
                 description="Your assigned vehicle and its inspection status will appear here."
-                className="py-8"
+                variant="waiting"
+                size="compact"
               />
             )}
           </CardContent>

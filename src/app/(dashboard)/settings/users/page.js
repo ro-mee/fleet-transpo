@@ -24,7 +24,6 @@ import { rolesFor } from "@/lib/auth/permissions";
 // in the Drivers directory). Admins can review roles and disable/enable
 // accounts. Disabling soft-deletes the employee row, which is what actually
 // blocks login (auth checks deleted_at IS NULL).
-// blocks login (auth checks deleted_at IS NULL).
 const columnHelper = createColumnHelper();
 
 export default function UsersPage() {
@@ -77,7 +76,6 @@ export default function UsersPage() {
       setTarget(null);
       queryClient.invalidateQueries({ queryKey: ["staff-users"] });
     },
-    onError: (e) => toast.error(e.message || "Failed to update account"),
     onError: (e) => toast.error(e.message || "Failed to update account"),
   });
 
@@ -257,6 +255,7 @@ export default function UsersPage() {
           }
           emptyTitle={rows.length === 0 ? "No staff accounts yet" : "No accounts match"}
           emptyDescription={rows.length === 0 ? "Create the first staff account to grant dashboard access." : "Try a different name, email or filter."}
+          emptyVariant={rows.length === 0 ? "first-run" : "filtered"}
           emptyAction={
             rows.length === 0 ? (
               <Link href="/settings/users/new">

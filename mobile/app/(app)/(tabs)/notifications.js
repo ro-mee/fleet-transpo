@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useNotificationFeed } from "../../../context/notification-feed";
 import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
 import { SkeletonCard } from "../../../components/ui";
@@ -179,7 +179,9 @@ export default function NotificationsTab() {
           </>
         ) : notifications.length === 0 ? (
           <View style={styles.emptyBox}>
-            <Ionicons name="notifications-off-outline" size={48} color={colors.outline} />
+            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "success").bg }]}>
+              <Ionicons name="notifications-off-outline" size={24} color={statusColorForTone(colors, "success").fg} />
+            </View>
             <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All Caught Up</Text>
             <Text style={[type.bodyMd, styles.emptyText, { color: colors.onSurfaceVariant }]}>
               No notifications at this time.
@@ -251,6 +253,7 @@ const styles = StyleSheet.create({
     marginBottom: moderateScale(4),
   },
   emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(8) },
+  emptyTile: { width: moderateScale(52), height: moderateScale(52), borderRadius: moderateScale(16), alignItems: "center", justifyContent: "center" },
   emptyTitle: { },
   emptyText: { textAlign: "center" },
   notifCard: {

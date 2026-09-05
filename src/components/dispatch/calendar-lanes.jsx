@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { format, isSameDay } from "date-fns";
 import { CalendarEvent } from "@/components/dispatch/calendar-event";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { dayPosition, onDay, packColumns } from "@/lib/scheduling/calendar";
 import { cn } from "@/lib/utils";
 import { CarFront, Clock, Search, Users, X } from "lucide-react";
@@ -157,6 +160,8 @@ export function LaneGrid({
   const isVehicle = mode === "vehicle";
   const [filterQuery, setFilterQuery] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const { can } = useRoleAccess();
+  const canAdd = isVehicle ? can("vehicles", "create") : can("drivers", "create");
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 60_000);
@@ -231,6 +236,16 @@ export function LaneGrid({
           isVehicle
             ? "Add a vehicle to the fleet to see its timeline lane."
             : "Add a driver to see their timeline lane."
+        }
+        variant="first-run"
+        action={
+          canAdd ? (
+            <Button variant="outline" size="sm" asChild>
+              <Link href={isVehicle ? "/fleet/vehicles/new" : "/drivers/new"}>
+                {isVehicle ? "Add vehicle" : "Add driver"}
+              </Link>
+            </Button>
+          ) : undefined
         }
       />
     );

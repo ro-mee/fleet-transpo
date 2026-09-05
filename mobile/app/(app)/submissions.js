@@ -361,9 +361,9 @@ export default function SubmissionsScreen() {
             <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
               <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Records Found</Text>
+            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
             <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
-              Your submitted logs will appear here.
+              Submitted fuel, inspection, and expense logs will appear here.
             </Text>
           </View>
         ) : (

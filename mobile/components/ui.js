@@ -9,7 +9,8 @@ import {
   View,
 } from "react-native";
 import { useTheme } from "../lib/theme-context";
-import { fonts, radius, space, TOUCH_TARGET } from "../lib/theme";
+import { fonts, radius, space, statusColorForTone, TOUCH_TARGET } from "../lib/theme";
+import { Ionicons } from "@expo/vector-icons";
 
 /**
  * MD3 shared primitives for the driver app. Every component derives its colour
@@ -422,15 +423,36 @@ export function Detail({ label, value, mono = false }) {
   );
 }
 
+/** Empty-state variant → restrained tone. Calm by default; relief earns a
+ * success tint, blocked a warning tint. Mirrors the web EmptyState grammar. */
+const EMPTY_VARIANT_TONE = {
+  "first-run": "neutral",
+  filtered: "neutral",
+  relief: "success",
+  waiting: "neutral",
+  blocked: "warning",
+};
+
 /** Empty states say what happened and what to do next. */
-export function EmptyState({ title, message, action }) {
+export function EmptyState({ title, message, action, icon, variant, tone, eyebrow }) {
   const { colors, type } = useTheme();
+  const resolved = tone || EMPTY_VARIANT_TONE[variant] || "neutral";
+  const palette = statusColorForTone(colors, resolved);
   return (
     <Card style={styles.empty}>
-      <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainer }]}>
-        <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 28 }]} />
-        <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 18 }]} />
-      </View>
+      {icon ? (
+        <View style={[styles.emptyTile, { backgroundColor: palette.bg }]}>
+          <Ionicons name={icon} size={22} color={palette.fg} />
+        </View>
+      ) : (
+        <View style={[styles.emptyMark, { backgroundColor: colors.surfaceContainer }]}>
+          <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 28 }]} />
+          <View style={[styles.emptyBar, { backgroundColor: colors.outlineVariant, width: 18 }]} />
+        </View>
+      )}
+      {eyebrow ? (
+        <Text style={[styles.emptyEyebrow, { color: colors.onSurfaceVariant }]}>{eyebrow}</Text>
+      ) : null}
       <Text style={[type.cardTitle, { color: colors.onSurface, textAlign: "center" }]}>{title}</Text>
       <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, textAlign: "center" }]}>{message}</Text>
       {action}
@@ -639,6 +661,8 @@ export const styles = StyleSheet.create({
   bodyText: { fontSize: 14, lineHeight: 21, fontFamily: fonts.body },
   cardTitle: { fontFamily: fonts.display, fontSize: 16, lineHeight: 22 },
   empty: { alignItems: "center", gap: space.md, paddingVertical: space.xl },
+  emptyTile: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  emptyEyebrow: { fontSize: 11, lineHeight: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 1.2, textTransform: "uppercase" },
   emptyMark: { alignItems: "center", gap: 4, padding: space.base, borderRadius: radius.control, marginBottom: space.xs },
   emptyBar: { height: 3, borderRadius: 2 },
   emptyTitle: { fontSize: 16, lineHeight: 21, fontFamily: fonts.bodySemiBold, textAlign: "center" },

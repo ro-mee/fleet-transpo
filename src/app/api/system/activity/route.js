@@ -11,7 +11,8 @@ import { requirePermission, ok, handleError } from "@/lib/api/utils";
  *
  * Response:
  *   recent    — last 20 entries (integration_log + automation_logs), newest first
- *   counters  — integration ok / failed counts (last 24h), automation ok/failed
+ *   counters  — integration ok / failed counts (last 24h), automation ok/failed,
+ *               push outbox failed/pending, failed web+mobile logins (last 24h)
  */
 export async function GET(req) {
   try {
@@ -37,7 +38,10 @@ export async function GET(req) {
         (SELECT COUNT(*)::int FROM integration_log WHERE status = 'processed' AND created_at >= NOW() - INTERVAL '24 hours') AS integration_ok,
         (SELECT COUNT(*)::int FROM automation_logs WHERE status = 'failed' AND executed_at >= NOW() - INTERVAL '24 hours') AS automation_failed,
         (SELECT COUNT(*)::int FROM automation_logs WHERE status = 'success' AND executed_at >= NOW() - INTERVAL '24 hours') AS automation_ok,
-        (SELECT COUNT(*)::int FROM notifications WHERE created_at >= NOW() - INTERVAL '24 hours') AS notifications_24h`
+        (SELECT COUNT(*)::int FROM notifications WHERE created_at >= NOW() - INTERVAL '24 hours') AS notifications_24h,
+        (SELECT COUNT(*)::int FROM push_outbox WHERE status = 'error') AS push_failed,
+        (SELECT COUNT(*)::int FROM push_outbox WHERE status = 'pending') AS push_pending,
+        (SELECT COUNT(*)::int FROM audit_logs WHERE action = 'login_failure' AND created_at >= NOW() - INTERVAL '24 hours') AS login_failed_24h`
     );
 
     const recent = [...integration, ...automation]

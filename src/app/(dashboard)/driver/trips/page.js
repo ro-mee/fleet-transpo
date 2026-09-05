@@ -136,6 +136,7 @@ export default function DriverTripsPage() {
                   searchPlaceholder="Search trips..."
                   emptyTitle="No trips found"
                   emptyDescription="Trips will appear here once your dispatcher schedules you."
+                  emptyVariant="waiting"
                   isLoading={isLoading}
                 />
               </CardContent>

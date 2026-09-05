@@ -85,6 +85,8 @@ export default function CardsPage() {
         title="Active Cards"
         icon={CreditCard}
         emptyTitle="No company cards found"
+        emptyDescription="Issue the first company card to track fleet fuel spending."
+        emptyVariant="first-run"
         searchable={false}
       />
     </div>

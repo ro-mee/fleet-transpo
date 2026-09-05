@@ -52,7 +52,7 @@ export const NAV_ROLES = {
   "/tracking/live-map": ["admin", "system_admin", "fleet_manager", "dispatcher"],
   "/tracking/history": ["admin", "system_admin", "fleet_manager", "dispatcher", "management"],
   "/routes": ["admin", "system_admin", "fleet_manager", "dispatcher"],
-  "/fuel": ["admin", "system_admin", "fleet_manager", "driver"],
+  "/fuel": ["admin", "system_admin", "fleet_manager"],
   "/fuel/analytics": ["admin", "system_admin", "fleet_manager", "management"],
   "/maintenance": ["admin", "system_admin", "fleet_manager"],
   "/maintenance/predictive": ["admin", "system_admin", "fleet_manager"],

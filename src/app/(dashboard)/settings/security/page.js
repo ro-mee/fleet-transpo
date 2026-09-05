@@ -58,8 +58,7 @@ const securitySchema = {
   },
 };
 
-function PasswordField({ id, name, label, value, onChange, visible, onToggle, inputRef, autoComplete, invalid, describedBy, help, error }) {
-  return (
+function PasswordField({ id, name, label, value, onChange, visible, onToggle, inputRef, autoComplete, invalid, describedBy, help, error }) {  return (
     <div className="space-y-2">
       <label htmlFor={id} className="text-sm text-foreground-secondary">{label}</label>
       <div className="relative">
@@ -88,6 +87,81 @@ function PasswordField({ id, name, label, value, onChange, visible, onToggle, in
       {help && <p id={`${id}-help`} className="text-xs text-foreground-muted">{help}</p>}
       {error && <p id={`${id}-error`} role="alert" className="text-xs text-danger">{error}</p>}
     </div>
+  );
+}
+
+// The five user-facing rules (the 72-byte cap is technical — validated always,
+// surfaced only when the input gets long enough to matter).
+const CORE_REQUIREMENTS = [
+  { label: "At least 8 characters", valid: (v) => v.length >= 8 },
+  { label: "A lowercase letter", valid: hasPasswordLowercase },
+  { label: "An uppercase letter", valid: hasPasswordUppercase },
+  { label: "A number", valid: hasPasswordNumber },
+  { label: "A special character", valid: hasPasswordSpecial },
+];
+
+function utf8Length(value) {
+  try {
+    return new TextEncoder().encode(value).length;
+  } catch {
+    return value.length;
+  }
+}
+
+const STRENGTH_META = {
+  1: { label: "Weak", bar: "bg-danger", text: "text-danger-700" },
+  2: { label: "Weak", bar: "bg-danger", text: "text-danger-700" },
+  3: { label: "Fair", bar: "bg-warning", text: "text-warning-700" },
+  4: { label: "Good", bar: "bg-info", text: "text-info-700" },
+  5: { label: "Strong", bar: "bg-success", text: "text-success-700" },
+};
+
+// Segmented strength meter. Renders only once the user starts typing; the
+// value is announced politely, the bars themselves are decorative.
+function PasswordStrength({ value }) {
+  if (!value) return null;
+  const score = CORE_REQUIREMENTS.filter((r) => r.valid(value)).length;
+  const meta = STRENGTH_META[score] || STRENGTH_META[1];
+  return (
+    <div aria-live="polite">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-foreground-secondary">Password strength</p>
+        <p className={cn("text-xs font-bold tabular-nums", meta.text)}>{meta.label}</p>
+      </div>
+      <div className="mt-2 flex gap-1.5" aria-hidden="true">
+        {CORE_REQUIREMENTS.map((r, i) => (
+          <span
+            key={r.label}
+            className={cn(
+              "h-1 flex-1 rounded-full transition-colors duration-200 motion-reduce:transition-none",
+              i < score ? meta.bar : "bg-border"
+            )}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Live confirm-match hint. Mirrors the submit validator without replacing it.
+function ConfirmMatchHint({ password, confirm }) {
+  if (!confirm) return null;
+  const match = password === confirm;
+  return (
+    <p
+      aria-live="polite"
+      className={cn(
+        "flex items-center gap-1.5 text-xs font-medium transition-colors duration-200 motion-reduce:transition-none",
+        match ? "text-success-700" : "text-danger-700"
+      )}
+    >
+      {match ? (
+        <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      ) : (
+        <AlertCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      )}
+      {match ? "Passwords match." : "Passwords do not match yet."}
+    </p>
   );
 }
 
@@ -145,14 +219,12 @@ export default function SecurityPage() {
   const newPasswordError = fieldError("newPassword");
   const confirmPasswordError = fieldError("confirmPassword");
 
-  const passwordRequirements = [
-    { label: "8 or more characters", valid: form.newPassword.length >= 8 },
-    { label: "A lowercase letter", valid: hasPasswordLowercase(form.newPassword) },
-    { label: "An uppercase letter", valid: hasPasswordUppercase(form.newPassword) },
-    { label: "A number", valid: hasPasswordNumber(form.newPassword) },
-    { label: "A special character", valid: hasPasswordSpecial(form.newPassword) },
-    { label: "No more than 72 UTF-8 bytes", valid: isPasswordByteLengthAllowed(form.newPassword) },
-  ];
+  const passwordRequirements = CORE_REQUIREMENTS.map(({ label, valid }) => ({ label, valid: valid(form.newPassword) }));
+  const byteLen = utf8Length(form.newPassword);
+  // Progressive disclosure: the byte cap only earns a row when the input is
+  // long enough to plausibly hit it (or already violates it).
+  const showByteRule = form.newPassword.length > 0 && (byteLen > 64 || !isPasswordByteLengthAllowed(form.newPassword));
+  const byteValid = isPasswordByteLengthAllowed(form.newPassword);
 
   useEffect(() => {
     let cancelled = false;
@@ -313,8 +385,27 @@ export default function SecurityPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <PasswordField id="currentPassword" name="currentPassword" label="Current Password" value={form.currentPassword} onChange={handleChange} visible={visibility.currentPassword} onToggle={() => toggleVisibility("currentPassword")} inputRef={registerField("currentPassword")} autoComplete="current-password" invalid={currentPasswordError.invalid} describedBy={currentPasswordError.error ? "currentPassword-help currentPassword-error" : "currentPassword-help"} help="Required to confirm this change." error={currentPasswordError.error} />
               <PasswordField id="newPassword" name="newPassword" label="New Password" value={form.newPassword} onChange={handleChange} visible={visibility.newPassword} onToggle={() => toggleVisibility("newPassword")} inputRef={registerField("newPassword")} autoComplete="new-password" invalid={newPasswordError.invalid} describedBy={newPasswordError.error ? "password-requirements newPassword-error" : "password-requirements"} error={newPasswordError.error} />
-              <ul id="password-requirements" aria-label="Password requirements" className="grid grid-cols-1 gap-x-4 gap-y-1 rounded-lg border border-border bg-hover/30 p-3 text-xs text-foreground-muted sm:grid-cols-2">{passwordRequirements.map(({ label, valid }) => <li key={label} className={cn("flex items-center gap-1.5", valid && "text-success-700")}>{valid ? <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5 shrink-0" /> : <Circle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}<span>{label}</span></li>)}</ul>
+              <PasswordStrength value={form.newPassword} />
+              <ul id="password-requirements" aria-label="Password requirements" className="grid grid-cols-1 gap-x-4 gap-y-2 rounded-xl border border-border/70 bg-surface p-4 shadow-xs sm:grid-cols-2">
+                {passwordRequirements.map(({ label, valid }) => (
+                  <li key={label} className={cn("flex items-center gap-2 transition-colors duration-200 motion-reduce:transition-none", valid ? "text-success-700" : "text-foreground-muted")}>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                      {valid ? <CheckCircle2 className="h-4 w-4" /> : <Circle className="h-3.5 w-3.5" />}
+                    </span>
+                    <span className={cn("text-xs", valid ? "font-semibold" : "font-medium")}>{label}</span>
+                  </li>
+                ))}
+                {showByteRule && (
+                  <li className={cn("flex items-center gap-2 sm:col-span-2 transition-colors duration-200 motion-reduce:transition-none", byteValid ? "text-foreground-muted" : "text-danger-700")}>
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center" aria-hidden="true">
+                      {byteValid ? <Circle className="h-3.5 w-3.5" /> : <AlertCircle className="h-4 w-4" />}
+                    </span>
+                    <span className="text-xs font-medium tabular-nums">Within 72 characters ({byteLen} used)</span>
+                  </li>
+                )}
+              </ul>
               <PasswordField id="confirmPassword" name="confirmPassword" label="Confirm New Password" value={form.confirmPassword} onChange={handleChange} visible={visibility.confirmPassword} onToggle={() => toggleVisibility("confirmPassword")} inputRef={registerField("confirmPassword")} autoComplete="new-password" invalid={confirmPasswordError.invalid} describedBy={confirmPasswordError.error ? "confirmPassword-error" : undefined} error={confirmPasswordError.error} />
+              <ConfirmMatchHint password={form.newPassword} confirm={form.confirmPassword} />
               <div className="flex flex-col items-start gap-2 pt-1"><Button type="submit" disabled={saving}>{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Lock className="mr-2 h-4 w-4" />}{saving ? "Updating..." : "Update Password"}</Button><p className="text-xs text-foreground-muted">Updating your password revokes existing web and mobile sessions.</p></div>
             </form>
           </CardContent>

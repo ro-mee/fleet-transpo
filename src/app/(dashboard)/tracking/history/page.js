@@ -167,6 +167,7 @@ export default function TrackingHistoryPage() {
             searchPlaceholder="Search trip ID, vehicle, origin, destination..."
             emptyTitle="No completed trips found"
             emptyDescription="Completed trips will appear here with their route and tracking data."
+            emptyVariant="waiting"
             isLoading={isLoading}
             onRowClick={(row) => {
               if (row?.trip_id) router.push(`/trips/${row.trip_id}`);

@@ -327,6 +327,7 @@ export default function MaintenancePage() {
           icon={TriangleAlert}
           title="Could not load maintenance records"
           description={error?.message || "Something went wrong reading the maintenance register."}
+          tone="danger"
           action={<Button onClick={() => refetch()} className="rounded-2xl text-xs font-bold mt-2">Try again</Button>}
         />
       </div>

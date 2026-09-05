@@ -17,10 +17,14 @@ import {
   ChevronsUpDown,
   ChevronLeft,
   ChevronRight,
-  TableProperties,
+  Inbox,
   Search,
+  SearchX,
+  TableProperties,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
 import { TableSkeleton } from "@/components/ui/skeleton";
 
 export function DataTable({
@@ -48,6 +52,15 @@ export function DataTable({
   stickyFirstColumn = false,
   getRowLabel,
   emptyAction,
+  emptySecondaryAction,
+  emptyVariant,
+  emptyIcon,
+  emptySize = "comfortable",
+  // When true the empty cell switches to the `filtered` variant with recovery
+  // instead of a creation CTA. Defaults to whether a search query is active,
+  // so tables get filtered-vs-first-run differentiation for free.
+  isFiltered,
+  onResetFilters,
   tableClassName,
 }) {
   const searchInputId = useId();
@@ -274,12 +287,30 @@ export function DataTable({
                   })
                 ) : (
                   <tr>
-                    <td colSpan={columns.length} className="px-5 py-16">
-                      <div className="text-center space-y-1">
-                        <p className="text-sm font-bold text-foreground">{emptyTitle}</p>
-                        <p className="text-xs text-foreground-secondary">{emptyDescription}</p>
-                        {emptyAction && <div className="pt-4 flex justify-center">{emptyAction}</div>}
-                      </div>
+                    <td colSpan={columns.length} className="px-5 py-4">
+                      {(() => {
+                        const queryActive = String(globalFilter ?? "").trim().length > 0;
+                        const showFiltered = isFiltered ?? queryActive;
+                        const canClear = onResetFilters ?? (!isControlled ? () => setGlobalFilter("") : undefined);
+                        return (
+                          <EmptyState
+                            icon={emptyIcon ?? (showFiltered ? SearchX : Inbox)}
+                            title={emptyTitle}
+                            description={emptyDescription}
+                            action={emptyAction}
+                            secondaryAction={
+                              emptySecondaryAction ??
+                              (showFiltered && canClear ? (
+                                <Button variant="outline" size="sm" onClick={canClear}>
+                                  Clear search
+                                </Button>
+                              ) : undefined)
+                            }
+                            variant={emptyVariant ?? (showFiltered ? "filtered" : undefined)}
+                            size={emptySize}
+                          />
+                        );
+                      })()}
                     </td>
                   </tr>
                 )}

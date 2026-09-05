@@ -191,7 +191,9 @@ export function ReservationTimeline({ requestId, className, limit }) {
           <EmptyState
             icon={History}
             title="No events yet"
-            description="Activity appears here as the request moves through review, assignment, and the trip itself."
+            description="Activity appears here as the request moves through scheduling, assignment, and the trip itself."
+            variant="waiting"
+            size="compact"
           />
         ) : (
           <>

@@ -208,7 +208,7 @@ export function AttendanceCard({ attendance = [] }) {
 
         {attendance.length === 0 ? (
           <div className="flex-1 flex flex-col justify-center">
-            <EmptyState icon={Fingerprint} title="No attendance records" description="Your check-in / check-out records will appear here." className="py-8" />
+            <EmptyState icon={Fingerprint} title="No attendance records" description="Your check-in / check-out records will appear here." variant="waiting" size="compact" />
           </div>
         ) : view === "list" ? (
           <div className="flex flex-col flex-1">

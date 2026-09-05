@@ -55,8 +55,11 @@ Authorization therefore lives in the application, in four layers:
 | Feature gating | `can(employee, resource, action)` | Conditionally renders action buttons. |
 
 The last two decide what the UI *offers*. They are convenience, not protection:
-`useRequireRole()` redirects from a `useEffect`, so a restricted page can flash
-before the redirect. The API check is what actually stops a request.
+`useRequireRole()` redirects from a `useEffect`, so a wrong-role page can flash
+its access-restricted panel before the redirect — but a logged-out visit never
+flashes dashboard chrome: `DashboardLayout` withholds the shell until a session
+exists and the guard renders null while the `/login` redirect is in flight.
+The API check is what actually stops a request.
 
 `scripts/verify-rbac.mjs` asserts the UI matrix and the live lifecycle behavior
 agree. Matrix-backed route guards no longer carry a second role-list copy, so a
@@ -198,5 +201,7 @@ esbuild permission error, but `--configLoader runner` runs the retained suite at
 - The inert RLS migrations are still in the tree. Removing them is a judgement
   call between reference value and the confusion of shipping policies that do
   nothing.
-- `useRequireRole()`'s post-render redirect flash (§2).
+- `useRequireRole()`'s post-render redirect flash for wrong-role sessions (§2).
+  Logged-out visits no longer flash: `/` redirects server-side and deep routes
+  render shell-less null while the `/login` redirect is in flight (2026-09-05).
 - A driver can render `/dashboard` (§4).

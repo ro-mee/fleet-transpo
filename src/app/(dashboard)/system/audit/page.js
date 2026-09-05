@@ -359,7 +359,8 @@ export default function SystemAuditPage() {
               icon={ShieldCheck}
               title="No audit entries found"
               description="Tracked system mutations will appear here as actions are executed."
-              className="py-16"
+              variant="waiting"
+              size="compact"
             />
           ) : (
             <div className="divide-y divide-border/60">

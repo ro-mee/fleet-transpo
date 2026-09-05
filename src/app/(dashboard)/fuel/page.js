@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { MotionConfig, motion } from "framer-motion";
 import { useQuery, keepPreviousData, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,8 +14,10 @@ import { createColumnHelper } from "@tanstack/react-table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
+  getFuelRecord,
   getFuelRecords,
   getFuelAllocations,
   getFuelRequests,
@@ -22,8 +25,9 @@ import {
   saveFuelAllocation,
   updateFuelRecord,
   updateFuelStatus,
-  deleteFuelRecord,
 } from "@/services/fuel.service";
+import { apiFetch } from "@/lib/api/client";
+import { useRoleAccess } from "@/hooks/use-role-access";
 import { formatDate, formatCurrency, cn } from "@/lib/utils";
 import {
   Fuel,
@@ -32,13 +36,9 @@ import {
   XCircle,
   Clock,
   Eye,
-  Pencil,
-  Archive,
-  ZoomIn,
   Loader2,
   FileText,
   AlertTriangle,
-  MapPin,
   User,
   Truck,
   ClipboardList,
@@ -47,11 +47,12 @@ import {
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { exportToCSV } from "@/lib/export";
-import { toast, ToastAction } from "@/components/ui/toast";
+import { toast } from "@/components/ui/toast";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
 import { LIMITS } from "@/lib/validation";
 import { fuelTypeMismatch } from "@/lib/fuel/request-policy";
+import { smartFuelTab } from "@/lib/scheduling/smart-default-tab";
 import { ReceiptVerificationModal } from "@/components/fuel/receipt-verification-modal";
 import { RejectClaimDialog } from "@/components/fuel/reject-claim-dialog";
 import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
@@ -91,9 +92,26 @@ function requestReviewFacts(request) {
 export default function FuelPage() {
   useRequireRole();
   const queryClient = useQueryClient();
+  const { can } = useRoleAccess();
+  // Drivers never reach this console (NAV_ROLES), but the actions stay gated
+  // so a deep link can never expose review/configure controls.
+  const canReviewRequests = can("fuel_requests", "review");
+  const canReviewRecords = can("fuel", "update");
+  const canConfigure = can("fuelallocations", "update");
 
-  const [activeTab, setActiveTab] = useState("Pending"); // 'Pending' | 'Approved' | 'Rejected' | 'all'
+  // Smart default without render-phase or effect-phase pitfalls: the query
+  // always fetches a concrete tab (override, else Pending); counts from any
+  // completed fetch then steer the *override* once via a deferred update, so
+  // the query key follows on the next render. Manual pill picks win outright.
+  const [tabOverride, setTabOverride] = useState(null); // 'Pending' | 'Approved' | 'Rejected' | 'all' | null
   const [page, setPage] = useState(1);
+  const steerTimer = useRef(null);
+  const pickTab = (tab) => {
+    clearTimeout(steerTimer.current);
+    setTabOverride(tab);
+    setPage(1);
+  };
+  const fetchTab = tabOverride ?? "Pending";
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState([]);
@@ -111,7 +129,6 @@ export default function FuelPage() {
   const [inspectRecord, setInspectRecord] = useState(null);
   const [zoomReceiptUrl, setZoomReceiptUrl] = useState(null);
   const [editRecord, setEditRecord] = useState(null);
-  const [archivingRecord, setArchivingRecord] = useState(null);
   const [approvingRecord, setApprovingRecord] = useState(null);
   const [exporting, setExporting] = useState(false);
   const [reviewRequest, setReviewRequest] = useState(null);
@@ -131,15 +148,16 @@ export default function FuelPage() {
   const { validate: validateEdit, fieldError: editFieldError, registerField: registerEditField } = useFormValidation(editFuelSchema);
 
   // The status tab maps to a server-side `status` param. "all" = no filter.
-  const statusParam = activeTab === "all" ? undefined : activeTab;
+  const statusParam = fetchTab === "all" ? undefined : fetchTab;
 
   // Fetch a page of fuel records. Filtering/sorting/pagination now happen on the
   // server; the API returns `{ rows, total, counts }` for the table + stat cards.
   const {
     data = { rows: [], total: 0, counts: { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 } },
     isLoading,
+    isError,
   } = useQuery({
-    queryKey: ["fuel-records", { page, activeTab, search, sort }],
+    queryKey: ["fuel-records", { page, tab: fetchTab, search, sort }],
     queryFn: () =>
       getFuelRecords({
         page,
@@ -156,6 +174,19 @@ export default function FuelPage() {
   const records = data.rows || [];
   const total = data.total || 0;
   const counts = data.counts || { total: 0, pending: 0, approved: 0, rejected: 0, approvedCost: 0 };
+  const countsReady = !isLoading && !isError;
+  // Displayed tab: user pick wins; otherwise Pending while loading or when
+  // review work exists, All when healthy-but-nonempty. Steering the override
+  // (deferred, once) pulls the query key along — polls never yank it after.
+  const activeTab =
+    tabOverride ?? smartFuelTab(counts, { ready: countsReady });
+
+  useEffect(() => {
+    if (tabOverride || !countsReady) return;
+    if (!(counts.total > 0 && !(counts.pending > 0))) return;
+    steerTimer.current = setTimeout(() => setTabOverride("all"), 0);
+    return () => clearTimeout(steerTimer.current);
+  }, [tabOverride, countsReady, counts.total, counts.pending]);
 
   const { data: requestData = { rows: [], counts: {} }, isLoading: requestsLoading } = useQuery({
     queryKey: ["fuel-requests"],
@@ -171,13 +202,42 @@ export default function FuelPage() {
   });
   const fuelAllocations = allocationData.rows || [];
 
+  // Flagged transactions + per-vehicle efficiency for the Needs-review section
+  // (ported from the retired fleet/fuel page; same month-defaulted endpoint).
+  const { data: exceptionData, isLoading: exceptionsLoading } = useQuery({
+    queryKey: ["fuel-exceptions"],
+    queryFn: () => apiFetch("/api/admin/analytics/fuel"),
+    refetchInterval: 30_000,
+  });
+  const exceptions = exceptionData?.exceptions || [];
+  const [inspectingException, setInspectingException] = useState(false);
+
+  // An exception row is a projection, not a full record — load the complete
+  // row (vehicles/drivers/scan joins) so the verification studio gets everything.
+  const openExceptionReview = async (exception) => {
+    setInspectingException(true);
+    try {
+      const full = await getFuelRecord(exception.fuel_record_id);
+      setInspectRecord(full);
+    } catch (e) {
+      toast.error(e.message || "Could not load the fuel record.");
+    } finally {
+      setInspectingException(false);
+    }
+  };
+
   // Export needs the whole (filtered) set, not just the current page.
   const handleExport = async () => {
+    if (!total) {
+      toast.error("Nothing to export for the current filter.");
+      return;
+    }
     setExporting(true);
     try {
       const all = await getFuelRecords({
         status: statusParam,
         search: search || undefined,
+        pageSize: total,
       });
       exportToCSV(all || [], "fuel-receipt-claims", [
         { label: "Refuel Date", key: "fuel_date" },
@@ -203,6 +263,7 @@ export default function FuelPage() {
     onSuccess: (_, variables) => {
       toast.success(`Fuel record ${variables.status.toLowerCase()} successfully`);
       queryClient.invalidateQueries({ queryKey: ["fuel-records"] });
+      queryClient.invalidateQueries({ queryKey: ["fuel-exceptions"] });
       setInspectRecord(null);
       setApprovingRecord(null);
       setRejectDialogOpen(false);
@@ -216,19 +277,10 @@ export default function FuelPage() {
     onSuccess: () => {
       toast.success("Fuel record updated successfully");
       queryClient.invalidateQueries({ queryKey: ["fuel-records"] });
+      queryClient.invalidateQueries({ queryKey: ["fuel-exceptions"] });
       setEditRecord(null);
     },
     onError: (err) => toast.error(err.message || "Failed to update fuel record"),
-  });
-
-  const archiveMutation = useMutation({
-    mutationFn: (id) => deleteFuelRecord(id),
-    onSuccess: () => {
-      toast.success("Fuel record archived successfully");
-      queryClient.invalidateQueries({ queryKey: ["fuel-records"] });
-      setArchivingRecord(null);
-    },
-    onError: (err) => toast.error(err.message || "Failed to archive record"),
   });
 
   const reviewRequestMutation = useMutation({
@@ -311,13 +363,48 @@ export default function FuelPage() {
     saveAllocationMutation.mutate({ vehicle_id: configureAllocation.vehicle_id, ...values });
   };
 
+  // Overview cards switch the visible table (assignments-module pattern):
+  // one section shown at a time, nothing hidden behind scroll. The pills stay
+  // the registry's only status filter.
+  const [overviewTab, setOverviewTab] = useState("registry"); // 'budget' | 'permits' | 'review' | 'registry'
+
   // Stats come from the server-side counts (whole set, not the current page).
   const pendingCount = counts.pending;
   const approvedCount = counts.approved;
   const rejectedCount = counts.rejected;
-  const totalCost = counts.approvedCost;
+  const configuredBudgets = fuelAllocations.filter((row) => row.allocation_id).length;
+  const unconfiguredBudgets = fuelAllocations.length - configuredBudgets;
+  const totalAllocated = fuelAllocations.reduce((sum, row) => sum + (Number(row.allocated_liters) || 0), 0);
+  const overBudget = fuelAllocations.filter((row) => {
+    const alloc = Number(row.allocated_liters) || 0;
+    if (!(alloc > 0)) return false;
+    return (Number(row.consumed_liters) || 0) + (Number(row.committed_liters) || 0) > alloc;
+  }).length;
 
   const reviewFacts = reviewRequest ? requestReviewFacts(reviewRequest) : null;
+
+  const handleApprove = (rec) => {
+    updateStatusMutation.mutate({ id: rec.fuel_record_id, status: "Approved" });
+  };
+
+  const openRejectPrompt = (rec) => {
+    setTargetRejectRecord(rec);
+    setRejectionReason("");
+    resetRejectValidation();
+    setRejectDialogOpen(true);
+  };
+
+  const handleOpenEdit = (rec) => {
+    setEditRecord(rec);
+    setEditForm({
+      station_name: rec.station_name || "",
+      liters: rec.liters != null ? String(rec.liters) : "",
+      amount: rec.amount != null ? String(rec.amount) : "",
+      price_per_liter: rec.price_per_liter != null ? String(rec.price_per_liter) : "",
+      odometer: rec.odometer != null ? String(rec.odometer) : "",
+      fuel_date: rec.fuel_date ? String(rec.fuel_date).substring(0, 10) : "",
+    });
+  };
 
   const columns = [
     {
@@ -413,7 +500,7 @@ export default function FuelPage() {
               </Button>
             </Tooltip>
 
-            {isPending && (
+            {isPending && canReviewRecords && (
               <>
                 <Tooltip content="Approve">
                   <Button
@@ -507,9 +594,13 @@ export default function FuelPage() {
       header: () => <div className="text-right">Action</div>,
       cell: (info) => (
         <div className="text-right">
-          <Button size="sm" variant="outline" onClick={() => openAllocationSetup(info.row.original)}>
-            <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Configure
-          </Button>
+          {canConfigure ? (
+            <Button size="sm" variant="outline" onClick={() => openAllocationSetup(info.row.original)}>
+              <Settings2 className="mr-1.5 h-3.5 w-3.5" /> Configure
+            </Button>
+          ) : (
+            <span className="text-xs text-foreground-muted">—</span>
+          )}
         </div>
       ),
     }),
@@ -582,7 +673,11 @@ export default function FuelPage() {
         return (
           <div className="text-right">
             {req.status === "Pending" ? (
-              <Button size="sm" onClick={() => openRequestReview(req)}>Review</Button>
+              canReviewRequests ? (
+                <Button size="sm" onClick={() => openRequestReview(req)}>Review</Button>
+              ) : (
+                <span className="text-xs text-foreground-muted">Pending review</span>
+              )
             ) : (
               <span className="text-xs text-foreground-muted">Reviewed</span>
             )}
@@ -591,17 +686,6 @@ export default function FuelPage() {
       },
     }),
   ];
-
-  const handleApprove = (rec) => {
-    updateStatusMutation.mutate({ id: rec.fuel_record_id, status: "Approved" });
-  };
-
-  const openRejectPrompt = (rec) => {
-    setTargetRejectRecord(rec);
-    setRejectionReason("");
-    resetRejectValidation();
-    setRejectDialogOpen(true);
-  };
 
   const handleRejectConfirm = () => {
     if (!targetRejectRecord) return;
@@ -618,18 +702,6 @@ export default function FuelPage() {
       }
     );
     if (!isValid) return;
-  };
-
-  const handleOpenEdit = (rec) => {
-    setEditRecord(rec);
-    setEditForm({
-      station_name: rec.station_name || "",
-      liters: rec.liters != null ? String(rec.liters) : "",
-      amount: rec.amount != null ? String(rec.amount) : "",
-      price_per_liter: rec.price_per_liter != null ? String(rec.price_per_liter) : "",
-      odometer: rec.odometer != null ? String(rec.odometer) : "",
-      fuel_date: rec.fuel_date ? String(rec.fuel_date).substring(0, 10) : "",
-    });
   };
 
   const handleEditSubmit = (e) => {
@@ -661,15 +733,6 @@ export default function FuelPage() {
     if (!isValid) return;
   };
 
-  const TONE_MAP = {
-    primary:   { bg: 'bg-slate-500/10',   border: 'border-slate-500/30',   icon: 'bg-slate-500/15 text-slate-500',   dot: 'bg-slate-500',   text: 'text-slate-600 dark:text-slate-400' },
-    success:   { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', icon: 'bg-emerald-500/15 text-emerald-500', dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-    warning:   { bg: 'bg-amber-500/10',   border: 'border-amber-500/30',   icon: 'bg-amber-500/15 text-amber-500',   dot: 'bg-amber-500',   text: 'text-amber-600 dark:text-amber-400' },
-    danger:    { bg: 'bg-red-500/10',     border: 'border-red-500/30',     icon: 'bg-red-500/15 text-red-500',       dot: 'bg-red-500',     text: 'text-red-600 dark:text-red-400' },
-    info:      { bg: 'bg-blue-500/10',    border: 'border-blue-500/30',    icon: 'bg-blue-500/15 text-blue-500',     dot: 'bg-blue-500',    text: 'text-blue-600 dark:text-blue-400' },
-    secondary: { bg: 'bg-zinc-500/10',    border: 'border-zinc-500/30',    icon: 'bg-zinc-500/15 text-zinc-500',     dot: 'bg-zinc-500',    text: 'text-zinc-600 dark:text-zinc-400' },
-  };
-
   return (
     <div className="space-y-6">
       {/* ── Page Header ── */}
@@ -691,7 +754,74 @@ export default function FuelPage() {
         }
       />
 
-      {/* ── Metric Cards ── */}
+      {/* ── View tabs: sliding-pill switcher ── */}
+      <MotionConfig reducedMotion="user">
+      <div className="flex items-center gap-1 overflow-x-auto rounded-2xl border border-border/60 bg-surface p-1.5 shadow-xs" role="tablist" aria-label="Fuel tables">
+        {[
+          { key: "registry", label: "Registry", icon: Fuel },
+          { key: "budget", label: "Monthly Budget", icon: Gauge },
+          { key: "permits", label: "Permits", icon: ClipboardList, count: requestsLoading ? null : requestData.counts?.pending || 0 },
+        ].map((tab) => {
+          const selected = overviewTab === tab.key;
+          const Icon = tab.icon;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setOverviewTab(tab.key)}
+              className={cn("relative flex h-11 flex-1 items-center justify-center whitespace-nowrap rounded-xl px-4 text-xs font-bold cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary", !selected && "hover:bg-hover")}
+            >
+              {selected && (
+                <motion.span
+                  layoutId="fuel-tab-pill"
+                  className="absolute inset-0 rounded-xl bg-primary shadow-xs"
+                  transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                />
+              )}
+              <span className={cn("relative flex items-center gap-2 transition-colors", selected ? "text-white dark:text-slate-950" : "text-foreground-secondary")}>
+                <Icon className="h-4 w-4" />
+                {tab.label}
+                {tab.count != null && tab.count > 0 && (
+                  <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums", selected ? "bg-white/20 text-white dark:text-slate-950" : "bg-warning/10 border border-warning/25 text-warning-700")}>
+                    {tab.count}
+                  </span>
+                )}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      </MotionConfig>
+
+      {overviewTab === "budget" && (
+        <StatGrid cols={4}>
+          <StatCard icon={Gauge} label="Configured" value={allocationsLoading ? "—" : configuredBudgets} valueNote={allocationsLoading ? undefined : `of ${fuelAllocations.length}`} trend="Vehicles with a monthly limit set" tone="primary" />
+          <StatCard icon={Gauge} label="Unconfigured" value={allocationsLoading ? "—" : unconfiguredBudgets} trend="Vehicles missing a monthly limit" tone={unconfiguredBudgets ? "warning" : "neutral"} />
+          <StatCard icon={Fuel} label="Total Allocated" value={allocationsLoading ? "—" : `${totalAllocated.toLocaleString()} L`} trend="Sum of monthly limits this period" tone="info" />
+          <StatCard icon={AlertTriangle} label="Over Budget" value={allocationsLoading ? "—" : overBudget} trend="Used + committed above the limit" tone={overBudget ? "danger" : "neutral"} />
+        </StatGrid>
+      )}
+      {overviewTab === "permits" && (
+        <StatGrid cols={4}>
+          <StatCard icon={Clock} label="Pending" value={requestsLoading ? "—" : requestData.counts?.pending || 0} trend="Requests awaiting review" tone="warning" />
+          <StatCard icon={CheckCircle2} label="Approved" value={requestsLoading ? "—" : requestData.counts?.approved || 0} trend="Authorized, awaiting logging" tone="info" />
+          <StatCard icon={Fuel} label="Fulfilled" value={requestsLoading ? "—" : requestData.counts?.fulfilled || 0} trend="Logged against the permit" tone="success" />
+          <StatCard icon={XCircle} label="Rejected" value={requestsLoading ? "—" : requestData.counts?.rejected || 0} trend="Declined requests" tone="neutral" />
+        </StatGrid>
+      )}
+      {overviewTab === "registry" && (
+        <StatGrid cols={4}>
+          <StatCard icon={Fuel} label="Total Submissions" value={counts.total} trend="All receipt records in filter" tone="primary" />
+          <StatCard icon={Clock} label="Pending Audit" value={pendingCount} trend="Records awaiting verification" tone="warning" />
+          <StatCard icon={CheckCircle2} label="Approved Expense" value={formatCurrency(counts.approvedCost)} trend="Verified spend in filter" tone="success" />
+          <StatCard icon={XCircle} label="Rejected" value={rejectedCount} trend="Declined claims" tone="neutral" />
+        </StatGrid>
+      )}
+
+      {/* ── Monthly Budget ── */}
+      {overviewTab === "budget" && (
       <DataTable
         columns={allocationColumns}
         data={fuelAllocations}
@@ -707,14 +837,17 @@ export default function FuelPage() {
           </Badge>
         }
         emptyTitle="No active vehicles found"
+        emptyDescription="Activate a vehicle to configure its monthly fuel allocation."
       />
+      )}
 
+      {overviewTab === "permits" && (
       <DataTable
         columns={requestColumns}
         data={fuelRequests}
         isLoading={requestsLoading}
-        title="Fuel Requests & Allocation History"
-        description="Recommendations cover the vehicle's next 24 hours and refill toward a safe operating level."
+        title="Fuel Requests (Permits)"
+        description="Permits authorize fuel before the pump — recommendations cover the next 24 hours toward a safe level."
         icon={ClipboardList}
         searchable={false}
         pageSize={5}
@@ -724,138 +857,95 @@ export default function FuelPage() {
           </Badge>
         }
         emptyTitle="No fuel requests yet"
+        emptyDescription="Permits will appear here once drivers submit fuel requests."
       />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {(() => {
-          const t = TONE_MAP.primary;
-          const isActive = activeTab === "all";
-          return (
-            <button
-              type="button"
-              onClick={() => { setActiveTab("all"); setPage(1); }}
-              className={cn(
-                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
-                isActive
-                  ? cn(t.border, t.bg, "shadow-md")
-                  : "border-border/60 bg-surface hover:shadow-sm hover:border-primary/40"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2 mt-1">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Total Submissions</span>
-                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Fuel className="w-4 h-4" /></div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{counts.total}</div>
-              </div>
-            </button>
-          );
-        })()}
-
-        {(() => {
-          const t = TONE_MAP.warning;
-          const isActive = activeTab === "Pending";
-          return (
-            <button
-              type="button"
-              onClick={() => { setActiveTab("Pending"); setPage(1); }}
-              className={cn(
-                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
-                isActive
-                  ? cn(t.border, t.bg, "shadow-md")
-                  : "border-border/60 bg-surface hover:shadow-sm hover:border-warning/40"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2 mt-1">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Pending Audit</span>
-                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><Clock className="w-4 h-4" /></div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{pendingCount}</div>
-              </div>
-            </button>
-          );
-        })()}
-
-        {(() => {
-          const t = TONE_MAP.success;
-          const isActive = activeTab === "Approved";
-          return (
-            <button
-              type="button"
-              onClick={() => { setActiveTab("Approved"); setPage(1); }}
-              className={cn(
-                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
-                isActive
-                  ? cn(t.border, t.bg, "shadow-md")
-                  : "border-border/60 bg-surface hover:shadow-sm hover:border-success/40"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2 mt-1">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Approved Expense</span>
-                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><CheckCircle2 className="w-4 h-4" /></div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{formatCurrency(totalCost)}</div>
-              </div>
-            </button>
-          );
-        })()}
-
-        {(() => {
-          const t = TONE_MAP.danger;
-          const isActive = activeTab === "Rejected";
-          return (
-            <button
-              type="button"
-              onClick={() => { setActiveTab("Rejected"); setPage(1); }}
-              className={cn(
-                "relative p-4 rounded-3xl border-2 transition-all duration-200 text-left flex flex-col justify-between gap-3 cursor-pointer select-none overflow-hidden",
-                isActive
-                  ? cn(t.border, t.bg, "shadow-md")
-                  : "border-border/60 bg-surface hover:shadow-sm hover:border-danger/40"
-              )}
-            >
-              <div className="flex items-start justify-between gap-2 mt-1">
-                <span className="text-[11px] font-bold text-foreground-secondary uppercase tracking-wider leading-tight">Rejected</span>
-                <div className={cn("p-2 rounded-2xl shrink-0", t.icon)}><XCircle className="w-4 h-4" /></div>
-              </div>
-              <div>
-                <div className="text-3xl font-bold text-foreground font-data leading-none">{rejectedCount}</div>
-              </div>
-            </button>
-          );
-        })()}
-      </div>
+      )}
 
       {/* ── Status Filter Tabs & Table ── */}
+      {overviewTab === "registry" && (
+      <>
+      {exceptions.length > 0 && (
+      <Card className="border-warning/25 bg-warning/5 shadow-xs rounded-3xl overflow-hidden">
+        <CardHeader className="pb-3 border-b border-warning/20">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-[15px] font-semibold text-foreground tracking-tight flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-warning-700" /> Needs review
+              </CardTitle>
+              <p className="mt-1 text-xs leading-relaxed text-foreground-secondary">
+                Automated checks flagged these records — they stay out of verified totals until a human clears them.
+              </p>
+            </div>
+            <Badge variant="warning" className="rounded-full shrink-0">
+              {exceptionsLoading ? "…" : `${exceptions.length} flagged`}
+            </Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {exceptionsLoading ? (
+            <p className="px-5 py-8 text-center text-sm text-foreground-muted">Checking records for anomalies…</p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {exceptions.map((ex) => (
+                <div key={ex.fuel_record_id} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="font-data text-sm font-bold text-foreground">{ex.plate_number || "Unknown vehicle"}</p>
+                    <p className="mt-0.5 text-xs text-foreground-secondary tabular-nums">
+                      {ex.fuel_date ? formatDate(ex.fuel_date) : "—"} · {ex.liters} L · {formatCurrency(ex.amount)}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {ex.flags?.price_anomaly && <span className="rounded-full bg-warning/10 border border-warning/25 px-2 py-0.5 text-[11px] font-bold text-warning-700">Price anomaly</span>}
+                      {ex.flags?.driver_edited && <span className="rounded-full bg-info/10 border border-info/25 px-2 py-0.5 text-[11px] font-bold text-info-700">Driver edited</span>}
+                      {ex.flags?.fuel_type_mismatch && <span className="rounded-full bg-danger/10 border border-danger/25 px-2 py-0.5 text-[11px] font-bold text-danger-700">Type mismatch</span>}
+                      {ex.flags?.possible_duplicate && <span className="rounded-full bg-warning/10 border border-warning/25 px-2 py-0.5 text-[11px] font-bold text-warning-700">Possible duplicate</span>}
+                    </div>
+                  </div>
+                  {canReviewRecords && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      disabled={inspectingException}
+                      onClick={() => openExceptionReview(ex)}
+                    >
+                      <Eye className="mr-1.5 h-3.5 w-3.5" /> {inspectingException ? "Loading…" : "Review"}
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
       <Card className="border-0 shadow-xs rounded-3xl overflow-hidden">
         <CardHeader className="pb-3.5 border-b border-border/60 bg-muted/20 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-2 overflow-x-auto">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground-muted shrink-0">Filter</span>
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Pending" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => { setActiveTab("Pending"); setPage(1); }}
+              onClick={() => pickTab("Pending")}
             >
               <Clock className="w-3.5 h-3.5 mr-1.5" /> Pending Review ({pendingCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Approved" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => { setActiveTab("Approved"); setPage(1); }}
+              onClick={() => pickTab("Approved")}
             >
               <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Approved ({approvedCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "Rejected" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => { setActiveTab("Rejected"); setPage(1); }}
+              onClick={() => pickTab("Rejected")}
             >
               <XCircle className="w-3.5 h-3.5 mr-1.5" /> Rejected ({rejectedCount})
             </button>
 
             <button
               className={cn('px-4 h-8 flex items-center justify-center rounded-full text-xs font-bold border transition-all cursor-pointer whitespace-nowrap', activeTab === "all" ? 'bg-primary text-white dark:text-slate-950 border-primary' : 'bg-surface border-border/60 text-foreground-secondary hover:border-primary/40')}
-              onClick={() => { setActiveTab("all"); setPage(1); }}
+              onClick={() => pickTab("all")}
             >
               All Records ({counts.total})
             </button>
@@ -884,6 +974,8 @@ export default function FuelPage() {
           />
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* ── CONFIGURE MONTHLY ALLOCATION MODAL ── */}
       <ConfigureAllocationDialog
@@ -1293,16 +1385,6 @@ export default function FuelPage() {
         }}
       />
 
-      {/* ── ARCHIVE CONFIRMATION DIALOG ── */}
-      <ConfirmDialog
-        open={!!archivingRecord}
-        onOpenChange={(open) => { if (!open) setArchivingRecord(null); }}
-        title={`Archive Fuel Record #${archivingRecord?.fuel_record_id}?`}
-        message="This record will be archived and hidden from active fleet reports."
-        confirmLabel="Archive Record"
-        variant="archive"
-        onConfirm={() => { if (archivingRecord) archiveMutation.mutate(archivingRecord.fuel_record_id); }}
-      />
     </div>
   );
 }

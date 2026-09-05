@@ -9,6 +9,7 @@ import {
 } from "@/lib/ai/rule-engine";
 import { RISK } from "@/lib/ai/predictive-maintenance";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
+import { driverDayEligibility } from "@/lib/scheduling/day-eligibility";
 
 /**
  * Fleet-Pair Recommendation Engine — scores vehicle+driver as ONE unit.
@@ -134,12 +135,16 @@ export function hasSubstituteForDate(vehicleId, date, substitutes) {
  * @param {object} driver candidate driver row (with _schedule_load if computed)
  * @param {Date} [now]
  * @param {object} [window] { pickup, returnAt, scheduleContext }
- * @returns {{ unavailable: boolean, reason: string|null }}
+ * @param {object} [opts] { dayScope } — dayScope answers "valid working day?"
+ *   (leave / schedule-exists / rest day only) instead of the exact-window
+ *   verdict (schedule load + shift/break containment). Opt-in; default false
+ *   keeps every existing caller byte-identical.
+ * @returns {{ unavailable: boolean, reason: string|null, duty: object|null }}
  */
-export function isDriverUnavailableFor(driver, now = new Date(), window) {
+export function isDriverUnavailableFor(driver, now = new Date(), window, opts = {}) {
   const status = driver?.driver_status;
   if (UNAVAILABLE_STATUSES.has(status)) {
-    return { unavailable: true, reason: `Driver is ${status}.` };
+    return { unavailable: true, reason: `Driver is ${status}.`, duty: null };
   }
 
   const licenseDays = daysUntil(driver?.license_expiry, now);
@@ -147,18 +152,36 @@ export function isDriverUnavailableFor(driver, now = new Date(), window) {
     return {
       unavailable: true,
       reason: `Driver's license expired ${Math.abs(licenseDays)} day(s) ago.`,
+      duty: null,
     };
   }
 
-  const load = Number(driver?._schedule_load);
-  if (Number.isFinite(load) && load > 0) {
-    return {
-      unavailable: true,
-      reason: `Driver already has ${load} dispatch(es) in this window.`,
-    };
+  // Day-scope skips BOTH exact-trip schedule signals: the window load (a trip
+  // today is schedule activity for the overview, not unavailability) and the
+  // shift/break containment below (a full-day window can never fit a shift).
+  if (!opts.dayScope) {
+    const load = Number(driver?._schedule_load);
+    if (Number.isFinite(load) && load > 0) {
+      return {
+        unavailable: true,
+        reason: `Driver already has ${load} dispatch(es) in this window.`,
+        duty: null,
+      };
+    }
   }
 
   if (window?.pickup && driver?.driver_id != null) {
+    if (opts.dayScope) {
+      const day = driverDayEligibility({
+        driverId: driver.driver_id,
+        date: window.pickup,
+        ctx: window.scheduleContext,
+      });
+      if (day.blocked) {
+        return { unavailable: true, reason: day.reason, duty: null };
+      }
+      return { unavailable: false, reason: null, duty: day.duty };
+    }
     const block = driverBlockReason({
       driverId: driver.driver_id,
       pickup: window.pickup,
@@ -166,11 +189,11 @@ export function isDriverUnavailableFor(driver, now = new Date(), window) {
       ctx: window.scheduleContext,
     });
     if (block?.blocked) {
-      return { unavailable: true, reason: block.reason };
+      return { unavailable: true, reason: block.reason, duty: null };
     }
   }
 
-  return { unavailable: false, reason: null };
+  return { unavailable: false, reason: null, duty: null };
 }
 
 /**
@@ -232,8 +255,12 @@ export const PAIRING_KIND = {
  * @param {Array} params.activeSubstitutes day-scoped substitute schedules
  * @param {Map<number, object>} params.driverById  full driver rows by id
  * @param {Date} [params.now]
+ * @param {boolean} [params.dayScope] — today-overview mode: the driver check
+ *   answers "valid working day?" (leave / schedule-exists / rest day) instead
+ *   of the exact-window verdict. Opt-in; default false keeps every existing
+ *   caller byte-identical. Successful results carry `duty_window` then.
  * @returns {{ ok:boolean, kind:string, driver:object|null, designated:object|null,
- *             reason:string|null }}
+ *             reason:string|null, duty_window:object|null }}
  */
 export function resolveVehiclePairing({
   vehicleId,
@@ -244,17 +271,19 @@ export function resolveVehiclePairing({
   now = new Date(),
   returnAt,
   scheduleContext,
+  dayScope = false,
 }) {
   const designated = resolveDesignatedDriver(vehicleId, activePairs, driverById);
   const window = { pickup: pickupDate, returnAt, scheduleContext };
+  const opts = { dayScope };
 
   if (designated) {
-    const unavail = isDriverUnavailableFor(designated, now, window);
+    const unavail = isDriverUnavailableFor(designated, now, window, opts);
     if (!unavail.unavailable) {
       // Rule 1: the intact pairing is the only offer. No substitute is
       // considered while the custodian can drive, and no unrelated driver is
       // ever offered alongside them.
-      return { ok: true, kind: PAIRING_KIND.DESIGNATED, driver: designated, designated, reason: null };
+      return { ok: true, kind: PAIRING_KIND.DESIGNATED, driver: designated, designated, reason: null, duty_window: unavail.duty ?? null };
     }
 
     const subId = resolveSubstituteForDate(vehicleId, pickupDate, activeSubstitutes);
@@ -283,7 +312,7 @@ export function resolveVehiclePairing({
 
     // Rule 7: being the booked substitute is not enough — they are validated
     // for this dispatch exactly as the custodian was.
-    const subUnavail = isDriverUnavailableFor(substitute, now, window);
+    const subUnavail = isDriverUnavailableFor(substitute, now, window, opts);
     if (subUnavail.unavailable) {
       return {
         ok: false,
@@ -300,6 +329,7 @@ export function resolveVehiclePairing({
       driver: substitute,
       designated,
       reason: `${unavail.reason} Substitute assigned for ${dateKey(pickupDate) ?? "this date"}.`,
+      duty_window: subUnavail.duty ?? null,
     };
   }
 
@@ -328,7 +358,7 @@ export function resolveVehiclePairing({
     };
   }
 
-  const subUnavail = isDriverUnavailableFor(substitute, now, window);
+  const subUnavail = isDriverUnavailableFor(substitute, now, window, opts);
   if (subUnavail.unavailable) {
     return {
       ok: false,
@@ -345,6 +375,7 @@ export function resolveVehiclePairing({
     driver: substitute,
     designated: null,
     reason: `Substitute assigned for ${dateKey(pickupDate) ?? "this date"}.`,
+    duty_window: subUnavail.duty ?? null,
   };
 }
 

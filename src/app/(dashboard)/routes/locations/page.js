@@ -203,6 +203,7 @@ export default function LocationsPage() {
         searchPlaceholder="Search location or address..."
         emptyTitle="No canonical locations yet"
         emptyDescription="Add a verified location before creating a reusable route."
+        emptyVariant="first-run"
         emptyAction={canCreate ? <Button onClick={openNew}><Plus className="mr-2 h-4 w-4" />Add location</Button> : null}
         isLoading={locationsQuery.isLoading}
         stickyFirstColumn

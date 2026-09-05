@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
  *
  * Usage:
  *   <QueryBoundary query={myQuery} isEmpty={(d) => !d?.length}
- *     emptyTitle="..." emptyDescription="...">
+ *     emptyTitle="..." emptyDescription="..." emptyVariant="waiting">
  *     {(data) => <MyList data={data} />}
  *   </QueryBoundary>
  *
@@ -32,9 +32,15 @@ export function QueryBoundary({
   skeletonClassName,
   errorTitle = "Couldn't load this data",
   errorDescription = "Something went wrong on our side. Your data is safe — try again.",
-  emptyTitle = "Nothing here yet",
+  emptyTitle = "Nothing to show",
   emptyDescription,
   emptyAction,
+  emptySecondaryAction,
+  emptyIcon,
+  emptyVariant,
+  emptyEyebrow,
+  emptyTone,
+  emptySize,
   className,
 }) {
   const { data, isLoading, isError, refetch, isRefetching } = query || {};
@@ -76,7 +82,18 @@ export function QueryBoundary({
 
   if (isEmpty(data)) {
     return (
-      <EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} className={className} />
+      <EmptyState
+        icon={emptyIcon}
+        title={emptyTitle}
+        description={emptyDescription}
+        action={emptyAction}
+        secondaryAction={emptySecondaryAction}
+        variant={emptyVariant}
+        eyebrow={emptyEyebrow}
+        tone={emptyTone}
+        size={emptySize}
+        className={className}
+      />
     );
   }
 

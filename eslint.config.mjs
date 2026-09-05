@@ -45,6 +45,14 @@ const eslintConfig = defineConfig([
     },
     rules: {
       "no-undef": "error",
+      // TDZ guard: reading a const/let before its declaration throws on every
+      // render but is invisible to curl, SSR shells, and no-undef (shipped on
+      // the fuel console 2026-09-04 — see Bugs.md). Hoisted function
+      // declarations stay legal; classes are excluded because this repo throws
+      // module-level error classes from function bodies that always run after
+      // evaluation. React Native is excluded: StyleSheet-at-file-bottom is the
+      // idiomatic RN pattern and fires 1400+ safe hits.
+      "no-use-before-define": ["error", { functions: false, classes: false, variables: true }],
       // React Compiler diagnostics currently reject established animation and
       // synchronization patterns in both Next and React Native. Keep them
       // visible while making correctness errors the CI-blocking baseline.
@@ -61,6 +69,12 @@ const eslintConfig = defineConfig([
     files: ["mobile/**/*.{js,jsx}"],
     languageOptions: {
       globals: { __DEV__: "readonly" },
+    },
+    rules: {
+      // StyleSheet.create lives at file bottom by RN convention while
+      // components above reference `styles` — safe (components render after
+      // module evaluation) but textually use-before-define. ~1400 hits.
+      "no-use-before-define": "off",
     },
   },
 

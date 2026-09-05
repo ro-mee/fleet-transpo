@@ -459,6 +459,7 @@ export default function DispatchPage() {
             icon={searching ? Search : Inbox}
             title={searching ? "No dispatches match that search" : `Nothing in ${LANES.find((l) => l.id === lane)?.label}`}
             description={searching ? "Try a different term or clear the search." : LANE_EMPTY[lane]}
+            variant={searching ? "filtered" : lane === "pendingReassignment" ? "relief" : "waiting"}
             action={
               searching ? (
                 <Button variant="outline" size="sm" onClick={() => setSearch("")}>

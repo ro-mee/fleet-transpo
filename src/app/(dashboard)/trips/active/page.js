@@ -56,6 +56,8 @@ export default function ActiveTripsPage() {
           icon={Route}
           title="No active trips"
           description="All trips are completed or pending dispatch. Trips show here the moment a dispatch goes in progress."
+          variant="waiting"
+          size="hero"
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

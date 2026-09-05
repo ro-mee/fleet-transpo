@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, Loader2, CheckCircle, XCircle, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CommandPalette } from "@/components/ui/command-palette";
+import { useAuth } from "@/hooks/use-auth";
 import { useRequireRole } from "@/hooks/use-role-access";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { getRequiredRolesForPath } from "@/lib/auth/role-guard";
@@ -113,11 +114,20 @@ function AccessRestrictedPanel() {
 
 function RouteGuard({ pathname, children }) {
   const requiredRoles = getRequiredRolesForPath(pathname);
-  const { authorized, loading } = useRequireRole();
+  const { authorized, loading, missingRole } = useRequireRole();
+  const { employee, user } = useAuth();
+  const router = useRouter();
 
   // Open paths render immediately — no blank flash while the session loads.
   if (requiredRoles.includes("*")) return <>{children}</>;
   if (loading) return null;
+  // Logged out: the redirect to /login is already in flight from
+  // useRequireRole. Render nothing auth-neutral — never the protected tree
+  // (shell-less exposure) and never the access-denied panel (wrong message).
+  if (!employee) return null;
+  // Valid session but no role: role-configuration handling, never /login
+  // (that would loop: login → same session → guard → login).
+  if (missingRole) return <RoleNotConfiguredCard email={user?.email} router={router} />;
   // Explain a denial instead of rendering a silent void while the redirect
   // in useRequireRole fires.
   if (!authorized) return <AccessRestrictedPanel />;
@@ -127,9 +137,23 @@ function RouteGuard({ pathname, children }) {
 export function DashboardLayout({ children }) {
   const { collapsed, peek } = useSidebar();
   const pathname = usePathname();
+  const { employee, loading } = useAuth();
 
   if (authRoutes.includes(pathname)) {
     return <>{children}</>;
+  }
+
+  // Protected route + session loading or logged out: no dashboard shell yet.
+  // The shell (Sidebar + TopNav) only paints for authenticated sessions, so a
+  // logged-out visit never flashes dashboard chrome on the way to /login.
+  // The guard inside redirects logged-out users; render it shell-less rather
+  // than the page tree so nothing protected is briefly exposed.
+  if (loading || !employee) {
+    return (
+      <ErrorBoundary>
+        <RouteGuard pathname={pathname}>{children}</RouteGuard>
+      </ErrorBoundary>
+    );
   }
 
   return (

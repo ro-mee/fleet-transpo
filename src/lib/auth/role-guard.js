@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getRequiredRolesForPath } from "@/lib/auth/permissions";
+import { saveReturnTo } from "@/lib/auth/return-to";
 
 // The permission data and predicates live in ./permissions.js, which imports no
 // React and no next/navigation — so server routes and verification harnesses can
@@ -25,14 +26,25 @@ export function useRequireRole() {
   const requiredRoles = getRequiredRolesForPath(pathname);
   const role = employee?.roles?.role_name;
 
-  const isAuthorized = !loading && (requiredRoles.includes('*') || (role && requiredRoles.includes(role)));
+  const isOpenRoute = requiredRoles.includes("*");
+  // No session (employee is null) is NOT the same as a session with no role.
+  // The latter must surface role-configuration handling, never a /login loop.
+  const missingRole = !loading && !!employee && !role;
+  const isAuthorized = !loading && (isOpenRoute || (role && requiredRoles.includes(role)));
 
   useEffect(() => {
-    if (loading) return;
+    if (loading || isOpenRoute) return;
+    if (!employee) {
+      // Logged out on a protected route: remember where to return, then login.
+      saveReturnTo();
+      router.replace("/login");
+      return;
+    }
+    if (missingRole) return;
     if (!isAuthorized) {
       router.replace(role === 'driver' ? '/driver' : '/dashboard');
     }
-  }, [loading, isAuthorized, router, role]);
+  }, [loading, isOpenRoute, employee, missingRole, isAuthorized, router, role]);
 
-  return { authorized: isAuthorized, role, loading };
+  return { authorized: isAuthorized, role, loading, missingRole };
 }

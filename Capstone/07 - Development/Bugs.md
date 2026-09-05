@@ -42,6 +42,26 @@ Open, verified defects. Each links to a full note with root cause and fix.
 - **Reports compute over empty tables — CONFIRMED, and it is not a code bug.** `/api/reports/financial`, `/fuel-consumption` and `/fleet-cost` all read `fuelrecords`, which has **0 rows**. The code is honest about it: `financial/route.js:15` guards the division (`totalDist ? … : 0`) and `fuel-consumption/route.js:22-30` returns an explicit zeroed shape when there are no records. So the endpoints return real zeros, not fabricated figures. The hazard is one of *presentation*, not correctness — a dashboard of zeros looks like a working system with a quiet month. Phase 4 item 14 (seed realistic data) is the fix. → [[Reports]]
 - **Checked and dismissed:** the `Math.random()` calls in `reservations/new/page.js:126-150` are a **labelled** demo-fill button (`handleRandomFill`, toast: *"Filled mock transport request data!"*). Recorded here so the next person doesn't re-flag it.
 
+## Fixed — 2026-09-04
+
+- **Fuel console TDZ crash (`activeTab` read before declaration).** The smart-default derivation was textually ordered after the query that consumed it — a certain `ReferenceError` on every render in a real browser (invisible to curl/SSR checks and to eslint; caught by auditing declaration order after spotting the pattern). Restructured to fetch-tab-first + deferred override steering, verified by line-order audit on both fuel and queue pages.
+- **Prevention layers landed 2026-09-04:** `no-use-before-define` (variables-only; classes off for the throw-from-function pattern, mobile off for file-bottom `StyleSheet`) is now an eslint error — triage fixed 14 textual hits by pure declaration reordering across fuel, queue, both driver form pages, vehicles form, and one test file (all deferred-execution closures, none live crashes; verified each). Smart-tab decisions extracted to pure `src/lib/scheduling/smart-default-tab.js` with 9 unit tests. Blessed pattern recorded in [[Useful Code Patterns]]. Gate status identical to main (0 errors; same 5 pre-existing warnings in untouched files).
+
+- **`/settings/users/new` 404 on a running dev server (stale route manifest).**
+  The file `src/app/(dashboard)/settings/users/new/page.js` existed and was
+  committed, and guards were clean (`NAV_ROLES` admits `admin`/`system_admin`,
+  `useRequireRole` redirects rather than 404s, no `notFound()` in the tree) —
+  but the live server's router resolved `["", "settings", "users", "new"]` to
+  `/_not-found` (confirmed in the flight data). The server process predated
+  nothing relevant; its in-memory manifest had simply desynced. **Fix:
+  restart `npm run dev`** — fresh process serves both `/settings/users` and
+  `/settings/users/new` at 200 with no compile errors. If a committed route
+  404s in dev, restart before touching code.
+- **Duplicate `onError` key + duplicate comment in `settings/users/page.js`.**
+  `toggleMutation` declared `onError` twice (last-wins, so no behavior change)
+  and the header comment repeated its last line. Removed the duplicates;
+  eslint clean on both users pages.
+
 ## Fixed — 2026-08-20
 
 A sev-1 sweep of the API module (`src/app/api/**/route.js`) closed four defect classes:

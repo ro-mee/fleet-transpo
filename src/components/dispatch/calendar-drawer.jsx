@@ -320,7 +320,7 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs italic text-amber-600 dark:text-amber-400">No driver assigned yet.</p>
+                    <p className="text-xs font-medium text-warning-700">No driver assigned yet.</p>
                   )}
                 </div>
 
@@ -356,7 +356,7 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs italic text-amber-600 dark:text-amber-400">No vehicle assigned yet.</p>
+                    <p className="text-xs font-medium text-warning-700">No vehicle assigned yet.</p>
                   )}
                 </div>
               </div>

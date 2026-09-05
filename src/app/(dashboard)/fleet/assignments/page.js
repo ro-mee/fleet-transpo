@@ -624,6 +624,7 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
         searchPlaceholder="Search pairings by driver or plate..."
         emptyTitle="No active pairings"
         emptyDescription="Assign drivers to vehicles so accountability for fuel, cleanliness, and condition is clear."
+        emptyVariant="first-run"
         isLoading={isLoading}
       />
       <ConfirmDialog
@@ -851,6 +852,7 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
         searchPlaceholder="Search substitute coverage by driver or vehicle..."
         emptyTitle="No substitute schedules"
         emptyDescription="When a designated driver is unavailable, schedule a substitute here so the vehicle stays recommendable."
+        emptyVariant="first-run"
         isLoading={isLoading}
       />
       <ScheduleDialog

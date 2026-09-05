@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { getDriver, deleteDriver, syncDriverAccount, updateDriver } from "@/services/driver.service";
 import { licenseExpired } from "@/lib/drivers/compliance";
 import { DetailSkeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/ui/empty-state";
 import { RenewLicenseDialog } from "@/components/drivers/renew-license-dialog";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
@@ -652,13 +653,13 @@ export default function DriverDetailPage() {
                   )}
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
-                  <div className="w-16 h-16 rounded-full bg-muted/30 flex items-center justify-center">
-                    <Truck className="w-8 h-8 text-foreground-muted/40" />
-                  </div>
-                  <p className="text-sm font-bold text-foreground">No trip history found</p>
-                  <p className="text-xs text-foreground-muted max-w-sm">This driver has not completed any trips yet and has no current assignments.</p>
-                </div>
+                <EmptyState
+                  icon={Truck}
+                  title="No trip history yet"
+                  description="Completed trips and current assignments for this driver will appear here."
+                  variant="waiting"
+                  size="compact"
+                />
               )}
             </CardContent>
           </Card>

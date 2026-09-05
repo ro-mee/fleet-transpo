@@ -259,6 +259,36 @@ describe("buildFleetPairRecommendations", () => {
   });
 });
 
+/** An open-ended substitute booking of `driverId` onto `vehicleId`. */
+const subFor = (vehicleId, driverId) => ({
+  vehicle_id: vehicleId,
+  substitute_driver_id: driverId,
+  effective_from: "2026-08-01",
+  effective_until: null,
+});
+
+/** resolveVehiclePairing over a driver list, so each case reads as data. */
+const pairingFor = ({ drivers = [], pairs = [], subs = [], vehicleId = 1, pickupDate = NOW }) =>
+  resolveVehiclePairing({
+    vehicleId,
+    pickupDate,
+    activePairs: pairs,
+    activeSubstitutes: subs,
+    driverById: new Map(drivers.map((d) => [d.driver_id, d])),
+    now: NOW,
+  });
+
+/** buildFleetPairRecommendations with the fixed clock and a 2-passenger request. */
+const board = ({ vehicles, drivers, pairs = [], subs = [], pickup = NOW }) =>
+  buildFleetPairRecommendations({
+    request: mkRequest({ pickup_datetime: pickup }),
+    vehicles,
+    drivers,
+    activePairs: pairs,
+    activeSubstitutes: subs,
+    now: NOW,
+  });
+
 describe("buildFleetPairRecommendations — AI Fair Workload Distribution", () => {
   it("breaks ties toward the least-loaded designated driver when ETA/readiness are equal", () => {
     const light = mkDriver({ driver_id: 5, _workload_trips_7d: 1, _workload_km_7d: 10, _workload_hours_7d: 0.5 });
@@ -398,36 +428,6 @@ function overlapLoad(bookings, start, end) {
 
 /** A time on the fixed test day (2026-08-04), so nothing depends on the real clock. */
 const at = (h, m = 0) => new Date(2026, 7, 4, h, m, 0);
-
-/** An open-ended substitute booking of `driverId` onto `vehicleId`. */
-const subFor = (vehicleId, driverId) => ({
-  vehicle_id: vehicleId,
-  substitute_driver_id: driverId,
-  effective_from: "2026-08-01",
-  effective_until: null,
-});
-
-/** resolveVehiclePairing over a driver list, so each case reads as data. */
-const pairingFor = ({ drivers = [], pairs = [], subs = [], vehicleId = 1, pickupDate = NOW }) =>
-  resolveVehiclePairing({
-    vehicleId,
-    pickupDate,
-    activePairs: pairs,
-    activeSubstitutes: subs,
-    driverById: new Map(drivers.map((d) => [d.driver_id, d])),
-    now: NOW,
-  });
-
-/** buildFleetPairRecommendations with the fixed clock and a 2-passenger request. */
-const board = ({ vehicles, drivers, pairs = [], subs = [], pickup = NOW }) =>
-  buildFleetPairRecommendations({
-    request: mkRequest({ pickup_datetime: pickup }),
-    vehicles,
-    drivers,
-    activePairs: pairs,
-    activeSubstitutes: subs,
-    now: NOW,
-  });
 
 describe("assignment readiness — vehicle × driver pairing", () => {
   it("TEST 1 — available vehicle, designated driver available → offers that pair", () => {
@@ -708,3 +708,62 @@ describe("assignment readiness — vehicle × driver pairing", () => {
   });
 });
 
+
+describe("dayScope (today-overview interpretation)", () => {
+  // Tuesday 2026-08-04, shift 06:00-22:00 � a full-day review window can never
+  // fit inside it, which is exactly the collision dayScope resolves.
+  const dayCtx = (driverId, row) => ({
+    schedules: new Map([[driverId, new Map([[2, row]])]]),
+    leave: new Map(),
+  });
+  const fullDay = {
+    pickup: new Date(2026, 7, 4, 0, 0, 0),
+    returnAt: new Date(2026, 7, 4, 23, 59, 0),
+  };
+  const shiftRow = {
+    day_of_week: 2, shift_start: "06:00:00", shift_end: "22:00:00",
+    break_start: null, break_end: null, is_rest_day: false,
+  };
+
+  it("ignores schedule load but exact mode still blocks on it", () => {
+    const d = mkDriver({ driver_id: 7, _schedule_load: 2 });
+    const window = { ...fullDay, scheduleContext: dayCtx(7, shiftRow) };
+    const day = isDriverUnavailableFor(d, NOW, window, { dayScope: true });
+    expect(day.unavailable).toBe(false);
+    expect(day.duty).toEqual({ start: "06:00:00", end: "22:00:00" });
+    expect(isDriverUnavailableFor(d, NOW, window).unavailable).toBe(true);
+  });
+
+  it("ignores shift containment but exact mode still enforces it", () => {
+    const d = mkDriver({ driver_id: 7 });
+    const window = { ...fullDay, scheduleContext: dayCtx(7, shiftRow) };
+    expect(isDriverUnavailableFor(d, NOW, window, { dayScope: true }).unavailable).toBe(false);
+    const exact = isDriverUnavailableFor(d, NOW, window);
+    expect(exact.unavailable).toBe(true);
+    expect(exact.reason).toMatch(/Outside work shift/);
+  });
+
+  it("still blocks on status and on missing schedule in dayScope", () => {
+    const susp = mkDriver({ driver_status: DRIVER_STATUS.SUSPENDED });
+    expect(isDriverUnavailableFor(susp, NOW, null, { dayScope: true }).unavailable).toBe(true);
+    const nosched = isDriverUnavailableFor(
+      mkDriver({ driver_id: 7 }), NOW,
+      { ...fullDay, scheduleContext: dayCtx(7, null) }, { dayScope: true }
+    );
+    expect(nosched.unavailable).toBe(true);
+    expect(nosched.reason).toBe("No work schedule configured.");
+  });
+
+  it("resolveVehiclePairing carries duty_window in dayScope", () => {
+    const pairs = [{ driver_id: 7, vehicle_id: 1 }];
+    const byId = new Map([[7, mkDriver({ driver_id: 7 })]]);
+    const r = resolveVehiclePairing({
+      vehicleId: 1, pickupDate: new Date(2026, 7, 4, 0, 0, 0),
+      activePairs: pairs, activeSubstitutes: [], driverById: byId, now: NOW,
+      returnAt: new Date(2026, 7, 4, 23, 59, 0),
+      scheduleContext: dayCtx(7, shiftRow), dayScope: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.duty_window).toEqual({ start: "06:00:00", end: "22:00:00" });
+  });
+});

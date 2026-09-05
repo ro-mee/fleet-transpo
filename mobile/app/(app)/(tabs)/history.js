@@ -225,7 +225,9 @@ export default function TripsTab() {
           </View>
         ) : filtered.length === 0 ? (
           <View style={styles.centered}>
-            <Ionicons name="route" size={48} color={colors.outline} />
+            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
+              <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
             <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
               {activeFilter === "Active" ? "No active trips right now." : "No completed trips yet."}
@@ -269,6 +271,7 @@ const styles = StyleSheet.create({
   filterText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(12) },
   centered: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(12) },
+  emptyTile: { width: moderateScale(52), height: moderateScale(52), borderRadius: moderateScale(16), alignItems: "center", justifyContent: "center" },
   errorText: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24), textAlign: "center" },
   retryBtn: { paddingHorizontal: moderateScale(24), paddingVertical: moderateScale(10), borderRadius: moderateScale(999), borderWidth: 1 },
   retryText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },

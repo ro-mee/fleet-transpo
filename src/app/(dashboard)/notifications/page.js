@@ -106,7 +106,10 @@ export default function NotificationsPage() {
   const uniqueNotifications = useMemo(() => {
     const seen = new Set();
     return (notifications || []).filter((notif) => {
-      const key = `${notif.message}-${notif.title}-${notif.reference_type}-${notif.reference_id}`;
+      // Prefer the stable id: content-key deduping would collapse genuinely
+      // different notifications that happen to share the same text.
+      const key = notif.notification_id
+        ?? `${notif.message}-${notif.title}-${notif.reference_type}-${notif.reference_id}`;
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
@@ -163,6 +166,8 @@ export default function NotificationsPage() {
               icon={Bell}
               title="No notifications"
               description="You're all caught up. Alerts and trip updates will appear here."
+              variant="relief"
+              size="compact"
             />
           ) : (
             <div className="p-3 space-y-3 bg-muted/10">

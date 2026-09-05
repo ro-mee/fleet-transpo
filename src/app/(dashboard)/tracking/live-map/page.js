@@ -403,8 +403,9 @@ export default function LiveMapPage() {
                   <div className="flex h-full items-center justify-center">
                     <EmptyState
                       icon={Navigation}
-                      title="Nothing on the map"
+                      title="No live positions"
                       description="The live map will populate when a trip enters the operational tracking window or a rescue is dispatched."
+                      variant="waiting"
                     />
                   </div>
                 ) : (
