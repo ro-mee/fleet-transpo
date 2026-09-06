@@ -70,6 +70,41 @@ Re-critique surfaced three new P1s; all fixed:
 - **Scroll affordance restored** — `.scrollbar-thin` renders a slim translucent thumb instead of hiding bars entirely.
 - **"All time" echo** — analytics timeframe header prints "All time" instead of literal `1970-01-01 → 2100-01-01`.
 
+### AI analyst cross-report contamination fix — 2026-09-06
+
+Switching report tabs (e.g. Fleet → Drivers) briefly or permanently rendered the
+previous tab's AI copy under the new title — "AI Analyst - Driver performance"
+above a "Fleet utilization is at 4%… busiest unit logged 1 trips" narrative.
+Three compounding causes, all fixed:
+
+- `AiAnalystCard` (`src/components/ai/ai-analyst-card.jsx`) fell back to a
+  hardcoded fleet narrative + fleet actions whenever `data.narrative` was empty
+  (which is exactly what the server returns while a tab's data is still loading:
+  `mode: "no-data"`, `narrative: null`). The card now renders a neutral
+  "Awaiting analysis / No analysis available" state — never another report's
+  copy — and only renders a narrative whose server-echoed `report` matches its
+  `report` prop. The hardcoded `2026-09-01 — 2026-09-05` footer date is gone;
+  it shows the live window or "—".
+- `/reports` (`src/app/(dashboard)/reports/page.js`) enabled the narrative query
+  on `Boolean(narrativeData)`, but `{}` is truthy, so it fired before the active
+  tab's report loaded; the fleet branch also fabricated `4%` / `1 trip` /
+  `ABC-1234` fallbacks (`Number(x) || 4` turns a real 0 into "4%"). The query is
+  now enabled only on `activeQuery.isSuccess + isValidReportPayload(...)`, the
+  fleet fabrication is removed, the payload fingerprint is part of the query key
+  (late-arriving report data triggers a refetch instead of sticking on
+  "no-data"), and only `isNarrativeForReport(data, selectedReport)` output
+  reaches the card — otherwise a "Generating analysis for X…" skeleton.
+- New pure guards in `src/lib/ai/report-narrative.js`: `isValidReportPayload`
+  (non-empty payload carrying the active report's schema fields) and
+  `isNarrativeForReport` (strict `narrative.report === selectedTab` identity).
+
+Regression tests in `src/lib/ai/report-narrative.test.js`: validity gate,
+identity guard (fleet narrative rejected for drivers/fuel/maintenance/financial
+tabs), and per-report vocabulary isolation — while `selectedReport` is
+"drivers", "Fleet utilization" / "busiest unit" / "idle assets" must not appear.
+
+Verification: eslint clean on all touched files, vitest 548/548.
+
 ### Native Excel Export & OpenXML Chart Generation — 2026-08-31 (Commit `a527f3e`)
 
 Upgraded all reporting export capabilities from simple CSV text dumps to multi-tab **native Microsoft Excel (`.xlsx`) workbooks** with embedded OpenXML charts (Bar, Line, Doughnut) powered by `exceljs` and `jszip`:

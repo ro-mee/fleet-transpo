@@ -251,3 +251,100 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   - **Coral "Aa" Badge:** Replaced generic icon with a dedicated `24x24` coral-red squircle badge (`rounded-md bg-rose-500 text-white font-bold text-[11px]`) displaying `"Aa"` centered.
   - **Typography & Accessibility:** Copy `"Caps Lock is on"` set in medium rose font (`text-rose-600 dark:text-rose-400`). Retains `role="status"` and `aria-live="polite"` with decorative elements `aria-hidden="true"` and non-blocking contextual state. Smooth enter/exit transforms with `prefers-reduced-motion` exemption.
 - Verified with `npm run lint:ci` (0 errors, 0 warnings) and Vitest (`533/533 tests passing across 50 suites`).
+
+### Session Expired Notice pixel-level reference refinement (2026-09-06)
+
+- Recreated the Session Expired banner on the login page (`/login?reason=expired`) to match the visual reference screenshot (`media_1788653324824.png`):
+  - **Card Surface & Border:** Warm light peach surface (`bg-[#fff8f3] dark:bg-[#27150a]`) with subtle hairline border (`border border-orange-200/50 dark:border-orange-900/30`), soft rounded corners (`rounded-2xl`), and balanced horizontal padding.
+  - **Left Icon:** Orange circular exclamation icon (`<AlertCircle>` with `h-5 w-5 stroke-[1.8] text-orange-500 dark:text-orange-400`).
+  - **Typography:**
+    - Title: Semibold warm orange `"Your session expired."` (`text-sm font-semibold text-orange-600 dark:text-orange-400`).
+    - Subtitle: Regular warm muted taupe/brown `"Please sign in to resume your work."` (`text-xs text-[#9c7860] dark:text-stone-400`).
+  - **Dismiss Action:** Subtle right-aligned `'X'` close button (`<X className="h-4 w-4" />`) allowing the user to dismiss the banner, with smooth Framer Motion collapse animation.
+- Verified with `npm run lint:ci` (0 errors, 0 warnings) and Vitest (`533/533 tests passing across 50 suites`).
+
+### Operations Dashboard 2x2 Grid Modernization (2026-09-06)
+
+- Modernized the 2x2 central card section on the Operations Dashboard (`src/components/dashboard/role-dashboard.jsx`, Admin role) based on the visual source of truth (`media_1788654433835.png`), replacing legacy donut charts and plain status bars with modern enterprise operational components (`src/components/dashboard/operations-cards.jsx`):
+  1. **Request Pipeline Card:**
+     - Replaced donut meter with high-information-density header summary metrics (`Total requests`, green upward delta vs last week, and green progress pill with completion rate and completed vs total count).
+     - Connected 6-stage process ribbon (`Pending`, `Scheduled`, `Assigned`, `In Progress`, `Completed`, `Cancelled`) using interlocking chevron clip paths (`clip-path: polygon(...)`) with a 2px angled slit.
+     - Saturated blue active highlight on `"In Progress"` stage with white tabular text, and a crisp status dot legend underneath.
+     - Action link: `"View request queue ->"` routing to `/reservations/queue`.
+  2. **Document Compliance Card:**
+     - Replaced donut chart with a dual-visualization layout:
+       - Left summary box: Light blue card highlighting `% documents valid` and tracked count.
+       - Right section: Total documents count, 4-segment stacked compliance bar (Expired in rose, Due ≤30d in amber, Due 31–90d in blue, Valid in emerald), and 4 breakdown columns underneath with count and percentage.
+     - Bottom row: `"Expiring soon"` section rendering rose-tinted unit badges with vehicle/driver name, document type, calendar icon, and days until expiry, plus `+N more` link button.
+     - Action link: `"View compliance register ->"` routing to `/fleet/documents`.
+  3. **Maintenance and Incident Pressure Card:**
+     - Replaced generic table with an enterprise activity list:
+       - Slices top 3 active maintenance records with left colored status border strip (amber for In Progress, blue for Scheduled).
+       - Rounded square wrench icon, vehicle plate + maintenance type, scheduled date/description, status badge, relative timestamp (`formatRelativeTime`), and chevron arrow.
+     - Action link: `"Open maintenance ->"` routing to `/maintenance`.
+  4. **Incident Risk Card:**
+     - 4 compact metric tiles in a 4-column responsive grid: `Open` (amber folder), `Critical / major open` (rose alert), `Assistance open` (blue bell), and `Maintenance pending` (gray wrench).
+     - Prominent summary state container:
+       - When 0 active risks: Calm soft-emerald card with circular shield check badge, `"No active incident risks"`, and `"All clear — there are no open incidents requiring attention right now."`
+       - When >0 active risks: Soft-rose alert card with circular alert triangle badge, active risks count, and `"Open incident center ->"` action link.
+- **Verification & Quality:**
+  - Verified with `npm run lint:ci` (0 errors, 0 warnings).
+  - Verified with full Vitest suite (`539/539 tests passing across 51 test suites`, including new `src/components/dashboard/operations-cards.test.js`).
+
+### Fleet Utilization Dashboard & Reports Suite Exact Mockup Recreation (2026-09-06)
+
+- Completely recreated the Fleet Utilization dashboard and elevated the reports suite based on the visual source of truth (`media_1788656277326.png`), strictly adhering to the exact copy, hierarchy, spacing rhythm, card styling, and component architecture:
+  1. **AI Analyst Card (`src/components/ai/ai-analyst-card.jsx`):**
+     - Header: Sparkles icon in soft sky rounded squircle (`bg-sky-50 dark:bg-sky-950/40 text-sky-500 border border-sky-100`), title (`AI Analyst - Fleet Utilization`), deep navy pill badge (`Intelligence Engine`, `#0b132b`), subtitle (`Number-grounded analysis for the selected window`), and outline `Regenerate` button with rounded-full pill border.
+     - Inset Panel Empty State: Large inset panel with thin border and soft `#f8fafd` background, featuring faint landscape wavy contour gradients on the left and right edges, a 3-vertical-bar squircle icon badge, centered title `"No activity in this period"`, and centered two-line narrative copy.
+  2. **Fleet Report Header Block (`src/app/(dashboard)/reports/page.js`):**
+     - Clean standalone page typography (outside any card) with generous vertical spacing.
+     - Left: Small uppercase overline `FLEET REPORT` in tracking-[0.18em] text-slate-400, paired with large bold `Fleet utilization` H2 heading in deep navy text-slate-900.
+     - Right: Calendar icon + context label `Capacity and distance by vehicle` in text-slate-400.
+  3. **3 KPI Cards Row (`StatCard`):**
+     - White cards with subtle borders, generous padding, large rounded corners, and soft fluid waves rising gently on the right side under the icon badge:
+       - `UTILIZATION`: green-tinted circular `Gauge` badge, value `4%`, helper `Fleet capacity`, soft emerald bottom wave.
+       - `TRIP RECORDS`: muted slate circular `FileText` badge, value `1`, helper `Selected window`, soft slate bottom wave.
+       - `DISTANCE LOGGED`: blue-tinted circular `Route` badge (double waypoint route), value `0 m`, helper `Verified km`, soft blue bottom wave.
+  4. **Fleet Workload Distribution Card (`FleetReport`):**
+     - Header: 3-bar squircle icon, exact title `Fleet workload distribution`, subtitle `Vehicles ranked by total distance and trip count in the selected window`, and right-aligned `Top 1`.
+     - 3-part summary strip with subtle vertical dividers:
+       - `HIGHEST DISTANCE`: `0 m` in blue tabular font.
+       - `MOST DISPATCHED`: `ABC-1234` with subvalue `1 trips` in emerald.
+       - `AVERAGE TRIP DISTANCE`: `0 km` with subvalue `Across trip records`.
+     - Ranked horizontal workload chart:
+       - Column headers: `RANK`, `VEHICLE`, `WORKLOAD (DISTANCE)`, `TRIPS` (center), `DISTANCE` (center), `RELATIVE WORKLOAD` (center) with subtle bottom divider line.
+       - Workload axis scale ruler: `0`, `250`, `500`, `750`, `1,000 km` directly aligned above the bar track.
+       - Data row:
+         - Rank: `01` inside dark navy rounded square badge (`bg-[#0b132b]`).
+         - Vehicle: `ABC-1234` with `Most dispatched` sublabel.
+         - Workload bar: full-width light track with 3 vertical scale divider ticks at 25%, 50%, 75% and royal blue filled indicator (`24px`).
+         - Trips: large `1` with `trips` label below.
+         - Distance: large `0 m` with `total` label below.
+         - Relative workload (`media_1788656506460.png`): wide borderless soft-blue pill (`bg-[#eff5ff] max-w-[136px] h-9`) with bold royal blue `3%` (`text-[#2563eb] text-[15px]`), and centered `of fleet workload` (`text-slate-400 text-xs mt-1.5`) below.
+
+### AI Analyst – Fleet Utilization Card Exact Mockup Recreation (2026-09-06)
+
+- Recreated the single premium dashboard card for **AI Analyst – Fleet Utilization** based on the exact visual source of truth (`media_1788657029174.png`):
+  1. **Card Header:**
+     - Left: Sparkles icon in soft sky rounded squircle (`bg-sky-50 dark:bg-sky-950/40 text-sky-500 border border-sky-100`), bold title `AI Analyst - Fleet Utilization`, dark navy pill badge `Intelligence Engine` (`#0b132b`), and muted subtitle `Number-grounded analysis for the selected window`.
+     - Right: Subtle outline `Regenerate` button with rounded-full pill border, refresh icon (`RefreshCw`), and smooth hover state.
+  2. **Inner Insight Panel:**
+     - Large inset rounded container (`rounded-2xl border border-slate-200/60 dark:border-slate-800 bg-[#f8fafd] dark:bg-slate-900/40 p-5 sm:p-6`).
+     - **Atmospheric Background Treatment:** Soft pale wavy shapes, gentle layered contours, and faint landscape contour lines concentrated toward the lower half/bottom of the panel.
+     - **Top Status Pills:**
+       - `● Monitoring` in warm amber style with circular status dot (`bg-amber-500`) and amber pill border.
+       - `⚙ DETERMINISTIC` in neutral style with gear icon (`Settings`) and uppercase typography.
+     - **Main Narrative Insight Row:**
+       - Circular icon badge with soft light-blue tint and 3 rounded vertical bars.
+       - Bold, prominent narrative text: `"Fleet utilization is at 4% across the period, with 1 trips covering 0 km. The busiest unit logged 1 trips."`
+     - **Divider:** Subtle thin divider separating the narrative from the recommendations.
+     - **Recommended Actions Section:**
+       - Section label with list icon and uppercase tracking: `RECOMMENDED ACTIONS`.
+       - Numbered action items with soft-blue circular markers (`1`, `2`) and clean, scan-friendly typography:
+         1. `Raise utilization by redistributing workload toward the idle units.`
+         2. `No idle assets detected; continue monitoring low-utilization vehicles.`
+     - **Footer / Date Row:** Small calendar icon + `Analyzed for 2026-09-01 — 2026-09-05` in muted blue-gray text.
+- **Verification & Quality:**
+  - Verified with `npm run lint:ci` (0 errors, 0 warnings).
+  - Verified with full Vitest suite (`539/539 tests passing across 51 test suites`).

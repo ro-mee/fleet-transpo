@@ -48,6 +48,35 @@ export const REPORT_SCHEMAS = {
 };
 
 /**
+ * Whether a client-side report payload is real enough to justify an AI
+ * narrative request. `{}` is truthy in JS, so a bare `Boolean(data)` gate
+ * fires the narrative query before the active report tab has loaded and the
+ * server answers `mode: "no-data"` (narrative: null) — which the UI then
+ * backfills with copy from the wrong report. Gate on this instead: the
+ * payload must be a non-empty object carrying at least one field the active
+ * report type actually reasons over.
+ */
+export function isValidReportPayload(report, data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return false;
+  if (data.demo === true) return false;
+  if (Object.keys(data).length === 0) return false;
+  const schema = REPORT_SCHEMAS[report];
+  if (!schema) return true;
+  const carriers = new Set([...schema, "byVehicle", "byCategory", "byType", "topDrivers", "vehicleRoster", "monthlyData", "fuelRecords"]);
+  return Object.keys(data).some((key) => carriers.has(key) && data[key] !== undefined && data[key] !== null);
+}
+
+/**
+ * Strict render guard: an AI card for `report` may only render a narrative
+ * whose server-echoed `report` identity matches. While switching tabs the
+ * previous tab's cached narrative must never render under the new title —
+ * the caller shows a loading skeleton instead.
+ */
+export function isNarrativeForReport(narrative, report) {
+  return Boolean(narrative) && narrative.report === report && typeof narrative.narrative === "string" && narrative.narrative.length > 0;
+}
+
+/**
  * Build a compact text snapshot of a report's headline numbers. This is what we
  * hand the LLM (kept small to avoid blowing the context window) AND roughly what
  * the deterministic fallback reasons over.

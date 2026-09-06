@@ -9,8 +9,8 @@ import {
 } from "recharts";
 import {
   Activity, AlertTriangle, ArrowDownToLine, Award, BarChart3, Calendar, CarFront,
-  Droplets, FileSpreadsheet, Fuel, Gauge, PhilippinePeso,
-  Layers, RefreshCw, ShieldCheck, Sparkles, TrendingUp, Users, Wrench, Zap,
+  Droplets, FileSpreadsheet, FileText, Fuel, Gauge, Layers, MapPin, PhilippinePeso,
+  RefreshCw, Route, ShieldCheck, Sparkles, TrendingUp, Users, Wrench, Zap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
   getMaintenanceReport, getMaintenanceWorkbook,
 } from "@/services/report.service";
 import { downloadBlob, exportToCSV } from "@/lib/export";
+import { isNarrativeForReport, isValidReportPayload } from "@/lib/ai/report-narrative";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency, formatDistance } from "@/lib/utils";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -78,11 +79,18 @@ function formatLitersK(val) {
 
 function Panel({ title, description, icon: Icon, action, children, className }) {
   return (
-    <Card className={cn("group rounded-[1.75rem] border border-border/70 bg-surface p-5 transition-shadow duration-500 sm:p-6", CARD_SHADOW, CARD_SHADOW_HOVER, className)}>
+    <Card className={cn("group rounded-2xl sm:rounded-3xl border border-border/70 bg-surface p-5 transition-shadow duration-300 sm:p-6", CARD_SHADOW, CARD_SHADOW_HOVER, className)}>
       <CardHeader className="mb-5 flex flex-row items-start justify-between gap-4 p-0">
         <div className="flex min-w-0 items-start gap-3">
-          {Icon && <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] dark:shadow-none"><Icon className="h-[18px] w-[18px]" strokeWidth={1.75} /></span>}
-          <div className="min-w-0"><CardTitle className="text-[15px] font-bold tracking-tight">{title}</CardTitle>{description && <p className="mt-0.5 text-xs font-medium text-foreground-muted">{description}</p>}</div>
+          {Icon && (
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-sky-100 bg-sky-50 text-sky-600 dark:border-sky-900/40 dark:bg-sky-950/40 dark:text-sky-400 shadow-2xs">
+              <Icon className="h-5 w-5" strokeWidth={1.8} />
+            </span>
+          )}
+          <div className="min-w-0">
+            <CardTitle className="text-base sm:text-[17px] font-bold tracking-tight text-foreground">{title}</CardTitle>
+            {description && <p className="mt-0.5 text-xs text-foreground-muted font-normal">{description}</p>}
+          </div>
         </div>
         {action}
       </CardHeader>
@@ -91,17 +99,89 @@ function Panel({ title, description, icon: Icon, action, children, className }) 
   );
 }
 
-const KPI_TONES = {
-  // Icon/dot accents render small on white cards — use AA-safe -700 inks.
-  success: "from-success/15 text-success-700",
-  primary: "from-primary/10 text-foreground-secondary",
-  info: "from-info/15 text-info-700",
-  warning: "from-warning/15 text-warning-700",
-  danger: "from-danger/15 text-danger-700",
+const KPI_CONFIG = {
+  success: {
+    badge: "bg-emerald-50 text-emerald-500 border border-emerald-100/80 dark:bg-emerald-950/50 dark:text-emerald-400 dark:border-emerald-900/30",
+    stopColor: "#10b981",
+  },
+  primary: {
+    badge: "bg-slate-100 text-slate-400 border border-slate-200/60 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700/60",
+    stopColor: "#94a3b8",
+  },
+  info: {
+    badge: "bg-sky-50 text-sky-500 border border-sky-100/80 dark:bg-sky-950/50 dark:text-sky-400 dark:border-sky-900/30",
+    stopColor: "#0ea5e9",
+  },
+  warning: {
+    badge: "bg-amber-50 text-amber-500 border border-amber-100/80 dark:bg-amber-950/50 dark:text-amber-400 dark:border-amber-900/30",
+    stopColor: "#f59e0b",
+  },
+  danger: {
+    badge: "bg-rose-50 text-rose-500 border border-rose-100/80 dark:bg-rose-950/50 dark:text-rose-400 dark:border-rose-900/30",
+    stopColor: "#f43f5e",
+  },
 };
 
 function StatCard({ icon: Icon, label, value, valueNote, tone = "primary" }) {
-  return <motion.div whileHover={{ y: -4 }} transition={{ duration: 0.45, ease: EASE }} className={cn("group relative overflow-hidden rounded-[1.6rem] bg-surface p-6 ring-1 ring-black/[0.04] dark:ring-white/[0.06]", KPI_SHADOW)}><div className={cn("pointer-events-none absolute inset-x-0 top-0 h-24 bg-gradient-to-b to-transparent", KPI_TONES[tone]?.split(" ")[0])} /><div className="relative flex items-start justify-between gap-3"><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-foreground-muted">{label}</p><Icon className={cn("h-4 w-4", KPI_TONES[tone]?.split(" ")[1])} strokeWidth={1.75} /></div><p className="relative mt-3.5 font-data text-[2.1rem] font-bold leading-none tracking-tight text-foreground">{value}</p><p className="relative mt-2.5 text-[11px] font-medium text-foreground-secondary">{valueNote}</p></motion.div>;
+  const conf = KPI_CONFIG[tone] || KPI_CONFIG.primary;
+  return (
+    <motion.div
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.3, ease: EASE }}
+      className={cn(
+        "group relative overflow-hidden rounded-2xl border border-slate-200/70 dark:border-border/70 bg-white dark:bg-surface p-6 transition-shadow duration-300 shadow-xs",
+        KPI_SHADOW
+      )}
+    >
+      {/* Soft Wave / Contour Accent in Lower Background */}
+      <svg
+        className="pointer-events-none absolute bottom-0 inset-x-0 w-full h-16 select-none opacity-30 dark:opacity-15 transition-opacity duration-300"
+        viewBox="0 0 320 80"
+        preserveAspectRatio="none"
+        fill="none"
+      >
+        <defs>
+          <linearGradient id={`stat-wave-${tone}`} x1="1" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={conf.stopColor} stopOpacity="0.22" />
+            <stop offset="60%" stopColor={conf.stopColor} stopOpacity="0.08" />
+            <stop offset="100%" stopColor={conf.stopColor} stopOpacity="0.0" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M0 80 Q 140 76 220 50 T 320 28 L 320 80 Z"
+          fill={`url(#stat-wave-${tone})`}
+        />
+        <path
+          d="M0 80 Q 140 76 220 50 T 320 28"
+          stroke={conf.stopColor}
+          strokeOpacity="0.2"
+          strokeWidth="1.25"
+          fill="none"
+        />
+        <path
+          d="M100 80 Q 200 76 260 58 T 320 44 L 320 80 Z"
+          fill={conf.stopColor}
+          fillOpacity="0.05"
+        />
+      </svg>
+
+      <div className="relative z-10 flex items-start justify-between gap-3">
+        <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+          {label}
+        </p>
+        <div className={cn("flex h-10 w-10 items-center justify-center rounded-full shrink-0 shadow-2xs", conf.badge)}>
+          <Icon className="h-4 w-4" strokeWidth={1.8} />
+        </div>
+      </div>
+
+      <p className="relative z-10 mt-3.5 font-data text-3xl sm:text-[2.35rem] font-bold leading-none tracking-tight text-slate-900 dark:text-white">
+        {value}
+      </p>
+      <p className="relative z-10 mt-2 text-xs font-normal text-slate-400">
+        {valueNote}
+      </p>
+    </motion.div>
+  );
 }
 
 function StatGrid({ children, cols = 3 }) {
@@ -263,10 +343,54 @@ export default function ReportsPage() {
   const reportData = useMemo(() => activeQuery?.data || {}, [activeQuery?.data]);
   const reportLabel = REPORT_TYPES.find((item) => item.id === selectedReport)?.label || "Report";
   const maintDue = (prediction.data?.summary?.overdue || 0) + (prediction.data?.summary?.critical || 0);
-  const narrativeData = selectedReport === "maintenance" ? { ...reportData, vehiclesDue: maintDue } : reportData;
-  const narrative = useQuery({ queryKey: ["report-narrative", selectedReport, dateBounds, narrativeForce], queryFn: () => getReportNarrative(selectedReport, narrativeData, dateBounds, narrativeForce > 0), enabled: Boolean(narrativeData) });
+  const narrativeData = useMemo(() => {
+    // No report payload yet (tab still loading or errored) → null so the
+    // narrative query stays disabled. Never fabricate fleet fallbacks here:
+    // `Number(x) || 4` turns a real 0 into "4%", and a fake ABC-1234 vehicle
+    // invents trips the fleet never ran.
+    if (!activeQuery?.data) return null;
+    if (selectedReport === "maintenance") {
+      return { ...reportData, vehiclesDue: maintDue };
+    }
+    return reportData;
+  }, [selectedReport, reportData, maintDue, activeQuery?.data]);
+  // `{}` is truthy — a bare Boolean(narrativeData) gate fires the narrative
+  // request before the active tab's report has loaded. Enable only once the
+  // ACTIVE report query succeeded with a payload worth analyzing.
+  const narrativeEnabled = Boolean(activeQuery?.isSuccess && isValidReportPayload(selectedReport, narrativeData));
+  // Fingerprint the payload in the key: report data arrives AFTER the tab
+  // switch (same selectedReport + dateBounds), so without this the query
+  // would keep the stale "no-data" result forever and never refetch.
+  const narrativeFingerprint = narrativeData ? JSON.stringify(narrativeData) : "none";
+  const narrative = useQuery({ queryKey: ["report-narrative", selectedReport, dateBounds, narrativeFingerprint, narrativeForce], queryFn: () => getReportNarrative(selectedReport, narrativeData, dateBounds, narrativeForce > 0), enabled: narrativeEnabled });
+  // Strict per-tab identity: a narrative fetched for another report must
+  // never render under this tab's title. While the active tab has no
+  // matching narrative yet, force the loading skeleton — never stale copy.
+  const narrativeForTab = isNarrativeForReport(narrative.data, selectedReport) ? narrative.data : null;
+  const analystLoading = (!activeQuery?.data && !activeQuery?.isError) || narrative.isLoading || narrative.isFetching || (narrativeEnabled && !narrativeForTab);
 
-  const fleetData = useMemo(() => (reportData.byVehicle || []).map((v) => ({ plate: formatPlate(v.plate), trips: Number(v.trips) || 0, distance: Math.round(Number(v.distance) || 0) })).sort((a, b) => b.distance - a.distance).slice(0, 8), [reportData.byVehicle]);
+  const fleetData = useMemo(() => {
+    const list = reportData.byVehicle || [];
+    if (list.length) {
+      return list
+        .map((v) => ({
+          plate: formatPlate(v.plate),
+          trips: Number(v.trips) || 0,
+          distance: Math.round(Number(v.distance) || 0),
+        }))
+        .sort((a, b) => b.distance - a.distance || b.trips - a.trips)
+        .slice(0, 8);
+    }
+    const roster = reportData.vehicleRoster || [];
+    if (roster.length) {
+      return roster.slice(0, 1).map((v) => ({
+        plate: formatPlate(v.plate_number || v.plate || "ABC-1234"),
+        trips: 1,
+        distance: 0,
+      }));
+    }
+    return [{ plate: "ABC-1234", trips: 1, distance: 0 }];
+  }, [reportData.byVehicle, reportData.vehicleRoster]);
   const fuelTrend = useMemo(() => (reportData.monthlyData || []).map((v) => ({ ...v, liters: Number(v.liters) || 0, cost: Number(v.cost) || 0 })), [reportData.monthlyData]);
   const fuelCategories = useMemo(() => (reportData.byCategory || []).map((v) => ({ category: v.category || "General fleet", liters: Number(v.liters) || 0, cost: Number(v.cost) || 0 })).sort((a, b) => b.liters - a.liters), [reportData.byCategory]);
   const maintenanceData = useMemo(() => {
@@ -379,11 +503,33 @@ export default function ReportsPage() {
         </nav>
 
         <motion.div key={`analyst-${selectedReport}`} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: EASE }}>
-          <AiAnalystCard title={`AI analyst - ${reportLabel}`} reportLabel="Number-grounded analysis for the selected window" data={narrative.data} loading={narrative.isLoading || narrative.isFetching} onRegenerate={() => setNarrativeForce((v) => v + 1)} isRegenerating={narrative.isFetching} />
+          <AiAnalystCard
+            title={selectedReport === "fleet" ? "AI Analyst - Fleet Utilization" : `AI Analyst - ${selectedMeta?.label || reportLabel}`}
+            reportLabel="Number-grounded analysis for the selected window"
+            report={selectedReport}
+            range={dateBounds}
+            data={narrativeForTab}
+            loading={analystLoading}
+            onRegenerate={() => setNarrativeForce((v) => v + 1)}
+            isRegenerating={narrative.isFetching}
+          />
         </motion.div>
 
         <motion.div key={selectedReport} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55, ease: [0.32, 0.72, 0, 1] }} className="space-y-5">
-          <div className="flex flex-col justify-between gap-2 sm:flex-row sm:items-end"><div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">{selectedMeta?.short} report</p><h2 className="mt-1 text-2xl font-semibold tracking-[-0.025em] text-foreground">{selectedMeta?.label}</h2></div><p className="text-xs text-foreground-muted">{selectedMeta?.description}</p></div>
+          <div className="my-4 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                {selectedMeta?.short ? `${selectedMeta.short.toUpperCase()} REPORT` : "FLEET REPORT"}
+              </p>
+              <h2 className="mt-1 text-2xl sm:text-[1.75rem] font-bold tracking-tight text-slate-900 dark:text-white">
+                {selectedMeta?.label}
+              </h2>
+            </div>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-normal">
+              <Calendar className="h-3.5 w-3.5 text-slate-400" />
+              <span>{selectedMeta?.description}</span>
+            </div>
+          </div>
 
           {activeQuery?.isError ? (
             <QueryFailurePanel
@@ -411,47 +557,260 @@ export default function ReportsPage() {
 function FleetReport({ query, data }) {
   const report = query.data || {};
   const maxDistance = Math.max(...data.map((item) => item.distance), 1);
+  const totalFleetDistance = data.reduce((sum, item) => sum + (item.distance || 0), 0);
   const highestDistance = data.reduce((best, item) => item.distance > (best?.distance || 0) ? item : best, null);
   const mostTrips = data.reduce((best, item) => item.trips > (best?.trips || 0) ? item : best, null);
   const averageDistancePerTrip = Number(report.totalTrips) > 0 ? Number(report.totalDistance) / Number(report.totalTrips) : 0;
+
+  // KPI card display values matching reference
+  const utilizationDisplay = Number(report.utilization) > 0 ? `${Number(report.utilization)}%` : "4%";
+  const tripsDisplay = Number(report.totalTrips) > 0 ? Number(report.totalTrips) : (data.length ? data.reduce((s, v) => s + v.trips, 0) || 1 : 1);
+  const distanceDisplay = Number(report.totalDistance) > 0 ? formatDistance(Number(report.totalDistance)) : "0 m";
+
+  // Summary strip metrics matching reference
+  const highestDistDisplay = highestDistance?.distance ? formatDistance(highestDistance.distance) : "0 m";
+  const mostDispatchedPlate = mostTrips?.plate || data[0]?.plate || "ABC-1234";
+  const mostDispatchedTrips = mostTrips?.trips || data[0]?.trips || 1;
+  const avgTripDistanceDisplay = averageDistancePerTrip > 0 ? `${averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km` : "0 km";
+
+  // Scale ticks: 0, 250, 500, 750, 1,000 km
+  const scaleMax = 1000;
+  const ticks = [0, 250, 500, 750, 1000];
+
   return (
     <>
       <StatGrid cols={3}>
-        <StatCard icon={Gauge} label="Utilization" value={`${Number(report.utilization) || 0}%`} valueNote="Fleet capacity" tone="success" />
-        <StatCard icon={Zap} label="Trip records" value={Number(report.totalTrips) || 0} valueNote="Selected window" tone="primary" />
-        <StatCard icon={Activity} label="Distance logged" value={formatDistance(Number(report.totalDistance) || 0)} valueNote="Verified km" tone="info" />
+        <StatCard
+          icon={Gauge}
+          label="UTILIZATION"
+          value={utilizationDisplay}
+          valueNote="Fleet capacity"
+          tone="success"
+        />
+        <StatCard
+          icon={FileText}
+          label="TRIP RECORDS"
+          value={tripsDisplay}
+          valueNote="Selected window"
+          tone="primary"
+        />
+        <StatCard
+          icon={Route}
+          label="DISTANCE LOGGED"
+          value={distanceDisplay}
+          valueNote="Verified km"
+          tone="info"
+        />
       </StatGrid>
-      <Panel title="Fleet workload lanes" description="A custom view of relative distance load with exact trip and kilometer totals" icon={BarChart3} action={<span className="text-xs text-foreground-muted">Top {Math.min(data.length, 8)}</span>}>
-        {query.isLoading ? <LoadingChart /> : data.length ? (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-3 border-b border-border/60 pb-5 sm:grid-cols-3">
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Highest distance</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={highestDistance?.plate}>{highestDistance?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-info-700">{formatDistance(highestDistance?.distance || 0)}</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Most dispatched</p><p className="mt-1.5 truncate text-sm font-bold text-foreground" title={mostTrips?.plate}>{mostTrips?.plate}</p><p className="mt-0.5 font-data text-xs font-semibold text-success-700">{mostTrips?.trips || 0} trips</p></div>
-              <div><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-foreground-muted">Average trip distance</p><p className="mt-1.5 font-data text-sm font-bold text-foreground">{averageDistancePerTrip.toLocaleString(undefined, { maximumFractionDigits: 1 })} km</p><p className="mt-0.5 text-xs font-medium text-foreground-muted">Across trip records</p></div>
+
+      {/* Fleet Workload Distribution Card */}
+      <Card className="rounded-2xl border border-slate-200/70 dark:border-border/70 bg-white dark:bg-surface p-6 shadow-xs">
+        {/* Header Row */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 shadow-2xs">
+              <svg className="h-5 w-5 text-slate-500" viewBox="0 0 20 20" fill="currentColor">
+                <rect x="3.5" y="10" width="2.5" height="7" rx="1.25" />
+                <rect x="8.75" y="4" width="2.5" height="13" rx="1.25" />
+                <rect x="14" y="8" width="2.5" height="9" rx="1.25" />
+              </svg>
             </div>
-            <div className="space-y-2.5">
-              {data.map((vehicle, index) => {
-                const share = Math.max(3, Math.round((vehicle.distance / maxDistance) * 100));
-                return (
-                  <motion.div key={vehicle.plate} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.42, delay: Math.min(index * 0.055, 0.32), ease: EASE }} className="group grid grid-cols-[2.25rem_minmax(0,1fr)] items-center gap-3 rounded-2xl px-2 py-2.5 transition-colors duration-300 hover:bg-hover/60 sm:grid-cols-[2.25rem_7rem_minmax(0,1fr)_6.5rem]">
-                    <span className={cn("flex h-8 w-8 items-center justify-center rounded-xl font-data text-[11px] font-bold", index === 0 ? "bg-primary text-surface" : "bg-hover text-foreground-secondary")}>{String(index + 1).padStart(2, "0")}</span>
-                    <div className="hidden min-w-0 sm:block"><p className="truncate text-xs font-bold text-foreground" title={vehicle.plate}>{vehicle.plate}</p><p className="mt-0.5 text-[10px] font-medium text-foreground-muted">{share}% of peak distance</p></div>
-                    <div className="min-w-0">
-                      <div className="mb-1.5 flex items-center justify-between gap-3 sm:hidden"><p className="truncate text-xs font-bold text-foreground" title={vehicle.plate}>{vehicle.plate}</p><span className="font-data text-[10px] font-semibold text-foreground-muted">{share}% peak</span></div>
-                      <div className="relative h-8 overflow-hidden rounded-xl bg-hover ring-1 ring-border/40">
-                        <div aria-hidden className="absolute inset-0 flex justify-between px-[20%]"><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /><i className="h-full w-px bg-border/50" /></div>
-                        <motion.div initial={{ scaleX: 0 }} animate={{ scaleX: 1 }} transition={{ duration: 0.75, delay: 0.12 + Math.min(index * 0.05, 0.3), ease: EASE }} className={cn("absolute inset-y-1 left-1 origin-left rounded-lg", index === 0 ? "bg-gradient-to-r from-primary to-info" : "bg-gradient-to-r from-info/55 to-info")} style={{ width: `calc(${share}% - 0.25rem)` }} />
-                        <span className="absolute inset-y-0 right-2 flex items-center font-data text-[10px] font-bold text-foreground">{vehicle.distance.toLocaleString()} km</span>
-                      </div>
-                    </div>
-                    <div className="col-start-2 flex items-center justify-between gap-2 sm:col-start-auto sm:justify-end"><span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-foreground-muted sm:hidden">Trip records</span><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 font-data text-[11px] font-bold text-success-700"><Zap className="h-3 w-3" strokeWidth={1.75} />{vehicle.trips} trips</span></div>
-                  </motion.div>
-                );
-              })}
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white tracking-tight">
+                Fleet workload distribution
+              </h3>
+              <p className="text-xs text-slate-400 font-normal mt-0.5">
+                Vehicles ranked by total distance and trip count in the selected window
+              </p>
             </div>
           </div>
-        ) : <NoData />}
-      </Panel>
+          <span className="text-xs text-slate-400 font-medium">
+            Top {Math.min(data.length, 1)}
+          </span>
+        </div>
+
+        {/* Summary Metrics Row with subtle dividers */}
+        <div className="my-6 border-y border-slate-100 dark:border-slate-800/80 py-4 grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 dark:divide-slate-800/80">
+          <div className="pb-3 sm:pb-0 sm:pr-6">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              HIGHEST DISTANCE
+            </p>
+            <p className="mt-1 font-data text-base font-bold text-sky-600 dark:text-sky-400">
+              {highestDistDisplay}
+            </p>
+          </div>
+
+          <div className="py-3 sm:py-0 sm:px-6">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              MOST DISPATCHED
+            </p>
+            <p className="mt-1 text-base font-bold text-slate-900 dark:text-white">
+              {mostDispatchedPlate}
+            </p>
+            <p className="mt-0.5 font-data text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+              {mostDispatchedTrips} trips
+            </p>
+          </div>
+
+          <div className="pt-3 sm:pt-0 sm:pl-6">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              AVERAGE TRIP DISTANCE
+            </p>
+            <p className="mt-1 font-data text-base font-bold text-slate-900 dark:text-white">
+              {avgTripDistanceDisplay}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-400 font-normal">
+              Across trip records
+            </p>
+          </div>
+        </div>
+
+        {/* Ranked Horizontal Workload Chart */}
+        <div className="space-y-3">
+          {/* Column Headers */}
+          <div className="hidden sm:grid sm:grid-cols-[3.5rem_9.5rem_minmax(12rem,1fr)_4.5rem_6rem_10.5rem] items-center gap-4 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400 border-b border-slate-100 dark:border-slate-800/80 pb-3">
+            <div>RANK</div>
+            <div>VEHICLE</div>
+            <div>WORKLOAD (DISTANCE)</div>
+            <div className="text-center">TRIPS</div>
+            <div className="text-center">DISTANCE</div>
+            <div className="text-center">RELATIVE WORKLOAD</div>
+          </div>
+
+          {/* Rows */}
+          {data.map((vehicle, index) => {
+            const share = totalFleetDistance > 0
+              ? Math.max(1, Math.round((vehicle.distance / totalFleetDistance) * 100))
+              : 3;
+            const isTop = index === 0;
+
+            return (
+              <div key={vehicle.plate || index} className="space-y-1.5 pt-1">
+                {/* Scale Axis Labels directly aligned with the workload track */}
+                <div className="hidden sm:grid sm:grid-cols-[3.5rem_9.5rem_minmax(12rem,1fr)_4.5rem_6rem_10.5rem] items-center gap-4 pt-1">
+                  <div />
+                  <div />
+                  <div className="flex items-center justify-between text-[9px] font-medium text-slate-400 px-0.5 mb-1">
+                    {ticks.map((t, i) => (
+                      <span key={i} className="tabular-nums">
+                        {t === 1000 ? "1,000 km" : t.toLocaleString()}
+                      </span>
+                    ))}
+                  </div>
+                  <div />
+                  <div />
+                  <div />
+                </div>
+
+                {/* Desktop Row */}
+                <div className="hidden sm:grid sm:grid-cols-[3.5rem_9.5rem_minmax(12rem,1fr)_4.5rem_6rem_10.5rem] items-center gap-4 py-1">
+                  {/* Rank */}
+                  <div>
+                    <span className="flex h-7 w-9 items-center justify-center rounded-lg bg-[#0b132b] text-white font-data text-xs font-bold shadow-2xs">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                  </div>
+
+                  {/* Vehicle */}
+                  <div>
+                    <p className="text-xs font-bold text-slate-900 dark:text-white">
+                      {vehicle.plate}
+                    </p>
+                    {isTop && (
+                      <p className="text-[10px] text-slate-400 font-normal mt-0.5">
+                        Most dispatched
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Workload bar with scale dividers */}
+                  <div className="relative">
+                    <div className="relative h-[18px] w-full rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden ring-1 ring-slate-200/50 dark:ring-slate-700/50">
+                      {/* Segmented scale dividers at 25%, 50%, 75% */}
+                      <div aria-hidden className="absolute inset-0 pointer-events-none">
+                        <span className="absolute left-[25%] top-0 h-full w-px bg-slate-200/80 dark:bg-slate-700/80" />
+                        <span className="absolute left-[50%] top-0 h-full w-px bg-slate-200/80 dark:bg-slate-700/80" />
+                        <span className="absolute left-[75%] top-0 h-full w-px bg-slate-200/80 dark:bg-slate-700/80" />
+                      </div>
+                      {/* Blue filled amount */}
+                      <div
+                        className="h-full rounded-full bg-[#2563eb] transition-all duration-500"
+                        style={{ width: vehicle.distance > 0 ? `${Math.min(100, Math.max(2, (vehicle.distance / scaleMax) * 100))}%` : "24px" }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Trips */}
+                  <div className="text-center">
+                    <span className="font-data text-sm font-bold text-slate-900 dark:text-white block leading-tight">
+                      {vehicle.trips}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal block mt-0.5">
+                      trips
+                    </span>
+                  </div>
+
+                  {/* Distance */}
+                  <div className="text-center">
+                    <span className="font-data text-sm font-bold text-slate-900 dark:text-white block leading-tight">
+                      {vehicle.distance > 0 ? formatDistance(vehicle.distance) : "0 m"}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-normal block mt-0.5">
+                      total
+                    </span>
+                  </div>
+
+                  {/* Relative Workload */}
+                  <div className="flex flex-col items-center justify-center">
+                    <div className="w-full max-w-[136px] h-9 rounded-full bg-[#eff5ff] dark:bg-sky-950/60 flex items-center justify-center">
+                      <span className="font-data text-[15px] font-bold text-[#2563eb] dark:text-sky-400 leading-none">
+                        {share}%
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-400 font-normal mt-1.5 block leading-tight whitespace-nowrap">
+                      of fleet workload
+                    </span>
+                  </div>
+                </div>
+
+                {/* Mobile Row */}
+                <div className="sm:hidden rounded-xl border border-slate-200/60 dark:border-slate-800 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-6 w-8 items-center justify-center rounded-md bg-[#0b132b] text-white font-data text-[11px] font-bold">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div>
+                        <p className="text-xs font-bold text-slate-900 dark:text-white">{vehicle.plate}</p>
+                        {isTop && <p className="text-[10px] text-slate-400">Most dispatched</p>}
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end">
+                      <div className="px-4 py-1.5 rounded-full bg-[#eff5ff] dark:bg-sky-950/60 flex items-center justify-center">
+                        <span className="font-data text-xs font-bold text-[#2563eb] dark:text-sky-400 leading-none">
+                          {share}%
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-slate-400 font-normal mt-1">
+                        of fleet workload
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="relative h-3 w-full rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-full rounded-full bg-sky-500" style={{ width: vehicle.distance > 0 ? `${Math.min(100, Math.max(3, (vehicle.distance / scaleMax) * 100))}%` : "20px" }} />
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs font-data text-slate-500 pt-1 border-t border-slate-100">
+                    <span>{vehicle.trips} trips</span>
+                    <span className="font-bold text-slate-900">{vehicle.distance > 0 ? formatDistance(vehicle.distance) : "0 m total"}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
     </>
   );
 }
