@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -20,7 +20,6 @@ import {
   AlertCircle,
   ArrowRight,
   CarFront,
-  Clock,
   Eye,
   EyeOff,
   Gauge,
@@ -30,6 +29,7 @@ import {
   MapPin,
   Navigation,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import { APP_NAME } from "@/lib/constants";
 import { CapsLockHint, useCapsLock } from "@/components/ui/caps-lock-hint";
@@ -232,12 +232,16 @@ export default function LoginPage() {
   const [mfaRequired, setMfaRequired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [sessionExpiredNotice] = useState(() => {
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      return params.get("reason") === "expired";
-    }
-  });
+  const [dismissedNotice, setDismissedNotice] = useState(false);
+  // Browser-only query param read without a hydration mismatch: the server
+  // snapshot is false (matching SSR HTML, so no banner), and the client
+  // snapshot reads the live URL. A lazy useState initializer would render
+  // the banner on the client but not the server -> hydration mismatch.
+  const sessionExpiredNotice = useSyncExternalStore(
+    () => () => {},
+    () => new URLSearchParams(window.location.search).get("reason") === "expired",
+    () => false
+  );
   const { active: capsActive, bind: capsBind } = useCapsLock();
   const { validate, fieldError, registerField } = useFormValidation(loginSchema);
 
@@ -397,7 +401,7 @@ export default function LoginPage() {
 
                 <form onSubmit={handleSubmit} className="space-y-5" noValidate>
                   <AnimatePresence initial={false}>
-                    {sessionExpiredNotice && !error && (
+                    {sessionExpiredNotice && !dismissedNotice && !error && (
                       <motion.div
                         initial={{ opacity: 0, y: -8, height: 0 }}
                         animate={{ opacity: 1, y: 0, height: "auto" }}
@@ -407,10 +411,30 @@ export default function LoginPage() {
                       >
                         <div
                           role="status"
-                          className="flex items-start gap-2.5 rounded-[0.9rem] border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-sm text-amber-700 dark:text-amber-400"
+                          className="flex items-start justify-between gap-3 rounded-2xl border border-orange-200/50 dark:border-orange-900/30 bg-[#fff8f3] dark:bg-[#27150a] px-4 py-3.5 shadow-2xs"
                         >
-                          <Clock className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" strokeWidth={2} />
-                          <span>Your session expired. Please sign in to resume your work.</span>
+                          <div className="flex items-start gap-3">
+                            <AlertCircle
+                              className="mt-0.5 h-5 w-5 shrink-0 text-orange-500 dark:text-orange-400"
+                              strokeWidth={1.8}
+                            />
+                            <div className="space-y-0.5">
+                              <p className="text-sm font-semibold text-orange-600 dark:text-orange-400 leading-snug">
+                                Your session expired.
+                              </p>
+                              <p className="text-xs font-normal text-[#9c7860] dark:text-stone-400 leading-normal">
+                                Please sign in to resume your work.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setDismissedNotice(true)}
+                            aria-label="Dismiss notification"
+                            className="shrink-0 p-1 -mr-1 -mt-0.5 rounded-lg text-[#bda89b] hover:text-stone-600 dark:text-orange-300/40 dark:hover:text-orange-200 transition-colors cursor-pointer"
+                          >
+                            <X className="h-4 w-4" strokeWidth={1.75} />
+                          </button>
                         </div>
                       </motion.div>
                     )}

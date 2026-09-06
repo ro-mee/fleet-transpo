@@ -43,7 +43,17 @@ export default function RootLayout({ children }) {
       suppressHydrationWarning
     >
       <head>
-        <script id="theme-init" dangerouslySetInnerHTML={{ __html: themeScript }} suppressHydrationWarning />
+        {/* beforeInteractive keeps the synchronous before-paint execution of a
+            blocking head script (no theme flash). It must live inside <head>:
+            a sync script as a direct child of <html> breaks React resource
+            ordering ("cannot be a child of <html>"). next/script emits it into
+            the head HTML and renders null on the client, so React's "script
+            tag while rendering component" dev warning stays silent. */}
+        <Script
+          id="theme-init"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: themeScript }}
+        />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>
