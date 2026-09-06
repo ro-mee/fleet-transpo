@@ -68,6 +68,7 @@ The mobile app is a standalone native client: it bundles `EXPO_PUBLIC_*` values 
   - `preview` / `production` — both now `distribution: internal` + `android.buildType: apk` with the production env block (`EXPO_PUBLIC_API_URL`, Supabase URL/anon key, demo flag, TomTom key, dispatcher phone). `production` was previously `{}` (empty), which produced an `.aab` with missing env — fixed 2026-09-06.
 - Build command: `cd mobile && eas build -p android --profile production` (or `preview`).
 - Backend prerequisite: `MOBILE_JWT_SECRET` must be set on Vercel and differ from `NEXTAUTH_SECRET` (see `src/lib/auth/mobile-token.js` — it throws in production otherwise, so mobile login fails closed against the deployed site).
+- **Verified working end-to-end 2026-09-06** via `adb`: production APK (build from commit `83c3348`, 104,457,160 bytes — URL + `android.permission.INTERNET` confirmed by pulling and inspecting the installed binary) logs in against the deployed API. A "Network request failed" episode traced to a **stale older build on the test phone**, not a code or server problem — the dumpsys `firstInstallTime` proved a fresh install fixed it. When an APK shows network failures, verify *which build is actually installed* (`adb shell dumpsys package com.fleet.mobile`) before debugging code; `eas-cli build:list` + downloading the APK and grepping `assets/index.android.bundle` for the baked URL is the definitive check.
 
 ## What you cannot do here — CONFIRMED
 
