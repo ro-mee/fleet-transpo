@@ -24,6 +24,7 @@ import {
   Settings,
   Brain,
   ShieldCheck,
+  Bug,
   UserCog,
   KeyRound,
   ClipboardList,
@@ -55,6 +56,7 @@ export const WORKS = {
         label: "Administration",
         items: [
           { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
+          { href: "/system/errors", label: "Error Log", icon: Bug },
           {
             href: "/settings/users",
             label: "User Management",

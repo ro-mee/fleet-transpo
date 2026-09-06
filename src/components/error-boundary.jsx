@@ -4,15 +4,39 @@ import { Component } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AlertTriangle } from "lucide-react";
+import { reportAppError } from "@/services/errors.service";
 
 export class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
     this.state = { hasError: false, error: null };
+    this.reported = false;
   }
 
   static getDerivedStateFromError(error) {
     return { hasError: true, error };
+  }
+
+  componentDidCatch(error) {
+    // Fire-and-forget client crash report (source=web). reportAppError never
+    // rejects, so this cannot cause a second crash or retry loop. Reported
+    // once per boundary instance — a retry that crashes again is a new mount.
+    if (this.reported) return;
+    this.reported = true;
+    try {
+      const route =
+        typeof window !== "undefined" && window.location?.pathname?.startsWith("/")
+          ? window.location.pathname
+          : null;
+      reportAppError({
+        source: "web",
+        route,
+        message: error?.message || "Unknown render error",
+        stack: error?.stack || null,
+      });
+    } catch {
+      // Reporting must never break the fallback UI.
+    }
   }
 
   render() {
@@ -28,6 +52,7 @@ export class ErrorBoundary extends Component {
               </p>
               <Button
                 onClick={() => {
+                  this.reported = false;
                   this.setState({ hasError: false, error: null });
                   window.location.reload();
                 }}

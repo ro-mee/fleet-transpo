@@ -66,6 +66,7 @@ export const NAV_ROLES = {
   "/notifications/templates": ["admin", "system_admin"],
   "/notifications/preferences": AUTHENTICATED_ROLES,
   "/system/audit": ["system_admin"],
+  "/system/errors": ["system_admin"],
   "/settings/general": ["admin", "system_admin"],
   "/settings/number-coding": ["admin", "system_admin"],
   "/settings/dispatch": ["admin", "system_admin"],
