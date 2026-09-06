@@ -2,7 +2,7 @@ export const DASHBOARD_CONFIGS = {
   system_admin: {
     title: "System Console",
     description: "Platform health, security and configuration at a glance.",
-    queries: ["users", "sessions", "notifications", "audit", "activity"],
+    queries: ["users", "sessions", "notifications", "audit", "activity", "health"],
     layout: ["account-posture", "platform-activity", "audit"],
   },
   admin: {

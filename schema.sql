@@ -64,6 +64,8 @@ CREATE TABLE ailogs (
   error_message text,
   user_email varchar(255),
   created_at timestamptz DEFAULT now(),
+  reviewed_at timestamptz,
+  reviewed_by integer,
   CONSTRAINT ailogs_pkey PRIMARY KEY (log_id)
 );
 
@@ -672,6 +674,8 @@ CREATE TABLE push_outbox (
   created_at timestamptz DEFAULT now() NOT NULL,
   sent_at timestamptz,
   error text,
+  reviewed_at timestamptz,
+  reviewed_by integer,
   CONSTRAINT push_outbox_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'error'::text]))),
   CONSTRAINT push_outbox_pkey PRIMARY KEY (id)
 );
@@ -1171,6 +1175,7 @@ ALTER TABLE web_sessions ADD CONSTRAINT web_sessions_employee_id_fkey FOREIGN KE
 CREATE INDEX idx_ai_reference ON public.ai_recommendations USING btree (reference_type, reference_id);
 CREATE INDEX idx_ai_report_narrative_force_day ON public.ai_report_narratives USING btree (force_day);
 CREATE INDEX idx_ai_type ON public.ai_recommendations USING btree (recommendation_type);
+CREATE INDEX idx_ailogs_unreviewed_errors ON public.ailogs USING btree (created_at DESC) WHERE (((status)::text ~~* 'error'::text) AND (reviewed_at IS NULL));
 CREATE INDEX idx_app_errors_created ON public.app_errors USING btree (created_at DESC);
 CREATE INDEX idx_app_errors_fingerprint ON public.app_errors USING btree (fingerprint, created_at DESC);
 CREATE INDEX idx_app_errors_source ON public.app_errors USING btree (source, created_at DESC);
@@ -1253,6 +1258,7 @@ CREATE INDEX idx_password_reset_tokens_employee ON public.password_reset_tokens 
 CREATE INDEX idx_password_reset_tokens_expiry ON public.password_reset_tokens USING btree (expires_at);
 CREATE INDEX idx_push_outbox_employee ON public.push_outbox USING btree (employee_id, status);
 CREATE INDEX idx_push_outbox_pending ON public.push_outbox USING btree (status, id) WHERE (status = 'pending'::text);
+CREATE INDEX idx_push_outbox_unreviewed_errors ON public.push_outbox USING btree (created_at DESC) WHERE ((status = 'error'::text) AND (reviewed_at IS NULL));
 CREATE INDEX idx_rec_snapshots_request ON public.recommendation_snapshots USING btree (request_id, generated_at DESC);
 CREATE INDEX idx_rec_snapshots_validity ON public.recommendation_snapshots USING btree (valid_until) WHERE (is_consumed = false);
 CREATE INDEX idx_reservation_events_request_timeline ON public.reservation_events USING btree (request_id, occurred_at DESC);

@@ -18,13 +18,11 @@ import {
   FileWarning,
   Fuel,
   Inbox,
-  KeyRound,
   MapPin,
   Navigation,
   ShieldCheck,
   Truck,
   UserCheck,
-  UserCog,
   Users,
   Wrench,
 } from "lucide-react";
@@ -43,6 +41,7 @@ import { getMaintenanceRecords } from "@/services/maintenance.service";
 import { getNotifications } from "@/services/notification.service";
 import { getSubstituteSchedules } from "@/services/substitute-driver.service";
 import { getSystemActivity } from "@/services/system.service";
+import { getSystemHealth } from "@/services/system-health.service";
 import { getLatestLocations } from "@/services/trip.service";
 import { getRecommendation, getTransportRequests } from "@/services/transport.service";
 import { getExpiringDocuments, getVehicles } from "@/services/vehicle.service";
@@ -73,6 +72,14 @@ import {
   MaintenancePressureCard,
   IncidentRiskCard,
 } from "@/components/dashboard/operations-cards";
+import {
+  SystemUsageOverviewCard,
+  SystemHealthCard,
+  AccountPostureCard,
+  RecentSystemActivitiesCard,
+  RecentErrorsCard,
+  RecentSecurityAuditCard,
+} from "@/components/dashboard/system-admin-cards";
 
 const LiveLocationsMap = dynamic(
   () => import("@/components/maps/live-locations-map"),
@@ -382,36 +389,158 @@ function LoadingDashboard() {
   );
 }
 
+const ROLE_COLORS = {
+  Unassigned: "#38bdf8",
+  driver: "#a855f7",
+  "fleet manager": "#f87171",
+  dispatcher: "#fb7185",
+  admin: "#2563eb",
+  management: "#c084fc",
+  "system admin": "#f59e0b",
+};
+const COLOR_PALETTE = ["#38bdf8", "#a855f7", "#f87171", "#fb7185", "#2563eb", "#c084fc", "#f59e0b", "#10b981", "#64748b"];
+
 function SystemAdminDashboard({ queries }) {
-  const users = queries.users.data?.rows || [];
-  const sessions = queries.sessions.data?.sessions || [];
-  const notifications = queries.notifications.data || [];
-  const activity = queries.activity.data || {};
-  const audit = queries.audit.data || {};
-  const counters = activity.counters || {};
-  const activeUsers = users.filter((user) => !user.deleted_at && user.status !== "Inactive");
-  const disabledUsers = users.length - activeUsers.length;
-  const disabledRows = users
+  const users = queries.users?.data?.rows;
+  const counters = queries.activity?.data?.counters;
+  const integrationRecent = queries.activity?.data?.recent;
+  const auditLogs = queries.audit?.data?.logs;
+
+  const userList = users || [];
+  const activeUsers = userList.filter((user) => !user.deleted_at && user.status !== "Inactive");
+  const disabledUsers = userList.length - activeUsers.length;
+  const disabledRows = userList
     .filter((user) => user.deleted_at || user.status === "Inactive")
     .slice(0, 3)
-    .map((user) => ({
-      label: [user.first_name, user.last_name].filter(Boolean).join(" ") || user.email || `Account #${user.employee_id}`,
-      detail: user.deleted_at ? "disabled" : "inactive",
-    }));
+    .map((user) => [user.first_name, user.last_name].filter(Boolean).join(" ") || user.role_name || user.email || `Account #${user.employee_id}`);
   const disabledExtra = Math.max(0, disabledUsers - disabledRows.length);
-  const roleCounts = Object.entries(users.reduce((acc, user) => {
-    const roleName = user.role_name || "Unassigned";
-    acc[roleName] = (acc[roleName] || 0) + 1;
-    return acc;
-  }, {})).sort((a, b) => b[1] - a[1]);
-  const failedJobs = Number(counters.integration_failed || 0) + Number(counters.automation_failed || 0);
-  const pushFailed = Number(counters.push_failed || 0);
-  const pushPending = Number(counters.push_pending || 0);
-  const loginFailed = Number(counters.login_failed_24h || 0);
-  const unread = notifications.filter((item) => !item.is_read).length;
-  const systemAlerts = failedJobs > 0 || unread > 0 || pushFailed > 0 || loginFailed > 0;
 
-  if (queries.users.isLoading || queries.activity.isLoading) return <LoadingDashboard />;
+  const roleList = useMemo(() => {
+    if (!users?.length) return [];
+    const counts = users.reduce((acc, user) => {
+      const roleName = (user.role_name || "Unassigned").replace(/_/g, " ");
+      acc[roleName] = (acc[roleName] || 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count], index) => ({
+        name,
+        count,
+        color: ROLE_COLORS[name] || COLOR_PALETTE[index % COLOR_PALETTE.length],
+      }));
+  }, [users]);
+
+  const formattedAudit = useMemo(() => {
+    if (!auditLogs?.length) return [];
+    return auditLogs.slice(0, 4).map((item) => {
+      const isSecurity =
+        String(item.action || "").toLowerCase().includes("login") ||
+        String(item.action || "").toLowerCase().includes("auth") ||
+        String(item.resource || "").toLowerCase().includes("auth");
+      return {
+        id: item.log_id,
+        type: isSecurity ? "security" : "user",
+        event: `${item.action || "Changed"} · ${item.resource || "resource"}${item.resource_id ? ` #${item.resource_id}` : ""}`,
+        actor: [item.first_name, item.last_name].filter(Boolean).join(" ") || item.email || "System process",
+        time: item.created_at ? formatDateTime(item.created_at) : "Recent",
+      };
+    });
+  }, [auditLogs]);
+
+  const pushErrors = queries.activity?.data?.pushErrors;
+  const liveActivities = queries.activity?.data?.activities;
+  const liveServices = queries.activity?.data?.services;
+  const liveUsage = queries.activity?.data?.usage;
+
+  // Dashboard ↔ module connection: the System Health card renders the SAME
+  // 7-row model as /system/health (mapped to the card's { name, status }
+  // shape; the module owns remediation, the card only links to it). While
+  // the health query is loading or errored, fall back to the legacy
+  // activity.services array so the card never blocks the dashboard.
+  const HEALTH_STATE_LABEL = { operational: "Operational", attention: "Attention", degraded: "Degraded", unknown: "Unknown" };
+  const healthRows = queries.health?.data?.rows;
+  const healthServices =
+    Array.isArray(healthRows) && healthRows.length
+      ? healthRows.map((r) => ({ name: r.label, status: HEALTH_STATE_LABEL[r.state] || "Unknown", uptime: "" }))
+      : undefined;
+
+  const formattedErrors = useMemo(() => {
+    const failedEvents = (integrationRecent || []).filter((item) => String(item.status).toLowerCase() === "failed");
+    const pushFailed = Number(counters?.push_failed || 0);
+    const integrationFailed = Number(counters?.integration_failed || 0);
+    const loginFailed = Number(counters?.login_failed_24h || 0);
+    const hasPushErrors = (pushErrors || []).length > 0;
+
+    if (!failedEvents.length && !pushFailed && !loginFailed && !integrationFailed && !hasPushErrors) {
+      return [];
+    }
+    const list = [];
+    if (pushFailed > 0 || hasPushErrors) {
+      list.push({
+        id: "err-push",
+        severity: "CRITICAL",
+        title: "Push notification delivery failed",
+        occurrences: pushFailed || pushErrors?.length || 0,
+        lastSeen: pushErrors?.[0]?.created_at ? formatDateTime(pushErrors[0].created_at) : "Recent",
+      });
+    }
+    if (integrationFailed > 0) {
+      list.push({
+        id: "err-integration",
+        severity: "ERROR",
+        title: "Integration sync failed",
+        occurrences: integrationFailed,
+        lastSeen: "Recent",
+      });
+    }
+    if (loginFailed > 0) {
+      list.push({
+        id: "err-login",
+        severity: "WARNING",
+        title: "Failed sign-in attempts detected",
+        occurrences: loginFailed,
+        lastSeen: "Last 24h",
+      });
+    }
+    failedEvents.slice(0, 4 - list.length).forEach((ev, idx) => {
+      list.push({
+        id: `err-ev-${ev.id || idx}`,
+        severity: "ERROR",
+        title: ev.error_message || `${ev.type || "Integration"} event failed`,
+        occurrences: 1,
+        lastSeen: "Recent",
+      });
+    });
+    return list;
+  }, [counters, integrationRecent, pushErrors]);
+
+  const formattedActivities = useMemo(() => {
+    if (!integrationRecent?.length) return [];
+    const toneMap = {
+      failed: "red",
+      error: "red",
+      processed: "green",
+      success: "green",
+      inbound: "blue",
+      outbound: "purple",
+      pending: "teal",
+    };
+    return integrationRecent.slice(0, 5).map((item) => {
+      const statusKey = String(item.status || item.type || "").toLowerCase();
+      return {
+        time: item.created_at ? formatTime(item.created_at) : "Just now",
+        user: item.source === "integration" ? "API System" : "System",
+        initials: "SY",
+        action: item.status === "processed" ? "Success" : item.status === "failed" ? "Failed" : item.type || "Event",
+        actionTone: toneMap[statusKey] || "blue",
+        module: item.source_system || item.detail || "Integration",
+        details: item.error_message || item.detail || `Processed ${item.type || "event"}`,
+      };
+    });
+  }, [integrationRecent]);
+
+  if (queries.users?.isLoading || queries.activity?.isLoading) return <LoadingDashboard />;
 
   return (
     <div className="space-y-5">
@@ -419,109 +548,29 @@ function SystemAdminDashboard({ queries }) {
         { query: queries.users, title: "Account posture could not be loaded" },
         { query: queries.sessions, title: "Your sessions could not be loaded" },
         { query: queries.activity, title: "Platform activity could not be loaded" },
+        { query: queries.health, title: "System health could not be loaded" },
         { query: queries.audit, title: "Audit activity could not be loaded" },
         { query: queries.notifications, title: "Notifications could not be loaded" },
       ]} />
 
-      {systemAlerts && (
-        <div className="flex flex-col gap-3 rounded-[14px] bg-danger-bg px-5 py-4 text-danger-700 sm:flex-row sm:items-center border border-danger/20 shadow-sm" role="alert">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-danger/10 border border-danger/20">
-            <AlertTriangle className="h-4 w-4" />
-          </span>
-          <p className="flex-1 text-[13px] font-medium tracking-tight">
-            {failedJobs > 0 ? `${failedJobs} integration or automation failure${failedJobs === 1 ? "" : "s"} in the last 24 hours.` : ""}
-            {failedJobs > 0 && (unread > 0 || pushFailed > 0 || loginFailed > 0) ? " " : ""}
-            {pushFailed > 0 ? `${pushFailed} push notification${pushFailed === 1 ? "" : "s"} failed to deliver${pushPending > 0 ? ` (${pushPending} still pending)` : ""}.` : ""}
-            {pushFailed > 0 && (unread > 0 || loginFailed > 0) ? " " : ""}
-            {loginFailed > 0 ? `${loginFailed} failed sign-in attempt${loginFailed === 1 ? "" : "s"} in the last 24 hours.` : ""}
-            {(pushFailed > 0 || loginFailed > 0) && unread > 0 ? " " : ""}
-            {unread > 0 ? `${unread} unread notification${unread === 1 ? "" : "s"} need review.` : ""}
-          </p>
-          <Link href="/settings/ai/logs" className={linkClass}>Review system logs <ArrowRight className="h-3.5 w-3.5" /></Link>
-        </div>
-      )}
-
-      <StatGrid cols={4}>
-        <StatCard icon={UserCheck} label="Active accounts" value={queries.users.isError ? "—" : activeUsers.length} trend="Accounts currently allowed to sign in" tone="success" href="/settings/users" />
-        <StatCard icon={UserCog} label="Disabled accounts" value={queries.users.isError ? "—" : disabledUsers} trend="Inactive or soft-deleted accounts" tone={disabledUsers ? "warning" : "neutral"} href="/settings/users" />
-        <StatCard icon={ShieldCheck} label="Roles represented" value={queries.users.isError ? "—" : roleCounts.length} trend="Current access-role coverage" tone="primary" href="/settings/users" />
-        <StatCard icon={KeyRound} label="Your active sessions" value={queries.sessions.isLoading || queries.sessions.isError ? "—" : sessions.length} trend="Web and mobile sessions for this account" tone="info" href="/settings/security" />
-      </StatGrid>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(18rem,0.75fr)]">
-        <Panel title="Platform activity" description="Newest integration events; failures stay visible instead of being counted as success." action={<Link href="/settings/ai/logs" className={linkClass}>Open logs <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.activity} errorTitle="Platform activity is unavailable">{(activity.recent || []).length ? (
-            <div className="divide-y divide-border/70">
-              {activity.recent.slice(0, 8).map((item) => {
-                const eventStatus = String(item.status || "").toLowerCase();
-                const health = eventStatus === "failed" ? "Critical" : ["processed", "success"].includes(eventStatus) ? "Healthy" : "Medium";
-                const needsPulse = health === "Critical";
-                return (
-                <Row
-                  key={`${item.source}-${item.id}`}
-                  icon={item.source === "integration" ? Activity : Brain}
-                  title={`${item.source === "integration" ? "Integration" : "Automation"} · ${item.type || "Event"}`}
-                  detail={item.error_message || item.detail || "No additional detail recorded"}
-                  meta={formatDateTime(item.created_at)}
-                  status={health}
-                  entity="risk"
-                  pulse={needsPulse ? "danger" : undefined}
-                />
-              );})}
-            </div>
-          ) : <InlineEmpty icon={Activity} title="No platform events yet" description="Integration activity will appear here once requests flow through the system." variant="waiting" />}</FeedState>
-        </Panel>
-
-        <Panel title="Account posture" description="Role distribution across all employee accounts.">
-          <FeedState queries={queries.users} errorTitle="Account posture is unavailable">{roleCounts.length ? (
-            <>
-            <div className="divide-y divide-border/70">
-              {roleCounts.map(([name, count]) => (
-                <Row key={name} icon={Users} title={name.replace(/_/g, " ")} detail={`${count} account${count === 1 ? "" : "s"}`} />
-              ))}
-            </div>
-            {disabledRows.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 border-t border-border/70 px-5 py-3.5" aria-label="Disabled accounts">
-                {disabledRows.map((item) => (
-                  <Link key={`${item.label}-${item.detail}`} href="/settings/users" className="inline-flex items-center gap-1.5 rounded-full border border-warning/25 bg-warning/10 px-2.5 py-1 text-[11px] tabular-nums transition-colors hover:bg-warning/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-warning">
-                    <span className="font-bold text-warning-700">{item.label}</span>
-                    <span className="font-medium text-warning-700/70">{item.detail}</span>
-                  </Link>
-                ))}
-                {disabledExtra > 0 && (
-                  <Link href="/settings/users" className="rounded-full border border-border/60 bg-hover px-2.5 py-1 text-[11px] font-semibold text-foreground-secondary tabular-nums transition-colors hover:bg-hover/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
-                    +{disabledExtra} more
-                  </Link>
-                )}
-              </div>
-            )}
-            </>
-          ) : <InlineEmpty icon={Users} title="No accounts found" description="Create an employee account to establish role coverage." variant="first-run" action={<Button variant="outline" size="sm" asChild><Link href="/settings/users/new">New account</Link></Button>} />}</FeedState>
-        </Panel>
+      {/* Top Row: System Usage Overview (~1.3fr) | System Health (1fr) | Account Posture (1fr) */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr_1fr] gap-5 items-stretch">
+        <SystemUsageOverviewCard data={liveUsage || []} />
+        <SystemHealthCard services={healthServices ?? liveServices ?? []} />
+        <AccountPostureCard
+          roles={roleList}
+          totalAccounts={userList.length}
+          disabledRoles={disabledRows}
+          disabledExtra={disabledExtra}
+        />
       </div>
 
-      <Panel title="Recent security and change audit" description="Actor, action, target and timestamp from the immutable audit trail." action={<Link href="/system/audit" className={linkClass}>Open full audit <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-        <FeedState queries={queries.audit} errorTitle="Audit activity is unavailable">{(audit.logs || []).length ? (
-          <div className="divide-y divide-border/70">
-            {audit.logs.slice(0, 8).map((item) => (
-              <Row
-                key={item.log_id}
-                icon={ShieldCheck}
-                title={`${item.action || "Changed"} · ${item.resource || "resource"}${item.resource_id ? ` #${item.resource_id}` : ""}`}
-                detail={[item.first_name, item.last_name].filter(Boolean).join(" ") || item.email || "System process"}
-                meta={formatDateTime(item.created_at)}
-              />
-            ))}
-          </div>
-        ) : <InlineEmpty icon={ShieldCheck} title="No audit events yet" description="Tracked system changes will appear here as activity occurs." variant="waiting" />}</FeedState>
-      </Panel>
-
-      <LinkRail items={[
-        { label: "Manage users", href: "/settings/users", icon: UserCog },
-        { label: "API and integrations", href: "/settings/api", icon: KeyRound },
-        { label: "Notification center", href: "/notifications", icon: Bell },
-        { label: "Audit log", href: "/system/audit", icon: ShieldCheck },
-      ]} />
+      {/* Bottom Row: Recent System Activities (~1.3fr) | Recent Errors (1fr) | Recent Security and Change Audit (1fr) */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.3fr_1fr_1fr] gap-5 items-stretch">
+        <RecentSystemActivitiesCard activities={liveActivities?.length ? liveActivities : formattedActivities} />
+        <RecentErrorsCard errors={formattedErrors} />
+        <RecentSecurityAuditCard logs={formattedAudit} />
+      </div>
     </div>
   );
 }
@@ -1000,6 +1049,7 @@ export function RoleDashboard({ role, employee }) {
   const notifications = useQuery({ queryKey: ["notifications"], queryFn: () => getNotifications(), enabled: enabled("notifications") });
   const audit = useQuery({ queryKey: ["audit-logs", "dashboard"], queryFn: () => getAuditLogs({ limit: 30 }), enabled: enabled("audit") });
   const activity = useQuery({ queryKey: ["system-activity"], queryFn: getSystemActivity, enabled: enabled("activity"), refetchInterval: enabled("activity") ? 60000 : false });
+  const health = useQuery({ queryKey: ["system-health"], queryFn: getSystemHealth, enabled: enabled("health"), refetchInterval: enabled("health") ? 60000 : false });
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: () => getVehicles(), enabled: enabled("vehicles") });
   const drivers = useQuery({ queryKey: ["drivers", "dashboard"], queryFn: () => getDrivers(), enabled: enabled("drivers") });
   const driverStats = useQuery({ queryKey: ["driver-stats"], queryFn: getDriverStats, enabled: enabled("driverStats") });
@@ -1022,7 +1072,7 @@ export function RoleDashboard({ role, employee }) {
 
   const queueGroups = useMemo(() => groupQueue(reservations.data || []), [reservations.data]);
 
-  const queries = { users, sessions, notifications, audit, activity, vehicles, drivers, driverStats, reservations, dispatches, locations, rescues, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests, utilization, driverPerformance };
+  const queries = { users, sessions, notifications, audit, activity, health, vehicles, drivers, driverStats, reservations, dispatches, locations, rescues, assignments, substitutes, leave, maintenance, incidents, documents, fuelRequests, utilization, driverPerformance };
 
   // One authored entrance moment for the whole dashboard: a single gentle
   // fade-up on mount (reduced-motion collapses it via MotionConfig).
