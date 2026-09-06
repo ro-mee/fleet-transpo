@@ -67,6 +67,12 @@ import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { CardSkeleton, StatsGridSkeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { getDashboardConfig } from "@/components/dashboard/dashboard-configs";
+import {
+  RequestPipelineCard,
+  DocumentComplianceCard,
+  MaintenancePressureCard,
+  IncidentRiskCard,
+} from "@/components/dashboard/operations-cards";
 
 const LiveLocationsMap = dynamic(
   () => import("@/components/maps/live-locations-map"),
@@ -443,7 +449,7 @@ function SystemAdminDashboard({ queries }) {
       </StatGrid>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(18rem,0.75fr)]">
-        <Panel title="Platform activity" description="Newest integration and automation events; failures stay visible instead of being counted as success." action={<Link href="/settings/ai/logs" className={linkClass}>Open logs <ArrowRight className="h-3.5 w-3.5" /></Link>}>
+        <Panel title="Platform activity" description="Newest integration events; failures stay visible instead of being counted as success." action={<Link href="/settings/ai/logs" className={linkClass}>Open logs <ArrowRight className="h-3.5 w-3.5" /></Link>}>
           <FeedState queries={queries.activity} errorTitle="Platform activity is unavailable">{(activity.recent || []).length ? (
             <div className="divide-y divide-border/70">
               {activity.recent.slice(0, 8).map((item) => {
@@ -463,7 +469,7 @@ function SystemAdminDashboard({ queries }) {
                 />
               );})}
             </div>
-          ) : <InlineEmpty icon={Activity} title="No platform events yet" description="Integration and automation activity will appear here once requests flow through the system." variant="waiting" />}</FeedState>
+          ) : <InlineEmpty icon={Activity} title="No platform events yet" description="Integration activity will appear here once requests flow through the system." variant="waiting" />}</FeedState>
         </Panel>
 
         <Panel title="Account posture" description="Role distribution across all employee accounts.">
@@ -530,38 +536,6 @@ function AdminDashboard({ queries }) {
   const openRequests = requests.filter((request) => !["Completed", "Cancelled"].includes(request.fleet_status));
   const completedToday = (dispatches.completed || []).filter((dispatch) => isToday(dispatch.updated_at || dispatch.scheduled_arrival)).length;
   const activeMaintenance = maintenance.filter((item) => ["Scheduled", "In Progress"].includes(item.status));
-  const pipelineOrder = ["Pending", "Scheduled", "Assigned", "In Progress", "Completed", "Cancelled"];
-  const pipelineFills = {
-    Pending: CHART_COLORS.warning,
-    Scheduled: CHART_COLORS.neutral,
-    Assigned: CHART_COLORS.info,
-    "In Progress": "#1d4ed8", // deepened info so adjacent slices differ
-    Completed: CHART_COLORS.success,
-    Cancelled: CHART_COLORS.danger,
-  };
-  const pipelineCounts = requests.reduce((acc, request) => {
-    const status = request.fleet_status || "Unknown";
-    acc[status] = (acc[status] || 0) + 1;
-    return acc;
-  }, {});
-  const pipelineItems = [
-    ...pipelineOrder.map((status) => ({ label: status, value: pipelineCounts[status] || 0, fill: pipelineFills[status] })),
-    ...Object.entries(pipelineCounts)
-      .filter(([status]) => !pipelineOrder.includes(status))
-      .map(([status, value]) => ({ label: status, value, fill: CHART_COLORS.neutral })),
-  ];
-  const docExpired = Number(documents.totals?.expired || 0);
-  const docExpiring30 = Number(documents.totals?.expiring30 || 0);
-  const docExpiring90 = Number(documents.totals?.expiring90 || 0);
-  const docTracked = (documents.items || []).length;
-  const docValid = Math.max(0, docTracked - docExpired - docExpiring30 - docExpiring90);
-  const docExpiredItems = (documents.items || [])
-    .filter((item) => item.days_left != null && item.days_left < 0)
-    .sort((a, b) => (a.days_left ?? 0) - (b.days_left ?? 0))
-    .map((item) => ({
-      label: item.plate_number || item.vehicle || "Undocumented unit",
-      detail: item.document_type || "document",
-    }));
   const attention = [
     { label: "Incident attention queue", value: queries.incidents.isLoading || queries.incidents.isError ? "—" : Number(incidents.attention || 0), sortValue: Number(incidents.attention || 0), href: "/incidents", icon: AlertTriangle },
     { label: "Pending reassignment", value: queries.dispatches.isError ? "—" : (dispatches.pendingReassignment || []).length, sortValue: (dispatches.pendingReassignment || []).length, href: "/dispatch", icon: Navigation },
@@ -620,37 +594,10 @@ function AdminDashboard({ queries }) {
       </StatGrid>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Request pipeline" description="All requests by lifecycle status — movement through this funnel is the operation's throughput." action={<Link href="/reservations/queue" className={linkClass}>Request queue <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.reservations} errorTitle="Request pipeline is unavailable"><DonutMeter totalLabel="requests" items={pipelineItems} /></FeedState>
-        </Panel>
-        <Panel title="Document compliance" description="Expired and upcoming expiries across tracked documents; Valid is the tracked remainder." action={<Link href="/fleet/documents" className={linkClass}>Compliance register <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.documents} errorTitle="Document compliance is unavailable"><DonutMeter totalLabel="documents" exceptions={docExpiredItems} exceptionsHref="/fleet/documents" items={[
-            { label: "Expired", value: docExpired, fill: CHART_COLORS.danger },
-            { label: "Due ≤30d", value: docExpiring30, fill: CHART_COLORS.warning },
-            { label: "Due 31–90d", value: docExpiring90, fill: CHART_COLORS.info },
-            { label: "Valid", value: docValid, fill: CHART_COLORS.success },
-          ]} /></FeedState>
-        </Panel>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(19rem,0.65fr)]">
-        <Panel title="Maintenance and incident pressure" description="The newest active maintenance records alongside incident severity totals." action={<Link href="/maintenance" className={linkClass}>Open maintenance <ArrowRight className="h-3.5 w-3.5" /></Link>}>
-          <FeedState queries={queries.maintenance} errorTitle="Maintenance attention is unavailable">{activeMaintenance.length ? (
-            <div className="divide-y divide-border/70">
-              {activeMaintenance.slice(0, 6).map((item) => (
-                <Row key={item.maintenance_id} icon={Wrench} title={`${item.vehicles?.plate_number || "Vehicle"} · ${item.maintenance_type || "Maintenance"}`} detail={item.description || `Scheduled ${formatDateTime(item.maintenance_date)}`} status={item.status} entity="maintenance" />
-              ))}
-            </div>
-          ) : <InlineEmpty icon={Wrench} title="No active maintenance work" description="New work orders will appear here once maintenance is scheduled." variant="waiting" />}</FeedState>
-        </Panel>
-        <Panel title="Incident risk" description="Counts from the current incident attention summary.">
-          <FeedState queries={queries.incidents} errorTitle="Incident risk is unavailable"><StatusBars rows={[
-            { label: "Open", value: incidents.open || 0, color: "bg-warning", icon: Inbox, chip: "border-warning/25 bg-warning/10 text-warning-700" },
-            { label: "Critical / major open", value: incidents.critical_major_open || 0, color: "bg-danger", icon: AlertTriangle, chip: "border-danger/25 bg-danger/10 text-danger" },
-            { label: "Assistance open", value: incidents.assistance_open || 0, color: "bg-info", icon: Bell, chip: "border-info/25 bg-info/10 text-info" },
-            { label: "Maintenance pending", value: incidents.maintenance_pending || 0, color: "bg-primary", icon: Wrench, chip: "border-primary/20 bg-primary/10 text-primary" },
-          ]} /></FeedState>
-        </Panel>
+        <RequestPipelineCard requests={requests} query={queries.reservations} linkClass={linkClass} />
+        <DocumentComplianceCard documents={documents} query={queries.documents} linkClass={linkClass} />
+        <MaintenancePressureCard maintenance={activeMaintenance.length > 0 ? activeMaintenance : maintenance} query={queries.maintenance} linkClass={linkClass} />
+        <IncidentRiskCard incidents={incidents} query={queries.incidents} />
       </div>
 
       <LinkRail items={[
