@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+﻿import { query } from "@/lib/db";
 import { requirePermission, ok, handleError } from "@/lib/api/utils";
 import { CRON_HEARTBEAT_KEY } from "@/lib/system-health";
 
@@ -185,7 +185,7 @@ export async function GET(req) {
     // 3. Real Operational Activities from audit_logs
     const { rows: activities } = await query(`
       SELECT a.log_id AS id,
-             to_char(a.created_at, 'FMHH12:MI AM') AS time,
+             to_char(a.created_at AT TIME ZONE 'Asia/Manila', 'FMHH12:MI AM') AS time,
              COALESCE(NULLIF(TRIM(e.first_name || ' ' || e.last_name), ''), e.email, 'System') AS user,
              SUBSTRING(COALESCE(e.first_name, 'S'), 1, 1) || SUBSTRING(COALESCE(e.last_name, 'Y'), 1, 1) AS initials,
              CASE

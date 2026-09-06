@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -104,7 +104,7 @@ function formatTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    : date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
 }
 
 function formatDateTime(value) {
@@ -112,7 +112,7 @@ function formatDateTime(value) {
   const date = new Date(value);
   return Number.isNaN(date.getTime())
     ? "—"
-    : `${date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} · ${formatTime(value)}`;
+    : `${date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "Asia/Manila" })} · ${formatTime(value)}`;
 }
 
 function LivePulseBeacon({ status = "primary" }) {
