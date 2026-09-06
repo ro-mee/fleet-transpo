@@ -146,7 +146,7 @@ export async function POST(req) {
     const snapshot = buildReportSnapshot(report, data);
     // Per-report analyst instructions refine the shared persona to this report.
     // Fall back to the global system instructions when no report file exists.
-    const system_instructions = getReportInstructions(report) || getSystemInstructions();
+    const system_instructions = (await getReportInstructions(report)) || (await getSystemInstructions());
     const llmResult = await executeLlmCompletion({
       feature_used: "Report Narrative AI",
       system_instructions,

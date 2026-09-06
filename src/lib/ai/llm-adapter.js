@@ -87,7 +87,7 @@ export async function executeLlmCompletion({
     return { success: false, fallback: true, reason: "No active LLM provider configured" };
   }
 
-  const instructions = system_instructions || getSystemInstructions();
+  const instructions = system_instructions || await getSystemInstructions();
   const selectedModel =
     prefer_fast_model && provider.provider_name?.toLowerCase() === "deepseek"
       ? "deepseek-chat"

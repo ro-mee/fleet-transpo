@@ -17,8 +17,7 @@ import {
   deleteAiProvider,
   testAiProviderConnection,
   fetchAiModels,
-  getAiLogs,
-  getAiInsights,
+  updateAiInstructions,
 } from "@/services/ai.service";
 import { apiFetch } from "@/lib/api/client";
 import {
@@ -35,7 +34,6 @@ import {
   Download,
   Eye,
   EyeOff,
-  Bug,
   FolderTree,
   ChevronDown,
 } from "lucide-react";
@@ -73,11 +71,29 @@ export default function AiSettingsPage() {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [fetchedModelList, setFetchedModelList] = useState([]);
   const [showApiKey, setShowApiKey] = useState(false);
-  const [testResult, setTestResult] = useState(null);
-  const [testingInsight, setTestingInsight] = useState(false);
-  const [driverTestResult, setDriverTestResult] = useState(null);
-  const [testingDriverInsight, setTestingDriverInsight] = useState(false);
   const [expandedReport, setExpandedReport] = useState(null);
+  const [mainExpanded, setMainExpanded] = useState(false);
+  const [editingPrompt, setEditingPrompt] = useState(null);
+  const [promptDraft, setPromptDraft] = useState("");
+
+  const openPromptEditor = (target, label, initial) => {
+    setEditingPrompt({ target, label });
+    setPromptDraft(initial || "");
+  };
+  const closePromptEditor = () => {
+    setEditingPrompt(null);
+    setPromptDraft("");
+  };
+
+  const savePromptMutation = useMutation({
+    mutationFn: ({ target, content }) => updateAiInstructions(target, content),
+    onSuccess: (res) => {
+      toast.success(`Prompt saved (${res?.file || "instructions"}) — live immediately, no restart needed`);
+      queryClient.invalidateQueries({ queryKey: ["ai-instructions"] });
+      closePromptEditor();
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const [formData, setFormData] = useState({
     name: "my-openai",
@@ -103,55 +119,6 @@ export default function AiSettingsPage() {
     queryKey: ["ai-instructions"],
     queryFn: () => apiFetch("/api/ai/instructions"),
   });
-
-  const { data: recentLogs = [] } = useQuery({
-    queryKey: ["ai-logs-recent"],
-    queryFn: () => getAiLogs(),
-    refetchInterval: 10_000,
-  });
-
-  const activeProvider = (providers || []).find((p) => p.is_default && p.is_enabled);
-
-  const handleTestInsightGeneration = async () => {
-    setTestingInsight(true);
-    setTestResult(null);
-    try {
-      const res = await getAiInsights();
-      setTestResult({
-        success: true,
-        summary: res.natural_language_summary || "No LLM summary returned (rule-based only)",
-        insightCount: Array.isArray(res.insights) ? res.insights.length : 0,
-        raw: res,
-      });
-      toast.success("Insight generation completed!");
-    } catch (err) {
-      setTestResult({ success: false, error: err.message });
-      toast.error(`Test failed: ${err.message}`);
-    } finally {
-      setTestingInsight(false);
-    }
-  };
-
-  const handleTestDriverInsight = async () => {
-    setTestingDriverInsight(true);
-    setDriverTestResult(null);
-    try {
-      const res = await apiFetch("/api/ai/driver-insights");
-      setDriverTestResult({
-        success: true,
-        analysis: res.analysis || "No analysis returned",
-        driverCount: res.driver_count || 0,
-        llmStatus: res.llm_status || "Rule-Based",
-        diagnostics: res.diagnostics || null,
-      });
-      toast.success("Driver insight generated!");
-    } catch (err) {
-      setDriverTestResult({ success: false, error: err.message });
-      toast.error(`Test failed: ${err.message}`);
-    } finally {
-      setTestingDriverInsight(false);
-    }
-  };
 
   const createMutation = useMutation({
     mutationFn: createAiProvider,
@@ -483,13 +450,48 @@ export default function AiSettingsPage() {
               Loaded dynamically from <code className="text-primary font-data font-bold bg-primary/10 px-1.5 py-0.5 rounded-md">resources/ai/instructions.md</code>
             </p>
           </div>
-          <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5">v1.0.0 Active</Badge>
+          <div className="flex items-center gap-2 shrink-0">
+            <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5">v1.0.0 Active</Badge>
+            {instructions?.content ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openPromptEditor("main", "instructions.md", instructions.content)}
+                className="rounded-2xl h-9 px-4 text-xs font-semibold cursor-pointer shrink-0"
+              >
+                <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+              </Button>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="p-5">
           {instructions?.content ? (
-            <pre className="text-xs text-foreground-secondary leading-relaxed whitespace-pre-wrap font-sans max-h-80 overflow-y-auto">
-              {instructions.content}
-            </pre>
+            <div className="rounded-2xl border border-border/60 bg-muted/20 overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setMainExpanded((v) => !v)}
+                className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left"
+              >
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-primary" />
+                  <span className="text-sm font-bold text-foreground">Global instructions</span>
+                  <code className="text-[11px] font-data text-foreground-secondary bg-background/60 px-1.5 py-0.5 rounded-md">
+                    instructions.md
+                  </code>
+                </div>
+                <span className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[11px] font-data font-bold rounded-full px-2.5 text-emerald-600">Loaded</Badge>
+                  <ChevronDown className={cn("w-4 h-4 text-foreground-secondary transition-transform", mainExpanded && "rotate-180")} />
+                </span>
+              </button>
+              {mainExpanded && (
+                <div className="px-4 pb-4">
+                  <pre className="text-xs text-foreground-secondary leading-relaxed whitespace-pre-wrap font-sans max-h-80 overflow-y-auto rounded-xl bg-background/50 p-3">
+                    {instructions.content}
+                  </pre>
+                </div>
+              )}
+            </div>
           ) : (
             <p className="text-xs text-foreground-secondary leading-relaxed">
               Loading instructions...
@@ -527,6 +529,16 @@ export default function AiSettingsPage() {
                     </button>
                     {expandedReport === r.report && (
                       <div className="px-4 pb-4">
+                        <div className="flex items-center justify-end mb-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openPromptEditor(r.report, `reports/${r.report}.md`, r.exists ? r.content || "" : "")}
+                            className="rounded-full h-8 px-3.5 text-[11px] font-semibold cursor-pointer"
+                          >
+                            <Pencil className="w-3 h-3 mr-1.5" /> {r.exists ? "Edit" : "Create"}
+                          </Button>
+                        </div>
                         {r.exists && r.content ? (
                           <pre className="text-xs text-foreground-secondary leading-relaxed whitespace-pre-wrap font-sans max-h-60 overflow-y-auto rounded-xl bg-background/50 p-3">
                             {r.content}
@@ -546,170 +558,6 @@ export default function AiSettingsPage() {
               <p className="text-xs text-muted-foreground">
                 No report instruction files detected in <code className="text-primary font-data bg-primary/10 px-1.5 py-0.5 rounded-md">resources/ai/reports/</code>.
               </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* ── Debug Console ── */}
-      <Card className="border border-warning/30 shadow-xs rounded-3xl bg-surface overflow-hidden">
-        <CardHeader className="pb-3 border-b border-border/60 bg-muted/20 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-sm font-extrabold flex items-center gap-2 text-foreground">
-              <Bug className="w-4 h-4 text-warning" /> AI Debug Console &amp; Diagnostics
-            </CardTitle>
-            <p className="text-xs text-foreground-secondary mt-0.5">
-              Verify LLM provider connectivity and insight generation
-            </p>
-          </div>
-        </CardHeader>
-        <CardContent className="p-4 space-y-4">
-          {/* Active provider status */}
-          <div className="flex items-center justify-between p-3 rounded-xl bg-muted/30">
-            <div className="flex items-center gap-3">
-              <div className={`p-1.5 rounded-lg ${activeProvider ? "bg-success/10" : "bg-muted"}`}>
-                <Zap className={`w-4 h-4 ${activeProvider ? "text-success" : "text-foreground-muted"}`} />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-foreground">
-                  {activeProvider ? activeProvider.display_name : "No Active Provider"}
-                </p>
-                <p className="text-xs text-foreground-secondary">
-                  {activeProvider
-                    ? `${activeProvider.model_name} · ${activeProvider.base_url}`
-                    : "System running in Deterministic Rule-Based mode only"}
-                </p>
-              </div>
-            </div>
-            <Badge variant={activeProvider ? "success" : "secondary"} className="text-[11px]">
-              {activeProvider ? "LLM Ready" : "Rule-Based"}
-            </Badge>
-          </div>
-
-          {/* Test insight generation */}
-          <div className="space-y-2">
-            <p className="text-xs font-medium text-foreground">Quick Tests</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTestInsightGeneration}
-                disabled={testingInsight}
-                className="h-8 text-xs"
-              >
-                {testingInsight ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Generating...</>
-                ) : (
-                  <><Activity className="w-3.5 h-3.5 mr-1.5 text-primary" /> Test Fleet Insight</>
-                )}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleTestDriverInsight}
-                disabled={testingDriverInsight}
-                className="h-8 text-xs"
-              >
-                {testingDriverInsight ? (
-                  <><Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> Analyzing...</>
-                ) : (
-                  <><Brain className="w-3.5 h-3.5 mr-1.5 text-primary" /> Test Driver Insight</>
-                )}
-              </Button>
-            </div>
-
-            {/* Test result */}
-            {testResult && (
-              <div className={`p-3 rounded-xl text-xs font-mono leading-relaxed max-h-48 overflow-y-auto ${testResult.success ? "bg-success/5 border border-success/20" : "bg-danger/5 border border-danger/20"}`}>
-                {testResult.success ? (
-                  <>
-                    <p className="text-success font-semibold mb-1">✓ LLM Response Received</p>
-                    <p className="text-foreground-secondary whitespace-pre-wrap">{testResult.summary}</p>
-                    <p className="text-foreground-muted mt-1">{testResult.insightCount} rule-based insight(s) generated</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-danger font-semibold mb-1">✗ LLM Error</p>
-                    <p className="text-danger">{testResult.error}</p>
-                  </>
-                )}
-              </div>
-            )}
-
-            {/* Driver test result */}
-            {driverTestResult && (
-              <div className={`p-3 rounded-xl text-xs font-mono leading-relaxed max-h-64 overflow-y-auto ${driverTestResult.success ? "bg-primary/5 border border-primary/20" : "bg-danger/5 border border-danger/20"}`}>
-                {driverTestResult.success ? (
-                  <>
-                    <p className="text-primary font-semibold mb-1">
-                      ✓ Driver AI Analysis ({driverTestResult.llmStatus}) · {driverTestResult.driverCount} driver(s)
-                    </p>
-                    <p className="text-foreground-secondary whitespace-pre-wrap">{driverTestResult.analysis}</p>
-                    {driverTestResult.llmStatus === "Rule-Based" && driverTestResult.diagnostics && (
-                      <div className="mt-2 p-2 rounded-lg bg-muted/30 text-[11px]">
-                        <p className="font-semibold text-foreground mb-1">Provider Diagnostics:</p>
-                        {driverTestResult.diagnostics.providers?.length === 0 ? (
-                          <p className="text-foreground-muted">No providers found in database</p>
-                        ) : (
-                          driverTestResult.diagnostics.providers?.map((p) => (
-                            <div key={p.provider_id} className="flex items-center gap-2 text-foreground-muted">
-                              <span>#{p.provider_id}</span>
-                              <span className="text-foreground">{p.display_name || p.provider_name}</span>
-                              <Badge variant={p.is_enabled ? "success" : "secondary"} className="text-[11px] px-1">
-                                {p.is_enabled ? "enabled" : "disabled"}
-                              </Badge>
-                              <Badge variant={p.is_default ? "default" : "outline"} className="text-[11px] px-1">
-                                {p.is_default ? "default" : "not default"}
-                              </Badge>
-                              <Badge variant={p.has_api_key ? "success" : "danger"} className="text-[11px] px-1">
-                                {p.has_api_key ? "has key" : "no key"}
-                              </Badge>
-                            </div>
-                          ))
-                        )}
-                        <p className="text-foreground-muted mt-1">
-                          getActiveAiProvider(): {driverTestResult.diagnostics.active_provider_found
-                            ? `${driverTestResult.diagnostics.active_provider_name} (key: ${driverTestResult.diagnostics.active_provider_has_key})`
-                            : "null"}
-                        </p>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <p className="text-danger font-semibold mb-1">✗ Driver Insight Error</p>
-                    <p className="text-danger">{driverTestResult.error}</p>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Recent AI logs */}
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium text-foreground">Recent AI Request Logs</p>
-                <Link href="/settings/ai/logs">
-                  <Button variant="ghost" size="sm" className="h-6 text-[11px]">View All</Button>
-                </Link>
-            </div>
-            {recentLogs.length === 0 ? (
-              <p className="text-xs text-foreground-muted">No AI requests logged yet</p>
-            ) : (
-              <div className="space-y-1 max-h-40 overflow-y-auto">
-                {recentLogs.slice(0, 10).map((log) => (
-                  <div key={log.log_id} className="flex items-center justify-between p-2 rounded-lg bg-muted/20 text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Badge variant={log.status === "Success" ? "success" : "danger"} className="text-[11px] px-1">
-                        {log.status === "Success" ? "OK" : "ERR"}
-                      </Badge>
-                      <span className="text-foreground truncate">{log.feature_used || "General AI"}</span>
-                      <span className="text-foreground-muted hidden sm:inline">· {log.provider_name || "Rule-Based"}</span>
-                    </div>
-                    <span className="text-foreground-muted flex-shrink-0 ml-2">{log.duration_ms ? `${log.duration_ms}ms` : ""}</span>
-                  </div>
-                ))}
-              </div>
             )}
           </div>
         </CardContent>
@@ -981,6 +829,64 @@ export default function AiSettingsPage() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── PROMPT MARKDOWN EDITOR DIALOG ── */}
+      <Dialog open={!!editingPrompt} onOpenChange={(open) => { if (!open) closePromptEditor(); }}>
+        <DialogContent className="max-w-2xl w-[95vw] md:w-[640px] p-0 overflow-hidden rounded-3xl bg-surface border border-border/80 shadow-2xl">
+          <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary border border-primary/20 shadow-2xs">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div>
+                <DialogTitle className="text-base font-bold text-foreground">
+                  Edit {editingPrompt?.label || "prompt"}
+                </DialogTitle>
+                <p className="text-xs text-foreground-muted mt-0.5">
+                  Saved to the database and live immediately across deployments.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+            <div className="space-y-1.5">
+              <Label htmlFor="prompt-content" className="text-xs font-semibold text-foreground">
+                Markdown content
+              </Label>
+              <textarea
+                id="prompt-content"
+                value={promptDraft}
+                onChange={(e) => setPromptDraft(e.target.value)}
+                rows={16}
+                spellCheck={false}
+                className="w-full rounded-2xl border border-border/80 bg-background px-3.5 py-3 font-mono text-xs leading-relaxed text-foreground outline-none focus:border-primary/60 min-h-[16rem]"
+              />
+              <p className="text-[11px] text-foreground-muted font-data">
+                {new TextEncoder().encode(promptDraft || "").length.toLocaleString()} / 51,200 bytes
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <Button type="button" variant="outline" onClick={closePromptEditor} className="text-xs h-9 px-4">
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                disabled={savePromptMutation.isPending || !promptDraft.trim()}
+                onClick={() => {
+                  if (!editingPrompt) return;
+                  savePromptMutation.mutate({ target: editingPrompt.target, content: promptDraft });
+                }}
+                className="text-xs h-9 px-5 font-bold shadow-xs"
+              >
+                {savePromptMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
+                Save Prompt
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

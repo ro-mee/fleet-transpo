@@ -30,6 +30,11 @@ export async function getAiLogs(filters = {}) {
   return apiFetch(`/api/ai/logs${buildQuery(filters)}`);
 }
 
+// Prompt markdown (editable instructions + per-report files)
+export async function updateAiInstructions(target, content) {
+  return apiFetch("/api/ai/instructions", { method: "PUT", body: { target, content } });
+}
+
 // AI Recommendations & Insights
 export async function getAiRecommendations(type = "reservation", params = {}) {
   return apiFetch(`/api/ai/recommendations${buildQuery({ type, ...params })}`);
