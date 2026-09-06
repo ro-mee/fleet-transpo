@@ -264,5 +264,5 @@ export async function PUT(req, { params }) {
     }
 
     return ok(rows[0]);
-  } catch (e) { return handleError(e); }
+  } catch (e) { return handleError(e, { req }); }
 }

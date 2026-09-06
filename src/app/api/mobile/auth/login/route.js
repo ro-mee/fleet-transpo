@@ -213,6 +213,6 @@ export async function POST(req) {
       },
     });
   } catch (e) {
-    return handleError(e);
+    return handleError(e, { req });
   }
 }

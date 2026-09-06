@@ -3,6 +3,12 @@ import { validatePayload } from "@/lib/validation/helpers";
 import { query } from "@/lib/db";
 import { extractBearerToken, verifyAccessToken } from "@/lib/auth/mobile-token";
 import { rolesFor } from "@/lib/auth/permissions";
+import {
+  normalizeContext,
+  requestContext,
+  shouldWriteAppError,
+  writeAppError,
+} from "@/lib/app-errors";
 
 const DEFAULT_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
@@ -239,12 +245,41 @@ export function validateBody(body, schema = {}) {
   return validatePayload(body, schema);
 }
 
-export function handleError(error) {
-  console.error("API error:", error);
+/**
+ * Terminal error mapper for API route catch blocks. Backward-compatible:
+ * the 224 existing single-arg calls keep working, the 11 existing string
+ * second args ("Failed to X") become an operation label, and new calls may
+ * pass { req, employeeId, operation } for route attribution.
+ *
+ * Persistence contract (see lib/app-errors.js):
+ * - AuthError (expected 4xx control flow) → NEVER persisted. Zero rows.
+ * - Unexpected 500s → fire-and-forget writeAppError, gated by
+ *   shouldWriteAppError (subsystemOwned === true skips; everything else,
+ *   including unmarked subsystem codes, is captured as fallback).
+ * - The logger is best-effort and never throws: a logging DB failure still
+ *   returns the original 500 response below. No authentication is re-run
+ *   here — pass an already-known employeeId instead.
+ */
+export function handleError(error, context) {
+  const ctx = normalizeContext(context);
+  if (ctx.operation) console.error(`API error [${ctx.operation}]:`, error);
+  else console.error("API error:", error);
   if (error instanceof AuthError) {
     const payload = { error: error.message };
     if (error.code) payload.code = error.code;
     return Response.json(payload, { status: error.status });
+  }
+  if (shouldWriteAppError(error)) {
+    const rc = ctx.req ? requestContext(ctx.req) : {};
+    void writeAppError({
+      source: "server",
+      route: ctx.route ?? rc.route ?? null,
+      message: error?.message || ctx.operation || "Unknown server error",
+      stack: error?.stack || null,
+      statusCode: 500,
+      employeeId: ctx.employeeId ?? null,
+      userAgent: ctx.userAgent ?? rc.userAgent ?? null,
+    });
   }
   return Response.json({ error: "Internal server error" }, { status: 500 });
 }

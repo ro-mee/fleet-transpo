@@ -3,6 +3,7 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { query } from "@/lib/db";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
+import { logAiRequest } from "@/lib/ai/logger";
 import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
 import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -62,6 +63,14 @@ export async function POST(req) {
       scanned = extractedData;
     } catch (scanError) {
       console.warn("Gemini license scan unavailable:", scanError.message);
+      // AI-owned failure: persist to ailogs (not app_errors). Best-effort;
+      // nothing is rethrown so no subsystemOwned marker is needed.
+      void logAiRequest({
+        feature_used: "license-scan",
+        provider_name: "Gemini",
+        status: "Error",
+        error_message: String(scanError?.message || scanError).slice(0, 500),
+      });
       return ok({
         side,
         ok: false,

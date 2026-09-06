@@ -26,7 +26,7 @@ export async function GET(req) {
     sql += " ORDER BY ds.scheduled_departure DESC";
     const { rows } = await query(sql, params);
     return ok(rows);
-  } catch (e) { return handleError(e); }
+  } catch (e) { return handleError(e, { req }); }
 }
 
 export async function POST(req) {
@@ -213,5 +213,5 @@ export async function POST(req) {
     try { await flushOutbox(); } catch (e) { console.warn("dispatch push failed:", e?.message || e); }
 
     return ok(rows[0], 201);
-  } catch (e) { return handleError(e); }
+  } catch (e) { return handleError(e, { req }); }
 }

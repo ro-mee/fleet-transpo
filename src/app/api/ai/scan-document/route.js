@@ -1,4 +1,5 @@
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
+import { logAiRequest } from "@/lib/ai/logger";
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { loadScanImage, scanDocumentWithGemini } from "@/lib/ai/gemini-document";
@@ -48,6 +49,15 @@ export async function POST(request) {
       model = usedModel;
     } catch (scanError) {
       console.warn("Gemini document scan unavailable:", scanError.message);
+      // AI-owned failure: persist to ailogs (not app_errors). The logger is
+      // best-effort and never throws, so this cannot break the fallback below.
+      // No subsystemOwned marker needed — nothing is rethrown.
+      void logAiRequest({
+        feature_used: "scan-document",
+        provider_name: "Gemini",
+        status: "Error",
+        error_message: String(scanError?.message || scanError).slice(0, 500),
+      });
       validationIssues.push(
         "AI document scanning is unavailable right now. Please enter the details manually."
       );
