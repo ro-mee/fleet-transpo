@@ -2,6 +2,7 @@ import { ok, err, handleError } from "@/lib/api/utils";
 import { verifyServiceToken } from "@/lib/api/service-auth";
 import { syncAllVehicleStatuses, syncAllDriverStatuses, syncComplianceNotifications } from "@/services/status.service";
 import { pruneAppErrors } from "@/lib/app-errors";
+import { recordSyncHeartbeat } from "@/lib/system-health";
 
 // Scheduled compliance & status sync (C4).
 //
@@ -46,6 +47,7 @@ async function runSync(req) {
     drivers_synced: driverResult.synced,
     notifications_created: complianceResult.created,
     errors_pruned: pruneResult.deleted,
+    heartbeat_recorded: await recordSyncHeartbeat(),
     message: `Scheduled sync complete (${vehicleResult.synced} vehicles, ${driverResult.synced} drivers, ${complianceResult.created} notifications, ${pruneResult.deleted} old error rows pruned)`,
   });
 }
