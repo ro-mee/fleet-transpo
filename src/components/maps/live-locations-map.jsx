@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "@/styles/map.css";
 import { getPublicKey, rasterTileUrl, trafficTileUrl } from "@/lib/tomtom";
 import { CHART_COLORS } from "@/lib/chart-tokens";
 import { getGpsHealth, isValidCoordinate, speedKmhFromMps } from "@/lib/gps";
@@ -11,6 +12,11 @@ import { MapCtrlZoom, ZoomHintOverlay } from "@/components/maps/map-ctrl-zoom";
 import { Button } from "@/components/ui/button";
 import { MapPin, Eye, Layers, ExternalLink, Compass } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  createMapEntityMarkerIcon,
+  resolveMarkerConfig,
+  MinimalMapLegend,
+} from "@/components/maps/map-entity-marker";
 
 // Map tile style options
 const MAP_STYLES = {
@@ -52,7 +58,6 @@ const STATUS_COLOR = {
 const DEFAULT_MARKER = CHART_COLORS.info;
 // Rescue units (fleet responders driving to a stranded driver) — the same blue
 // the incidents map uses, kept distinct from every trip-phase color.
-const RESCUE_COLOR = "#2563eb";
 
 function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMapStyle, hasTomTomKey }) {
   return (
@@ -248,23 +253,6 @@ export default function LiveLocationsMap({
     return [14.6, 121.0];
   }, [valid, rescueUnits, origin, routePts]);
 
-  const legendStatuses = useMemo(() => {
-    const seen = new Set();
-    for (const l of valid) {
-      const s = l.trip_status || l.vehicle_status;
-      if (s) seen.add(s);
-    }
-    return [...seen];
-  }, [valid]);
-
-  const rescueStatuses = useMemo(() => {
-    const seen = new Set();
-    for (const r of rescueUnits) {
-      if (r.response_status) seen.add(r.response_status);
-    }
-    return [...seen];
-  }, [rescueUnits]);
-
   const originIcon = useMemo(
     () =>
       L.divIcon({
@@ -282,18 +270,6 @@ export default function LiveLocationsMap({
       L.divIcon({
         className: "fleet-marker",
         html: `<div class="fleet-pin fleet-pin-hotel" style="--pin:#ef4444"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 22v-6.57a2 2 0 0 1 1.05-1.75l4.8-2.67A2 2 0 0 1 18 12.76V22"/><path d="M2 22h20"/><path d="M10 11V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v18"/><path d="M6 6h.01"/><path d="M6 10h.01"/><path d="M6 14h.01"/><path d="M14 18h.01"/></svg></div>`,
-        iconSize: [34, 34],
-        iconAnchor: [17, 30],
-        tooltipAnchor: [0, -30],
-      }),
-    []
-  );
-
-  const strandedIcon = useMemo(
-    () =>
-      L.divIcon({
-        className: "fleet-marker",
-        html: `<div class="fleet-pin" style="--pin:#ef4444"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>`,
         iconSize: [34, 34],
         iconAnchor: [17, 30],
         tooltipAnchor: [0, -30],
@@ -392,120 +368,137 @@ export default function LiveLocationsMap({
           // Permanent identity labels only where the data carries one (latest-locations
           // rows); raw GPS-history rows (trips/[id]) keep the plain hover tooltip.
           const hasIdentity = Boolean(l.vehicles || l.drivers || l.driver_name);
+          const markerKey = l.tracking_id || l.gps_tracking_id || l.trip_id || l.vehicle_id || `${lat},${lng},${i}`;
+          const speedKmh = speedKmhFromMps(l.speed);
           const health = getGpsHealth(l.recorded_at);
-          const speedKmh = l.speed_kmh ?? speedKmhFromMps(l.speed);
-          const selected = selectedTripId != null && String(l.trip_id) === String(selectedTripId);
+          const selected = selectedTripId != null && l.trip_id != null && String(selectedTripId) === String(l.trip_id);
+
+          if (hasIdentity) {
+            const markerConfig = resolveMarkerConfig(l, {
+              selectedId: selectedTripId,
+              isStale: health.label === "Offline" || health.label === "No Signal",
+            });
+            const markerIcon = createMapEntityMarkerIcon({
+              ...markerConfig,
+              selected,
+            }, L);
+
+            return (
+              <Marker
+                key={markerKey}
+                position={[lat, lng]}
+                icon={markerIcon}
+                zIndexOffset={selected ? 2000 : markerConfig.zIndexOffset}
+                eventHandlers={onSelectTrip && l.trip_id != null ? { click: () => onSelectTrip(l.trip_id) } : undefined}
+              >
+                <Popup className="fleet-popup">
+                  <div className="p-1 space-y-2 text-foreground font-sans min-w-[210px]">
+                    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+                      <span className="font-bold text-sm font-data">{plate}</span>
+                      <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
+                        {status || "Active"}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-foreground-secondary font-medium">
+                      {driver && <p className="truncate">Driver: {driver}</p>}
+                      <p className="flex items-center gap-1.5 font-data">
+                        <Compass className="w-3.5 h-3.5 text-primary" />
+                        {lat.toFixed(4)}, {lng.toFixed(4)}
+                      </p>
+                      {speedKmh != null && (
+                        <p className="text-[11px] text-foreground-muted font-data">
+                          Speed: {speedKmh.toFixed(1)} km/h
+                        </p>
+                      )}
+                      {l.accuracy != null && <p className="text-[11px] text-foreground-muted font-data">Accuracy: {Math.round(Number(l.accuracy))} m</p>}
+                      <p className="text-[11px] font-semibold text-foreground-muted">GPS: {health.label}</p>
+                      {l.recorded_at && <p className="text-[11px] text-foreground-muted font-data">Last update: {new Date(l.recorded_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
+                    </div>
+
+                    <Button
+                      size="sm"
+                      onClick={() => openGoogleStreetView(lat, lng)}
+                      className="w-full h-8 text-xs font-semibold rounded-xl mt-2 cursor-pointer bg-primary text-white dark:text-slate-950 flex items-center justify-center gap-1.5 shadow-2xs"
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                      Open Street View 360°
+                      <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+                    </Button>
+                  </div>
+                </Popup>
+              </Marker>
+            );
+          }
 
           return (
             <CircleMarker
-              // Per-row unique id first: GPS-history rows (trips/[id]) all share
-              // the same trip_id/vehicle_id, so keying on those collides across
-              // every breadcrumb of the trip. tracking_id is the gpstracking PK
-              // (gps_tracking_id on latest-locations rows); the index suffix
-              // keeps the coordinate fallback unique for stationary vehicles.
-              key={l.tracking_id || l.gps_tracking_id || l.trip_id || l.vehicle_id || `${lat},${lng},${i}`}
+              key={markerKey}
               center={[lat, lng]}
-              eventHandlers={onSelectTrip && l.trip_id != null ? { click: () => onSelectTrip(l.trip_id) } : undefined}
-              radius={selected ? 11 : 8}
+              radius={selected ? 9 : 5}
               pathOptions={{
                 color: "#ffffff",
-                weight: selected ? 3 : 2.5,
-                fillColor: color,
-                fillOpacity: selected ? 1 : 0.85,
+                weight: selected ? 2.5 : 1.5,
+                fillColor: STATUS_COLOR[status] || DEFAULT_MARKER,
+                fillOpacity: selected ? 1 : 0.8,
               }}
             >
-              <Popup className="fleet-popup">
-                <div className="p-1 space-y-2 text-foreground font-sans min-w-[210px]">
-                  <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                    <span className="font-bold text-sm font-data">{plate}</span>
-                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-primary/10 text-primary">
-                      {status || "Active"}
-                    </span>
-                  </div>
-
-                  <div className="space-y-1 text-xs text-foreground-secondary font-medium">
-                    {driver && <p className="truncate">Driver: {driver}</p>}
-                    <p className="flex items-center gap-1.5 font-data">
-                      <Compass className="w-3.5 h-3.5 text-primary" />
-                      {lat.toFixed(4)}, {lng.toFixed(4)}
-                    </p>
-                    {speedKmh != null && (
-                      <p className="text-[11px] text-foreground-muted font-data">
-                        Speed: {speedKmh.toFixed(1)} km/h
-                      </p>
-                    )}
-                    {l.accuracy != null && <p className="text-[11px] text-foreground-muted font-data">Accuracy: {Math.round(Number(l.accuracy))} m</p>}
-                    <p className="text-[11px] font-semibold text-foreground-muted">GPS: {health.label}</p>
-                    {l.recorded_at && <p className="text-[11px] text-foreground-muted font-data">Last update: {new Date(l.recorded_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
-                  </div>
-
-                  {/* Street View Action Button */}
-                  <Button
-                    size="sm"
-                    onClick={() => openGoogleStreetView(lat, lng)}
-                    className="w-full h-8 text-xs font-semibold rounded-xl mt-2 cursor-pointer bg-primary text-white dark:text-slate-950 flex items-center justify-center gap-1.5 shadow-2xs"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    Open Street View 360°
-                    <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
-                  </Button>
-                </div>
-              </Popup>
-
-              {hasIdentity ? (
-                <Tooltip permanent offset={[0, -12]} direction="top" className="fleet-tooltip">
-                  <div className="flex flex-col gap-0.5">
-                    <span className="flex items-center gap-1.5 font-semibold text-xs font-data">
-                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                      {plate}
-                    </span>
-                    {driver && <span className="text-[11px] font-medium">{driver}</span>}
-                  </div>
-                </Tooltip>
-              ) : (
-                <Tooltip className="fleet-tooltip">
-                  <div className="font-semibold text-xs">{plate}</div>
-                  {status && <div className="text-[11px] opacity-80">{status}</div>}
-                  <div className="text-[11px] opacity-80">GPS: {health.label}</div>
-                </Tooltip>
-              )}
+              <Tooltip className="fleet-tooltip">
+                <div className="font-semibold text-xs">{plate}</div>
+                {status && <div className="text-[11px] opacity-80">{status}</div>}
+                <div className="text-[11px] opacity-80">GPS: {health.label}</div>
+              </Tooltip>
             </CircleMarker>
           );
         })}
 
-        {/* Rescue missions: red pin where the stranded driver is, blue pulsing
-            marker for the responder driving to them. Rendered independently of
-            trips, so an active rescue shows even with zero live trips. */}
-        {rescueUnits.filter((rescue) => isValidCoordinate(rescue._tLat, rescue._tLng)).map((rescue) => (
-          <Marker
-            key={`rescue-target-${rescue.incident_id}`}
-            position={[rescue._tLat, rescue._tLng]}
-            icon={strandedIcon}
-          >
-            <Tooltip permanent offset={[0, -24]} direction="top" className="fleet-tooltip font-semibold text-xs shadow-md">
-              <span className="flex items-center gap-1.5 font-medium">
-                <MapPin className="h-3 w-3 text-danger" />
-                {rescue.driver?.name || "Stranded driver"}
-              </span>
-            </Tooltip>
-          </Marker>
-        ))}
+        {rescueUnits.filter((rescue) => isValidCoordinate(rescue._tLat, rescue._tLng)).map((rescue) => {
+          const strandedConfig = resolveMarkerConfig({
+            plate_number: rescue.driver?.name || "Stranded Driver",
+            incident_type: rescue.incident_type || "Assistance Requested",
+            severity: "Critical",
+            incident_id: rescue.incident_id,
+            assistance_needed: ["Assistance"],
+          }, { type: "incident" });
+
+          const strandedIcon = createMapEntityMarkerIcon({
+            ...strandedConfig,
+            title: rescue.driver?.name || "Stranded Driver",
+            status: "Assistance requested",
+            tone: "rose",
+            iconKey: "alert",
+            pulse: true,
+          }, L);
+
+          return (
+            <Marker
+              key={`rescue-target-${rescue.incident_id}`}
+              position={[rescue._tLat, rescue._tLng]}
+              icon={strandedIcon}
+              zIndexOffset={2400}
+            />
+          );
+        })}
 
         {rescueUnits.map((rescue) => {
           const selected = selectedResponderId != null && String(rescue.incident_id) === String(selectedResponderId);
+          const rescueConfig = resolveMarkerConfig(rescue, {
+            type: "rescue",
+            selectedId: selectedResponderId,
+          });
+          const rescueIcon = createMapEntityMarkerIcon({
+            ...rescueConfig,
+            selected,
+          }, L);
           const health = getGpsHealth(rescue.responder?.last_location_update);
+
           return (
-            <CircleMarker
+            <Marker
               key={`rescue-unit-${rescue.incident_id}`}
-              center={[rescue._lat, rescue._lng]}
+              position={[rescue._lat, rescue._lng]}
+              icon={rescueIcon}
+              zIndexOffset={selected ? 2000 : rescueConfig.zIndexOffset}
               eventHandlers={onSelectResponder ? { click: () => onSelectResponder(rescue.incident_id) } : undefined}
-              radius={selected ? 11 : 8}
-              pathOptions={{
-                color: "#ffffff",
-                weight: selected ? 3 : 2.5,
-                fillColor: RESCUE_COLOR,
-                fillOpacity: selected ? 1 : 0.85,
-              }}
             >
               <Popup className="fleet-popup">
                 <div className="p-1 space-y-2 text-foreground font-sans min-w-[210px]">
@@ -528,16 +521,7 @@ export default function LiveLocationsMap({
                   </div>
                 </div>
               </Popup>
-              <Tooltip permanent offset={[0, -12]} direction="top" className="fleet-tooltip">
-                <div className="flex flex-col gap-0.5">
-                  <span className="flex items-center gap-1.5 font-semibold text-xs font-data">
-                    <span className="h-2 w-2 rounded-full shrink-0 animate-pulse" style={{ backgroundColor: RESCUE_COLOR }} />
-                    Rescue — {rescue.responder?.name || "Fleet responder"}
-                  </span>
-                  {rescue.driver?.name && <span className="text-[11px] font-medium">→ {rescue.driver.name}</span>}
-                </div>
-              </Tooltip>
-            </CircleMarker>
+            </Marker>
           );
         })}
 
@@ -552,10 +536,8 @@ export default function LiveLocationsMap({
         />
       </MapContainer>
 
-      {/* Ctrl + scroll zoom hint (flashed on plain wheel scroll) */}
       <ZoomHintOverlay show={showZoomHint} />
 
-      {/* Floating Traffic Active Indicator */}
       {trafficOn && (
         <div className="pointer-events-none absolute left-3 top-3 z-[1000] flex items-center gap-2 rounded-2xl border border-success/30 bg-surface/95 px-3.5 py-2 shadow-md backdrop-blur text-xs font-semibold text-foreground">
           <span className="relative flex h-2 w-2">
@@ -566,66 +548,10 @@ export default function LiveLocationsMap({
         </div>
       )}
 
-      {/* Floating Legend */}
+      {/* Minimal Floating Map Legend (Section 9) */}
       {legendOn && (
-        <div className="pointer-events-none absolute bottom-3 left-3 z-[1000] rounded-3xl border border-border/80 bg-surface/95 p-3.5 shadow-md backdrop-blur space-y-3 max-w-[210px]">
-          {legendStatuses.length > 0 && (
-            <div>
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
-                Fleet Status
-              </p>
-              <ul className="space-y-1">
-                {legendStatuses.map((s) => (
-                  <li key={s} className="flex items-center gap-2 text-xs font-medium text-foreground-secondary">
-                    <span className="h-2.5 w-2.5 rounded-full shadow-2xs shrink-0" style={{ backgroundColor: STATUS_COLOR[s] || DEFAULT_MARKER }} />
-                    <span className="truncate">{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {rescueStatuses.length > 0 && (
-            <div>
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
-                Rescue Units
-              </p>
-              <ul className="space-y-1">
-                {rescueStatuses.map((s) => (
-                  <li key={s} className="flex items-center gap-2 text-xs font-medium text-foreground-secondary">
-                    <span className="h-2.5 w-2.5 rounded-full shadow-2xs shrink-0 animate-pulse" style={{ backgroundColor: RESCUE_COLOR }} />
-                    <span className="truncate">{s}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {trafficOn && (
-            <div className="border-t border-border/60 pt-2">
-              <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-foreground-muted">
-                Live Traffic Flow
-              </p>
-              <ul className="space-y-1 text-xs font-medium text-foreground-secondary">
-                <li className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-success shrink-0" />
-                  <span>Free Flow</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-warning shrink-0" />
-                  <span>Moderate Flow</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0" />
-                  <span>Slow Traffic</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full bg-danger shrink-0" />
-                  <span>Heavy Delay</span>
-                </li>
-              </ul>
-            </div>
-          )}
+        <div className="absolute bottom-3 left-3 z-[1000] pointer-events-auto">
+          <MinimalMapLegend />
         </div>
       )}
 

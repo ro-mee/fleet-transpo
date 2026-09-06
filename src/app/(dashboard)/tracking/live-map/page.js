@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import { HeroHeader, heroButtonOutlineClass } from "@/components/ui/hero-header";
 import {
   Activity,
-  Building2,
+  CarFront,
   Clock3,
   Eye,
   Gauge,
@@ -27,7 +27,6 @@ import {
   Route,
   Signal,
   Siren,
-  Truck,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
 
@@ -552,7 +551,7 @@ export default function LiveMapPage() {
           <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
             <CardHeader className="flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-3.5">
               <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Building2 className="h-4 w-4 text-primary" />
+                <CarFront className="h-4 w-4 text-primary" />
                 Active trips
               </CardTitle>
               <div className="flex items-center gap-2">
@@ -589,7 +588,7 @@ export default function LiveMapPage() {
                         >
                           <span className="flex min-w-0 items-center gap-2.5">
                             <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border", health.key === "fresh" ? "border-success/20 bg-success/10 text-success" : health.key === "stale" ? "border-danger/20 bg-danger/10 text-danger-700" : health.key === "no-signal" ? "border-border bg-hover text-foreground-muted" : "border-warning/20 bg-warning/10 text-warning-700")}>
-                              <Truck className="h-4 w-4" />
+                              <CarFront className="h-4 w-4" />
                             </span>
                             <span className="min-w-0">
                               <span className="block truncate font-data text-xs font-semibold text-foreground">{plate}</span>

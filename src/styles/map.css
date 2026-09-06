@@ -40,3 +40,144 @@
 .leaflet-popup-tip {
   box-shadow: none !important;
 }
+
+/* -------------------------------------------------------------------------
+ * FleetOps Custom Map Entity Marker (media_1788671682556.png)
+ * ------------------------------------------------------------------------- */
+.fleet-map-entity-divicon {
+  background: transparent !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+.fleet-map-entity-marker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease;
+  white-space: nowrap;
+}
+
+.fleet-map-entity-marker:hover {
+  transform: scale(1.02);
+  z-index: 9999;
+}
+
+.fleet-map-marker-pin-wrap {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.fleet-map-marker-pin {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px -1px rgba(15, 23, 42, 0.2), 0 1px 3px -1px rgba(15, 23, 42, 0.1);
+  border: 1.5px solid rgba(255, 255, 255, 0.7);
+  position: relative;
+}
+
+.fleet-map-marker-tip {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid #10b981;
+  margin-top: -1px;
+}
+
+.fleet-map-marker-card {
+  margin-left: -6px;
+  padding: 3.5px 9px 3.5px 8px;
+  border-radius: 12px;
+  background-color: #ffffff;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 2px 8px -1px rgba(15, 23, 42, 0.1), 0 1px 4px -1px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 80px;
+  max-width: 155px;
+  z-index: 1;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.dark .fleet-map-marker-card {
+  background-color: #0f172a;
+  border-color: rgba(51, 65, 85, 0.85);
+  box-shadow: 0 3px 10px -1px rgba(0, 0, 0, 0.45);
+}
+
+.fleet-map-marker-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dark .fleet-map-marker-title {
+  color: #f8fafc;
+}
+
+.fleet-map-marker-status {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Selected state */
+.fleet-map-entity-marker--selected {
+  transform: scale(1.02);
+  z-index: 9999;
+}
+
+.fleet-map-entity-marker--selected .fleet-map-marker-card {
+  border-color: rgba(37, 99, 235, 0.8);
+  box-shadow: 0 4px 14px -1px rgba(37, 99, 235, 0.25), 0 1px 5px -1px rgba(15, 23, 42, 0.1);
+  outline: 2px solid rgba(37, 99, 235, 0.35);
+}
+
+.fleet-map-entity-marker--selected .fleet-map-marker-pin {
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.4);
+}
+
+
+/* Stale GPS / Offline state */
+.fleet-map-entity-marker--stale {
+  opacity: 0.85;
+}
+
+/* Subtle pulse for critical unacknowledged incident */
+.fleet-marker-pulse {
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  animation: fleet-pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes fleet-pulse-ring {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  60% { transform: scale(1.8); opacity: 0; }
+  100% { transform: scale(1.8); opacity: 0; }
+}

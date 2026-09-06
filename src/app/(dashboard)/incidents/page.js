@@ -590,7 +590,22 @@ export default function IncidentsPage() {
             </Button>
           </div>
           <div className="h-[340px] w-full">
-            <IncidentMap incidents={activeIncidents} responders={responderMarkers} />
+            <IncidentMap
+              incidents={activeIncidents}
+              responders={responderMarkers}
+              onSelectIncident={(inc) => {
+                setAcknowledgeNote("");
+                setActionsTaken(inc.actions_taken || "");
+                setResolveModal({ open: true, incident: inc });
+              }}
+              onAcknowledgeIncident={(inc) => {
+                if (canAct && !inc.acknowledged_at) {
+                  acknowledgeMutation.mutate({ id: inc.incident_id, note: "Acknowledged from incident map" });
+                } else {
+                  setResolveModal({ open: true, incident: inc });
+                }
+              }}
+            />
           </div>
         </CardContent>
       </Card>
@@ -1124,7 +1139,22 @@ export default function IncidentsPage() {
             </Button>
           </div>
           <div className="flex-1 w-full h-full relative">
-            <IncidentMap incidents={activeIncidents} responders={responderMarkers} />
+            <IncidentMap
+              incidents={activeIncidents}
+              responders={responderMarkers}
+              onSelectIncident={(inc) => {
+                setAcknowledgeNote("");
+                setActionsTaken(inc.actions_taken || "");
+                setResolveModal({ open: true, incident: inc });
+              }}
+              onAcknowledgeIncident={(inc) => {
+                if (canAct && !inc.acknowledged_at) {
+                  acknowledgeMutation.mutate({ id: inc.incident_id, note: "Acknowledged from incident map" });
+                } else {
+                  setResolveModal({ open: true, incident: inc });
+                }
+              }}
+            />
           </div>
         </div>
       )}
