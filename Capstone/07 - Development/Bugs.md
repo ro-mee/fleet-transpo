@@ -42,6 +42,19 @@ Open, verified defects. Each links to a full note with root cause and fix.
 - **Reports compute over empty tables — CONFIRMED, and it is not a code bug.** `/api/reports/financial`, `/fuel-consumption` and `/fleet-cost` all read `fuelrecords`, which has **0 rows**. The code is honest about it: `financial/route.js:15` guards the division (`totalDist ? … : 0`) and `fuel-consumption/route.js:22-30` returns an explicit zeroed shape when there are no records. So the endpoints return real zeros, not fabricated figures. The hazard is one of *presentation*, not correctness — a dashboard of zeros looks like a working system with a quiet month. Phase 4 item 14 (seed realistic data) is the fix. → [[Reports]]
 - **Checked and dismissed:** the `Math.random()` calls in `reservations/new/page.js:126-150` are a **labelled** demo-fill button (`handleRandomFill`, toast: *"Filled mock transport request data!"*). Recorded here so the next person doesn't re-flag it.
 
+## Fixed — 2026-09-06
+
+- **Platform activity panel permanently 500 (`automation_logs` does not exist).**
+  `GET /api/system/activity` queried `automation_logs` twice, but migration 005 deliberately dropped that table (40→22-table cleanup) and nothing recreates or writes to it — every request died with `42P01`, so the System Admin dashboard's Platform activity panel never loaded while all other panels worked.
+  Fix (no migration — the drop was intentional, the route was stale): route reads `integration_log` only (recent LIMIT 20; `automation_*` counters removed, frontend already defaults missing counters to 0), with a guard comment against re-adding automation reads without a recreating migration + writer; panel/empty-state copy in `role-dashboard.jsx` de-promised the automation feed.
+  Verified: fixed SQL live (20 rows + full counters); e2e `GET /api/system/activity` with a minted system_admin session → HTTP 200; diag session deleted (0 leftover); eslint clean. No schema change → no `db:up`/`db:dump`.
+
+- **Raw `<script>` in root layout + login hydration mismatch (two console errors).**
+  `src/app/layout.js` rendered a raw `<script id="theme-init">` inside `<head>` → React 19 dev warning (*"Scripts inside React components are never executed when rendering on the client"*).
+  `src/app/(auth)/login/page.js` read `?reason=expired` in a lazy `useState` initializer (`window` on the client, `undefined` on the server), so with that param the server rendered the email field where the client rendered the amber session-expired banner → positional hydration mismatch.
+  Fixes: theme script now delivered via `<Script strategy="beforeInteractive">` **inside the root `<head>`** (same synchronous before-paint execution, no raw script in the React tree — the previously-unused `next/script` import is now used; note: as a direct child of `<html>` it broke React resource ordering, so `<head>` placement is required); the notice is now read via `useSyncExternalStore` (server snapshot `false` = SSR HTML, client snapshot reads the live URL — no effect, no extra render, no `set-state-in-effect` warning).
+  Verified: eslint clean on both files; full `npm run lint` green (0 errors, 0 warnings repo-wide).
+
 ## Fixed — 2026-09-04
 
 - **Fuel console TDZ crash (`activeTab` read before declaration).** The smart-default derivation was textually ordered after the query that consumed it — a certain `ReferenceError` on every render in a real browser (invisible to curl/SSR checks and to eslint; caught by auditing declaration order after spotting the pattern). Restructured to fetch-tab-first + deferred override steering, verified by line-order audit on both fuel and queue pages.

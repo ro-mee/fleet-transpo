@@ -73,6 +73,27 @@ and a formatting rule that reveals the UI contract:
 
 INFERRED: the UI splits narration on periods. That's a fragile coupling — an abbreviation like "approx. 3 km" would split mid-thought. **TODO:** confirm how the UI parses this and consider a structured field instead.
 
+## Error-log ownership — CONFIRMED (2026-09-06)
+
+`app_errors` (migration 103, writer `src/lib/app-errors.js`) owns **unexpected**
+failures only. AI provider/timeout/parse/quota/fallback events stay exclusively
+in `ailogs` — and the gate is proof-of-persistence, not codes or routes: an
+`app_errors` row is skipped only when the error carries `subsystemOwned === true`,
+which a subsystem sets **only after its own log write succeeded**. A bare
+subsystem code (e.g. the `ailogs` write itself failed) still lands in
+`app_errors` as fallback, so no error is ever lost. Consequences already applied:
+
+- `llm-adapter.js` needed no change — its catch logs `status: "Error"` to
+  `ailogs` and returns `{ success: false, fallback: true }` without throwing.
+- `scan-document` and driver `license-scan` routes contained Gemini failures
+  with only `console.warn` (persisted **nowhere**); both inner catches now
+  write `logAiRequest({ status: "Error", ... })` before returning the manual-
+  entry fallback. Nothing is rethrown, so no marker is needed there.
+- A `TypeError` inside an AI route still lands in `app_errors` with its
+  `/api/ai/...` route — that is an application bug, not a provider failure.
+  Route-prefix exclusion (`if (route.startsWith("/api/ai")) skip`) is
+  deliberately **not** used.
+
 ## The weak spot — FIXED 2026-08-11
 
 `src/lib/ai/logger.js:21`, `src/app/api/ai/logs/route.js:10`, and `src/app/api/ai/providers/route.js:10` **used to** run `CREATE TABLE IF NOT EXISTS` on **every request**. That is how `ailogs` (731 rows, still the largest table) came to exist with no migration file at all.

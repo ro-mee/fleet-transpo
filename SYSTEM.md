@@ -70,6 +70,8 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
   The password field Caps Lock warning UI matches the reference design with an
   upward speech-notch pointer, a coral "Aa" badge, and an active coral input border,
   also extended to Confirm New Password for live match/mismatch feedback.
+  The login session-expired banner matches the reference design with warm peach card
+  surface, orange alert circle icon, two-line title/description, and dismiss action.
 - **Live map & incident-map UX polish** (2026-09-03): the live map always
   auto-fits to all pins on every GPS poll, vehicle markers carry permanent
   plate + driver labels (no hover/click), marker colors are phase-coded with
@@ -131,7 +133,7 @@ fleet-transpo/
 │   ├── proxy.js                # Next-16 middleware: CORS lockdown on /api/* (fail-closed, no auth)
 │   ├── security-boundaries.test.js  # vitest guard for the boundaries above
 │   ├── app/
-│   │   ├── layout.js           # ONLY root layout; wraps all pages in DashboardLayout
+│   │   ├── layout.js           # ONLY root layout; wraps all pages in DashboardLayout + beforeInteractive theme-init script
 │   │   ├── page.js             # "/" → server redirect: no session → /login, driver → /driver, else /dashboard
 │   │   ├── globals.css
 │   │   ├── (auth)/             # login, register(→redirect /login), forgot-password, reset-password
@@ -317,6 +319,17 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 - **Rule engine** (`lib/ai/rule-engine.js`) is the deterministic baseline (recommendations, insights, predictive maintenance).
 - **LLM** (`lib/ai/llm-adapter.js`) adds natural-language summaries/narrations — failure-tolerant, time-budgeted (25 s), falls back to rule output.
 - `aiproviders` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (Gemini structured extraction via `src/lib/ai/gemini-document.js`, 12 s timeout, null-for-unreadable) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
+- **Error-log ownership (2026-09-06):** `app_errors` (migration 103) owns *unexpected* application/platform failures only. AI provider/timeout/parse/quota/fallback events stay exclusively in `ailogs`; the gate is proof-of-persistence (`subsystemOwned` set only after the specialized write succeeds — a bare subsystem code never suppresses), so a failed specialized write still lands in `app_errors` as fallback. Scan routes (`scan-document`, driver `license-scan`) now persist their contained Gemini failures to `ailogs`. Writer: `src/lib/app-errors.js` (sanitize + fingerprint + 90-day prune helper); `handleError(error, { req, employeeId })` stays backward-compatible (224 single-arg + 11 string-label callsites untouched). **Pass 1b APIs (same day):** `POST /api/errors` (explicit 6-role array incl. driver, per-account+IP throttles, rejects `source=server` + oversized/non-path payloads, always 200 with `{ received }` so reporters never retry-loop) and `GET /api/errors` (`audit`-read gate; events without stack + `GROUP BY fingerprint` occurrence groups + single-`error_id` detail with stack);   client `src/services/errors.service.js` (`getAppErrors`, `getAppError`,
+  fire-and-forget `reportAppError`). **Pass 2 UI + reporters (same day):**
+  `/system/errors` page (system_admin-only via `NAV_ROLES` + workspace nav +
+  path-derived guard; grouped-by-fingerprint default with expandable events,
+  stack detail dialog, source/date filters, CSV export) under Administration
+  next to Audit Logs; web `ErrorBoundary.componentDidCatch` and mobile
+  `ErrorBoundary` report once per mount (mobile stack display is `__DEV__`-only
+  in production); 90-day `pruneAppErrors` runs inside the CRON_SECRET
+  `/api/cron/sync` flow in an isolated step with an `errors_pruned` count —
+  **deploy check:** an external scheduler must actually hit that route or
+  neither the status sync nor pruning runs.
 
 ### 4.6 CORS — `src/proxy.js` lockdown (fail-closed)
 Next 16 renamed middleware to **proxy**: `src/proxy.js` exports `proxy(request)`
@@ -1278,6 +1291,25 @@ dashboards, and `/trips/[id]`):
   full-set CSV export); `fleet/fuel` is a redirect stub; driver web Log Fuel
   (direct-record bypass) is replaced with mobile-request guidance; driver role
   removed from `/fuel` nav.
+
+
+### 12.10 Live map & SOS UX polish (2026-09-03)
+`src/components/maps/live-locations-map.jsx` (used by `/tracking/live-map`, role
+dashboards, and `/trips/[id]`):
+- **Always auto-fit** — the viewport re-fits to all pins (or the selected trip's
+  route) on every GPS poll; user pans are re-fitted on the next refresh.
+- **Permanent labels** — latest-locations markers (nested `vehicles`/`drivers`
+  data) show a status-color dot + plate + driver name without hovering; the
+  click popup (telemetry, Street View) is unchanged. Raw GPS-history rows
+  (`/trips/[id]`) have no identity and keep the hover tooltip.
+- **No gray markers** — every `LIVE_TRIP_STATUSES` phase maps to a phase color
+  (pre-trip blue, to-pickup amber, passenger-onboard/arrived green); the
+  fallback default is blue, not gray.
+- **Removed** — the open-incidents layer (the `/incidents` module's own map
+  owns that view) and the floating "Live Route Navigation" panel (turn-by-turn
+  instructions, distance/ETA). The route polyline, origin/destination labels,
+  and sidebar trip metrics remain; the `incidents`, `instructions`,
+  `routeDistanceKm`, `routeTravelMin`, and `showNavigationPanel` props are gone.
 - **Dashboards answer their primary question first.** Dispatcher opens with
   Needs-attention + Next-departures (live countdowns); fleet manager has
   readiness + utilization/workload strips; admin swaps status meters for request
@@ -1288,3 +1320,30 @@ dashboards, and `/trips/[id]`):
   marking + pg_cron schedule (098–099), incident remediation fields (097),
   company cards + expense records/receipts (091–096); dispatcher live map plots
   active rescuers alongside GPS.
+
+### 12.12 Operations Dashboard 2x2 Grid Modernization (2026-09-06)
+- Rebuilt the central 2x2 dashboard card section on `/dashboard` (`AdminDashboard` in `src/components/dashboard/role-dashboard.jsx`) to achieve visual and functional fidelity with the reference operations console:
+  - **Request pipeline (`RequestPipelineCard`):** Displays overall count, weekly volume change, and completion rate summary header; renders a 6-stage interlocking chevron process ribbon (`Pending`, `Scheduled`, `Assigned`, `In Progress`, `Completed`, `Cancelled`) with precise 2px gap geometry and status dot legend.
+  - **Document compliance (`DocumentComplianceCard`):** Side-by-side view with a primary valid-documents percentage stat box, full-width multi-segment progress bar (Expired, Due ≤30d, Due 31–90d, Valid), 4 breakdown columns, and an Expiring soon unit chips row with `+N more` link.
+  - **Maintenance and incident pressure (`MaintenancePressureCard`):** Clean event list displaying active work orders with colored left status strips, vehicle plates, service types, schedules, status pills, relative timestamps, and hover navigation to `/maintenance`.
+  - **Incident risk (`IncidentRiskCard`):** 4 metric tiles for Open, Critical/major, Assistance, and Maintenance pending, paired with a dynamic calm-state card (soft-green shield when 0 active risks; rose alert with action link when risks exist).
+- Component architecture encapsulated in `src/components/dashboard/operations-cards.jsx` with unit testing in `src/components/dashboard/operations-cards.test.js`. Verified clean with `npm run lint:ci` (0 errors, 0 warnings) and Vitest (`539/539 tests passing`).
+
+### 12.13 Fleet Utilization Dashboard & Reports Suite Exact Mockup Recreation (2026-09-06)
+- Rebuilt the Fleet Utilization dashboard and elevated the reports suite (`src/app/(dashboard)/reports/page.js`) according to the exact visual source of truth (`media_1788656277326.png`):
+  - **AI Analyst Card (`AiAnalystCard` in `src/components/ai/ai-analyst-card.jsx`):** Refined header with Sparkles squircle, title (`AI Analyst - Fleet Utilization`), deep navy pill badge (`Intelligence Engine`, `#0b132b`), subtitle (`Number-grounded analysis for the selected window`), and rounded-full border button `Regenerate`. Inset panel empty state features faint landscape wavy contour gradients on left and right edges, 3-vertical-bar squircle icon badge, centered title `"No activity in this period"`, and centered narrative copy.
+  - **Fleet Report Header Block & Elevated StatCards:** Standalone page typography with `FLEET REPORT` overline, bold `Fleet utilization` H2 heading, and right-aligned calendar icon with `Capacity and distance by vehicle`. 3 StatCards (`UTILIZATION` at `4%` with `Fleet capacity`, `TRIP RECORDS` at `1` with `Selected window`, `DISTANCE LOGGED` at `0 m` with `Verified km`) upgraded with gentle right-side rising bottom waves, large tabular typography, and tinted circular icon badges (`Gauge`, `FileText`, `Route`).
+  - **Fleet Workload Distribution Card (`FleetReport`):** Exact title `Fleet workload distribution`, subtitle `Vehicles ranked by total distance and trip count in the selected window`, and right-side `Top 1`. Features a 3-part summary strip with vertical dividers (`HIGHEST DISTANCE` `0 m`, `MOST DISPATCHED` `ABC-1234` `1 trips`, `AVERAGE TRIP DISTANCE` `0 km` `Across trip records`), integrated horizontal axis scale ruler (`0`, `250`, `500`, `750`, `1,000 km`), navy squircle rank badge (`01`), vehicle plate with `Most dispatched`, track bar with 3 scale divider ticks (25%, 50%, 75%) and royal blue filled indicator (`24px`), column metrics (`1 trips`, `0 m total`), and wide soft-blue Relative Workload pill (`media_1788656506460.png`: `bg-[#eff5ff] max-w-[136px] h-9`, royal blue `3%` in `#2563eb`, and centered `of fleet workload` below).
+  - **Verification:** Verified clean with `npm run lint:ci` (0 errors, 0 warnings) and full Vitest suite (`539/539 tests passing across 51 test suites`).
+
+### 12.14 AI Analyst – Fleet Utilization Card Exact Mockup Recreation (2026-09-06)
+- Recreated the single premium dashboard card for **AI Analyst – Fleet Utilization** based on the exact visual source of truth (`media_1788657029174.png`) in `src/components/ai/ai-analyst-card.jsx`:
+  - **Header Structure:** Squircle badge with `Sparkles`, title `AI Analyst - Fleet Utilization`, dark navy pill badge `Intelligence Engine` (`#0b132b`), subtitle `Number-grounded analysis for the selected window`, and outline `Regenerate` button with rounded-full pill border.
+  - **Inner Insight Panel:** Large rounded inset container (`bg-[#f8fafd] border border-slate-200/60 dark:bg-slate-900/40 p-5 sm:p-6`) with atmospheric landscape wave background along the lower half of the panel (gentle translucent gradients and faint dotted landscape contours).
+  - **Top Status Pills:**
+    - `● Monitoring` in warm amber style with status dot (`bg-amber-500`) and amber pill border.
+    - `⚙ DETERMINISTIC` in neutral style with gear icon (`Settings`) and uppercase tracking.
+  - **Main Narrative Insight Row:** Leading circular icon badge with soft light-blue tint and 3 rounded vertical bars, paired with bold prominent narrative text (`"Fleet utilization is at 4% across the period, with 1 trips covering 0 km. The busiest unit logged 1 trips."`).
+  - **Divider & Recommended Actions:** Thin horizontal divider, uppercase section label `RECOMMENDED ACTIONS` with list icon, and numbered action items inside soft-blue circular markers (`1`, `2`).
+  - **Footer Date Row:** Small calendar icon + `Analyzed for 2026-09-01 — 2026-09-05` in muted blue-gray text.
+- **Verification:** Verified clean with `npm run lint:ci` (0 errors, 0 warnings) and full Vitest suite (`539/539 tests passing across 51 test suites`).
