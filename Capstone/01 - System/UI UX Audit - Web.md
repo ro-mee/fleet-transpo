@@ -348,3 +348,29 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
 - **Verification & Quality:**
   - Verified with `npm run lint:ci` (0 errors, 0 warnings).
   - Verified with full Vitest suite (`539/539 tests passing across 51 test suites`).
+
+### FleetOps Live Map & Incident Marker System (2026-09-06)
+
+- Applied the compact, premium map-marker style from approved design reference (`media_1788671682556.png`) across the Live Operations Map (`src/components/maps/live-locations-map.jsx`) and Incidents module (`src/components/maps/incident-map.jsx`, `src/app/(dashboard)/incidents/page.js`):
+  1. **Marker Structure & Anatomy:**
+     - Compact floating marker card composed of a circular state icon pin (~30px diameter) with a downward triangle tip anchored precisely at `[15, 35]` pointing directly at the coordinate, attached to a floating rounded white card (`rounded-xl bg-white dark:bg-slate-900 border border-slate-200/90 shadow-xs`).
+     - Bold primary label (12px bold, e.g. plate number or incident ID) and colored status label underneath (10.5px semibold, e.g. `On trip`, `At pickup`, `Idle`, `Critical · Accident`).
+     - Minimal footprint so markers remain legible and scan-friendly on busy maps without needing a hover or popup to understand the entity.
+  2. **Deterministic State Grammar (`src/components/maps/map-entity-marker.jsx`):**
+     - `Green`: Active moving trip (`On trip`, `En Route`, `In Progress`).
+     - `Blue`: Trip at pickup (`At pickup`, `Driver Accepted`) or assigned rescue responder unit (`Dispatched`, `En Route`).
+     - `Slate`: Idle / available vehicle (`Idle`).
+     - `Rose`: Under maintenance (`Maintenance`) or critical unacknowledged incident (`Critical · <Type>`).
+     - `Amber`: Delayed trip (`Delayed`) or moderate incident.
+     - `Gray`: Stale GPS / offline telemetry (`No signal`, >10m without update, semi-transparent styling).
+  3. **Controlled Subtle Pulse:**
+     - Pulse ring animation applied ONLY to unacknowledged critical emergencies or stranded drivers requesting assistance (`fleet-marker-pulse`), avoiding distracting clutter across normal fleet markers.
+  4. **Collision & Z-Index Priority:**
+     - Critical incidents (`2500`) > Selected entity (`2000`) > Rescue responders (`1500`) > Active trips (`1000`) > Maintenance (`800`) > Idle (`500`).
+  5. **Minimal Map Legend (`MinimalMapLegend`):**
+     - Replaced multi-line status blocks with a compact, translucent pill legend (`● Active trip`, `● At pickup`, `● Available / idle`, `● Maintenance`, `▲ Incident`).
+  6. **Interactive Incident Selection Drawer (`IncidentMap`):**
+     - Clicking an incident pin selects it and opens a floating drawer displaying immediate operational impact, vehicle grounding status, requested assistance badges, driver telemetry, and linked maintenance work orders.
+  7. **Testing & Quality Assurance:**
+     - Temporarily validated config resolution, Leaflet HTML escaping/DivIcon generation, and React rendering (15/15) before removing the feature-only test file as requested.
+     - Final retained verification: `npm run lint:ci` clean, production build successful, and full Vitest suite `603/603` across 57 files.

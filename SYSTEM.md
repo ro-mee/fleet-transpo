@@ -330,6 +330,30 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
   `/api/cron/sync` flow in an isolated step with an `errors_pruned` count —
   **deploy check:** an external scheduler must actually hit that route or
   neither the status sync nor pruning runs.
+- **System Health (2026-09-06):** detection + remediation routing, no auto-fix.
+  Pure evaluator `src/lib/system-health.js` (locked per-subsystem thresholds:
+  app 0/1–4/5+ per 15m, db <300/300–1000/>1000ms with probe-failure = degraded,
+  integration pending→attention/failed→degraded, push stale-pending→attention/
+  error→degraded, AI 0/1–4/5+ per 24h, logins 0–4/5–19/20+, sync heartbeat
+  ≤24h/24–26h/>26h-or-missing) feeding `GET /api/system/health`
+  (audit-read; isolated probes, `{ rows, overall, checked_at }`, action
+  descriptors by kind link/post/refetch). One-click safe actions reuse the
+  SAME service functions (not parallel logic): `POST .../push-retry` →
+  `flushOutbox`, `POST .../integration-retry` → `reconcileFailedDeliveries`,
+  `POST .../sync-now` → sync set + prune + heartbeat — all system_admin
+  explicit, throttled, audit-logged. Cron/sync records the
+  `cron_sync_last_ok` heartbeat in `system_settings` (key-specific readers
+  only, no UI pollution) with `heartbeat_recorded` in its response.
+  `/system/health` page (Administration, system_admin-only) renders rows with
+  what/impact/recommended-action drill-downs, inline failure samples, and
+  post-then-refetch buttons; total DB outage shows an "unavailable" fallback
+  instead of a fake classification. **Acknowledge flow:** permanently
+  undeliverable failures (no device token; stale provider config) can never be
+  fixed by retry, so `push-review` / `ai-review` POSTs mark unreviewed rows
+  reviewed (migrations 104/105 add `reviewed_at`/`reviewed_by`; history kept,
+  health/activity counters count unreviewed only); live-verified to
+  `overall: operational`, with the first real `cron_sync_last_ok` heartbeat
+  recorded — the scheduled-sync path works end to end.
 
 ### 4.6 CORS — `src/proxy.js` lockdown (fail-closed)
 Next 16 renamed middleware to **proxy**: `src/proxy.js` exports `proxy(request)`
@@ -1347,3 +1371,54 @@ dashboards, and `/trips/[id]`):
   - **Divider & Recommended Actions:** Thin horizontal divider, uppercase section label `RECOMMENDED ACTIONS` with list icon, and numbered action items inside soft-blue circular markers (`1`, `2`).
   - **Footer Date Row:** Small calendar icon + `Analyzed for 2026-09-01 — 2026-09-05` in muted blue-gray text.
 - **Verification:** Verified clean with `npm run lint:ci` (0 errors, 0 warnings) and full Vitest suite (`539/539 tests passing across 51 test suites`).
+
+### 12.15 FleetOps System Admin Dashboard Recreation (2026-09-06)
+- Rebuilt the **FleetOps System Admin Dashboard** (`/dashboard` for `role === "system_admin"`) according to the exact visual source of truth (`media_1788665666304.png`) as a premium, modern, minimal enterprise console.
+- Replaced the legacy 4 KPI stat cards, platform failure alert banner, and generic activity feed with a dedicated 6-panel 2-row composition (`grid-cols-1 xl:grid-cols-[1.3fr_1fr_1fr]`):
+  - **Top Row:**
+    1. `System Usage Overview` (`SystemUsageOverviewCard`): Multi-series time chart (Bookings `#2563eb`, Trips Completed `#10b981`, Maintenance `#f59e0b`, User Logins `#8b5cf6`), date axis, custom tooltip, "Last 30 days" context pill, and horizontal legend below.
+    2. `System Health` (`SystemHealthCard`): Live seven-row System Health status list with operational/attention/degraded tones, explicit unavailable state when telemetry cannot load, and an `Open System Health` footer link.
+    3. `Account Posture` (`AccountPostureCard`): Donut chart with total accounts (`64`) in the center, role distribution legend on the right, divider, and disabled roles warning chips (`concierge`, `resto resto`, `reception reception`, `+26 more`).
+  - **Bottom Row:**
+    4. `Recent System Activities` (`RecentSystemActivitiesCard`): Compact operational activity table (`TIME`, `USER` avatar with initials, `ACTION` badge, `MODULE`, `DETAILS`) with `View all` action.
+    5. `Recent Errors` (`RecentErrorsCard`): Severity-ranked technical error list (`CRITICAL`, `ERROR`, `WARNING` badges, occurrences count, last seen timestamps, chevrons) with `View all` action.
+    6. `Recent Security and Change Audit` (`RecentSecurityAuditCard`): Immutable audit trail list (`login_success`, `role_updated`, actors, timestamps) with `Open full audit →` action.
+- Encapsulated in `src/components/dashboard/system-admin-cards.jsx`; missing API data renders honest empty/unavailable states rather than sample records.
+- **100% Real Data Integration & Thesis-Safe Subsystem Telemetry (`GET /api/system/activity`):**
+  - **Subsystem-Ownership Health Model (No Arbitrary Formulas):** Discarded synthetic or weighted uptime percentages (e.g. `100 - (errors * 0.1)`) in favor of a deterministic, defense-proof telemetry architecture backed directly by live database tables and hardware/network probes:
+    1. **Web Application:** Queries `app_errors` for server exceptions and unhandled 5xx errors in the last 24h (`Operational` if 0, displaying exact error count).
+    2. **Database Engine (Supabase):** Live round-trip `SELECT 1` ping measuring actual query latency in milliseconds (e.g., `24ms`–`350ms`, `Operational` if `< 400ms`).
+    3. **API Integrations:** Reads `integration_log` for processed vs. failed external requests over 30d/24h (true mathematical success rate, e.g. `100.0%`).
+    4. **Push Notifications:** Reads `push_outbox` for mobile dispatch alerts (true mathematical delivery rate, e.g. `33.3%` with error flag triggering `Degraded` status).
+    5. **Auth & Security Posture:** Aggregates `audit_logs` for `login_failure` events in the last 24h (`Operational` if $\le 5$, displaying active alert count).
+    6. **File Storage:** Probes object storage error logs in `app_errors` (`Healthy` / `Degraded`).
+    7. **Scheduled Sync (Cron Heartbeat):** `/api/cron/sync` writes one canonical heartbeat through `recordSyncHeartbeat()` to `system_settings` (`setting_key = 'cron_sync_last_ok'`). The dashboard inspects timestamp freshness: `Operational` if executed within 24h, `Attention` near the expected cadence, or `Degraded` when stale/missing.
+  - **System Usage 30d:** Dynamic time series computed across `transportation_requests` (bookings), `trips` (completed trips), `vehiclemaintenance` (maintenance work orders), and `audit_logs` (user logins where `action = 'login_success'`) for the last 30 calendar days.
+  - **Account Posture:** Real 64 employee accounts, exact role distribution from `employees` + `roles`, and real disabled accounts (`concierge`, `resto`, `reception` + 26 more) where `deleted_at IS NOT NULL` or `status = 'Inactive'`.
+  - **Recent Activities & Errors:** Real immutable events from `audit_logs` + `employees`, and delivery errors from `push_outbox` / login failures.
+- Pre-commit verification: lint clean, production build successful, route-auth `253/253`, migrations `108 applied / 0 pending / 0 changed`, and retained Vitest suite `603/603` across 57 files.
+
+### 12.16 FleetOps Live Map & Incident Marker System (2026-09-06)
+- Standardized map markers across the **Live Operations Map** (`src/components/maps/live-locations-map.jsx`) and the **Incidents Map** (`src/components/maps/incident-map.jsx`) to faithfully recreate the compact, premium design from `media_1788671682556.png`:
+  - **Shared Marker Architecture (`src/components/maps/map-entity-marker.jsx` & `src/styles/map.css`):**
+    - Leaflet `DivIcon` and React component (`MapEntityMarker`) combining a 30px circular state pin with a downward pointing tip anchored at `[15, 35]` pointing precisely to coordinates, attached to a floating rounded card (`rounded-xl`, subtle 1px border, soft shadow).
+    - Compact typography: primary label (12px bold, plate number or incident ID) with colored status label below (10.5px semibold, e.g. `On trip`, `At pickup`, `Idle`, `Critical · Accident`).
+  - **Color Semantics & State Grammar:**
+    - `Green`: Active trip (`On trip`, `En Route`, `In Progress`).
+    - `Blue`: Trip at pickup (`At pickup`) or assigned rescue responder unit (`Rescue #1`, `En Route`).
+    - `Slate`: Idle / available vehicle (`Idle`).
+    - `Rose`: Under maintenance (`Maintenance`) or critical unacknowledged incident (`Critical · <Type>`).
+    - `Amber`: Delayed trip (`Delayed`) or moderate incident.
+    - `Gray`: Stale GPS / offline telemetry (`No signal`, >10m without update).
+  - **Controlled Subtle Pulse:**
+    - Subtle pulse ring animation is applied strictly to unacknowledged critical emergencies or stranded drivers requesting assistance, avoiding map noise.
+  - **Z-Index Layering Hierarchy:**
+    - Critical incidents (`2500`) > Selected entity (`2000`) > Rescue responders (`1500`) > Active trips (`1000`) > Maintenance (`800`) > Idle (`500`).
+  - **Minimal Map Legend (`MinimalMapLegend`):**
+    - Compact, translucent backdrop-blur pill legend (`● Active trip`, `● At pickup`, `● Available / idle`, `● Maintenance`, `▲ Incident`).
+  - **Interactive Incident Selection Drawer (`IncidentMap`):**
+    - Floating operational drawer displaying vehicle grounding status, cancelled trips impact, requested assistance chips, driver telemetry, and linked maintenance work orders with direct actions.
+  - **SSR & Node Test Safe:**
+    - Decoupled Leaflet module dependencies so `map-entity-marker.jsx` safely evaluates in Node/Vitest environments while injecting `L` in browser contexts.
+- **Verification:**
+    - Verified with `npm run lint:ci` (0 errors, 0 warnings), successful production build, and retained Vitest suite (`603/603` across 57 files); marker hardening was temporarily validated before test-file cleanup.

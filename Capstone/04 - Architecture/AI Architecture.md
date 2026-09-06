@@ -61,10 +61,9 @@ A feature that degrades to "slightly less pretty" instead of "broken" is worth c
 
 ## Prompt loading — CONFIRMED
 
-`src/lib/ai/prompt-loader.js` reads `resources/ai/instructions.md` with `fs.readFileSync` and falls back to a built-in string. Editing the prompt is a **content** change, not a code change.
+`src/lib/ai/prompt-loader.js` first checks persistent `system_settings` overrides, then reads `resources/ai/instructions.md` / report markdown as the repository fallback, and finally uses the built-in global fallback. Since 2026-09-06 prompts are editable from the AI Providers UI (`PUT /api/ai/instructions`, `ai_settings`-update gated, strict `main` + `REPORT_TYPES` allowlist, 50KB cap, audit-logged). Overrides are database-backed so they work across Vercel/serverless instances and redeploys without a restart.
 
 `resources/ai/instructions.md` sets a read-only advisory role and includes:
-
 > *"Never invent fake vehicle records, invalid plate numbers, or hallucinate data. If data is missing, state that it is missing."*
 
 and a formatting rule that reveals the UI contract:
