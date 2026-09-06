@@ -1,4 +1,4 @@
-// Pass 2 test: the /system/errors surface stays wired to system_admin-only
+// Pass 2 + 3 tests: the /system/* surfaces stay wired to system_admin-only
 // guards in all three places (route roles, sidebar nav, page guard reads
 // roles from the path, so these two are the contract).
 import { describe, it, expect } from "vitest";
@@ -13,21 +13,23 @@ function collectHrefs(items = []) {
   ]);
 }
 
-describe("/system/errors access contract", () => {
-  it("is system_admin-only in NAV_ROLES", () => {
-    expect(NAV_ROLES["/system/errors"]).toEqual(["system_admin"]);
+const SYSTEM_SURFACES = ["/system/health", "/system/audit", "/system/errors"];
+
+describe("/system/* access contract", () => {
+  it.each(SYSTEM_SURFACES)("%s is system_admin-only in NAV_ROLES", (href) => {
+    expect(NAV_ROLES[href]).toEqual(["system_admin"]);
   });
 
-  it("appears in the system_admin sidebar under Administration", () => {
+  it("all three appear in the system_admin sidebar under Administration", () => {
     const hrefs = collectHrefs(WORKS.system_admin.nav);
-    expect(hrefs).toContain("/system/errors");
-    expect(hrefs).toContain("/system/audit");
+    for (const href of SYSTEM_SURFACES) expect(hrefs).toContain(href);
   });
 
-  it("is hidden from every other workspace", () => {
+  it("all three are hidden from every other workspace", () => {
     for (const [role, work] of Object.entries(WORKS)) {
       if (role === "system_admin") continue;
-      expect(collectHrefs(work.nav)).not.toContain("/system/errors");
+      const hrefs = collectHrefs(work.nav);
+      for (const href of SYSTEM_SURFACES) expect(hrefs).not.toContain(href);
     }
   });
 });

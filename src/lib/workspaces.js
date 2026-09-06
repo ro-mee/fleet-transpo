@@ -33,6 +33,7 @@ import {
   Navigation,
   AlertTriangle,
   Fingerprint,
+  Activity,
 } from "lucide-react";
 
 const overview = (home, homeLabel, homeIcon = LayoutDashboard) => [
@@ -55,6 +56,7 @@ export const WORKS = {
       {
         label: "Administration",
         items: [
+          { href: "/system/health", label: "System Health", icon: Activity },
           { href: "/system/audit", label: "Audit Logs", icon: ShieldCheck },
           { href: "/system/errors", label: "Error Log", icon: Bug },
           {
