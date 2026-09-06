@@ -14,7 +14,12 @@ if (!BASE_URL) {
   );
 }
 
-const TIMEOUT_MS = 15000;
+// Mobile networks are slow and the serverless backend cold-starts; a login is
+// bcrypt + several sequential DB round-trips and can take 10s+ on a cold
+// function. Android can also burn ~10s trying a dead IPv6 route before
+// falling back to IPv4. 15s aborted healthy-but-slow requests in the field;
+// 30s with one retry covers both cases.
+const TIMEOUT_MS = 30000;
 const MAX_RETRIES = 1;
 
 export class ApiError extends Error {
@@ -152,7 +157,10 @@ export async function apiFetch(path, options = {}) {
       throw new ApiError("Network request failed. Check your connection.", 0);
     };
 
-    if (!skipAuth && MAX_RETRIES > 0) {
+    if (MAX_RETRIES > 0) {
+      // Login included: a cold serverless start or a dead IPv6 route is a
+      // transient failure, and one retry (max 2 rate-limit hits per tap, under
+      // the 5/min cap) converts it into a slow-but-successful login.
       try {
         res = await send(token);
       } catch (retryErr) {
