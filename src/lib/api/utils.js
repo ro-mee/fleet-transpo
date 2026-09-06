@@ -262,8 +262,17 @@ export function validateBody(body, schema = {}) {
  */
 export function handleError(error, context) {
   const ctx = normalizeContext(context);
-  if (ctx.operation) console.error(`API error [${ctx.operation}]:`, error);
-  else console.error("API error:", error);
+  if (error instanceof AuthError) {
+    // Routine rejections (401/403/429) are expected control flow, not faults;
+    // a stack trace per request buries real 500s in the server logs.
+    console.warn(
+      `API rejected [${error.status}${error.code ? ` ${error.code}` : ""}]: ${error.message}`
+    );
+  } else if (ctx.operation) {
+    console.error(`API error [${ctx.operation}]:`, error);
+  } else {
+    console.error("API error:", error);
+  }
   if (error instanceof AuthError) {
     const payload = { error: error.message };
     if (error.code) payload.code = error.code;
