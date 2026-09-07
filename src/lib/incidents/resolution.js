@@ -255,3 +255,38 @@ export function buildIncidentMaintenancePayload(incident) {
     remarks: `${payload.remarks} | Inspect for accident-related vehicle damage before release.`,
   };
 }
+
+/**
+ * Sorts candidate rescue drivers so the nearest responder is first:
+ * 1. Candidates with a known distance (GPS fix) come before those without.
+ * 2. Candidates with known distances are ordered ascending by distance_km (nearest first).
+ * 3. Ties in distance (< 0.05 km) are broken by eta_minutes (lowest ETA first).
+ * 4. Candidates without a GPS fix are ordered alphabetically by name.
+ */
+export function sortCandidateResponders(candidates) {
+  if (!Array.isArray(candidates)) return [];
+  return [...candidates].sort((a, b) => {
+    const hasDistA = a.distance_km != null && !Number.isNaN(Number(a.distance_km));
+    const hasDistB = b.distance_km != null && !Number.isNaN(Number(b.distance_km));
+
+    if (hasDistA && !hasDistB) return -1;
+    if (!hasDistA && hasDistB) return 1;
+
+    if (hasDistA && hasDistB) {
+      const distDiff = Number(a.distance_km) - Number(b.distance_km);
+      if (Math.abs(distDiff) >= 0.05) {
+        return distDiff;
+      }
+      const hasEtaA = a.eta_minutes != null && !Number.isNaN(Number(a.eta_minutes));
+      const hasEtaB = b.eta_minutes != null && !Number.isNaN(Number(b.eta_minutes));
+      if (hasEtaA && !hasEtaB) return -1;
+      if (!hasEtaA && hasEtaB) return 1;
+      if (hasEtaA && hasEtaB && a.eta_minutes !== b.eta_minutes) {
+        return Number(a.eta_minutes) - Number(b.eta_minutes);
+      }
+    }
+
+    return (a.name || "").localeCompare(b.name || "");
+  });
+}
+

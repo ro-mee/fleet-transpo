@@ -25,7 +25,7 @@ import { updateIncident } from "@/services/driver.service";
 import { getIncidentWorkbook } from "@/services/report.service";
 import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
-import { incidentTypeLabel } from "@/lib/incidents/resolution";
+import { incidentTypeLabel, sortCandidateResponders } from "@/lib/incidents/resolution";
 import { ImageViewer } from "@/components/ui/image-viewer";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
@@ -193,8 +193,8 @@ export default function IncidentsPage() {
   });
 
   const candidateDrivers = useMemo(() => {
-    if (Array.isArray(respondersQuery.data)) return respondersQuery.data;
-    return respondersQuery.data?.drivers || [];
+    if (Array.isArray(respondersQuery.data)) return sortCandidateResponders(respondersQuery.data);
+    return sortCandidateResponders(respondersQuery.data?.drivers || []);
   }, [respondersQuery.data]);
 
   const externalEstimate = respondersQuery.data?.external_rescue_estimate || null;
@@ -1104,30 +1104,41 @@ export default function IncidentsPage() {
                                           No available fleet drivers found nearby
                                         </div>
                                       ) : (
-                                        candidateDrivers.map((d) => (
+                                        candidateDrivers.map((d, index) => (
                                           <SelectItem key={d.driver_id} value={String(d.driver_id)} className="cursor-pointer text-xs py-2">
                                             <div className="flex items-center justify-between gap-3 w-full py-0.5">
                                               <span className="font-semibold text-foreground">
                                                 {d.name} {d.driver_id && <span className="text-[10px] text-foreground-muted font-mono font-normal">#{d.driver_id}</span>}
                                               </span>
                                               <div className="flex items-center gap-1.5 shrink-0">
-                                                {d.eta_minutes != null && (
-                                                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded flex items-center gap-1">
-                                                    <Clock className="h-2.5 w-2.5" /> ~{d.eta_minutes}m ETA
+                                                {index === 0 && d.distance_km != null && (
+                                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/25 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                    <Navigation className="h-2.5 w-2.5 fill-emerald-600 dark:fill-emerald-400 text-emerald-600 dark:text-emerald-400" /> Nearest
                                                   </span>
                                                 )}
                                                 {d.distance_km != null && (
-                                                  <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
-                                                    {d.distance_km} km
+                                                  <span className="text-[10px] font-semibold text-foreground bg-muted/80 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                    <MapPin className="h-2.5 w-2.5 text-primary" /> {d.distance_km} km away
                                                   </span>
                                                 )}
-                                                {d.position_fresh ? (
-                                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                                                    Live GPS
+                                                {d.eta_minutes != null && (
+                                                  <span className="text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                    <Clock className="h-2.5 w-2.5" /> ~{d.eta_minutes}m ETA
                                                   </span>
+                                                )}
+                                                {d.distance_km != null ? (
+                                                  d.position_fresh ? (
+                                                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                                      Live GPS
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
+                                                      Stale fix
+                                                    </span>
+                                                  )
                                                 ) : (
-                                                  <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
-                                                    Stale fix
+                                                  <span className="text-[10px] text-foreground-muted/60 bg-muted/40 px-1.5 py-0.5 rounded">
+                                                    No GPS
                                                   </span>
                                                 )}
                                               </div>

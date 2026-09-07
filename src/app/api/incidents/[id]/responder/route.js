@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 import { haversineKm, etaFromDistanceKm, tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
+import { sortCandidateResponders } from "@/lib/incidents/responder-tracking";
 
 // Assign a FLEET driver as the incident's responder. This is what turns the
 // rescue from paperwork into something the system tracks itself: once
@@ -85,12 +86,15 @@ export async function GET(req, props) {
             distance_km: distanceKm != null ? Number(Number(distanceKm).toFixed(1)) : null,
             eta_minutes: etaMinutes != null ? Math.max(1, Math.round(etaMinutes)) : null,
             is_live_traffic: isLiveTraffic,
+            has_location: hasCoords,
             position_fresh:
               r.last_location_update != null &&
               Date.now() - new Date(r.last_location_update).getTime() < 5 * 60_000,
           };
         })
     );
+
+    const sortedDrivers = sortCandidateResponders(candidateDrivers);
 
     let externalEstimate = null;
     try {
@@ -119,7 +123,7 @@ export async function GET(req, props) {
     }
 
     return ok({
-      drivers: candidateDrivers,
+      drivers: sortedDrivers,
       external_rescue_estimate: externalEstimate,
     });
   } catch (e) {

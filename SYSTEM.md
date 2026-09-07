@@ -926,7 +926,7 @@ driver POST (`src/lib/driver/grounding.js` + `src/lib/incidents/maintenance.js`)
 5. **Emergency rescue response tracking** (`src/lib/incidents/responder-tracking.js`, `/api/incidents/[id]/responder`):
    Staff can dispatch an internal fleet driver or external rescue provider from the Incident Detail modal.
    - **Automated Live Traffic ETA:** Estimated ETA is calculated automatically using TomTom live traffic (`tomtomEtaMinutes`) with origin routing (base hotel `hotel_location` in `system_settings` for external rescue, live driver GPS coordinates for internal fleet candidates).
-   - Candidate fleet drivers in the assignment dropdown display live ETA badges (`~Xm ETA`) alongside straight-line distance.
+   - Candidate fleet drivers in the assignment dropdown are sorted nearest-first (`sortCandidateResponders` by GPS distance, broken by TomTom live traffic ETA), highlighting the closest driver with a `Nearest` badge, distance `X km away`, and `~Xm ETA`. Drivers without GPS appear at the bottom.
    - Initial dispatch immediately writes `response_eta` into `driverincidents`.
    - Continuous 10-second polling evaluates responder GPS distance and remaining travel time dynamically; push alerts trigger on status transitions (`Dispatched` → `En Route` → `Arrived`) or significant ETA drift (≥5m).
 
@@ -1433,6 +1433,6 @@ dashboards, and `/trips/[id]`):
 ### 12.17 Automated Live Traffic ETA & Dynamic Responder Tracking (2026-09-07)
 - **Automated Rescue ETA:** Upgraded the manual "Estimated ETA (Minutes)" input in emergency response dispatch to an automated, real-time calculation powered by TomTom live traffic:
   - **External Rescue Routing:** Computes live route distance and travel time from the organization's base operations (`hotel_location` in `system_settings`) to incident GPS coordinates (falling back to the stranded driver's live GPS or reported coordinates). Pre-fills the ETA field with a live traffic indicator badge and "Reset to live ETA" override option.
-  - **Fleet Candidate Live ETAs:** Candidate drivers in `GET /api/incidents/[id]/responder` calculate individual TomTom traffic ETAs in parallel, rendering `~Xm ETA` badges directly inside the selection dropdown.
+  - **Fleet Candidate Live ETAs & Nearest-First Sorting:** Candidate drivers in `GET /api/incidents/[id]/responder` calculate individual TomTom traffic ETAs in parallel and are sorted nearest-first via `sortCandidateResponders` (closest GPS distance, then lowest ETA, with non-GPS drivers sorted alphabetically at the bottom). The UI highlights the closest driver with a `Nearest` tag, prominent distance (`X km away`), `~Xm ETA`, and clear GPS status (`Live GPS`, `Stale fix`, or `No GPS`).
   - **Immediate ETA Persistence:** Dispatching a responder immediately computes and persists `response_eta` into `driverincidents`, broadcasting the expected arrival time in push notifications and audit logs.
   - **Dynamic Tracking & Auto-refresh:** The incident detail modal continuously polls active rescue tracking every 10 seconds (`refetchInterval: 10000`), advancing ladder status (`Dispatched` → `En Route` → `Arrived`), computing remaining distance/minutes without React render impurities, and syncing live progress seamlessly.

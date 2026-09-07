@@ -24,6 +24,8 @@ export const ETA_NOTIFY_DELTA_MIN = 5;
 
 const OVERSEER_ROLES = ["system_admin", "fleet_manager", "admin"];
 
+export { sortCandidateResponders } from "./resolution";
+
 /**
  * Distance and ETA between the responder and the stranded driver.
  * Pure; the TomTom call lives in evaluateResponder so this stays testable.
