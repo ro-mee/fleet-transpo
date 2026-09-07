@@ -2,7 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
-import { haversineKm } from "@/lib/scheduling/travel-buffer";
+import { haversineKm, etaFromDistanceKm, tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
 
 // Assign a FLEET driver as the incident's responder. This is what turns the
 // rescue from paperwork into something the system tracks itself: once
@@ -31,10 +31,13 @@ export async function GET(req, props) {
               d.current_latitude, d.current_longitude,
               d.last_location_update,
               i.driver_id AS incident_driver_id,
-              i.latitude AS incident_latitude, i.longitude AS incident_longitude
+              i.latitude AS incident_latitude, i.longitude AS incident_longitude,
+              rd_rep.current_latitude AS reporter_latitude,
+              rd_rep.current_longitude AS reporter_longitude
          FROM driverincidents i
          CROSS JOIN drivers d
          JOIN employees e ON e.employee_id = d.employee_id AND e.deleted_at IS NULL
+         LEFT JOIN drivers rd_rep ON rd_rep.driver_id = i.driver_id
         WHERE i.incident_id = $1 AND i.deleted_at IS NULL
           AND d.deleted_at IS NULL
           AND d.driver_status = 'Available'
@@ -45,31 +48,80 @@ export async function GET(req, props) {
     if (!rows.length) return err("Incident not found", 404);
 
     const incidentDriverId = rows[0].incident_driver_id;
-    const incidentLat = rows[0].incident_latitude;
-    const incidentLng = rows[0].incident_longitude;
+    const targetLat = rows[0].reporter_latitude ?? rows[0].incident_latitude;
+    const targetLng = rows[0].reporter_longitude ?? rows[0].incident_longitude;
 
-    const drivers = rows
-      .filter((r) => r.driver_id !== incidentDriverId)
-      .map((r) => {
-        const distanceKm =
-          r.current_latitude != null && incidentLat != null
+    const candidateDrivers = await Promise.all(
+      rows
+        .filter((r) => r.driver_id !== incidentDriverId)
+        .map(async (r) => {
+          const hasCoords = r.current_latitude != null && targetLat != null;
+          const distanceKm = hasCoords
             ? haversineKm(
                 [Number(r.current_latitude), Number(r.current_longitude)],
-                [Number(incidentLat), Number(incidentLng)]
+                [Number(targetLat), Number(targetLng)]
               )
             : null;
-        return {
-          driver_id: r.driver_id,
-          name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
-          driver_status: r.driver_status,
-          distance_km: distanceKm != null ? Number(Number(distanceKm).toFixed(1)) : null,
-          position_fresh:
-            r.last_location_update != null &&
-            Date.now() - new Date(r.last_location_update).getTime() < 5 * 60_000,
-        };
-      });
 
-    return ok(drivers);
+          let etaMinutes = null;
+          let isLiveTraffic = false;
+          if (hasCoords) {
+            etaMinutes = await tomtomEtaMinutes({
+              origin: [Number(r.current_latitude), Number(r.current_longitude)],
+              destination: [Number(targetLat), Number(targetLng)],
+            }).catch(() => null);
+
+            if (etaMinutes != null) {
+              isLiveTraffic = true;
+            } else if (distanceKm != null) {
+              etaMinutes = etaFromDistanceKm(distanceKm);
+            }
+          }
+
+          return {
+            driver_id: r.driver_id,
+            name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+            driver_status: r.driver_status,
+            distance_km: distanceKm != null ? Number(Number(distanceKm).toFixed(1)) : null,
+            eta_minutes: etaMinutes != null ? Math.max(1, Math.round(etaMinutes)) : null,
+            is_live_traffic: isLiveTraffic,
+            position_fresh:
+              r.last_location_update != null &&
+              Date.now() - new Date(r.last_location_update).getTime() < 5 * 60_000,
+          };
+        })
+    );
+
+    let externalEstimate = null;
+    try {
+      const { rows: hotelRows } = await query(
+        `SELECT setting_value FROM system_settings WHERE setting_key = 'hotel_location' LIMIT 1`
+      );
+      const hotel = hotelRows[0]?.setting_value;
+      if (hotel?.latitude != null && hotel?.longitude != null && targetLat != null && targetLng != null) {
+        const origin = [Number(hotel.latitude), Number(hotel.longitude)];
+        const destination = [Number(targetLat), Number(targetLng)];
+        const distanceKm = haversineKm(origin, destination);
+        let etaMinutes = await tomtomEtaMinutes({ origin, destination }).catch(() => null);
+        const isLiveTraffic = etaMinutes != null;
+        if (etaMinutes == null && distanceKm != null) {
+          etaMinutes = etaFromDistanceKm(distanceKm);
+        }
+        externalEstimate = {
+          origin_name: hotel.hotel_name || "Hotel Operations Base",
+          distance_km: distanceKm != null ? Number(Number(distanceKm).toFixed(1)) : null,
+          eta_minutes: etaMinutes != null ? Math.max(1, Math.round(etaMinutes)) : null,
+          is_live_traffic: isLiveTraffic,
+        };
+      }
+    } catch (e) {
+      console.warn("failed to calculate external rescue estimate:", e?.message || e);
+    }
+
+    return ok({
+      drivers: candidateDrivers,
+      external_rescue_estimate: externalEstimate,
+    });
   } catch (e) {
     return handleError(e);
   }
@@ -94,7 +146,7 @@ export async function POST(req, props) {
     let candidate = null;
     if (driverId != null) {
       const { rows } = await query(
-        `SELECT d.driver_id, e.employee_id, e.first_name, e.last_name
+        `SELECT d.driver_id, d.current_latitude, d.current_longitude, e.employee_id, e.first_name, e.last_name
            FROM drivers d
            JOIN employees e ON e.employee_id = d.employee_id
           WHERE d.driver_id = $1 AND d.deleted_at IS NULL
@@ -105,6 +157,37 @@ export async function POST(req, props) {
       if (!rows[0]) return errValidation({ driver_id: "Driver not found or inactive" });
       candidate = rows[0];
     }
+
+    // Network call for live TomTom routing ETA stays OUTSIDE the transaction.
+    let initialEtaMinutes = null;
+    if (candidate && candidate.current_latitude != null) {
+      try {
+        const { rows: incRows } = await query(
+          `SELECT i.latitude, i.longitude, dd.current_latitude, dd.current_longitude
+             FROM driverincidents i
+             LEFT JOIN drivers dd ON dd.driver_id = i.driver_id
+            WHERE i.incident_id = $1 AND i.deleted_at IS NULL LIMIT 1`,
+          [id]
+        );
+        const inc = incRows[0];
+        const targetLat = inc?.current_latitude ?? inc?.latitude;
+        const targetLng = inc?.current_longitude ?? inc?.longitude;
+        if (targetLat != null && targetLng != null) {
+          const origin = [Number(candidate.current_latitude), Number(candidate.current_longitude)];
+          const destination = [Number(targetLat), Number(targetLng)];
+          initialEtaMinutes = await tomtomEtaMinutes({ origin, destination }).catch(() => null);
+          if (initialEtaMinutes == null) {
+            const km = haversineKm(origin, destination);
+            initialEtaMinutes = etaFromDistanceKm(km);
+          }
+        }
+      } catch (e) {
+        console.warn("initial ETA routing failed:", e?.message || e);
+      }
+    }
+    const initialResponseEta = initialEtaMinutes
+      ? new Date(Date.now() + initialEtaMinutes * 60_000)
+      : null;
 
     const result = await withTransaction(async (tx) => {
       const current = await tx.query(
@@ -143,17 +226,23 @@ export async function POST(req, props) {
                   WHEN $2::int IS NOT NULL AND (response_type IS NULL OR response_type = '') THEN 'Fleet Responder'
                   ELSE response_type
                 END,
+                response_eta = CASE
+                  WHEN $2::int IS NOT NULL AND $4::timestamptz IS NOT NULL THEN $4::timestamptz
+                  WHEN $2::int IS NULL THEN NULL
+                  ELSE response_eta
+                END,
                 responded_by = CASE WHEN $2::int IS NOT NULL THEN $3::int ELSE responded_by END,
                 responded_at = CASE WHEN $2::int IS NOT NULL THEN NOW() ELSE responded_at END,
                 updated_at = NOW()
           WHERE incident_id = $1 AND deleted_at IS NULL
-          RETURNING responder_driver_id, responder_assigned_at, response_status, response_type`,
-        [id, driverId, session.user.employeeId ?? null]
+          RETURNING responder_driver_id, responder_assigned_at, response_status, response_type, response_eta`,
+        [id, driverId, session.user.employeeId ?? null, initialResponseEta]
       );
 
       const responderName = candidate
         ? `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim()
         : null;
+      const etaSnippet = initialEtaMinutes ? ` · Live ETA ~${initialEtaMinutes} mins` : "";
       await tx.query(
         `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
          VALUES ($1, $2, $3, $4)`,
@@ -162,7 +251,7 @@ export async function POST(req, props) {
           session.user.employeeId ?? null,
           "RESPONSE",
           candidate
-            ? `Fleet responder assigned: ${responderName} — GPS tracking active (auto En Route / Arrived / ETA)`
+            ? `Fleet responder assigned: ${responderName}${etaSnippet} — GPS tracking active (auto En Route / Arrived / ETA)`
             : "Fleet responder unassigned — manual response logging",
         ]
       );
@@ -176,6 +265,7 @@ export async function POST(req, props) {
         incidentLocation: row.location,
         latitude: row.latitude,
         longitude: row.longitude,
+        initialEtaMinutes,
       };
     });
 
@@ -188,7 +278,8 @@ export async function POST(req, props) {
     if (result.responderEmployeeId) {
       try {
         const whereText = result.incidentLocation ? ` at ${result.incidentLocation}` : "";
-        const message = `You are responding to incident #${id} — driver ${result.reporterName || "(unknown)"}${whereText}. Open the incident for their live location and navigation.`;
+        const etaText = result.initialEtaMinutes ? ` (ETA ~${result.initialEtaMinutes} mins)` : "";
+        const message = `You are responding to incident #${id} — driver ${result.reporterName || "(unknown)"}${whereText}${etaText}. Open the incident for their live location and navigation.`;
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -206,7 +297,8 @@ export async function POST(req, props) {
     }
     if (result.reporterEmployeeId && result.responderName) {
       try {
-        const message = `Fleet responder ${result.responderName} has been dispatched to your location. Status and ETA will update automatically as they drive.`;
+        const etaText = result.initialEtaMinutes ? ` (ETA ~${result.initialEtaMinutes} mins)` : "";
+        const message = `Fleet responder ${result.responderName} has been dispatched to your location${etaText}. Status and ETA will update automatically as they drive.`;
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -231,6 +323,7 @@ export async function POST(req, props) {
       newValues: {
         responder_driver_id: result.row.responder_driver_id,
         response_status: result.row.response_status,
+        response_eta: result.row.response_eta,
       },
     });
 

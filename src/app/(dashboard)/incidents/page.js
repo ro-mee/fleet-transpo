@@ -169,6 +169,12 @@ export default function IncidentsPage() {
     queryKey: ["incident-detail", resolveModal.incident?.incident_id],
     queryFn: () => apiFetch(`/api/incidents/${resolveModal.incident.incident_id}`),
     enabled: resolveModal.open && !!resolveModal.incident,
+    refetchInterval:
+      resolveModal.open &&
+      resolveModal.incident &&
+      String(resolveModal.incident.status || "").toLowerCase() !== "resolved"
+        ? 10000
+        : false,
   });
   const detailIncident = detailQuery.data || resolveModal.incident;
   const isResolved = String(detailIncident?.status || "").toLowerCase() === "resolved";
@@ -179,12 +185,25 @@ export default function IncidentsPage() {
     || detailQuery.data?.linked_maintenance?.[0]?.maintenance_id;
 
   // Candidate fleet responders for the open incident in the modal: active
-  // drivers (excluding the reporter) with their current distance/freshness.
+  // drivers (excluding the reporter) with their current distance/freshness/ETA.
   const respondersQuery = useQuery({
     queryKey: ["incident-responders", resolveModal.incident?.incident_id],
     queryFn: () => apiFetch(`/api/incidents/${resolveModal.incident.incident_id}/responder`),
     enabled: resolveModal.open && !!resolveModal.incident && !isResolved && canRespond,
   });
+
+  const candidateDrivers = useMemo(() => {
+    if (Array.isArray(respondersQuery.data)) return respondersQuery.data;
+    return respondersQuery.data?.drivers || [];
+  }, [respondersQuery.data]);
+
+  const externalEstimate = respondersQuery.data?.external_rescue_estimate || null;
+  const effectiveExternalEta =
+    responseForm.eta !== ""
+      ? responseForm.eta
+      : externalEstimate?.eta_minutes
+        ? String(externalEstimate.eta_minutes)
+        : "";
 
   const maintenanceMutation = useMutation({
     mutationFn: (id) => apiFetch(`/api/incidents/${id}/maintenance`, { method: "POST" }),
@@ -798,11 +817,33 @@ export default function IncidentsPage() {
                                     </span>
                                   )}
                                 </p>
-                                {detailIncident.response_eta && (
-                                  <p className="font-semibold text-primary pt-1 border-t border-border/50">
-                                    Dynamic ETA: {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
-                                  </p>
-                                )}
+                                {detailIncident.response_eta && (() => {
+                                  const minsRemaining = detailIncident.live_eta_minutes;
+                                  const timeStr = new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
+                                  return (
+                                    <div className="pt-1.5 border-t border-border/50 space-y-1">
+                                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                                        <span className="font-bold text-primary flex items-center gap-1.5">
+                                          <Clock className="h-3.5 w-3.5 text-primary shrink-0" />
+                                          {minsRemaining == null
+                                            ? `Target: ${timeStr}`
+                                            : minsRemaining <= 0
+                                              ? `Arriving on scene (target ${timeStr})`
+                                              : `Dynamic ETA: ~${minsRemaining} mins (${timeStr})`}
+                                        </span>
+                                        {detailIncident.live_distance_km != null && (
+                                          <span className="text-[10px] font-bold text-foreground-secondary bg-surface px-2 py-0.5 rounded border border-border/60">
+                                            {detailIncident.live_distance_km} km away
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-[10px] text-foreground-muted flex items-center gap-1">
+                                        <Radio className="h-2.5 w-2.5 text-emerald-500 animate-pulse shrink-0" />
+                                        Live traffic &amp; GPS tracking active
+                                      </p>
+                                    </div>
+                                  );
+                                })()}
                               </div>
 
                               <div className="flex items-center justify-between gap-2 pt-1">
@@ -841,11 +882,20 @@ export default function IncidentsPage() {
                                     {detailIncident.response_type || "Emergency Service"}
                                   </span>
                                 </div>
-                                {detailIncident.response_eta && (
-                                  <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/25">
-                                    ETA: {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
-                                  </span>
-                                )}
+                                {detailIncident.response_eta && (() => {
+                                  const minsRemaining = detailIncident.live_eta_minutes;
+                                  const timeStr = new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" });
+                                  return (
+                                    <span className="text-xs font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-md border border-primary/25 inline-flex items-center gap-1.5">
+                                      <Clock className="h-3 w-3" />
+                                      {minsRemaining == null
+                                        ? `ETA: ${timeStr}`
+                                        : minsRemaining <= 0
+                                          ? `Arriving on scene (${timeStr})`
+                                          : `ETA: ~${minsRemaining} mins (${timeStr})`}
+                                    </span>
+                                  );
+                                })()}
                               </div>
 
                               {detailIncident.response_details && (
@@ -918,14 +968,25 @@ export default function IncidentsPage() {
                                   {isEditingExternal && (
                                     <div className="grid gap-2 sm:grid-cols-2 p-2.5 rounded-xl bg-muted/40 border border-border/80 mt-2">
                                       <label className="space-y-1">
-                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Update ETA (minutes)</span>
+                                        <div className="flex items-center justify-between gap-1">
+                                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Update ETA (minutes)</span>
+                                          {externalEstimate?.eta_minutes && responseForm.eta !== "" && responseForm.eta !== String(externalEstimate.eta_minutes) && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setResponseForm((f) => ({ ...f, eta: "" }))}
+                                              className="text-[9px] font-bold text-primary hover:underline cursor-pointer"
+                                            >
+                                              Live traffic: {externalEstimate.eta_minutes}m
+                                            </button>
+                                          )}
+                                        </div>
                                         <input
                                           type="number"
                                           min="1"
                                           max="1440"
-                                          value={responseForm.eta}
+                                          value={effectiveExternalEta}
                                           onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
-                                          placeholder="e.g., 15"
+                                          placeholder={externalEstimate?.eta_minutes ? `Live: ${externalEstimate.eta_minutes} mins` : "e.g., 15"}
                                           className="w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
                                         />
                                       </label>
@@ -951,7 +1012,7 @@ export default function IncidentsPage() {
                                         <Button
                                           size="sm"
                                           className="text-xs h-7 px-3 font-semibold cursor-pointer"
-                                          disabled={responseMutation.isPending || (!responseForm.eta && !responseForm.details.trim())}
+                                          disabled={responseMutation.isPending || (!effectiveExternalEta && !responseForm.details.trim())}
                                           onClick={() => {
                                             responseMutation.mutate(
                                               {
@@ -959,7 +1020,7 @@ export default function IncidentsPage() {
                                                 payload: {
                                                   response_status: detailIncident.response_status,
                                                   response_details: responseForm.details.trim() || undefined,
-                                                  eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
+                                                  eta_minutes: effectiveExternalEta ? Number(effectiveExternalEta) : undefined,
                                                 },
                                               },
                                               {
@@ -1038,21 +1099,26 @@ export default function IncidentsPage() {
                                         <div className="p-3 text-center text-xs text-foreground-muted">
                                           Loading nearby drivers…
                                         </div>
-                                      ) : !respondersQuery.data || respondersQuery.data.length === 0 ? (
+                                      ) : candidateDrivers.length === 0 ? (
                                         <div className="p-3 text-center text-xs text-foreground-muted">
                                           No available fleet drivers found nearby
                                         </div>
                                       ) : (
-                                        respondersQuery.data.map((d) => (
+                                        candidateDrivers.map((d) => (
                                           <SelectItem key={d.driver_id} value={String(d.driver_id)} className="cursor-pointer text-xs py-2">
                                             <div className="flex items-center justify-between gap-3 w-full py-0.5">
                                               <span className="font-semibold text-foreground">
                                                 {d.name} {d.driver_id && <span className="text-[10px] text-foreground-muted font-mono font-normal">#{d.driver_id}</span>}
                                               </span>
                                               <div className="flex items-center gap-1.5 shrink-0">
+                                                {d.eta_minutes != null && (
+                                                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded flex items-center gap-1">
+                                                    <Clock className="h-2.5 w-2.5" /> ~{d.eta_minutes}m ETA
+                                                  </span>
+                                                )}
                                                 {d.distance_km != null && (
-                                                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                                                    {d.distance_km} km away
+                                                  <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
+                                                    {d.distance_km} km
                                                   </span>
                                                 )}
                                                 {d.position_fresh ? (
@@ -1145,18 +1211,37 @@ export default function IncidentsPage() {
                                 </label>
 
                                 <label className="space-y-1">
-                                  <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
-                                    Estimated ETA (Minutes)
-                                  </span>
+                                  <div className="flex items-center justify-between gap-1">
+                                    <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                      Estimated ETA (Minutes)
+                                    </span>
+                                    {externalEstimate?.eta_minutes && responseForm.eta !== "" && responseForm.eta !== String(externalEstimate.eta_minutes) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setResponseForm((f) => ({ ...f, eta: "" }))}
+                                        className="text-[9px] font-bold text-primary hover:underline cursor-pointer"
+                                      >
+                                        Reset to live ETA ({externalEstimate.eta_minutes}m)
+                                      </button>
+                                    )}
+                                  </div>
                                   <input
                                     type="number"
                                     min="1"
                                     max="1440"
-                                    value={responseForm.eta}
+                                    value={effectiveExternalEta}
                                     onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
-                                    placeholder="e.g., 20"
+                                    placeholder={externalEstimate?.eta_minutes ? `Live: ${externalEstimate.eta_minutes} mins` : "e.g., 20"}
                                     className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
                                   />
+                                  {externalEstimate?.eta_minutes && (
+                                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                      <Radio className="h-2.5 w-2.5 animate-pulse shrink-0" />
+                                      <span>
+                                        {externalEstimate.is_live_traffic ? "Live TomTom traffic" : "Traffic estimate"}: ~{externalEstimate.eta_minutes} mins ({externalEstimate.distance_km} km from {externalEstimate.origin_name || "Base"})
+                                      </span>
+                                    </span>
+                                  )}
                                 </label>
 
                                 <label className="space-y-1 sm:col-span-2">
@@ -1184,7 +1269,7 @@ export default function IncidentsPage() {
                                           response_status: "Dispatched",
                                           response_type: responseForm.type.trim(),
                                           response_details: responseForm.details.trim() || undefined,
-                                          eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
+                                          eta_minutes: effectiveExternalEta ? Number(effectiveExternalEta) : undefined,
                                         },
                                       })
                                     }

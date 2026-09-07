@@ -40,6 +40,11 @@ describe("computeResponderState", () => {
     const r = computeResponderState({ responderPos: AT_DRIVER, driverPos: DRIVER, etaMinutes: 0 });
     expect(r.etaMinutes).toBe(1);
   });
+
+  it("handles non-integer live traffic ETAs by rounding", () => {
+    const r = computeResponderState({ responderPos: RESPONDER, driverPos: DRIVER, etaMinutes: 14.7 });
+    expect(r.etaMinutes).toBe(15);
+  });
 });
 
 describe("nextResponderStatus", () => {
