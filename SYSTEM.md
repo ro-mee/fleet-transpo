@@ -835,7 +835,7 @@ is the only reservation concept, and `integration/` is its only door.
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `settings/users`, `settings/connectors`, `manifest`, `status/sync`, `cron/sync`, `cron/reconcile` (service-token protected). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.
 - The active NAIA registry currently contains six canonical curbside endpoints: Terminal 1 arrivals/departures, Terminal 2 arrivals/departures, and Terminal 3 Bay 9 arrivals/departures. Terminal 4 is not an active endpoint; its legacy row/routes remain only as inactive history. Canonical endpoint coordinates are maintained in `src/lib/naia-locations.js` and seeded without fabricated distance/time estimates.
-- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Acknowledge, resolve, grounding, and maintenance actions have dedicated guarded endpoints; creation is driver-side. Vehicle-related reports automatically create one linked maintenance work order; `incidents/[id]/maintenance` (POST) is an idempotent recovery endpoint for a failed automatic attempt.
+- `incidents/` (GET) + `incidents/[id]` (PATCH) ★ — **staff incident registry**: all driver-reported incidents (severity/status/coords filters, join plate + driver), resolve with `actions_taken`. Acknowledge, resolve, grounding, and maintenance actions have dedicated guarded endpoints; creation is driver-side. Emergency response features a two-phase tracking workflow (Dispatch selection: Fleet Responder vs External Rescue with assistance chips; Active Mission Tracking: visual progress stepper, GPS auto-tracking for fleet units, and 1-click status advances for external services). Vehicle-related reports automatically create one linked maintenance work order; `incidents/[id]/maintenance` (POST) is an idempotent recovery endpoint for a failed automatic attempt.
 - `settings/dispatch` (GET/PUT) ★ — smart-queue policy (`criticalMinutes`/`highMinutes`/`mediumMinutes`, `enableVipFlag`/`enableEmergencyFlag`); audit-writes `dispatch_policy` (system_admin/admin; fleet_manager read).
 - `settings/uvvrp` (GET/PUT) ★ — configurable Number Coding (UVVRP) policy (`system_settings.uvvrp_policy`; enable, location preset, per-weekday ending digits, block|warn|approve response, exemption categories).
 - `uvvrp` (GET) ★ — read-only board (restricted today, exemptions, upcoming restrictions, violation history, dispatches affected).
@@ -923,6 +923,13 @@ driver POST (`src/lib/driver/grounding.js` + `src/lib/incidents/maintenance.js`)
    traffic-delay, medical, and other non-vehicle reports do not create a work
    order.
 4. Otherwise notifies overseers of the report.
+
+5. **Emergency rescue response tracking** (`src/lib/incidents/responder-tracking.js`, `/api/incidents/[id]/responder`):
+   Staff can dispatch an internal fleet driver or external rescue provider from the Incident Detail modal.
+   - **Automated Live Traffic ETA:** Estimated ETA is calculated automatically using TomTom live traffic (`tomtomEtaMinutes`) with origin routing (base hotel `hotel_location` in `system_settings` for external rescue, live driver GPS coordinates for internal fleet candidates).
+   - Candidate fleet drivers in the assignment dropdown are sorted nearest-first (`sortCandidateResponders` by GPS distance, broken by TomTom live traffic ETA), highlighting the closest driver with a `Nearest` badge, distance `X km away`, and `~Xm ETA`. Drivers without GPS appear at the bottom.
+   - Initial dispatch immediately writes `response_eta` into `driverincidents`.
+   - Continuous 10-second polling evaluates responder GPS distance and remaining travel time dynamically; push alerts trigger on status transitions (`Dispatched` → `En Route` → `Arrived`) or significant ETA drift (≥5m).
 
 Incident resolution and maintenance completion are separate state changes:
 resolving a maintenance-required incident never releases its vehicle. The
@@ -1434,3 +1441,10 @@ dashboards, and `/trips/[id]`):
     - Decoupled Leaflet module dependencies so `map-entity-marker.jsx` safely evaluates in Node/Vitest environments while injecting `L` in browser contexts.
 - **Verification:**
     - Verified with `npm run lint:ci` (0 errors, 0 warnings), successful production build, and retained Vitest suite (`603/603` across 57 files); marker hardening was temporarily validated before test-file cleanup.
+
+### 12.17 Automated Live Traffic ETA & Dynamic Responder Tracking (2026-09-07)
+- **Automated Rescue ETA:** Upgraded the manual "Estimated ETA (Minutes)" input in emergency response dispatch to an automated, real-time calculation powered by TomTom live traffic:
+  - **External Rescue Routing:** Computes live route distance and travel time from the organization's base operations (`hotel_location` in `system_settings`) to incident GPS coordinates (falling back to the stranded driver's live GPS or reported coordinates). Pre-fills the ETA field with a live traffic indicator badge and "Reset to live ETA" override option.
+  - **Fleet Candidate Live ETAs & Nearest-First Sorting:** Candidate drivers in `GET /api/incidents/[id]/responder` calculate individual TomTom traffic ETAs in parallel and are sorted nearest-first via `sortCandidateResponders` (closest GPS distance, then lowest ETA, with non-GPS drivers sorted alphabetically at the bottom). The UI highlights the closest driver with a `Nearest` tag, prominent distance (`X km away`), `~Xm ETA`, and clear GPS status (`Live GPS`, `Stale fix`, or `No GPS`).
+  - **Immediate ETA Persistence:** Dispatching a responder immediately computes and persists `response_eta` into `driverincidents`, broadcasting the expected arrival time in push notifications and audit logs.
+  - **Dynamic Tracking & Auto-refresh:** The incident detail modal continuously polls active rescue tracking every 10 seconds (`refetchInterval: 10000`), advancing ladder status (`Dispatched` → `En Route` → `Arrived`), computing remaining distance/minutes without React render impurities, and syncing live progress seamlessly.

@@ -24,6 +24,8 @@ export const ETA_NOTIFY_DELTA_MIN = 5;
 
 const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
+export { sortCandidateResponders } from "./resolution";
+
 /**
  * Distance and ETA between the responder and the stranded driver.
  * Pure; the TomTom call lives in evaluateResponder so this stays testable.
@@ -83,6 +85,7 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
     const { rows } = await query(
       `SELECT i.incident_id, i.status, i.response_status, i.response_eta,
               i.responder_driver_id, i.responder_assigned_at, i.driver_id,
+              i.latitude AS incident_latitude, i.longitude AS incident_longitude,
               rd.current_latitude AS responder_latitude,
               rd.current_longitude AS responder_longitude,
               rd.last_location_update AS responder_location_at,
@@ -117,8 +120,10 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
       : null;
     // The responder drives to where the driver actually is (live), falling
     // back to the report-time coordinates if the driver's phone went quiet.
-    const driverPos = pre.driver_latitude != null && pre.driver_longitude != null
-      ? { latitude: Number(pre.driver_latitude), longitude: Number(pre.driver_longitude) }
+    const targetLat = pre.driver_latitude ?? pre.incident_latitude;
+    const targetLng = pre.driver_longitude ?? pre.incident_longitude;
+    const driverPos = targetLat != null && targetLng != null
+      ? { latitude: Number(targetLat), longitude: Number(targetLng) }
       : null;
     if (!responderPos) return { changed: false };
 
@@ -146,6 +151,7 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
       const cur = await tx.query(
         `SELECT status, response_status, response_eta, responder_driver_id,
                 responder_assigned_at,
+                i.latitude AS incident_latitude, i.longitude AS incident_longitude,
                 rd.current_latitude AS responder_latitude,
                 rd.current_longitude AS responder_longitude,
                 rd.last_location_update AS responder_location_at,
@@ -165,8 +171,10 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
       const lockedResponderPos = row.responder_latitude != null
         ? { latitude: Number(row.responder_latitude), longitude: Number(row.responder_longitude) }
         : null;
-      const lockedDriverPos = row.driver_latitude != null
-        ? { latitude: Number(row.driver_latitude), longitude: Number(row.driver_longitude) }
+      const lockedTargetLat = row.driver_latitude ?? row.incident_latitude;
+      const lockedTargetLng = row.driver_longitude ?? row.incident_longitude;
+      const lockedDriverPos = lockedTargetLat != null && lockedTargetLng != null
+        ? { latitude: Number(lockedTargetLat), longitude: Number(lockedTargetLng) }
         : null;
       const lockedAt = row.responder_location_at ? new Date(row.responder_location_at).getTime() : null;
       if (!lockedResponderPos || !lockedDriverPos || lockedAt == null) return { changed: false };
@@ -189,15 +197,16 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
       const etaDelta = lockedState.etaMinutes != null
         ? etaDeltaMinutes(row.response_eta, lockedState.etaMinutes)
         : null;
-      // Write when the ladder advances OR the ETA moved enough to re-notify.
-      const etaWorthUpdating =
-        lockedState.etaMinutes != null &&
-        (statusChanged || (etaDelta != null && etaDelta >= ETA_NOTIFY_DELTA_MIN));
-      if (!statusChanged && !etaWorthUpdating) {
+      // Notifications: notify driver when the ladder advances OR the ETA shifted by >= 5 min (anti-spam).
+      const shouldNotify =
+        statusChanged || (etaDelta != null && etaDelta >= ETA_NOTIFY_DELTA_MIN);
+      // Database write: keep response_eta continuously fresh as responder drives.
+      const etaChanged = row.response_eta == null || (etaDelta != null && etaDelta >= 1);
+      if (!statusChanged && !etaChanged) {
         return { changed: false, responseStatus: row.response_status, etaMinutes: lockedState.etaMinutes, distanceM: lockedState.distanceM };
       }
 
-      const newEta = etaWorthUpdating
+      const newEta = lockedState.etaMinutes != null
         ? new Date(Date.now() + lockedState.etaMinutes * 60_000)
         : row.response_eta;
       const finalStatus = nextStatus || row.response_status;
@@ -209,7 +218,7 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
                 updated_at = NOW()
           WHERE incident_id = $1 AND deleted_at IS NULL
           RETURNING response_status, response_eta`,
-        [incidentId, finalStatus, etaWorthUpdating ? newEta : null]
+        [incidentId, finalStatus, newEta]
       );
 
       const responderName = `${pre.responder_first_name || ""} ${pre.responder_last_name || ""}`.trim() || "Fleet responder";
@@ -219,15 +228,18 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
       const what = statusChanged
         ? `${finalStatus} — ${responderName}${etaText} (auto — responder GPS)`
         : `ETA updated — ${responderName}${etaText} (auto — responder GPS)`;
-      await tx.query(
-        `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
-         VALUES ($1, $2, $3, $4)`,
-        [incidentId, pre.responder_employee_id ?? null, "RESPONSE", what]
-      );
+      if (shouldNotify) {
+        await tx.query(
+          `INSERT INTO incident_comments (incident_id, user_id, action_type, comment_text)
+           VALUES ($1, $2, $3, $4)`,
+          [incidentId, pre.responder_employee_id ?? null, "RESPONSE", what]
+        );
+      }
 
       return {
         changed: true,
         statusChanged,
+        shouldNotify,
         responseStatus: updated[0].response_status,
         responseEta: updated[0].response_eta,
         previousStatus: row.response_status,
@@ -244,7 +256,7 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
 
     // Notifications after commit, best-effort — a push failure must never
     // roll back a status advance.
-    if (result.reporterEmployeeId) {
+    if (result.reporterEmployeeId && result.shouldNotify) {
       try {
         let title = "Help Update";
         let message;

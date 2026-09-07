@@ -12,6 +12,7 @@ import {
   shouldKeepVehicleGrounded,
 } from "@/lib/incidents/resolution";
 import { evaluateResponder } from "@/lib/incidents/responder-tracking";
+import { haversineKm } from "@/lib/scheduling/travel-buffer";
 
 // Staff resolution endpoints. Resolving is no longer just a row edit: it also
 // restores the vehicle's availability (grounding automation set it to
@@ -132,20 +133,45 @@ export async function GET(req, props) {
 
     // Lazy rescue tracking: whoever opens this incident nudges the responder's
     // GPS ladder forward (the staff dashboard polls this detail view).
-    // Fire-and-forget — the response reflects the pre-evaluation state and the
-    // next poll sees the advance.
+    // Awaits evaluation so the caller immediately gets the freshest status and ETA.
     if (
       rows[0].status === "Open" &&
       rows[0].responder_driver_id &&
       rows[0].response_status !== "Arrived"
     ) {
-      evaluateResponder(Number(id)).catch((e) =>
-        console.warn("responder evaluation failed:", e?.message || e)
+      try {
+        const evalPromise = evaluateResponder(Number(id));
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1500));
+        const evalResult = await Promise.race([evalPromise, timeoutPromise]);
+        if (evalResult?.changed) {
+          if (evalResult.responseStatus) rows[0].response_status = evalResult.responseStatus;
+          if (evalResult.responseEta) rows[0].response_eta = evalResult.responseEta;
+        }
+      } catch (e) {
+        console.warn("responder evaluation failed:", e?.message || e);
+      }
+    }
+
+    let liveDistanceKm = null;
+    let liveEtaMinutes = null;
+    const targetLat = rows[0].driver_latitude ?? rows[0].latitude;
+    const targetLng = rows[0].driver_longitude ?? rows[0].longitude;
+    if (rows[0].responder_latitude != null && targetLat != null) {
+      const km = haversineKm(
+        [Number(rows[0].responder_latitude), Number(rows[0].responder_longitude)],
+        [Number(targetLat), Number(targetLng)]
       );
+      if (km != null) liveDistanceKm = Number(Number(km).toFixed(1));
+    }
+    if (rows[0].response_eta) {
+      const ms = new Date(rows[0].response_eta).getTime() - Date.now();
+      liveEtaMinutes = Math.max(0, Math.round(ms / 60_000));
     }
 
     return ok({
       ...rows[0],
+      live_distance_km: liveDistanceKm,
+      live_eta_minutes: liveEtaMinutes,
       photo_urls: photoUrls,
       affected_dispatches: affectedDispatches,
       linked_maintenance: linkedMaintenance,
