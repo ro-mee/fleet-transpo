@@ -18,6 +18,7 @@ import {
   testAiProviderConnection,
   fetchAiModels,
   updateAiInstructions,
+  resetAiInstructions,
 } from "@/services/ai.service";
 import { apiFetch } from "@/lib/api/client";
 import {
@@ -36,6 +37,7 @@ import {
   EyeOff,
   FolderTree,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { useRequireRole } from "@/lib/auth/role-guard";
@@ -91,6 +93,21 @@ export default function AiSettingsPage() {
       toast.success(`Prompt saved (${res?.file || "instructions"}) — live immediately, no restart needed`);
       queryClient.invalidateQueries({ queryKey: ["ai-instructions"] });
       closePromptEditor();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [resettingPrompt, setResettingPrompt] = useState(null);
+  const resetPromptMutation = useMutation({
+    mutationFn: (target) => resetAiInstructions(target),
+    onSuccess: (res, target) => {
+      toast.success(
+        res?.had_override
+          ? "Reset to bundled default — live immediately"
+          : "Already on the bundled default — nothing to reset"
+      );
+      queryClient.invalidateQueries({ queryKey: ["ai-instructions"] });
+      setResettingPrompt(null);
     },
     onError: (err) => toast.error(err.message),
   });
@@ -451,7 +468,13 @@ export default function AiSettingsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5">v1.0.0 Active</Badge>
+            {instructions?.overridden ? (
+              <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5 text-amber-600">
+                Customized{instructions?.version ? ` v${instructions.version}` : ""}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-xs font-data font-bold rounded-full px-2.5">v1.0.0 Active</Badge>
+            )}
             {instructions?.content ? (
               <Button
                 variant="outline"
@@ -460,6 +483,16 @@ export default function AiSettingsPage() {
                 className="rounded-2xl h-9 px-4 text-xs font-semibold cursor-pointer shrink-0"
               >
                 <Pencil className="w-3.5 h-3.5 mr-1.5" /> Edit
+              </Button>
+            ) : null}
+            {instructions?.overridden ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setResettingPrompt({ target: "main", label: "instructions.md" })}
+                className="rounded-2xl h-9 px-3 text-xs font-semibold cursor-pointer shrink-0 text-foreground-muted"
+              >
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Reset
               </Button>
             ) : null}
           </div>
@@ -524,12 +557,25 @@ export default function AiSettingsPage() {
                         ) : (
                           <Badge variant="outline" className="text-[11px] font-data font-bold rounded-full px-2.5 text-muted-foreground">Missing</Badge>
                         )}
+                        {r.overridden ? (
+                          <Badge variant="outline" className="text-[11px] font-data font-bold rounded-full px-2.5 text-amber-600">Customized{r.version ? ` v${r.version}` : ""}</Badge>
+                        ) : null}
                         <ChevronDown className={cn("w-4 h-4 text-foreground-secondary transition-transform", expandedReport === r.report && "rotate-180")} />
                       </span>
                     </button>
                     {expandedReport === r.report && (
                       <div className="px-4 pb-4">
-                        <div className="flex items-center justify-end mb-2">
+                        <div className="flex items-center justify-end mb-2 gap-2">
+                          {r.overridden ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setResettingPrompt({ target: r.report, label: `reports/${r.report}.md` })}
+                              className="rounded-full h-8 px-3 text-[11px] font-semibold cursor-pointer text-foreground-muted"
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" /> Reset
+                            </Button>
+                          ) : null}
                           <Button
                             variant="outline"
                             size="sm"
@@ -889,6 +935,25 @@ export default function AiSettingsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!resettingPrompt}
+        onOpenChange={(open) => {
+          if (!open) setResettingPrompt(null);
+        }}
+        title="Reset to bundled default?"
+        message={
+          resettingPrompt
+            ? `${resettingPrompt.label} will revert to the repository default. Your customized version stays in the audit trail but stops being served.`
+            : ""
+        }
+        confirmLabel="Reset to Default"
+        loading={resetPromptMutation.isPending}
+        onConfirm={() => {
+          if (!resettingPrompt) return;
+          resetPromptMutation.mutate(resettingPrompt.target);
+        }}
+      />
 
       <ConfirmDialog
         open={!!deletingProvider}

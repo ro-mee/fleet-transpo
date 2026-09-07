@@ -20,6 +20,15 @@ CREATE TABLE ai_insights (
   CONSTRAINT ai_insights_pkey PRIMARY KEY (insight_id)
 );
 
+CREATE TABLE ai_prompt_templates (
+  prompt_key text NOT NULL,
+  content text NOT NULL,
+  updated_by integer,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  version integer DEFAULT 1 NOT NULL,
+  CONSTRAINT ai_prompt_templates_pkey PRIMARY KEY (prompt_key)
+);
+
 CREATE TABLE ai_recommendations (
   recommendation_id integer DEFAULT nextval('ai_recommendations_recommendation_id_seq'::regclass) NOT NULL,
   recommendation_type varchar(100) NOT NULL,

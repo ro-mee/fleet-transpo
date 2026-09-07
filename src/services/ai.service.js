@@ -35,6 +35,10 @@ export async function updateAiInstructions(target, content) {
   return apiFetch("/api/ai/instructions", { method: "PUT", body: { target, content } });
 }
 
+export async function resetAiInstructions(target) {
+  return apiFetch(`/api/ai/instructions?target=${encodeURIComponent(target)}`, { method: "DELETE" });
+}
+
 // AI Recommendations & Insights
 export async function getAiRecommendations(type = "reservation", params = {}) {
   return apiFetch(`/api/ai/recommendations${buildQuery({ type, ...params })}`);
