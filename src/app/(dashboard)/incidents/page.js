@@ -8,7 +8,7 @@ import { getAllIncidents, getIncidentSummary } from "@/services/driver.service";
 import { resolveIncidentCoords } from "@/lib/geo/incident-coords";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
-import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink, X, Clock, Ambulance } from "lucide-react";
+import { AlertTriangle, Wrench, AlertCircle, MapPin, Eye, Map as MapIcon, Maximize, Minimize, Download, UserCheck, RefreshCw, ExternalLink, X, Clock, Ambulance, Car, Truck, Navigation, ShieldAlert, Radio, Edit3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRequireRole } from "@/lib/auth/role-guard";
 import { rolesFor } from "@/lib/auth/permissions";
@@ -27,6 +27,7 @@ import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
 import { incidentTypeLabel } from "@/lib/incidents/resolution";
 import { ImageViewer } from "@/components/ui/image-viewer";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
   loading: () => (
@@ -74,6 +75,8 @@ export default function IncidentsPage() {
   const [acknowledgeNote, setAcknowledgeNote] = useState("");
   const [responseForm, setResponseForm] = useState({ status: "Dispatched", type: "", details: "", eta: "" });
   const [responderDriverId, setResponderDriverId] = useState("");
+  const [dispatchTab, setDispatchTab] = useState("fleet");
+  const [isEditingExternal, setIsEditingExternal] = useState(false);
   const [fullScreenImage, setFullScreenImage] = useState(null);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
 
@@ -643,7 +646,7 @@ export default function IncidentsPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={resolveModal.open} onOpenChange={(open) => { if (!open) { setAcknowledgeNote(""); setResponseForm({ status: "Dispatched", type: "", details: "", eta: "" }); setResolveModal({ open: false, incident: null }); } }}>
+      <Dialog open={resolveModal.open} onOpenChange={(open) => { if (!open) { setAcknowledgeNote(""); setResponseForm({ status: "Dispatched", type: "", details: "", eta: "" }); setResponderDriverId(""); setIsEditingExternal(false); setDispatchTab("fleet"); setResolveModal({ open: false, incident: null }); } }}>
         <DialogContent 
           onInteractOutside={(e) => {
             if (fullScreenImage) e.preventDefault();
@@ -703,165 +706,498 @@ export default function IncidentsPage() {
                 </div>
                 {Array.isArray(detailIncident.assistance_needed) && detailIncident.assistance_needed.length > 0 && <div className="flex flex-wrap gap-1.5"><span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Assistance:</span>{detailIncident.assistance_needed.map((need) => <Badge key={need} variant="warning">{need}</Badge>)}</div>}
 
-                {/* Emergency response — the physical rescue the driver watches live */}
+                {/* Emergency response — operational tracking & dispatch */}
                 {(detailIncident.response_status || (!isResolved && canRespond)) && (
-                  <div className="space-y-2.5 rounded-2xl border border-primary/25 bg-primary/5 p-3">
+                  <div className="space-y-3 rounded-2xl border border-primary/25 bg-primary/5 p-3.5 shadow-2xs">
+                    {/* Header */}
                     <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                        <Ambulance className="h-4 w-4 text-primary" /> Emergency response
+                      <span className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                        <Ambulance className="h-4 w-4 text-primary" /> Emergency Response &amp; Rescue Tracking
                       </span>
-                      {detailIncident.response_status && (
-                        <Badge variant={detailIncident.response_status === "Arrived" ? "success" : "warning"}>{detailIncident.response_status}</Badge>
+                      {detailIncident.response_status ? (
+                        <Badge variant={detailIncident.response_status === "Arrived" ? "success" : "warning"}>
+                          {detailIncident.response_status}
+                        </Badge>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                          Awaiting Dispatch
+                        </span>
                       )}
                     </div>
+
+                    {/* Active Mission Tracking Mode (Help is already dispatched) */}
                     {detailIncident.response_status ? (
-                      <div className="space-y-0.5 text-xs text-foreground-secondary">
-                        <p className="text-foreground"><span className="font-semibold">{detailIncident.response_type}</span>{detailIncident.response_details ? ` · ${detailIncident.response_details}` : ""}</p>
-                        {detailIncident.response_eta && (
-                          <p>ETA {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}</p>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-[11px] text-foreground-muted">Nothing dispatched yet. Log what help is on the way — the driver sees it live on their phone.</p>
-                    )}
-                    {!isResolved && canRespond && (
-                      <div className="rounded-xl border border-border/80 bg-surface p-3 space-y-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-semibold text-foreground">Fleet responder</span>
+                      <div className="space-y-3">
+                        {/* Progress Stepper */}
+                        <div className="rounded-xl border border-border/70 bg-surface p-3">
+                          <div className="flex items-center justify-between text-xs mb-2">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Mission Progress</span>
+                            <span className="text-[11px] font-semibold text-primary">
+                              {detailIncident.response_status === "Arrived"
+                                ? "On scene with driver"
+                                : detailIncident.response_status === "En Route"
+                                  ? "Moving towards driver"
+                                  : "Dispatched & en route soon"}
+                            </span>
+                          </div>
+                          
+                          {/* Visual Ladder */}
+                          <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                            <div className={`p-2 rounded-lg border font-semibold flex flex-col items-center gap-1 ${
+                              ["Dispatched", "En Route", "Arrived"].includes(detailIncident.response_status)
+                                ? "bg-primary/10 border-primary/40 text-primary"
+                                : "bg-muted/40 border-border text-foreground-muted"
+                            }`}>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span className="text-[11px]">Dispatched</span>
+                            </div>
+                            <div className={`p-2 rounded-lg border font-semibold flex flex-col items-center gap-1 ${
+                              ["En Route", "Arrived"].includes(detailIncident.response_status)
+                                ? "bg-primary/10 border-primary/40 text-primary"
+                                : "bg-muted/40 border-border/70 text-foreground-muted"
+                            }`}>
+                              <Navigation className={`h-3.5 w-3.5 ${detailIncident.response_status === "En Route" ? "animate-pulse text-amber-500" : ""}`} />
+                              <span className="text-[11px]">En Route</span>
+                            </div>
+                            <div className={`p-2 rounded-lg border font-semibold flex flex-col items-center gap-1 ${
+                              detailIncident.response_status === "Arrived"
+                                ? "bg-success/15 border-success/40 text-success"
+                                : "bg-muted/40 border-border/70 text-foreground-muted"
+                            }`}>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              <span className="text-[11px]">Arrived</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Rescue Details Card */}
+                        <div className="rounded-xl border border-border/70 bg-surface p-3 space-y-2.5">
                           {detailIncident.responder ? (
-                            <Badge variant="info">{detailIncident.responder.first_name} {detailIncident.responder.last_name}</Badge>
+                            /* Case A: Fleet Responder (GPS-Tracked) */
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="info" className="gap-1 font-semibold">
+                                    <Car className="h-3 w-3" /> Fleet Responder
+                                  </Badge>
+                                  <span className="text-xs font-bold text-foreground">
+                                    {detailIncident.responder.first_name} {detailIncident.responder.last_name}
+                                  </span>
+                                </div>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-600 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                                  <Radio className="h-3 w-3 animate-pulse" /> GPS-Tracked
+                                </span>
+                              </div>
+
+                              <div className="text-xs text-foreground-secondary space-y-1 bg-muted/30 rounded-lg p-2.5 border border-border/50">
+                                <p className="text-[11px] leading-relaxed">
+                                  <span className="font-semibold text-foreground">Auto-Tracking:</span> The responder&rsquo;s phone GPS drives status, distance, and ETA automatically as they drive.
+                                  {detailIncident.responder_location_at && (
+                                    <span className="block text-foreground-muted mt-0.5">
+                                      Last GPS ping: {new Date(detailIncident.responder_location_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                                    </span>
+                                  )}
+                                </p>
+                                {detailIncident.response_eta && (
+                                  <p className="font-semibold text-primary pt-1 border-t border-border/50">
+                                    Dynamic ETA: {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 pt-1">
+                                <Link
+                                  href="/tracking/live-map"
+                                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+                                  title="View rescue mission on live operations map"
+                                >
+                                  <MapIcon className="h-3.5 w-3.5" /> View on Live Operations Map
+                                </Link>
+
+                                {!isResolved && canRespond && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-xs h-7 px-2.5 font-semibold text-foreground-muted hover:text-danger hover:border-danger/30 cursor-pointer"
+                                    disabled={responderMutation.isPending}
+                                    onClick={() =>
+                                      responderMutation.mutate({ id: detailIncident.incident_id, driverId: null })
+                                    }
+                                  >
+                                    {responderMutation.isPending ? "Updating…" : "Unassign Responder"}
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
                           ) : (
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">GPS-tracked</span>
+                            /* Case B: External Rescue Service (Ambulance, Towing, Police) */
+                            <div className="space-y-2.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="warning" className="gap-1 font-semibold">
+                                    <Truck className="h-3 w-3" /> External Response
+                                  </Badge>
+                                  <span className="text-xs font-bold text-foreground">
+                                    {detailIncident.response_type || "Emergency Service"}
+                                  </span>
+                                </div>
+                                {detailIncident.response_eta && (
+                                  <span className="text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md border border-primary/25">
+                                    ETA: {new Date(detailIncident.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                )}
+                              </div>
+
+                              {detailIncident.response_details && (
+                                <p className="text-xs text-foreground-secondary bg-muted/30 rounded-lg p-2 border border-border/50">
+                                  <span className="font-semibold text-foreground">Contact &amp; Details: </span>
+                                  {detailIncident.response_details}
+                                </p>
+                              )}
+
+                              {/* Quick-Advance Status Actions for External Help */}
+                              {!isResolved && canRespond && (
+                                <div className="pt-2 border-t border-border/60 space-y-2">
+                                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                      Quick Status Advance:
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsEditingExternal((prev) => !prev)}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                                    >
+                                      <Edit3 className="h-3 w-3" />
+                                      {isEditingExternal ? "Hide Edit Form" : "Update ETA / Details"}
+                                    </button>
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    {detailIncident.response_status === "Dispatched" && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={responseMutation.isPending}
+                                        onClick={() =>
+                                          responseMutation.mutate({
+                                            id: detailIncident.incident_id,
+                                            payload: { response_status: "En Route" },
+                                          })
+                                        }
+                                        className="gap-1.5 text-xs font-semibold h-8 px-3 border-amber-500/30 text-amber-700 hover:bg-amber-500/10 cursor-pointer"
+                                      >
+                                        <Navigation className="h-3 w-3" /> Advance to &ldquo;En Route&rdquo;
+                                      </Button>
+                                    )}
+
+                                    {detailIncident.response_status !== "Arrived" && (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        disabled={responseMutation.isPending}
+                                        onClick={() =>
+                                          responseMutation.mutate({
+                                            id: detailIncident.incident_id,
+                                            payload: { response_status: "Arrived" },
+                                          })
+                                        }
+                                        className="gap-1.5 text-xs font-semibold h-8 px-3 border-emerald-500/30 text-emerald-700 hover:bg-emerald-500/10 cursor-pointer"
+                                      >
+                                        <CheckCircle2 className="h-3 w-3" /> Mark as &ldquo;Arrived On Scene&rdquo;
+                                      </Button>
+                                    )}
+
+                                    {detailIncident.response_status === "Arrived" && (
+                                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                                        <CheckCircle2 className="h-3.5 w-3.5" /> Rescue is on scene with driver
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Collapsible Edit Drawer for External ETA / Details */}
+                                  {isEditingExternal && (
+                                    <div className="grid gap-2 sm:grid-cols-2 p-2.5 rounded-xl bg-muted/40 border border-border/80 mt-2">
+                                      <label className="space-y-1">
+                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Update ETA (minutes)</span>
+                                        <input
+                                          type="number"
+                                          min="1"
+                                          max="1440"
+                                          value={responseForm.eta}
+                                          onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
+                                          placeholder="e.g., 15"
+                                          className="w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                        />
+                                      </label>
+                                      <label className="space-y-1">
+                                        <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Update Details / Contact</span>
+                                        <input
+                                          value={responseForm.details}
+                                          onChange={(e) => setResponseForm((f) => ({ ...f, details: e.target.value }))}
+                                          maxLength={200}
+                                          placeholder={detailIncident.response_details || "e.g., Plate #, driver contact..."}
+                                          className="w-full rounded-xl border border-border/80 bg-surface px-3 py-1.5 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                        />
+                                      </label>
+                                      <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="text-xs h-7 px-2.5 cursor-pointer"
+                                          onClick={() => setIsEditingExternal(false)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          size="sm"
+                                          className="text-xs h-7 px-3 font-semibold cursor-pointer"
+                                          disabled={responseMutation.isPending || (!responseForm.eta && !responseForm.details.trim())}
+                                          onClick={() => {
+                                            responseMutation.mutate(
+                                              {
+                                                id: detailIncident.incident_id,
+                                                payload: {
+                                                  response_status: detailIncident.response_status,
+                                                  response_details: responseForm.details.trim() || undefined,
+                                                  eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
+                                                },
+                                              },
+                                              {
+                                                onSuccess: () => {
+                                                  setIsEditingExternal(false);
+                                                  setResponseForm((f) => ({ ...f, eta: "", details: "" }));
+                                                },
+                                              }
+                                            );
+                                          }}
+                                        >
+                                          {responseMutation.isPending ? "Saving…" : "Save & Notify Driver"}
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
-                        {detailIncident.responder ? (
-                          <div className="space-y-2">
-                            <p className="text-[11px] text-foreground-secondary">
-                              GPS-tracked — status and ETA update automatically as they drive
-                              {detailIncident.responder_location_at ? ` (last position ${new Date(detailIncident.responder_location_at).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })})` : ""}.
-                            </p>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="gap-1.5 text-xs font-semibold"
-                              disabled={responderMutation.isPending}
-                              onClick={() =>
-                                responderMutation.mutate({ id: detailIncident.incident_id, driverId: null })
-                              }
+                      </div>
+                    ) : (
+                      /* Phase 1: Dispatch Selection Mode (Nothing dispatched yet) */
+                      !isResolved && canRespond && (
+                        <div className="rounded-xl border border-border/80 bg-surface p-3 space-y-3">
+                          <p className="text-[11px] text-foreground-muted">
+                            Nothing dispatched yet. Select whether to assign an internal fleet responder or call an external emergency service.
+                          </p>
+
+                          {/* Segmented Mode Selector */}
+                          <div className="grid grid-cols-2 gap-1 rounded-xl bg-muted/60 p-1 border border-border/50 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setDispatchTab("fleet")}
+                              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold transition-all cursor-pointer ${
+                                dispatchTab === "fleet"
+                                  ? "bg-surface text-primary shadow-xs"
+                                  : "text-foreground-muted hover:text-foreground"
+                              }`}
                             >
-                              {responderMutation.isPending ? "Updating…" : "Unassign — back to manual response"}
-                            </Button>
+                              <Car className="h-3.5 w-3.5" />
+                              <span>Fleet Responder (GPS)</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDispatchTab("external")}
+                              className={`flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg font-bold transition-all cursor-pointer ${
+                                dispatchTab === "external"
+                                  ? "bg-surface text-primary shadow-xs"
+                                  : "text-foreground-muted hover:text-foreground"
+                              }`}
+                            >
+                              <Truck className="h-3.5 w-3.5" />
+                              <span>External Rescue</span>
+                            </button>
                           </div>
-                        ) : (
-                          <div className="space-y-2">
-                            <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
-                              <label className="space-y-1">
-                                <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Send a fleet driver</span>
-                                <select
-                                  value={responderDriverId}
-                                  onChange={(e) => setResponderDriverId(e.target.value)}
-                                  className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+
+                          {/* Option A: Assign Fleet Driver */}
+                          {dispatchTab === "fleet" && (
+                            <div className="space-y-2 pt-1">
+                              <div className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-end">
+                                <div className="space-y-1">
+                                  <label className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                    Select an Available Fleet Driver
+                                  </label>
+                                  <Select
+                                    value={responderDriverId || undefined}
+                                    onValueChange={(val) => setResponderDriverId(val)}
+                                  >
+                                    <SelectTrigger className="w-full h-9 rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs font-semibold text-foreground cursor-pointer shadow-2xs">
+                                      <SelectValue placeholder={respondersQuery.isLoading ? "Loading nearby drivers…" : "Choose an available driver…"} />
+                                    </SelectTrigger>
+                                    <SelectContent className="z-[9999] max-h-64 overflow-y-auto">
+                                      {respondersQuery.isLoading ? (
+                                        <div className="p-3 text-center text-xs text-foreground-muted">
+                                          Loading nearby drivers…
+                                        </div>
+                                      ) : !respondersQuery.data || respondersQuery.data.length === 0 ? (
+                                        <div className="p-3 text-center text-xs text-foreground-muted">
+                                          No available fleet drivers found nearby
+                                        </div>
+                                      ) : (
+                                        respondersQuery.data.map((d) => (
+                                          <SelectItem key={d.driver_id} value={String(d.driver_id)} className="cursor-pointer text-xs py-2">
+                                            <div className="flex items-center justify-between gap-3 w-full py-0.5">
+                                              <span className="font-semibold text-foreground">
+                                                {d.name} {d.driver_id && <span className="text-[10px] text-foreground-muted font-mono font-normal">#{d.driver_id}</span>}
+                                              </span>
+                                              <div className="flex items-center gap-1.5 shrink-0">
+                                                {d.distance_km != null && (
+                                                  <span className="text-[10px] font-bold text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                                                    {d.distance_km} km away
+                                                  </span>
+                                                )}
+                                                {d.position_fresh ? (
+                                                  <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                                                    Live GPS
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-[10px] text-foreground-muted bg-muted/60 px-1.5 py-0.5 rounded">
+                                                    Stale fix
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </SelectItem>
+                                        ))
+                                      )}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <Button
+                                  size="sm"
+                                  className="text-xs font-semibold h-9 cursor-pointer"
+                                  disabled={!responderDriverId || responderMutation.isPending}
+                                  onClick={() =>
+                                    responderMutation.mutate({
+                                      id: detailIncident.incident_id,
+                                      driverId: Number(responderDriverId),
+                                    })
+                                  }
                                 >
-                                  <option value="">
-                                    {respondersQuery.isLoading ? "Loading drivers…" : "Choose a driver…"}
-                                  </option>
-                                  {(respondersQuery.data || []).map((d) => (
-                                    <option key={d.driver_id} value={d.driver_id}>
-                                      {d.name}
-                                      {d.distance_km != null ? ` — ${d.distance_km} km away` : ""}
-                                      {d.position_fresh ? "" : " (position not fresh)"}
-                                    </option>
-                                  ))}
-                                </select>
-                              </label>
-                              <Button
-                                size="sm"
-                                className="text-xs font-semibold"
-                                disabled={!responderDriverId || responderMutation.isPending}
-                                onClick={() =>
-                                  responderMutation.mutate({
-                                    id: detailIncident.incident_id,
-                                    driverId: Number(responderDriverId),
-                                  })
-                                }
-                              >
-                                {responderMutation.isPending ? "Assigning…" : "Assign responder"}
-                              </Button>
+                                  {responderMutation.isPending ? "Assigning…" : "Dispatch Fleet Driver"}
+                                </Button>
+                              </div>
+                              <p className="text-[10px] text-foreground-muted">
+                                Once assigned, the responder&rsquo;s phone GPS automatically tracks progress (Dispatched ➔ En Route ➔ Arrived) and calculates ETA. No manual typing needed.
+                              </p>
                             </div>
-                            <p className="text-[10px] text-foreground-muted">
-                              A fleet responder&rsquo;s phone GPS drives En Route / Arrived / ETA automatically. For external help (ambulance, tow company), use the manual response below.
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {!isResolved && canRespond && (
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <label className="space-y-1">
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Status</span>
-                          <select
-                            value={responseForm.status}
-                            onChange={(e) => setResponseForm((f) => ({ ...f, status: e.target.value }))}
-                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
-                          >
-                            <option value="Dispatched">Dispatched</option>
-                            <option value="En Route">En Route</option>
-                            <option value="Arrived">Arrived</option>
-                          </select>
-                        </label>
-                        <label className="space-y-1">
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">What is coming {!detailIncident.response_type && <span className="text-danger">*</span>}</span>
-                          <input
-                            value={responseForm.type}
-                            onChange={(e) => setResponseForm((f) => ({ ...f, type: e.target.value }))}
-                            maxLength={50}
-                            placeholder={detailIncident.response_type || "e.g., Ambulance"}
-                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">ETA (minutes)</span>
-                          <input
-                            type="number"
-                            min="1"
-                            max="1440"
-                            value={responseForm.eta}
-                            onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
-                            placeholder="e.g., 20"
-                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
-                          />
-                        </label>
-                        <label className="space-y-1">
-                          <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">Responder details</span>
-                          <input
-                            value={responseForm.details}
-                            onChange={(e) => setResponseForm((f) => ({ ...f, details: e.target.value }))}
-                            maxLength={200}
-                            placeholder="e.g., AC Medical ambulance · 0917…"
-                            className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
-                          />
-                        </label>
-                        <div className="sm:col-span-2">
-                          <Button
-                            size="sm"
-                            className="gap-1.5 text-xs font-semibold"
-                            disabled={responseMutation.isPending || (!detailIncident.response_type && !responseForm.type.trim())}
-                            onClick={() =>
-                              responseMutation.mutate({
-                                id: detailIncident.incident_id,
-                                payload: {
-                                  response_status: responseForm.status,
-                                  response_type: responseForm.type.trim() || undefined,
-                                  response_details: responseForm.details.trim() || undefined,
-                                  eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
-                                },
-                              })
-                            }
-                          >
-                            {responseMutation.isPending ? "Updating…" : "Update response & notify driver"}
-                          </Button>
+                          )}
+
+                          {/* Option B: External Emergency Help */}
+                          {dispatchTab === "external" && (
+                            <div className="space-y-3 pt-1">
+                              {/* Quick Assistance Chips */}
+                              <div className="space-y-1.5">
+                                <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                  Service Type Quick Select
+                                </span>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {[
+                                    { label: "Ambulance", icon: Ambulance, isSuggested: (detailIncident.assistance_needed || []).includes("Medical Assistance") },
+                                    { label: "Tow Truck", icon: Truck, isSuggested: (detailIncident.assistance_needed || []).includes("Tow Truck") },
+                                    { label: "Police / MMDA", icon: ShieldAlert, isSuggested: (detailIncident.assistance_needed || []).includes("Police") },
+                                    { label: "Mobile Mechanic", icon: Wrench, isSuggested: (detailIncident.assistance_needed || []).includes("Mechanic") },
+                                    { label: "Alternative Vehicle", icon: Car, isSuggested: (detailIncident.assistance_needed || []).includes("Alternative Vehicle") },
+                                  ].map((chip) => (
+                                    <button
+                                      key={chip.label}
+                                      type="button"
+                                      onClick={() => setResponseForm((f) => ({ ...f, type: chip.label }))}
+                                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                        responseForm.type === chip.label
+                                          ? "bg-foreground text-surface border-foreground shadow-xs"
+                                          : chip.isSuggested
+                                            ? "bg-warning/10 text-warning-800 dark:text-warning-300 border-warning/40 hover:bg-warning/20"
+                                            : "bg-surface text-foreground-secondary border-border hover:bg-muted hover:text-foreground"
+                                      }`}
+                                    >
+                                      <chip.icon className="h-3.5 w-3.5 shrink-0" />
+                                      <span>{chip.label}</span>
+                                      {chip.isSuggested && responseForm.type !== chip.label && (
+                                        <span className="text-[9px] font-bold text-warning-700 dark:text-warning-400 uppercase tracking-wide">(Requested)</span>
+                                      )}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                <label className="space-y-1">
+                                  <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                    What is coming <span className="text-danger">*</span>
+                                  </span>
+                                  <input
+                                    value={responseForm.type}
+                                    onChange={(e) => setResponseForm((f) => ({ ...f, type: e.target.value }))}
+                                    maxLength={50}
+                                    placeholder="e.g., Red Cross Ambulance"
+                                    className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                  />
+                                </label>
+
+                                <label className="space-y-1">
+                                  <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                    Estimated ETA (Minutes)
+                                  </span>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="1440"
+                                    value={responseForm.eta}
+                                    onChange={(e) => setResponseForm((f) => ({ ...f, eta: e.target.value }))}
+                                    placeholder="e.g., 20"
+                                    className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                  />
+                                </label>
+
+                                <label className="space-y-1 sm:col-span-2">
+                                  <span className="block text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
+                                    Provider Contact &amp; Reference (Pushed to Driver)
+                                  </span>
+                                  <input
+                                    value={responseForm.details}
+                                    onChange={(e) => setResponseForm((f) => ({ ...f, details: e.target.value }))}
+                                    maxLength={200}
+                                    placeholder="e.g., AC Medical Ambulance · Hotline 0917-XXX-XXXX · Unit #12"
+                                    className="w-full rounded-xl border border-border/80 bg-surface px-3 py-2 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary shadow-2xs"
+                                  />
+                                </label>
+
+                                <div className="sm:col-span-2 pt-1">
+                                  <Button
+                                    size="sm"
+                                    className="w-full gap-1.5 text-xs font-semibold h-9 cursor-pointer"
+                                    disabled={responseMutation.isPending || !responseForm.type.trim()}
+                                    onClick={() =>
+                                      responseMutation.mutate({
+                                        id: detailIncident.incident_id,
+                                        payload: {
+                                          response_status: "Dispatched",
+                                          response_type: responseForm.type.trim(),
+                                          response_details: responseForm.details.trim() || undefined,
+                                          eta_minutes: responseForm.eta ? Number(responseForm.eta) : undefined,
+                                        },
+                                      })
+                                    }
+                                  >
+                                    <Truck className="h-3.5 w-3.5" />
+                                    {responseMutation.isPending ? "Dispatching…" : "Dispatch External Help & Notify Driver"}
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
+                      )
                     )}
                   </div>
                 )}
