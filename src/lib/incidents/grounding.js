@@ -2,15 +2,17 @@ import { query, getAdminClient } from "@/lib/db";
 import { setDispatchStatus } from "@/services/transition.service";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
-import { rolesFor } from "@/lib/auth/permissions";
+import { notificationRolesFor, SILENT_ROLES, OBSERVER_ROLES } from "@/lib/notifications/recipients";
 
 async function staffRecipients() {
+  // Action-required grounding alerts: observers (management) and the silent
+  // System Console are never recipients — only roles that can act.
   const { rows } = await query(
     `SELECT e.employee_id
        FROM employees e
        JOIN roles r ON r.role_id = e.role_id
-      WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-    [rolesFor("incidents", "read")]
+      WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL AND e.role_id IS NOT NULL`,
+    [notificationRolesFor("incidents", "read", { exclude: [...SILENT_ROLES, ...OBSERVER_ROLES] })]
   );
   return rows || [];
 }
@@ -121,12 +123,14 @@ export async function groundIncident({ incident, session, req = null }) {
         );
       });
 
-      // Notify guest services and dispatch
+      // Notify the stranding-response chain: the dispatcher must arrange
+      // replacement transport immediately. ('guest_services'/'dispatch' were
+      // legacy names matching no live role — only system_admin was ever paged.)
       const { rows: gsRecipients } = await query(
         `SELECT e.employee_id
            FROM employees e
            JOIN roles r ON r.role_id = e.role_id
-          WHERE r.role_name IN ('guest_services', 'system_admin', 'dispatch') AND e.deleted_at IS NULL`
+          WHERE r.role_name IN ('dispatcher', 'fleet_manager', 'admin') AND e.deleted_at IS NULL AND e.role_id IS NOT NULL`
       );
       
       const title = "🚨 GUEST STRANDED: Active Trip Aborted";

@@ -28,6 +28,18 @@ last_verified: 2026-08-11
 | [[ADR-010 Foreground Only GPS]] | No background location | ✅ Stated in `tracking.js` — 🔄 **Superseded 2026-08-19** by [[ADR-011 Background GPS Tracking]] |
 | [[ADR-011 Background GPS Tracking]] | Foreground + headless background task (AppState-driven) | ✅ Decision recorded 2026-08-19 |
 
+## 2026-09-07 — Notification routing separated from authorization
+
+**Decision:** `rolesFor()` answers "who MAY" (and keeps its system_admin bypass);
+`notificationRolesFor()` in `src/lib/notifications/recipients.js` answers "who
+NEEDS to know" (system_admin silent on routine ops, management informational
+only). Per-user inbox unchanged; no shared role inboxes. Consequences locked
+the same day: stranded-guest pages go to dispatcher/fleet_manager/admin (legacy
+role-name fix); first arrival at Assigned emits "Transport Assigned" (replaces
+the dead `reservation_approved` key, migration 107 moved 8 live preference
+rows); suspended/reinstated drivers are told alongside staff. Evidence:
+`Capstone/02 - Features/Notifications.md` (audit matrix + implementation).
+
 ## What the pattern shows — INFERRED
 
 **Six of eleven decisions are well-evidenced; the rest are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.

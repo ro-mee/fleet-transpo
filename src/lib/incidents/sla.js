@@ -32,8 +32,8 @@ export async function escalateOverdueIncidents() {
     `SELECT e.employee_id
        FROM employees e
        JOIN roles r ON r.role_id = e.role_id
-      WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-    [["system_admin", "fleet_manager", "admin"]]
+      WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL AND e.role_id IS NOT NULL`,
+    [["fleet_manager", "admin"]]
   );
   if (!recipients.length) return { escalated: 0 };
 

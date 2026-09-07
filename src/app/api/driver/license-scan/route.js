@@ -7,7 +7,7 @@ import { logAiRequest } from "@/lib/ai/logger";
 import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
 import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { rolesFor } from "@/lib/auth/permissions";
+import { notificationRolesFor } from "@/lib/notifications/recipients";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -16,7 +16,7 @@ import { v4 as uuidv4 } from "uuid";
  * Single-call self-service license update: Gemini reads the photo, verifies it
  * is genuinely an LTO license card, and on pass the scan is SAVED to the
  * driver's own record along with a future-dated expiry read off the front of
- * the card. Ops staff (system_admin/admin/fleet_manager) get an in-app
+ * the card. Ops staff (admin/fleet_manager) get an in-app
  * notification so self-updates never land silently.
  *
  * Fail-closed: anything that fails verification (not a card, unreadable,
@@ -174,8 +174,9 @@ async function notifyStaffOfLicenseUpdate(driverId, side, expiryDate) {
   const staff = await query(
     `SELECT employee_id FROM employees
      WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
-       AND deleted_at IS NULL`,
-    [rolesFor("drivers", "update")]
+       AND deleted_at IS NULL
+       AND role_id IS NOT NULL`,
+    [notificationRolesFor("drivers", "update")]
   );
   if (!staff.rows.length) return;
 

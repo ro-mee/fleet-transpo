@@ -134,19 +134,15 @@ export async function recordViolation({
   return rows[0]?.violation_id ?? null;
 }
 
-/** Notify the given role ids (by employee) of a coding event. */
-export async function notifyCoding({ title, message, roleIds = [1, 2, 3, 9] }) {
+/** Notify the given roles (by employee) of a coding event. */
+export async function notifyCoding({ title, message, roleNames = ["fleet_manager", "dispatcher", "admin"] }) {
   try {
-    const supabase = getAdminClient();
-    const { data: employees } = await supabase
-      .from("employees")
-      .select("employee_id")
-      .in("role_id", roleIds)
-      .is("deleted_at", null);
-    const empIds = (employees || []).map((emp) => emp.employee_id);
+    const { employeeIdsForRoles } = await import("@/lib/notifications/recipients");
+    const empIds = await employeeIdsForRoles(roleNames);
     if (!empIds.length) return;
 
     // Deduplicate: Don't create duplicate coding alert if an unread or recent notification with the same message was sent in last 15 mins
+    const supabase = getAdminClient();
     const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000).toISOString();
     const { data: recent } = await supabase
       .from("notifications")
@@ -209,7 +205,7 @@ export async function enforceCoding({
 
   // approve → defer the dispatch until an authorized role approves.
   await recordViolation({ vehicleId, dispatchId, scheduledDeparture, weekday, plateDigit: digit, action: "pending_approval", reason: message, createdBy });
-  await notifyCoding({ title: "Dispatch requires coding approval", message, roleIds: [1, 2, 9] });
+  await notifyCoding({ title: "Dispatch requires coding approval", message, roleNames: ["fleet_manager", "admin"] });
   return {
     ok: false,
     status: 409,

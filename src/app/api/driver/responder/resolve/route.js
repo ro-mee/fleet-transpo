@@ -6,7 +6,7 @@ import { syncVehicleStatus } from "@/services/status.service";
 import { resolveFromField } from "@/lib/incidents/field-resolution";
 import { fieldResolutionGuardMessage } from "@/lib/incidents/resolution";
 
-const OVERSEER_ROLES = ["system_admin", "fleet_manager", "admin"];
+const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
 /**
  * POST /api/driver/responder/resolve

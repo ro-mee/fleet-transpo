@@ -5,7 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
-import { rolesFor } from "@/lib/auth/permissions";
+import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -276,23 +276,36 @@ export async function PUT(req, { params }) {
           reinstated = true;
           const name = after.rows[0]?.name || `Driver #${id}`;
 
-          // Tell the ops roles the driver is back. Best-effort.
+          // Tell the ops roles the driver is back — plus the driver
+          // themselves (previously staff-only; the owner never heard).
+          // Best-effort.
           const { rows: staff } = await query(
             `SELECT employee_id FROM employees
               WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
-                AND deleted_at IS NULL`,
-            [rolesFor("drivers", "update")]
+                AND deleted_at IS NULL
+                AND role_id IS NOT NULL`,
+            [notificationRolesFor("drivers", "update")]
           );
-          if (staff.length) {
+          const { rows: owner } = await query(
+            `SELECT e.employee_id FROM drivers d
+               JOIN employees e ON e.employee_id = d.employee_id
+              WHERE d.driver_id = $1 AND d.deleted_at IS NULL AND e.deleted_at IS NULL`,
+            [id]
+          );
+          const recipients = dedupeEmployeeIds([
+            ...staff.map((s) => s.employee_id),
+            ...owner.map((o) => o.employee_id),
+          ]);
+          if (recipients.length) {
             const { sendPush } = await import("@/services/push.service");
             await query(
               `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
                SELECT u.employee_id, $2, $3, 'Info', 'driver', $4 FROM unnest($1::int[]) AS u(employee_id)`,
-              [staff.map((s) => s.employee_id), "Driver Reinstated",
+              [recipients, "Driver Reinstated",
                `${name}'s license was renewed — compliance suspension lifted and driver is Available again.`, Number(id) || null]
             ).catch(() => {});
             sendPush({
-              employeeIds: staff.map((s) => s.employee_id),
+              employeeIds: recipients,
               title: "Driver Reinstated",
               body: `${name}'s license renewal lifted the suspension — driver is Available.`,
               data: { reference_type: "driver", reference_id: Number(id) || null },

@@ -47,16 +47,17 @@ export async function POST(req) {
       title: { required: true, maxLength: 200, label: "Title" },
       message: { required: true, maxLength: 1000, label: "Message" },
       employee_id: { type: "id", label: "Employee" },
-      role_id: { type: "id", label: "Role" },
-      entity_type: { maxLength: 50, label: "Entity type" },
-      entity_id: { type: "id", label: "Entity" },
-      link: { maxLength: 500, label: "Link" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
     }
 
-    const allowedKeys = new Set(["type", "title", "message", "employee_id", "role_id", "entity_type", "entity_id", "link", "is_read", "priority"]);
+    // Creation contract is exactly the storable columns. Stale keys
+    // (role_id, entity_type, entity_id, link, priority) have no backing
+    // columns and are dropped rather than failing the INSERT. is_read DOES
+    // exist in storage but is server/user-state controlled (mark-read
+    // routes) and must never be client-set at creation.
+    const allowedKeys = new Set(["type", "title", "message", "employee_id", "channel", "reference_type", "reference_id"]);
     for (const key of Object.keys(body)) {
       if (!allowedKeys.has(key)) delete body[key];
     }
@@ -71,17 +72,12 @@ export async function POST(req) {
     try {
       const delivery = notif && deliveryFor(notif);
       if (delivery) {
+        // Broadcast goes through per-employee fan-out producers
+        // (notificationRolesFor → resolveNotificationRecipients), never a
+        // role_id expansion — there is no role column to persist it on.
         let targets = [];
         if (notif.employee_id) {
           targets.push(notif.employee_id);
-        } else if (body.role_id) {
-          const { rows: emps } = await query(
-            `SELECT e.employee_id
-               FROM employees e
-              WHERE e.role_id = $1 AND e.deleted_at IS NULL`,
-            [Number(body.role_id)]
-          );
-          targets = emps.map((x) => x.employee_id);
         }
         if (targets.length) {
           await sendPush({

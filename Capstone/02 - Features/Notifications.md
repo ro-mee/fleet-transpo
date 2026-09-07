@@ -5,7 +5,7 @@ tags: [feature, notifications, triggers]
 source:
   - supabase/migrations (notification triggers)
   - src/app/api/notifications
-last_verified: 2026-08-11
+last_verified: 2026-09-07
 related: ["[[Dispatch]]", "[[Trips]]"]
 ---
 
@@ -124,6 +124,110 @@ Dedup is by `notification_id`, falling back to the content key only when an id i
 ## Database tables used
 
 `notifications` (164) · `notification_preferences` (**0**)
+
+## Producer audit + event→recipient matrix — 2026-09-07
+
+Decision: the inbox stays **per-user** (own `employee_id` rows, per-user
+read/unread — no shared role inboxes). Role-awareness lives in the **producers**:
+each event fans out one row per `employee_id`, and this matrix defines who that
+set must be. Verified against code + live DB (508 rows; 1 admin, 2 dispatcher,
+8 driver, 3 fleet_manager, 1 management, 1 system_admin employees).
+
+Role-id map (`src/lib/constants.js:13-20`): 1 system_admin · 2 fleet_manager ·
+3 dispatcher · 4 driver · 7 management · 9 admin.
+
+Key for `rolesFor(...)` (resolved from `src/lib/auth/permissions.js` MATRIX):
+- `incidents.read` → system_admin, admin, fleet_manager, dispatcher, **management**
+- `incidents.route_to_maintenance` → system_admin, admin, fleet_manager
+- `drivers.update` → system_admin, admin, fleet_manager
+- `trips.update_all` → system_admin, admin, fleet_manager, dispatcher
+- Overseer triple (hard-coded in incident paths) → system_admin, fleet_manager, admin
+
+### The matrix
+
+| Event | Producer | Current recipients | Verdict + proposal |
+|---|---|---|---|
+| Incident reported | `driver/incidents/route.js:435-448` + self-ack `:338-349` | overseers triple + reporting driver | **OK** — authority + owner. |
+| Vehicle Taken Out of Service (grounding) | `grounding.js:69-87` via `rolesFor(incidents,read)` | sysadmin, admin, fleet_mgr, dispatcher, **management** | **OVER-BROAD** — live proof: the single management user holds **22** of these Alerts. Management is read-only (`acknowledge/resolve: false`) yet the copy demands action ("Reassign immediately!"). Proposal: drop management (precedent: SLA path already excludes them). |
+| GUEST STRANDED trip abort | `grounding.js:124-153` (`IN ('guest_services','system_admin','dispatch')`) | **system_admin only** | **BUG (role-name mismatch)** — `guest_services` and `dispatch` do not exist in `roles` (verified live: only the 6 known roles). The dispatcher — the one role that must arrange replacement transport — is never paged. Proposal: `('dispatcher','fleet_manager','admin','system_admin')`. |
+| Scheduled Dispatch Interrupted | `grounding.js:163-184` via same `staffRecipients()` | incl. management | **OVER-BROAD** — same fix as grounding alert. |
+| SLA breach escalation | `sla.js:31-57` overseers triple | sysadmin, fleet_mgr, admin | **OK** — correctly excludes dispatcher/management (no action for them). |
+| Responder assigned / Help updates / Arrived | `incidents/[id]/responder/route.js:188-224`, `responder-tracking.js:247-306` | responder + reporter; overseers on Arrived | **OK** — both field parties + authority handover. |
+| Acknowledge / response / resolve / reopen | `incidents/[id]/{acknowledge,response}/route.js`, `incidents/[id]/route.js:295-315`, `.../reopen`, `.../resolve`, `.../arrived` routes | reporter (+ overseers where applicable) | **OK** — owner loop-closure throughout. |
+| Maintenance WO created | `maintenance.js:104-143` via `route_to_maintenance` | sysadmin, admin, fleet_mgr | **OK** — maintenance queue owners. |
+| Repair completed | `vehicle-maintenance/[id]/route.js:182-209` | reporting driver | **OK**. |
+| Dispatch Assigned | trigger `059` | assigned driver | **OK**. |
+| Trip Completed | trigger `003:94-116` | dispatch creator | **OK** — but see orphans below. |
+| Reservation Approved | trigger `003:6-41` on `vehiclereservations` | **nobody (0 rows ever)** | **DEAD + GAP** — live path uses `transportation_requests`, so approvals notify no one. Proposal: emit from `setReservationStatus` (requester + dispatcher/fleet_mgr/admin). |
+| Maintenance Due Soon | trigger `003:68-91` | fleet_mgr, admin | **INCONSISTENT** — omits system_admin, unlike the JS overseer triple. Proposal: add system_admin. |
+| Document Expiring Soon | trigger `003:118-140` | fleet_mgr, admin | **INCONSISTENT** — same fix. (Only 2 rows ever — expiry scan rarely runs; separate concern.) |
+| Leave requested | trigger `053/055` | fleet_mgr, admin | **OK** — dispatcher was added in 054 then deliberately removed in 055 "per business rules". Precedent for narrow audiences. |
+| Leave reviewed | trigger `053:73-98` | owning driver | **OK**. |
+| Failed pre-trip inspection | `mobile/driver/inspections/route.js:123-145` via `trips.update_all` | sysadmin, admin, fleet_mgr, dispatcher | **OK** — dispatcher assigns trips and must know. |
+| Driver Auto-Suspended | `status.service.js:283-304` via `drivers.update` | staff only — **driver never told** | **GAP (owner not notified)** — 0 driver-role rows for any compliance title, ever. Proposal: also notify the suspended driver. |
+| Driver Reinstated | `drivers/[id]/route.js:280-300` via `drivers.update` | staff only — **driver never told** | **GAP** — same fix. |
+| License self-upload | `driver/license-scan/route.js:174-194` via `drivers.update` | sysadmin, admin, fleet_mgr | **OK** — staff must review; driver knows they uploaded. |
+| Registration / license expiry scan | `status.service.js:160-233` hard-coded `fleet_manager,admin` | fleet_mgr, admin | **INCONSISTENT** — omits system_admin (suspension path right below includes them). Proposal: align to the same triple. |
+| UVVRP block / warn / approval | `uvvrp.service.js:138-217` hardcoded `[1,2,3,9]` / `[1,2,9]` | matches `decide` authority (approval correctly excludes dispatcher) | **OK but fragile** — raw role ids break silently on role changes; prefer role names. |
+| Generic `POST /api/notifications` (incl. `role_id` broadcast) | `notifications/route.js:40-102` | — | **BROKEN / DEAD** — validator accepts `role_id, entity_type, entity_id, link, priority` but `information_schema` confirms **none of these columns exist**, so any such INSERT fails. Zero in-`src` callers (`sendNotification` unused). Proposal: strip the dead fields from the validator and document fan-out producers as the only broadcast path. |
+
+### Data hygiene (live DB)
+
+- **33 orphan rows** addressed to role-less recipients (17 Info, 15 Success, 1 Alert) — producers never check that the target employee still has a role. Proposal: skip + warn when recipient has no role.
+- Trigger role lists and JS producers disagree on whether system_admin is in the audience (triggers: no; JS overseers: yes). Pick the triple everywhere staff action is expected.
+
+### Explicitly out of scope (kept as-is per decision)
+
+- Per-user inbox + per-user read/unread: unchanged. No shared role inboxes.
+- `notification_preferences`: preserved, still UI-only (nothing in the delivery path reads it — wiring it as an opt-out for Info-tier remains a follow-up, not this audit).
+
+## Role-aware routing — SHIPPED (2026-09-07)
+
+Inbox stays per-user; producers are now role-aware. Full event→recipient
+matrix (audit) is above; this is what changed in implementation:
+
+- **New resolver** (`src/lib/notifications/recipients.js`, unit-tested):
+  `notificationRolesFor(resource, action, { exclude })` derives from authority
+  but strips non-operational roles (default: `system_admin`); `dedupeEmployeeIds`
+  collapses multi-path qualification to exactly 1 row; `employeeIdsForRoles` /
+  `resolveNotificationRecipients` exclude role-less and deleted employees.
+- **system_admin silent** on routine ops: dropped from SLA, responder-tracking,
+  field resolve/reopen/arrive, incident-submit, maintenance-team, inspections,
+  reinstatement, license-scan, suspend, and UVVRP fan-outs. (Triggers already
+  excluded them — now consistent everywhere.)
+- **management out of action alerts**: grounding `staffRecipients()` excludes
+  observers (was the source of 22 "Vehicle Taken Out of Service" Alerts to the
+  read-only role). SLA already excluded them.
+- **Stranded-guest role-name bug fixed** (`grounding.js`): `('guest_services',
+  'system_admin', 'dispatch')` — two of which match no live role — is now
+  `('dispatcher', 'fleet_manager', 'admin')`. The dispatcher is paged on
+  stranded guests for the first time.
+- **"Transport Assigned" loop-closure** (`reservation-lifecycle.service.js`):
+  first arrival at Assigned emits to dispatcher/fleet_manager/admin via
+  `notificationRolesFor("reservations", "assign")`. No owner row exists to send
+  — requests originate from Booking (no internal `created_by`); external status
+  flows back through `emitTransportStatus`. Retries (reassignment path, hops
+  empty) never re-emit. Replaces the dead `reservation_approved` key:
+  `NOTIFICATION_EVENTS` renamed, and migration 107 moved the 8 live
+  `notification_preferences` rows to `transport_assigned` (verified: 0 legacy
+  rows remain; branch 2B of the lock).
+- **Owner loop-closure**: auto-suspend (`status.service.js`) and reinstatement
+  (`drivers/[id]`) now notify the driver alongside staff (previously staff-only;
+  0 driver-role compliance rows had ever existed).
+- **POST cleanup** (`api/notifications/route.js`): validator accepts exactly the
+  storable columns; `role_id/entity_type/entity_id/link/priority` dropped and
+  the dead `role_id` push-expansion branch removed. `is_read` is a real column
+  but server/user-state controlled — never client-set at creation.
+- UVVRP `notifyCoding` takes role names (was hardcoded ids `[1,2,3,9]`).
+
+Verification: eslint clean on all touched files; vitest 628/628 (60 files,
+incl. 7 new resolver tests); `db:check` clean (110 files valid);
+`db:up` applied 107 + `db:dump` refreshed (schema.sql diff is 106's
+`ai_prompt_templates` table, unrelated); live checks 6/6 (legacy key gone,
+audiences resolve without mgmt/sysadmin, dispatcher present, assign audience
+non-empty). Trip-completed `created_by`-NULL orphans and the dead
+`vehiclereservations` approval trigger remain documented follow-ups (need a
+trigger-touching migration batch).
 
 ## Open questions
 

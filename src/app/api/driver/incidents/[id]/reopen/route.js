@@ -79,7 +79,7 @@ export async function POST(req, props) {
            FROM employees e
            JOIN roles r ON r.role_id = e.role_id
           WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-        [["system_admin", "fleet_manager", "admin"]]
+          [["fleet_manager", "admin"]]
       );
       const message = `Driver disputed the resolution of incident #${id} (${result.incidentType || "incident"}) and it has been reopened: ${reason.slice(0, 200)}`;
       for (const employee of overseers) {

@@ -25,6 +25,7 @@ non-contiguous because rows 5/6/8 were the removed hospitality roles.
 | Role | `role_id` | Workspace | Authority |
 |---|---|---|---|
 | `system_admin` | 1 | System Console | Everything. `can()` short-circuits to `true` before the matrix is consulted. |
+| | | | Notification routing is deliberately separate: `system_admin` is **silent** on routine fleet operations (see `src/lib/notifications/recipients.js` — `notificationRolesFor()` strips the bypass that `rolesFor()` injects by design). |
 | `fleet_manager` | 2 | Fleet Operations | Full write on fleet, drivers, maintenance, fuel, and the reservation lifecycle. No deletes, no system config. |
 | `dispatcher` | 3 | Transportation Operations | Runs the queue: creates dispatches and trips, drives the reservation lifecycle. Read-only on vehicles, drivers and custodial pairings. |
 | `driver` | 4 | Driver Workspace | Own data only. Executes assigned trips, reports GPS, files fuel and incidents. |

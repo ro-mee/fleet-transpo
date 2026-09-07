@@ -201,13 +201,17 @@ export const NOTIFICATION_CHANNELS = {
   PUSH: "push",
 };
 
-// Notification events the system actually produces (DB triggers + incident
-// handling). The preferences screen and /api/notifications/preferences both
-// validate against this list. Channel defaults are what a fresh user gets for
-// each event before they customize.
+// Notification events the system actually produces (DB triggers + service
+// producers + incident handling). The preferences screen and
+// /api/notifications/preferences both validate against this list. Channel
+// defaults are what a fresh user gets for each event before they customize.
+//
+// transport_assigned replaced reservation_approved (migration 107): the fleet
+// request lifecycle has no Approved state — first arrival at Assigned, with
+// vehicle + driver secured, is the requester loop-closure event.
 export const NOTIFICATION_EVENTS = {
-  reservation_approved: {
-    label: "Reservation Approved",
+  transport_assigned: {
+    label: "Transport Assigned",
     defaults: { in_app: true, email: true, push: true },
   },
   dispatch_created: {

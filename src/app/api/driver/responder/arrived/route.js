@@ -3,7 +3,7 @@ import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 
-const OVERSEER_ROLES = ["system_admin", "fleet_manager", "admin"];
+const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
 /**
  * POST /api/driver/responder/arrived

@@ -4,6 +4,8 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { emitTransportStatus } from "@/services/outbound.service";
 import { recomputeDerivedPriority } from "@/services/priority.service";
+import { notificationRolesFor, resolveNotificationRecipients } from "@/lib/notifications/recipients";
+import { sendPush } from "@/services/push.service";
 
 // Reservation lifecycle writer — the ONE place fleet_status changes.
 //
@@ -212,6 +214,20 @@ export async function advanceReservation({
     console.warn("derived_priority recompute failed after transition:", e?.message || e);
   }
 
+  // First arrival at Assigned secures vehicle + driver: close the loop with
+  // the dispatch chain. There is deliberately NO owner row — requests
+  // originate from Booking (transportation_requests has no internal
+  // created_by), so external status flows back through emitTransportStatus
+  // below, never as a fake internal recipient. Retries land on the
+  // reassignment path (hops empty) and never re-emit.
+  if (hops.includes(L.ASSIGNED)) {
+    try {
+      await notifyTransportAssigned(current);
+    } catch (e) {
+      console.warn("transport-assigned notification failed:", e?.message || e);
+    }
+  }
+
   if (notifyBooking) {
     // Best-effort: Booking is told the final state only. A delivery failure is
     // logged in integration_log and never unwinds the transition above.
@@ -219,6 +235,62 @@ export async function advanceReservation({
   }
 
   return { ok: true, request: current, hops };
+}
+
+/**
+ * First arrival at Assigned: vehicle + driver secured. Notify the dispatch
+ * chain (dispatcher/fleet_manager/admin via notificationRolesFor — never
+ * system_admin, never a fabricated owner). Best-effort: never throws.
+ */
+async function notifyTransportAssigned(request) {
+  const recipients = await resolveNotificationRecipients({
+    roles: notificationRolesFor("reservations", "assign"),
+  });
+  if (!recipients.length) return;
+
+  let detail = `Transportation request #${request.request_id} has been assigned.`;
+  try {
+    const { rows: vRows } = request.vehicle_id
+      ? await query(`SELECT plate_number FROM vehicles WHERE vehicle_id = $1`, [request.vehicle_id])
+      : { rows: [] };
+    const { rows: dRows } = request.driver_id
+      ? await query(
+          `SELECT e.first_name, e.last_name FROM drivers d
+             JOIN employees e ON e.employee_id = d.employee_id
+            WHERE d.driver_id = $1`,
+          [request.driver_id]
+        )
+      : { rows: [] };
+    const plate = vRows[0]?.plate_number ? ` vehicle ${vRows[0].plate_number}` : "";
+    const driverName = dRows[0]
+      ? ` driver ${`${dRows[0].first_name || ""} ${dRows[0].last_name || ""}`.trim() || `#${request.driver_id}`}`
+      : "";
+    if (plate || driverName) {
+      detail =
+        `Transportation request #${request.request_id} assigned:` +
+        `${plate}${plate && driverName ? " +" : ""}${driverName}.` +
+        (request.guest_name ? ` Guest: ${request.guest_name}.` : "");
+    }
+  } catch {
+    // Fall back to the generic line above — enrichment is cosmetic.
+  }
+
+  const title = "Transport Assigned";
+  const { rows } = await query(
+    `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+     SELECT u.employee_id, $2, $3, 'Success', 'reservation', $4
+       FROM unnest($1::int[]) AS u(employee_id)
+     RETURNING employee_id`,
+    [recipients, title, detail, request.request_id]
+  );
+  if (rows.length) {
+    await sendPush({
+      employeeIds: rows.map((r) => r.employee_id),
+      title,
+      body: detail,
+      data: { reference_type: "reservation", reference_id: request.request_id },
+    });
+  }
 }
 
 /** Default timeline event type for a status, used for intermediate hops. */

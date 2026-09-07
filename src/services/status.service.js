@@ -2,7 +2,7 @@ import { getAdminClient } from "@/lib/db";
 import { query } from "@/lib/db";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
-import { rolesFor } from "@/lib/auth/permissions";
+import { employeeIdsForRoles, notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -157,18 +157,10 @@ export async function syncComplianceNotifications() {
   today.setHours(0, 0, 0, 0);
   const todayStr = today.toISOString().split("T")[0];
 
-  const { data: roles } = await supabase
-    .from("roles")
-    .select("role_id")
-    .in("role_name", ["fleet_manager", "admin"]);
-  const roleIds = (roles || []).map((r) => r.role_id);
-  if (roleIds.length === 0) return { created: 0 };
-
-  const { data: staff } = await supabase
-    .from("employees")
-    .select("employee_id")
-    .in("role_id", roleIds);
-  const staffIds = (staff || []).map((e) => e.employee_id);
+  // Expiry-scan audience is deliberately staff-only (fleet_manager, admin):
+  // system_admin stays silent on routine ops; dispatcher and management act
+  // on grounding/suspension alerts instead of raw expiry rows.
+  const staffIds = await employeeIdsForRoles(["fleet_manager", "admin"]);
   if (staffIds.length === 0) return { created: 0 };
 
   const { data: vehicles } = await supabase
@@ -273,23 +265,30 @@ export async function syncDriverStatus(driverId) {
     // failed. Tell the people who can act on it. Best-effort.
     try {
       const { rows: info } = await query(
-        `SELECT e.first_name || ' ' || e.last_name AS name, d.license_expiry
+        `SELECT e.first_name || ' ' || e.last_name AS name, d.license_expiry,
+                e.employee_id AS owner_employee_id
            FROM drivers d JOIN employees e ON e.employee_id = d.employee_id
           WHERE d.driver_id = $1`,
         [driverId]
       );
       const name = info.rows[0]?.name || `Driver #${driverId}`;
+      const ownerEmployeeId = info.rows[0]?.owner_employee_id ?? null;
       const expiry = info.rows[0]?.license_expiry || "unknown date";
       const { rows: staff } = await query(
         `SELECT employee_id FROM employees
           WHERE role_id IN (SELECT role_id FROM roles WHERE role_name = ANY($1))
-            AND deleted_at IS NULL`,
-        [rolesFor("drivers", "update")]
+            AND deleted_at IS NULL
+            AND role_id IS NOT NULL`,
+        [notificationRolesFor("drivers", "update")]
       );
-      if (staff.length) {
+      const recipients = dedupeEmployeeIds([
+        ...staff.map((s) => s.employee_id),
+        ownerEmployeeId,
+      ]);
+      if (recipients.length) {
         await supabase.from("notifications").insert(
-          staff.map((s) => ({
-            employee_id: s.employee_id,
+          recipients.map((employee_id) => ({
+            employee_id,
             title: "Driver Auto-Suspended",
             message: `${name} was automatically suspended — license expired ${expiry}. Reinstate from their profile after renewal.`,
             type: "Warning",
@@ -299,7 +298,7 @@ export async function syncDriverStatus(driverId) {
         );
         const { sendPush } = await import("@/services/push.service");
         await sendPush({
-          employeeIds: staff.map((s) => s.employee_id),
+          employeeIds: recipients,
           title: "Driver Auto-Suspended",
           body: `${name} suspended — license expired ${expiry}.`,
           data: { reference_type: "driver", reference_id: driverId },

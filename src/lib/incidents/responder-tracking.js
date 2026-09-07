@@ -22,7 +22,7 @@ export const POSITION_FRESH_MS = 5 * 60_000;
 /** Only re-notify the driver when the ETA moves at least this much. */
 export const ETA_NOTIFY_DELTA_MIN = 5;
 
-const OVERSEER_ROLES = ["system_admin", "fleet_manager", "admin"];
+const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
 /**
  * Distance and ETA between the responder and the stranded driver.

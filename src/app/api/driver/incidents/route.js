@@ -437,7 +437,7 @@ export async function POST(req) {
              FROM employees e
              JOIN roles r ON r.role_id = e.role_id
             WHERE r.role_name = ANY($1) AND e.deleted_at IS NULL`,
-          [["system_admin", "fleet_manager", "admin"]]
+          [["fleet_manager", "admin"]]
         );
         const message = `Driver ${driver.first_name || ""} ${driver.last_name || ""} reported ${incident.incident_type} (Severity: ${severity}). View in Incidents.`;
         for (const employee of overseers) {
