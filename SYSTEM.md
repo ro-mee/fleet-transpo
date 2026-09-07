@@ -319,6 +319,7 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
 - **Rule engine** (`lib/ai/rule-engine.js`) is the deterministic baseline (recommendations, insights, predictive maintenance).
 - **LLM** (`lib/ai/llm-adapter.js`) adds natural-language summaries/narrations — failure-tolerant, time-budgeted (25 s), falls back to rule output.
 - `aiproviders` config table (API keys masked); `ailogs` usage log; `POST /api/ai/scan-document` (Gemini structured extraction via `src/lib/ai/gemini-document.js`, 12 s timeout, null-for-unreadable) powers license / OR-CR / insurance scanning with LTO renewal scheduling.
+- **Prompt overrides (2026-09-06, migration 106):** `ai_prompt_templates` (`prompt_key` PK, `content`, `updated_by`, `version`) is the source of truth for live-edited prompts — the Vercel runtime filesystem is ephemeral, so the earlier disk-write PUT was replaced before production. Loader checks DB first, bundled `resources/ai/*.md` second, built-in last (both callers already awaited it: zero-change migration). `PUT /api/ai/instructions` upserts (`ai_settings`-update, allowlist, 50KB cap, audited), `DELETE` resets to the bundled default (idempotent), GET flags `overridden`/`version`; UI shows Customized badges + confirm-guarded Reset.
 - **Error-log ownership (2026-09-06):** `app_errors` (migration 103) owns *unexpected* application/platform failures only. AI provider/timeout/parse/quota/fallback events stay exclusively in `ailogs`; the gate is proof-of-persistence (`subsystemOwned` set only after the specialized write succeeds — a bare subsystem code never suppresses), so a failed specialized write still lands in `app_errors` as fallback. Scan routes (`scan-document`, driver `license-scan`) now persist their contained Gemini failures to `ailogs`. Writer: `src/lib/app-errors.js` (sanitize + fingerprint + 90-day prune helper); `handleError(error, { req, employeeId })` stays backward-compatible (224 single-arg + 11 string-label callsites untouched). **Pass 1b APIs (same day):** `POST /api/errors` (explicit 6-role array incl. driver, per-account+IP throttles, rejects `source=server` + oversized/non-path payloads, always 200 with `{ received }` so reporters never retry-loop) and `GET /api/errors` (`audit`-read gate; events without stack + `GROUP BY fingerprint` occurrence groups + single-`error_id` detail with stack);   client `src/services/errors.service.js` (`getAppErrors`, `getAppError`,
   fire-and-forget `reportAppError`). **Pass 2 UI + reporters (same day):**
   `/system/errors` page (system_admin-only via `NAV_ROLES` + workspace nav +
@@ -1050,6 +1051,17 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
 - Per-user toggles persist in `notification_preferences` (migration 037) and drive
   the `/notifications/preferences` grid (event × channel, in-app non-disableable);
   email/push channels are accepted but delivery ships later.
+- **Role-aware routing (2026-09-07):** inbox stays per-user (own `employee_id`
+  rows), but producers resolve recipients through
+  `src/lib/notifications/recipients.js` — `notificationRolesFor()` (authority
+  minus non-operational roles) → `resolveNotificationRecipients()` (union +
+  dedupe) → per-user rows. `rolesFor()` is never a recipient source (it injects
+  the system_admin bypass by design). **system_admin is silent** on routine ops;
+  management gets informational only, never action-required alerts; dispatcher
+  is paged on stranded-guest abort (role-name fix, was system_admin-only);
+  first arrival at **Assigned** emits "Transport Assigned" to the dispatch chain
+  (replaces the dead `reservation_approved` key, migration 107); suspended /
+  reinstated drivers are told alongside staff.
 
 ### 9.5 Mobile tabs + TomTom map
 - The mobile app is now `(app)/(tabs)/`: Home · Live Map · scan FAB · Trips ·
