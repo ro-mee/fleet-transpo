@@ -8,6 +8,8 @@ import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth";
 import { fonts, radius, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
+import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache";
+import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
@@ -23,6 +25,7 @@ export default function FuelReport() {
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const [loadingTrip, setLoadingTrip] = useState(true);
+  const driverId = resolveDriverId(user);
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
   const [liters, setLiters] = useState(pLiters || "");
@@ -61,6 +64,24 @@ export default function FuelReport() {
 
   useEffect(() => {
     (async () => {
+      // Offline driver context: cached-first via the shared resolver chain
+      // (explicit trip → active trip → standing assignment → none), so the
+      // vehicle card survives offline; the live fetches below revalidate.
+      // Selection mirrors the live path: explicit param trip first, else the
+      // first non-terminal trip (fuel's own denylist, NOT a "recent trip"
+      // shortcut — finished trips never stand in for an assignment).
+      if (driverId) {
+        const ctx = await getCachedVehicleContext(driverId);
+        const list = Array.isArray(ctx.trips) ? ctx.trips : [];
+        const cachedPick = paramTripId
+          ? list.find((t) => t && String(t.trip_id) === String(paramTripId)) || null
+          : null;
+        const cachedActive = cachedPick
+          || list.find((t) => t && !["Completed", "Cancelled"].includes(t.trip_status) && t.vehicle_id != null)
+          || null;
+        const v = resolveVehicleContext({ trip: cachedActive, ...ctx });
+        if (v) setAssignedTrip({ trip_id: cachedActive?.trip_id ?? null, vehicle_id: v.vehicleId, vehicle_plate: v.plate });
+      }
       try {
         const data = await api.get("/api/mobile/driver/trips?status=all");
         let selected = null;
@@ -70,18 +91,26 @@ export default function FuelReport() {
           }
           selected ||= data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || null;
         }
-        if (!selected) {
-          const me = await api.get("/api/mobile/driver/me");
-          selected = me?.assignedVehicle ? { ...me.assignedVehicle, trip_id: null } : null;
+        if (Array.isArray(data) && driverId) {
+          // Keep the shared trips cache warm for the next offline visit.
+          await setCached(driverId, CACHE_KEYS.TRIPS_ALL, data);
         }
-        setAssignedTrip(selected);
+        if (!selected) {
+          // DRIVER_ME holds the /driver/me profile shape (camelCase
+          // assignedVehicle) — resolves through the same shared chain.
+          const me = await api.get("/api/driver/me").catch(() => null);
+          if (me && driverId) await setCached(driverId, CACHE_KEYS.DRIVER_ME, me);
+          const v = me ? resolveVehicleContext({ me }) : null;
+          if (v) selected = { vehicle_id: v.vehicleId, vehicle_plate: v.plate, trip_id: null };
+        }
+        if (selected) setAssignedTrip(selected);
       } catch (e) {
-        // Fallback gracefully
+        // Cached vehicle (if any) already applied above — offline keeps it.
       } finally {
         setLoadingTrip(false);
       }
     })();
-  }, [paramTripId]);
+  }, [paramTripId, driverId]);
 
   const activeTripId = paramTripId || (assignedTrip?.trip_id ? String(assignedTrip.trip_id) : null);
   const activeVehicleId = assignedTrip?.vehicle_id ? String(assignedTrip.vehicle_id) : null;

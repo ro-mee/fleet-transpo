@@ -10,6 +10,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache";
+import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import { AppAlert } from '../../components/AppAlert';
 
 const INCIDENT_TYPES = [
@@ -37,6 +40,8 @@ export default function IncidentsScreen() {
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
   const { colors } = useTheme();
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
 
   const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
@@ -53,22 +58,40 @@ export default function IncidentsScreen() {
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
   
   useEffect(() => {
+    // Offline driver context: the vehicle shown (and submitted) resolves
+    // through the shared chain — explicit trip → active trip → standing
+    // assignment → none. Cached first so offline reports keep the vehicle
+    // (a report without its vehicle slows dispatch); live revalidate below.
+    // NEVER the recent trip's vehicle: a finished trip is not proof of a
+    // current assignment.
     async function loadData() {
-      try {
-        const me = await api.get("/api/mobile/driver/me");
-        if (me.activeTrip?.vehicle_id) {
-          setVehicleId(me.activeTrip.vehicle_id);
-          setVehiclePlate(me.activeTrip.plate_number);
-        } else if (me.recentTrip?.vehicle_id) {
-          setVehicleId(me.recentTrip.vehicle_id);
-          setVehiclePlate(me.recentTrip.plate_number);
+      const apply = (v) => {
+        if (v) {
+          setVehicleId(v.vehicleId);
+          setVehiclePlate(v.plate ?? "");
         }
-      } catch(e) { }
+      };
+      if (driverId) {
+        apply(resolveVehicleContext(await getCachedVehicleContext(driverId)));
+      }
+      try {
+        const [trips, me] = await Promise.all([
+          api.get("/api/mobile/driver/trips?status=all").catch(() => null),
+          api.get("/api/mobile/driver/me").catch(() => null),
+        ]);
+        const list = Array.isArray(trips) ? trips : null;
+        // Keep the shared trips cache warm for the next offline report.
+        if (list && driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+        apply(resolveVehicleContext({ trips: list, me }));
+      } catch (e) {
+        // Cache already applied above; offline the vehicle simply stays as
+        // the saved one (or none) — the submit still queues via apiFetch.
+      }
     }
     if (!tripId) {
       loadData();
     }
-  }, [tripId]);
+  }, [tripId, driverId]);
 
   const pickImage = async (useCamera = true) => {
     if (photos.length >= 3) {

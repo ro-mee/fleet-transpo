@@ -1,5 +1,5 @@
 import { moderateScale } from '../../../lib/scaling';
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -11,8 +11,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { api } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { useDriverProfile } from "../../../lib/driver-profile";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 
@@ -51,28 +51,12 @@ export default function Profile() {
   const { colors, type } = useTheme();
   const router = useRouter();
 
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Cached /api/driver/me read — offline the tab falls back cached profile →
+  // auth user, silently (the global offline banner is enough on Profile).
+  const { profile: serverProfile } = useDriverProfile();
+
   const [logoutModal, setLogoutModal] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const me = await api.get("/api/driver/me");
-      setProfile(me);
-    } catch {
-      // use fallback from auth context
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-  const t = setTimeout(load, 0);
-  return () => clearTimeout(t);
-}, [load]);
-
-  const currentUser = profile || user;
+  const currentUser = serverProfile || user;
   const driverName =
     currentUser?.firstName && currentUser?.lastName
       ? `${currentUser.firstName} ${currentUser.lastName}`

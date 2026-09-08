@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState } from "react";
 import { View, Text, StyleSheet, Pressable, TextInput, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api, apiFetch } from "../../../lib/api";
+import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import { notify } from "../../../lib/notifications/notify";
 
@@ -23,29 +24,24 @@ export default function PersonalInformation() {
   const insets = useSafeAreaInsets();
   const { colors, type } = useTheme();
 
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [phone, setPhone] = useState("");
+  // Cached /api/driver/me read — offline falls back to the saved profile
+  // silently instead of erroring (the phone PATCH below still needs a
+  // connection and says so on failure).
+  const { profile, loading, reload } = useDriverProfile({
+    onError: () => AppAlert.alert("Unable to Load Profile", "Please check your network connection and pull down to retry."),
+  });
+
+  // Editable field: mirrors the profile's phone (cached or live) until the
+  // driver types. Derived, not synced via effect.
+  const [phoneInput, setPhoneInput] = useState("");
+  const [phoneEdited, setPhoneEdited] = useState(false);
+  const phone = phoneEdited ? phoneInput : (profile?.phone ?? "");
+  const setPhone = (v) => {
+    setPhoneEdited(true);
+    setPhoneInput(v);
+  };
   const [editingPhone, setEditingPhone] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const load = useCallback(async () => {
-    try {
-      const me = await api.get("/api/driver/me");
-      setProfile(me);
-      setPhone(me?.phone ?? "");
-    } catch {
-      AppAlert.alert("Unable to Load Profile", "Please check your network connection and pull down to retry.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-  // Deferred one tick: keeps mount-fetch semantics without sync setState in the effect body.
-  const t = setTimeout(load, 0);
-  return () => clearTimeout(t);
-}, [load]);
 
   const savePhone = async () => {
     if (!phone.trim()) return;
@@ -56,6 +52,10 @@ export default function PersonalInformation() {
         body: JSON.stringify({ phone: phone.trim() }),
       });
       setEditingPhone(false);
+      // Refresh cache + state so the new number survives offline, and let
+      // the display mirror the reloaded profile again.
+      await reload();
+      setPhoneEdited(false);
       notify.toast({ message: "Phone number updated successfully.", tone: "success" });
     } catch (e) {
       AppAlert.alert("Unable to Save Phone Number", e.message || "Please check your input and try again.");

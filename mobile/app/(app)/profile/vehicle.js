@@ -1,11 +1,11 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 
 function InfoRow({ label, value, colors, isLast = false }) {
@@ -22,25 +22,12 @@ export default function VehicleInformation() {
   const insets = useSafeAreaInsets();
   const { colors, type } = useTheme();
 
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    try {
-      const me = await api.get("/api/driver/me");
-      setProfile(me);
-    } catch {
-      AppAlert.alert("Error", "Could not load vehicle info.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-  const t = setTimeout(load, 0);
-  return () => clearTimeout(t);
-}, [load]);
+  // Cached /api/driver/me read — offline falls back to the saved profile
+  // silently (the global offline banner is enough on Profile screens).
+  // onError fires only when nothing was ever saved (never-synced).
+  const { profile, loading } = useDriverProfile({
+    onError: () => AppAlert.alert("Error", "Could not load vehicle info."),
+  });
 
   if (loading) {
     return (

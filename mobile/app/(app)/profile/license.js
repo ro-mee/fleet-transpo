@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image, Modal } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -8,6 +8,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusSurfaces } from "../../../lib/theme";
 import { api } from "../../../lib/api";
+import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import { notify } from "../../../lib/notifications/notify";
 
@@ -86,27 +87,14 @@ export default function LicenseInformation() {
   const insets = useSafeAreaInsets();
   const { colors, type } = useTheme();
 
-  const [profile, setProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Cached /api/driver/me read — offline falls back to the saved profile
+  // silently; the alert only fires when nothing was ever saved.
+  const { profile, loading, reload } = useDriverProfile({
+    onError: () => AppAlert.alert("Error", "Could not load license info."),
+  });
+
   const [uploadingSide, setUploadingSide] = useState(null);
   const [viewerImage, setViewerImage] = useState(null);
-
-  const load = useCallback(async () => {
-    try {
-      const me = await api.get("/api/driver/me");
-      setProfile(me);
-    } catch {
-      AppAlert.alert("Error", "Could not load license info.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-  const t = setTimeout(load, 0);
-  return () => clearTimeout(t);
-}, [load]);
 
   const toDataUrl = async (asset) => {
     const context = ImageManipulator.manipulate(asset.uri);
@@ -177,14 +165,14 @@ export default function LicenseInformation() {
             : `License ${side} scan updated successfully.`,
           tone: "success",
         });
-        await load();
+        await reload();
       }
     } catch (e) {
       AppAlert.alert("Upload Failed", e.message || "The scan could not be uploaded. Check your connection and try again.");
     } finally {
       setUploadingSide(null);
     }
-  }, [uploadingSide, load]);
+  }, [uploadingSide, reload]);
 
   if (loading) {
     return (
