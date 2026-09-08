@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { AppAlert } from '../../../components/AppAlert';
-import { api } from '../../../lib/api';
+import { api, wasQueued } from '../../../lib/api';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
@@ -42,13 +42,18 @@ export default function TripCompleteScreen() {
     }
     setOverriding(true);
     try {
-      await api.put(`/api/trips/${tripId}/complete`, {
+      const res = await api.put(`/api/trips/${tripId}/complete`, {
         distance: Number(rawDistanceKm) || undefined,
         start_odometer: Number(rawStartOdo) || undefined,
         end_odometer: Number(rawEndOdo) || undefined,
         geofence_override: true,
         completion_reason: reason.slice(0, 500),
       });
+      // PR #3.1: even an override completion can land in the outbox — the
+      // summary screen must not claim server confirmation for it.
+      if (wasQueued(res)) {
+        AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
+      }
       router.replace('/(app)/(tabs)/map');
     } catch (e) {
       AppAlert.alert("Error", e.message || "Could not complete trip");

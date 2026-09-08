@@ -4,7 +4,7 @@ import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
-import { api } from "../../../lib/api";
+import { api, wasQueued } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
@@ -23,6 +23,13 @@ import {
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const BOTTOM_SHEET_MIN_HEIGHT = 220; // Height of the collapsed view
 const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
+
+// PR #3.1: a queued write reached the local outbox, NOT the server.
+// Transition behavior is unchanged; only the wording stays honest — the
+// driver must never read a normal success into an action that only waits.
+function announceSavedForSync() {
+  AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
+}
 
 function getTripStatusStyle(status, colors) {
   return statusColors(colors, status);
@@ -736,7 +743,9 @@ export default function MapTab() {
                     if (isPending) {
                       // Optimistic: fire accept in the background so we don't
                       // block the transition on a 1-2s network round-trip.
-                      api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).catch((e) => {
+                      api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).then((res) => {
+                        if (wasQueued(res)) announceSavedForSync();
+                      }).catch((e) => {
                         AppAlert.alert("Error", e.message || "Could not accept trip");
                       });
                     }
@@ -745,20 +754,25 @@ export default function MapTab() {
                         return;
                       }
                       if (!windowOpen) return;
-                      await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
+                      const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
+                      if (wasQueued(startRes)) announceSavedForSync();
                       loadTrip();
                     } else if (isState1) {
-                      await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                      const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                      if (wasQueued(pickupRes)) announceSavedForSync();
                       loadTrip();
                     } else if (isState2) {
-                      await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
-                      await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                      const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
+                      const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                      if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
                       loadTrip();
                     } else if (isState3) {
+                      let legRes = null;
                       if (activeTrip.trip_status === "Passenger Onboard") {
-                        await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                        legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
                       }
-                      await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                      const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                      if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
                       loadTrip();
                     } else if (isState4) {
                       // Sum the GPS-accumulated km from both legs. If the watcher
@@ -865,6 +879,8 @@ export default function MapTab() {
                         distance: totalKm,
                         start_odometer: startOdo,
                         end_odometer: endOdo,
+                      }).then((res) => {
+                        if (wasQueued(res)) announceSavedForSync();
                       }).catch((e) => {
                         AppAlert.alert("Error", e.message || "Could not complete trip");
                       });

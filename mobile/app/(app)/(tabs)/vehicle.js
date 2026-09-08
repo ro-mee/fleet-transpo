@@ -13,8 +13,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api } from "../../../lib/api";
+import { api, wasQueued } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
+import { AppAlert } from "../../../components/AppAlert";
 import { useTripTracking } from "../../../lib/tracking";
 import { getActiveStatuses, getTone, getNextStatus } from "../../../lib/tripRef";
 import { useTheme } from "../../../lib/theme-context";
@@ -109,7 +110,9 @@ export default function FullMapTab() {
             : action === "start"
               ? { odometer: Number(trip.current_mileage) || undefined }
               : {};
-      await api.put(path, body);
+      const res = await api.put(path, body);
+      // PR #3.1: queued reached the outbox, not the server — say so.
+      if (wasQueued(res)) AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
       setError(null);
       await load();
     } catch (e) {
