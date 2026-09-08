@@ -4,7 +4,7 @@ tags: [learning, security, auth, mobile]
 source:
   - mobile/lib/api.js
   - src/lib/mobile-auth.js
-last_verified: 2026-08-11
+last_verified: 2026-09-08
 ---
 
 # Concept: Token Rotation And Refresh Races
@@ -46,6 +46,34 @@ Access and refresh tokens carry different `aud` claims. A refresh token presente
 | Same audience for both tokens | Refresh token becomes a 30-day access token |
 | Refresh in an interceptor without a queue | The retried request goes out with the old token |
 | Never pruning revoked rows | Table grows forever → [[Open Questions]] |
+| **Family-liveness check with `LIMIT 1` and no `ORDER BY`/filter** | **A valid family can be judged "revoked" once it rotates** (2026-09-08 storm, below) |
+
+## The 2026-09-08 SESSION_REVOKED storm — CONFIRMED
+
+A driver logged in and every screen immediately errored `401 SESSION_REVOKED "Session revoked."` while `POST /api/mobile/auth/refresh` kept returning 200 — the app churned 401↔refresh forever without logging out.
+
+**Root cause:** `resolveCurrentIdentity`'s bearer-path family check (`src/lib/api/utils.js`) asked:
+
+```sql
+SELECT revoked_at, expires_at FROM mobile_refresh_tokens
+WHERE employee_id = $1 AND family_id = $2 LIMIT 1   -- no ORDER BY, no revoked_at IS NULL
+```
+
+Rotation keeps the family alive by revoking the old row and inserting a new one, so **after rotation the family contains both a revoked and an active row**. Because the query had no `ORDER BY` and no active-row filter, PostgreSQL could return a revoked row and falsely classify the valid family as revoked. Login worked (fresh family = one active row); the poison appeared at the first 15-minute token refresh. Refresh itself stayed 200 because it looks up by `token_hash`, not the family check — hence the "server that revokes you and refreshes you at the same time" log signature. The `200 /api/notifications` in the same log was the web dashboard's cookie session, a different code path.
+
+**Live-DB confirmation:** 313 families total; 9 in the mixed state (1 active + N revoked rows) — every one a live session the old check could misread. One family had **57 rows** from the GPS-context rotation churn (~30s cadence for 43 minutes) — the very churn the rotation cooldown was built to tame.
+
+**Fix:** ask the invariant the refresh route already maintains — *a family is alive iff it still has an active, unrevoked descendant*:
+
+```sql
+SELECT expires_at FROM mobile_refresh_tokens
+WHERE employee_id = $1 AND family_id = $2 AND revoked_at IS NULL
+ORDER BY created_at DESC LIMIT 1
+```
+
+Zero rows → `SESSION_REVOKED`; active row past `expires_at` → `SESSION_EXPIRED`. Note that an all-revoked family and a never-existing family are **deliberately indistinguishable** here — both yield zero rows and take the same unrecoverable-session path; nothing downstream needs to tell them apart. Pinned by `src/lib/api/utils.family-check.test.js` (post-rotation shape resolves; all-zero-row and expired classifications; the SQL shape itself is asserted). Full suite 741 passing.
+
+**Lesson:** a family is not a row. Any query about a family's state must account for the family being *multiple rows with differing fates* — filter to the living row, don't sample an arbitrary one. Same lesson class as the resolveDriverId camelCase bug: pin what the system actually writes, not what you imagine it holds.
 
 ## Related concepts
 

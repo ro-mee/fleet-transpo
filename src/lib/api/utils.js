@@ -126,16 +126,25 @@ async function resolveCurrentIdentity(user, via = "session") {
   }
   if (via === "bearer") {
     if (!user.familyId) throw new AuthError("Session expired. Please sign in again.", 401, "SESSION_INVALID");
+    // A family is alive iff it still has a non-revoked row (the one the
+    // client holds). Rotation revokes the old row and inserts a new one, so
+    // after ANY rotation the family contains BOTH a revoked and an active
+    // row — this must look at the ACTIVE row, never an arbitrary one.
+    // (LIMIT 1 with no ORDER BY or active-row filter could return the
+    // rotation-revoked row and falsely classify a valid family as revoked:
+    // the 2026-09-08 401 SESSION_REVOKED storm. Whole-family revocation —
+    // replay, logout, admin revoke — and a never-existing family both leave
+    // no active row, which is the same unrecoverable-session check below.)
     const { rows: familyRows } = await query(
-      `SELECT revoked_at, expires_at
+      `SELECT expires_at
          FROM mobile_refresh_tokens
-        WHERE employee_id = $1 AND family_id = $2
+        WHERE employee_id = $1 AND family_id = $2 AND revoked_at IS NULL
+        ORDER BY created_at DESC
         LIMIT 1`,
       [current.employee_id, user.familyId]
     );
     const familyRecord = familyRows[0];
-    if (!familyRecord) throw new AuthError("Session expired. Please sign in again.", 401, "SESSION_INVALID");
-    if (familyRecord.revoked_at) throw new AuthError("Session revoked.", 401, "SESSION_REVOKED");
+    if (!familyRecord) throw new AuthError("Session revoked.", 401, "SESSION_REVOKED");
     if (new Date(familyRecord.expires_at).getTime() <= Date.now()) throw new AuthError("Session expired.", 401, "SESSION_EXPIRED");
   }
   return {
