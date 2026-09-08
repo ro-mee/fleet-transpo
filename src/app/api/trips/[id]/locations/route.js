@@ -4,6 +4,7 @@ import { assertTripOwnership } from "@/lib/api/ownership";
 import { isValidCoordinate } from "@/lib/gps";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 import { evaluatePingGeofence } from "@/services/trip-geofence.service";
+import { evaluatePingMonitor } from "@/services/live-trip-monitor.service";
 
 export async function GET(req, { params }) {
   try {
@@ -89,6 +90,15 @@ export async function POST(req, { params }) {
       accuracy: toNumberOrNull(body.accuracy),
     });
 
-    return ok({ ...rows[0], geofence }, 201);
+    // Same PR #4 ingest-side monitor as the mobile alias: contextual banner
+    // payload, best-effort — a banner failure must never fail the GPS write.
+    let monitor = null;
+    try {
+      monitor = await evaluatePingMonitor({ query }, { tripId: trip.trip_id });
+    } catch {
+      monitor = null;
+    }
+
+    return ok({ ...rows[0], geofence, monitor }, 201);
   } catch (e) { return handleError(e); }
 }

@@ -4,6 +4,7 @@ import { assertTripOwnership } from "@/lib/api/ownership";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 import { isValidCoordinate } from "@/lib/gps";
 import { evaluatePingGeofence } from "@/services/trip-geofence.service";
+import { evaluatePingMonitor } from "@/services/live-trip-monitor.service";
 
 /**
  * POST /api/mobile/driver/trips/[id]/gps
@@ -77,7 +78,18 @@ export async function POST(req, { params }) {
       accuracy: toNumberOrNull(body.accuracy),
     });
 
-    return ok({ ...rows[0], geofence }, 201);
+    // PR #4 ingest-side monitor: lightweight contextual evaluation for the
+    // driver's banner (off-route, traffic delay when already cached). Also
+    // advisory-only, and best-effort — a banner failure must never fail the
+    // GPS write it describes.
+    let monitor = null;
+    try {
+      monitor = await evaluatePingMonitor({ query }, { tripId: trip.trip_id });
+    } catch {
+      monitor = null;
+    }
+
+    return ok({ ...rows[0], geofence, monitor }, 201);
   } catch (e) {
     return handleError(e);
   }

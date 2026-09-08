@@ -172,6 +172,11 @@ export default function LiveLocationsMap({
   selectedTripId = null,
   onSelectTrip = null,
   route = null,
+  // True when the route line is drawn from the driver's LAST KNOWN position
+  // (no fresh GPS fix ≤90 s) — rendered dashed + dimmer so a stale route is
+  // never mistaken for a live one, but it stays on the map instead of
+  // vanishing the moment GPS hiccups.
+  routeStale = false,
   traffic = true,
   waypoints = null,
   originName = "",
@@ -179,12 +184,23 @@ export default function LiveLocationsMap({
   responders = [],
   selectedResponderId = null,
   onSelectResponder = null,
+  // PR #4: trip_id → live-monitor risk (NORMAL/WATCH/ATTENTION/ACTION/UNKNOWN)
+  // from /api/trips/live-monitor. Accepts a Map or a plain object keyed by
+  // trip_id; markers without an entry keep their phase coloring.
+  monitorByTripId = null,
 }) {
   const hasTomTomKey = Boolean(getPublicKey());
   const [trafficOn, setTrafficOn] = useState(traffic && hasTomTomKey);
   const [legendOn, setLegendOn] = useState(true);
   const [mapStyle, setMapStyle] = useState(hasTomTomKey ? "tomtom" : "street");
   const [showZoomHint, setShowZoomHint] = useState(false);
+
+  // PR #4: live-monitor risk per trip_id (Map or plain object) → marker accent.
+  const monitorRiskFor = (tripId) => {
+    if (!monitorByTripId || tripId == null) return null;
+    if (typeof monitorByTripId.get === "function") return monitorByTripId.get(String(tripId)) ?? null;
+    return monitorByTripId[String(tripId)] ?? null;
+  };
 
   const valid = useMemo(
     () => (locations || [])
@@ -354,7 +370,9 @@ export default function LiveLocationsMap({
         {routePts && (
           <Polyline
             positions={routePts}
-            pathOptions={{ color: CHART_COLORS.info, weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }}
+            pathOptions={routeStale
+              ? { color: CHART_COLORS.info, weight: 5, opacity: 0.55, dashArray: "8 10", lineCap: "round", lineJoin: "round" }
+              : { color: CHART_COLORS.info, weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }}
           />
         )}
 
@@ -372,11 +390,13 @@ export default function LiveLocationsMap({
           const speedKmh = speedKmhFromMps(l.speed);
           const health = getGpsHealth(l.recorded_at);
           const selected = selectedTripId != null && l.trip_id != null && String(selectedTripId) === String(l.trip_id);
+          const monitorRisk = monitorRiskFor(l.trip_id);
 
           if (hasIdentity) {
             const markerConfig = resolveMarkerConfig(l, {
               selectedId: selectedTripId,
               isStale: health.label === "Offline" || health.label === "No Signal",
+              monitorRisk,
             });
             const markerIcon = createMapEntityMarkerIcon({
               ...markerConfig,
@@ -413,6 +433,9 @@ export default function LiveLocationsMap({
                       )}
                       {l.accuracy != null && <p className="text-[11px] text-foreground-muted font-data">Accuracy: {Math.round(Number(l.accuracy))} m</p>}
                       <p className="text-[11px] font-semibold text-foreground-muted">GPS: {health.label}</p>
+                      {monitorRisk && monitorRisk !== "NORMAL" && (
+                        <p className="text-[11px] font-semibold text-warning">Monitor: {monitorRisk === "ACTION" ? "Action needed" : monitorRisk === "ATTENTION" ? "Attention" : monitorRisk === "WATCH" ? "Watch" : "Status unknown"}</p>
+                      )}
                       {l.recorded_at && <p className="text-[11px] text-foreground-muted font-data">Last update: {new Date(l.recorded_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</p>}
                     </div>
 

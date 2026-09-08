@@ -61,6 +61,40 @@ const SVG_ICONS = {
 // ---------------------------------------------------------------------------
 
 export function resolveMarkerConfig(entity, context = {}) {
+  const config = resolveBaseMarkerConfig(entity, context);
+  return applyMonitorRisk(config, context.monitorRisk);
+}
+
+/**
+ * PR #4 — restrained live-monitor risk accent for TRIP markers.
+ *
+ * The premium marker keeps its identity (plate, icon, selection ring); only
+ * the tone, status line and z-lift change when the live monitor says the trip
+ * needs eyes. NORMAL — and any unrecognized value — changes nothing (a healthy
+ * trip reads as its phase color, green/blue), and a stale-GPS marker is left
+ * alone because "No signal" gray is already the honest telemetry verdict.
+ */
+const MONITOR_RISK_MARKERS = {
+  ACTION: { status: "Action needed", tone: "rose", pulse: true, zIndexOffset: 2400 },
+  ATTENTION: { status: "Attention", tone: "amber", zIndexOffset: 1500 },
+  WATCH: { status: "Watch", tone: "amber" },
+  UNKNOWN: { status: "Status unknown", tone: "gray" },
+};
+
+function applyMonitorRisk(config, risk) {
+  if (!risk || config.stale || config.type !== "trip") return config;
+  const accent = MONITOR_RISK_MARKERS[risk];
+  if (!accent) return config;
+  return {
+    ...config,
+    status: accent.status,
+    tone: accent.tone,
+    pulse: accent.pulse ?? config.pulse,
+    zIndexOffset: Math.max(config.zIndexOffset ?? 0, accent.zIndexOffset ?? 0),
+  };
+}
+
+function resolveBaseMarkerConfig(entity, context = {}) {
   if (!entity) {
     return {
       title: "Unknown",

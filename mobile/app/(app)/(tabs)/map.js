@@ -11,7 +11,7 @@ import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
-import { usePosterStatus } from "../../../lib/tracking";
+import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
 import {
   startBackgroundTracking,
@@ -394,6 +394,16 @@ export default function MapTab() {
       : null;
   const nearPickupHint = isState1 && tripGeofence?.near_pickup === true;
   const nearDestHint = isState3 && tripGeofence?.near_destination === true;
+
+  // PR #4 contextual warning: the ingest-side monitor verdict for THIS trip
+  // (same trip-id staleness guard as the geofence above — a finished trip's
+  // banner cannot linger onto the next assignment). Minimal by design: calm
+  // copy, no risk jargon, no dispatcher-style next-trip panic while driving.
+  const tripMonitor =
+    poster.monitorTripId != null && String(poster.monitorTripId) === String(activeTrip?.trip_id)
+      ? poster.monitor
+      : null;
+  const monitorBanner = monitorBannerFor(tripMonitor);
   
   const isHeadingToPickup = isPending || isDriverAccepted || isState1 || isState2;
 
@@ -702,6 +712,31 @@ export default function MapTab() {
                   ? "You're near the pickup point — swipe ARRIVED AT PICKUP."
                   : "You're near the destination — swipe ARRIVED AT DESTINATION."}
               </Text>
+            </View>
+          )}
+          {/* PR #4 contextual warning — shown only while actually en route, so
+              it never competes with arrival/pickup actions. Same calm banner
+              family as ConnectivityBanner: warning tone, alert role, no
+              animation dependency. */}
+          {monitorBanner && (isState1 || isState3) && (
+            <View
+              accessibilityRole="alert"
+              accessibilityLabel={`${monitorBanner.title}. ${monitorBanner.subtitle}`}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.warning + '1A' }}
+            >
+              <Ionicons
+                name={monitorBanner.key === 'off_route' ? 'map-outline' : monitorBanner.key === 'traffic' ? 'time-outline' : 'location-outline'}
+                size={20}
+                color={colors.warning}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.onSurface }}>
+                  {monitorBanner.title}
+                </Text>
+                <Text style={{ fontFamily: fonts.body, fontSize: 12, color: colors.onSurfaceVariant }}>
+                  {monitorBanner.subtitle}
+                </Text>
+              </View>
             </View>
           )}
           {preDeparture ? (

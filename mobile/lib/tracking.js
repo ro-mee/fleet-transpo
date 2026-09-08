@@ -5,6 +5,11 @@ import * as Location from "expo-location";
 import { api } from "./api";
 import { useSettings } from "./settings-context";
 import { getActiveStatuses } from "./tripRef";
+import { monitorBannerFor } from "./monitor-banner";
+
+// Re-exported for screens: the pure PR #4 banner derivation (implemented in
+// its own RN-import-free module so the vitest suite can exercise it).
+export { monitorBannerFor };
 
 const POST_INTERVAL_MS = 30 * 1000;
 // How often the poster re-checks which trip is active, so a trip accepted or
@@ -14,7 +19,15 @@ const TRIP_REFRESH_MS = 60 * 1000;
 // ── Poster status pub/sub ──────────────────────────────────────────────────
 // The poster is mounted once at the (app) layout level; screens subscribe to
 // this to render their tracking chip without each owning a poster.
-let posterStatus = { lastSentAt: null, error: null, geofence: null, geofenceTripId: null, activeTripId: null };
+let posterStatus = {
+  lastSentAt: null,
+  error: null,
+  geofence: null,
+  geofenceTripId: null,
+  monitor: null,
+  monitorTripId: null,
+  activeTripId: null,
+};
 const statusListeners = new Set();
 
 function publishStatus(patch) {
@@ -139,12 +152,18 @@ export function useActiveTripGpsPoster(enabled) {
             // human-confirmed arrival suggestion — never an auto-transition.
             // Tagged with the trip id so a completed trip's last banner
             // cannot linger onto the next assignment.
+            //
+            // PR #4: the same response carries the ingest-side monitor
+            // verdict (off-route / traffic / GPS) for the map screen's
+            // contextual banner — same trip-id tagging, same staleness rule.
             if (!cancelled) {
               publishStatus({
                 lastSentAt: new Date().toISOString(),
                 error: null,
                 geofence: res?.geofence ?? null,
                 geofenceTripId: tripId,
+                monitor: res?.monitor ?? null,
+                monitorTripId: tripId,
               });
             }
           } else {
