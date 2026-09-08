@@ -7,6 +7,8 @@ import { useActiveTripGpsPoster } from "../../lib/tracking";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
 import { useTheme } from "../../lib/theme-context";
 import { NotificationFeedProvider } from "../../context/notification-feed";
+import { ConnectivityProvider } from "../../lib/connectivity-context";
+import { ConnectivityBanner } from "../../components/ConnectivityBanner";
 
 /**
  * Auth + consent guard for every signed-in route.
@@ -70,19 +72,26 @@ export default function AppLayout() {
 
   return (
     <NotificationFeedProvider>
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
-        <Stack.Screen name="(tabs)" />
-        <Stack.Screen name="trip/[id]" />
-        <Stack.Screen name="fuel-report" />
-        <Stack.Screen name="incidents" />
-        <Stack.Screen name="inspection" />
-        <Stack.Screen name="work-schedule" />
-      </Stack>
+      <ConnectivityProvider>
+        {/* PR #3.1 global connectivity status: layout-participating sibling
+            above the navigator — driver-only (guards above already redirected
+            non-drivers/consent), pushes content down, never overlays map
+            controls or tabs, invisible when healthy. */}
+        <ConnectivityBanner />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.background },
+          }}
+        >
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="trip/[id]" />
+          <Stack.Screen name="fuel-report" />
+          <Stack.Screen name="incidents" />
+          <Stack.Screen name="inspection" />
+          <Stack.Screen name="work-schedule" />
+        </Stack>
+      </ConnectivityProvider>
     </NotificationFeedProvider>
   );
 }

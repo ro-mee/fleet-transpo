@@ -1,10 +1,17 @@
 import {
   getAccessToken,
   getRefreshToken,
+  getUser,
   saveTokens,
   clearAll,
 } from "./storage";
+import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { enqueueRequest, syncQueue, setApiFetch } from "./sync";
+import { isTransportFailure } from "./connectivity-state";
+
+// Re-exported so screens share the one classification: transport failures
+// belong to the global connectivity banner, never to inline error surfaces.
+export { isTransportFailure };
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -27,6 +34,42 @@ export class ApiError extends Error {
     super(message);
     this.status = status;
   }
+}
+
+// ── Connectivity events (PR #3.1) ──────────────────────────────────────────
+// A tiny emitter so the connectivity layer can observe real API outcomes
+// without touching any screen. Classification is locked:
+//
+// - transport failure = timeout/abort (fetchWithTimeout), status 0, or a
+//   network exception. ONLY these feed offline/unstable derivation.
+// - 401/403 (auth/permission) and 5xx/429 (backend) are HTTP statuses with a
+//   non-zero status and NEVER count as connectivity failures.
+//
+// Nothing here changes bearer/refresh/401/FormData/timeout/retry semantics;
+// every emit site is fire-and-forget beside the existing control flow.
+const apiEventListeners = new Set();
+
+export function subscribeApiEvents(fn) {
+  apiEventListeners.add(fn);
+  return () => {
+    apiEventListeners.delete(fn);
+  };
+}
+
+function emitApiEvent(event) {
+  apiEventListeners.forEach((l) => {
+    try {
+      l(event);
+    } catch {
+      // A listener must never break a request.
+    }
+  });
+}
+
+/** Shared helper for "Saved for sync" wording: { queued: true } means the
+ *  server has NOT confirmed the action — never render success copy for it. */
+export function wasQueued(result) {
+  return result?.queued === true;
 }
 
 /**
@@ -63,25 +106,77 @@ async function fetchWithTimeout(url, init) {
  */
 let refreshPromise = null;
 
+/**
+ * Session death cleanup: wipe the signed-in driver's offline read cache
+ * BEFORE deleting auth storage (the stored user holds the driverId we
+ * namespace the cache by). One-directional import only — offline-cache.js
+ * touches AsyncStorage alone, so this introduces no cycle.
+ */
+async function clearSession() {
+  try {
+    const stored = await getUser();
+    await clearOfflineCache(resolveDriverId(stored));
+  } catch {
+    // Cache wipe is best-effort; auth cleanup below must still run.
+  }
+  await clearAll();
+}
+
 async function refreshAccessToken() {
   if (refreshPromise) return refreshPromise;
 
   refreshPromise = (async () => {
     const refreshToken = await getRefreshToken();
     if (!refreshToken) {
-      await clearAll();
+      await clearSession();
       onSessionExpired();
       throw new ApiError("No refresh token", 401);
     }
 
-    const res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, {
+    const refreshBody = JSON.stringify({ refreshToken });
+    const refreshInit = () => ({
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken }),
+      body: refreshBody,
     });
+    let res;
+    try {
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit());
+    } catch (firstErr) {
+      // Flaky reconnect: the packet carrying a successful rotation may be
+      // lost in flight. Retry ONCE before concluding anything — the server
+      // tolerates a repeated refresh inside its 1-minute grace window, while
+      // a transport failure here must never look like a revoked session. If
+      // the retry also fails to reach the server, it propagates as a plain
+      // network error: no clearAll, no logout.
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit());
+    }
+
+    if (res.status === 429) {
+      // Rate-limited is transient, not dead: wait once per the server's hint,
+      // then try once more — silently. The cooldown/rate-limit 429 exists to
+      // serialize concurrent refreshers; surfacing it would punish the driver
+      // for a race they never started. Only a second consecutive 429 (genuine
+      // throttling) reaches the caller, still with the session intact.
+      let waitMs = 3000;
+      try {
+        const hint = await res.json();
+        const secs = Number(hint?.retry_after);
+        if (Number.isFinite(secs) && secs > 0) waitMs = Math.min(secs, 10) * 1000;
+      } catch {
+        // Keep the default wait.
+      }
+      await new Promise((r) => setTimeout(r, waitMs));
+      // A transport failure here propagates as a plain network error below
+      // (no clearSession, no logout) via the caller's normal handling.
+      res = await fetchWithTimeout(`${BASE_URL}/api/mobile/auth/refresh`, refreshInit());
+      if (res.status === 429) {
+        throw new ApiError("Too many requests. Try again later.", 429);
+      }
+    }
 
     if (!res.ok) {
-      await clearAll();
+      await clearSession();
       onSessionExpired();
       throw new ApiError("Session expired", 401);
     }
@@ -129,6 +224,10 @@ export async function apiFetch(path, options = {}) {
   try {
     res = await send(token);
   } catch (e) {
+    // First-attempt transport failure is connectivity evidence even when the
+    // retry below succeeds (repeated retry-then-success IS instability). A
+    // final success clears the window decisively, so one blip never sticks.
+    if (isTransportFailure(e)) emitApiEvent({ type: "transport-failure" });
     // Network / timeout failure. Retry once — a transient Wi-Fi blip or a
     // slow cold start should not fail the whole request immediately.
     const handleNetworkFailure = async () => {
@@ -152,6 +251,7 @@ export async function apiFetch(path, options = {}) {
         } catch(err) {}
         
         await enqueueRequest(method, path, parsedBody);
+        emitApiEvent({ type: "queued" });
         return { queued: true }; // Dummy successful response for offline actions
       }
       throw new ApiError("Network request failed. Check your connection.", 0);
@@ -164,6 +264,7 @@ export async function apiFetch(path, options = {}) {
       try {
         res = await send(token);
       } catch (retryErr) {
+        if (isTransportFailure(retryErr)) emitApiEvent({ type: "transport-failure" });
         return await handleNetworkFailure();
       }
     } else {
@@ -173,8 +274,29 @@ export async function apiFetch(path, options = {}) {
 
   if (res.status === 401 && !skipAuth) {
     // Access token expired mid-session; refresh once and replay the request.
-    const fresh = await refreshAccessToken();
-    res = await send(fresh);
+    const doRefreshReplay = async () => {
+      let fresh;
+      try {
+        fresh = await refreshAccessToken();
+      } catch (refreshErr) {
+        if (isTransportFailure(refreshErr)) emitApiEvent({ type: "transport-failure" });
+        throw refreshErr;
+      }
+      try {
+        return await send(fresh);
+      } catch (sendErr) {
+        if (isTransportFailure(sendErr)) emitApiEvent({ type: "transport-failure" });
+        throw sendErr;
+      }
+    };
+    res = await doRefreshReplay();
+    if (res.status === 401) {
+      // Rotation race second chance: the replay may have carried a token the
+      // server had just rotated under a concurrent refresh. One more
+      // refresh+replay with the newest stored token before surfacing a 401
+      // the driver would read as a dead session.
+      res = await doRefreshReplay();
+    }
   }
 
   if (res.status === 204) return null;
@@ -198,6 +320,7 @@ export async function apiFetch(path, options = {}) {
     syncQueue().catch(() => {});
   }
 
+  emitApiEvent({ type: "success" });
   return body;
 }
 

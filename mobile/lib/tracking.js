@@ -14,7 +14,7 @@ const TRIP_REFRESH_MS = 60 * 1000;
 // ── Poster status pub/sub ──────────────────────────────────────────────────
 // The poster is mounted once at the (app) layout level; screens subscribe to
 // this to render their tracking chip without each owning a poster.
-let posterStatus = { lastSentAt: null, error: null, geofence: null, geofenceTripId: null };
+let posterStatus = { lastSentAt: null, error: null, geofence: null, geofenceTripId: null, activeTripId: null };
 const statusListeners = new Set();
 
 function publishStatus(patch) {
@@ -84,6 +84,10 @@ export function useActiveTripGpsPoster(enabled) {
           // A completed/cancelled trip is left in place: the server drops
           // posts to non-live trips, and the next refresh replaces it.
           tripId = active?.trip_id ?? null;
+          // PR #3.1: publish which trip the poster is feeding so the
+          // connectivity layer can say "GPS still recording" only when
+          // tracking is genuinely active for the current trip.
+          publishStatus({ activeTripId: tripId });
         } catch {
           // Keep the previous tripId; the next tick retries.
         }

@@ -12,6 +12,44 @@ const QUEUE_KEY = '@offline_queue';
 const DEAD_LETTER_KEY = '@offline_dead_letter_incidents';
 let isSyncing = false;
 
+// ── Sync state pub/sub ───────────────────────────────────────────────────
+// PR #3.1: the connectivity banner needs live pending/syncing state without
+// polling AsyncStorage. Emissions: { pendingCount } on enqueue, and
+// { syncActive, pendingCount } around drains. Listeners never throw into us.
+const syncListeners = new Set();
+
+export function subscribeSync(fn) {
+  syncListeners.add(fn);
+  return () => {
+    syncListeners.delete(fn);
+  };
+}
+
+function notifySync(patch) {
+  syncListeners.forEach((l) => {
+    try {
+      l(patch);
+    } catch {
+      // A listener must never break the queue.
+    }
+  });
+}
+
+/**
+ * How many actions are currently waiting for the server. Fail-open: storage
+ * trouble reads as empty rather than crashing a status surface.
+ */
+export async function getPendingCount() {
+  if (!isReady()) return 0;
+  try {
+    const raw = await AsyncStorage.getItem(QUEUE_KEY);
+    const queue = raw ? JSON.parse(raw) : [];
+    return Array.isArray(queue) ? queue.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 /**
  * Incident reports that could not be delivered, newest last.
  */
@@ -128,6 +166,7 @@ export async function enqueueRequest(method, path, body) {
     
     await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(queue));
     console.log(`[Sync] Queued ${method} ${path}`);
+    notifySync({ pendingCount: queue.length });
   } catch (error) {
     // Swallow the "Native module is null" error on cold start
     if (!error?.message?.includes('Native module is null')) {
@@ -152,6 +191,7 @@ export async function syncQueue() {
     
     isSyncing = true;
     console.log(`[Sync] Attempting to sync ${queue.length} queued requests...`);
+    notifySync({ syncActive: true, pendingCount: queue.length });
     
     const remainingQueue = [];
     
@@ -198,6 +238,7 @@ export async function syncQueue() {
     if (remainingQueue.length !== queue.length) {
       await AsyncStorage.setItem(QUEUE_KEY, JSON.stringify(remainingQueue));
     }
+    notifySync({ syncActive: false, pendingCount: remainingQueue.length });
     
   } catch (error) {
     // Swallow the "Native module is null" error on cold start
@@ -206,5 +247,10 @@ export async function syncQueue() {
     }
   } finally {
     isSyncing = false;
+    // Converge listeners even if the drain threw outside the per-request
+    // handling above — a stuck syncActive would freeze the banner.
+    getPendingCount()
+      .then((pendingCount) => notifySync({ syncActive: false, pendingCount }))
+      .catch(() => notifySync({ syncActive: false }));
   }
 }
