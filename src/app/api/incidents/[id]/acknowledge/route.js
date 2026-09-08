@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
+import { incidentAcknowledged } from "@/lib/notifications/copy";
 
 /**
  * Explicitly acknowledge an open incident. Reading the registry never clears
@@ -78,17 +79,16 @@ export async function POST(req, props) {
 
     if (result.current?.reporter_employee_id) {
       try {
-        const base = `Your incident report (#${id}) has been acknowledged by the fleet team.`;
-        const message = note ? `${base} ${note}` : base;
+        const copy = incidentAcknowledged({ note: note || null });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.current.reporter_employee_id, "Incident Report Acknowledged", message, "Info", "incident", id]
+          [result.current.reporter_employee_id, copy.title, copy.message, "Info", "incident", id]
         );
         await sendPush({
           employeeIds: [result.current.reporter_employee_id],
-          title: "Incident Report Acknowledged",
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(id) },
         });
       } catch (e) {

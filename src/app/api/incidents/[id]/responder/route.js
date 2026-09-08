@@ -4,6 +4,7 @@ import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 import { haversineKm, etaFromDistanceKm, tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
 import { sortCandidateResponders } from "@/lib/incidents/responder-tracking";
+import { responderAssignedResponder, responderAssignedReporter } from "@/lib/notifications/copy";
 
 // Assign a FLEET driver as the incident's responder. This is what turns the
 // rescue from paperwork into something the system tracks itself: once
@@ -281,18 +282,20 @@ export async function POST(req, props) {
     // Best-effort notifications — a push failure must not fail the assignment.
     if (result.responderEmployeeId) {
       try {
-        const whereText = result.incidentLocation ? ` at ${result.incidentLocation}` : "";
-        const etaText = result.initialEtaMinutes ? ` (ETA ~${result.initialEtaMinutes} mins)` : "";
-        const message = `You are responding to incident #${id} — driver ${result.reporterName || "(unknown)"}${whereText}${etaText}. Open the incident for their live location and navigation.`;
+        const copy = responderAssignedResponder({
+          driverName: result.reporterName,
+          location: result.incidentLocation,
+          etaMinutes: result.initialEtaMinutes,
+        });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.responderEmployeeId, "You Are the Responder", message, "Alert", "incident", id]
+          [result.responderEmployeeId, copy.title, copy.message, "Alert", "incident", id]
         );
         await sendPush({
           employeeIds: [result.responderEmployeeId],
-          title: "You Are the Responder",
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(id) },
         });
       } catch (e) {
@@ -301,17 +304,19 @@ export async function POST(req, props) {
     }
     if (result.reporterEmployeeId && result.responderName) {
       try {
-        const etaText = result.initialEtaMinutes ? ` (ETA ~${result.initialEtaMinutes} mins)` : "";
-        const message = `Fleet responder ${result.responderName} has been dispatched to your location${etaText}. Status and ETA will update automatically as they drive.`;
+        const copy = responderAssignedReporter({
+          responderName: result.responderName,
+          etaMinutes: result.initialEtaMinutes,
+        });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.reporterEmployeeId, "Help Update", message, "Info", "incident", id]
+          [result.reporterEmployeeId, copy.title, copy.message, "Info", "incident", id]
         );
         await sendPush({
           employeeIds: [result.reporterEmployeeId],
-          title: "Help Update",
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(id) },
         });
       } catch (e) {

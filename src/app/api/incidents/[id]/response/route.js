@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
+import { helpResponding } from "@/lib/notifications/copy";
 
 // The physical side of incident response: what help was dispatched to the
 // driver, when it is expected, and how far along it is. The acknowledge note
@@ -126,22 +127,22 @@ export async function POST(req, props) {
 
     if (result.current.reporter_employee_id) {
       try {
-        const etaText = result.row.response_eta
-          ? ` — ETA ${new Date(result.row.response_eta).toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit" })}`
-          : "";
-        const message =
-          result.row.response_status === "Arrived"
-            ? `Help has arrived: ${result.row.response_type}.`
-            : `${result.row.response_type} ${result.row.response_status.toLowerCase()} for your incident report (#${id})${etaText}.`;
+        const copy = helpResponding({
+          responseLabel: result.row.response_type,
+          status: result.row.response_status,
+          etaMinutes: result.row.response_eta
+            ? Math.max(0, Math.round((new Date(result.row.response_eta) - new Date()) / 60000))
+            : null,
+        });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.current.reporter_employee_id, "Help Update", message, "Info", "incident", id]
+          [result.current.reporter_employee_id, copy.title, copy.message, "Info", "incident", id]
         );
         await sendPush({
           employeeIds: [result.current.reporter_employee_id],
-          title: "Help Update",
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(id) },
         });
       } catch (e) {

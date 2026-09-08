@@ -7,8 +7,10 @@ import {
   INCIDENT_ASSISTANCE_OPTIONS,
   INCIDENT_SEVERITIES,
   normalizeIncidentType,
+  incidentTypeLabel,
 } from "@/lib/incidents/resolution";
 import { groundIncident } from "@/lib/incidents/grounding";
+import { incidentUnderReview } from "@/lib/notifications/copy";
 import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
 import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 import { writeAudit } from "@/lib/audit";
@@ -335,13 +337,16 @@ export async function POST(req) {
     });
 
     try {
+      const copy = incidentUnderReview({
+        incidentTypeLabel: incidentTypeLabel(incident.incident_type),
+      });
       await query(
         `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
           session.user.employeeId,
-          "Incident Report Under Review",
-          `Your incident report (#${incident.incident_id}) was received and is under review.`,
+          copy.title,
+          copy.message,
           "Info",
           "incident",
           incident.incident_id,

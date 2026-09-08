@@ -6,6 +6,7 @@ import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { syncDriverStatus } from "@/services/status.service";
 import { notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
+import { driverReinstatedDriver, driverReinstatedStaff } from "@/lib/notifications/copy";
 
 // Auto-ensure emergency contact and back license image columns exist in PostgreSQL
 let migrationRan = false;
@@ -292,24 +293,57 @@ export async function PUT(req, { params }) {
               WHERE d.driver_id = $1 AND d.deleted_at IS NULL AND e.deleted_at IS NULL`,
             [id]
           );
-          const recipients = dedupeEmployeeIds([
-            ...staff.map((s) => s.employee_id),
-            ...owner.map((o) => o.employee_id),
-          ]);
-          if (recipients.length) {
+          const staffRecipients = dedupeEmployeeIds(staff.map((s) => s.employee_id));
+          const ownerEmployeeId = owner[0]?.employee_id ?? null;
+          // Audience split: staff keep the ops wording; the reinstated driver
+          // hears it in their own words, not "compliance suspension lifted".
+          const staffCopy = driverReinstatedStaff({ name });
+          const ownerCopy = driverReinstatedDriver();
+          const inserts = [
+            ...staffRecipients.map((employee_id) => ({
+              employee_id,
+              title: staffCopy.title,
+              message: staffCopy.message,
+              type: "Info",
+              reference_type: "driver",
+              reference_id: Number(id) || null,
+            })),
+            ...(ownerEmployeeId
+              ? [{
+                  employee_id: ownerEmployeeId,
+                  title: ownerCopy.title,
+                  message: ownerCopy.message,
+                  type: "Info",
+                  reference_type: "driver",
+                  reference_id: Number(id) || null,
+                }]
+              : []),
+          ];
+          if (inserts.length) {
             const { sendPush } = await import("@/services/push.service");
-            await query(
-              `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
-               SELECT u.employee_id, $2, $3, 'Info', 'driver', $4 FROM unnest($1::int[]) AS u(employee_id)`,
-              [recipients, "Driver Reinstated",
-               `${name}'s license was renewed — compliance suspension lifted and driver is Available again.`, Number(id) || null]
-            ).catch(() => {});
-            sendPush({
-              employeeIds: recipients,
-              title: "Driver Reinstated",
-              body: `${name}'s license renewal lifted the suspension — driver is Available.`,
-              data: { reference_type: "driver", reference_id: Number(id) || null },
-            }).catch(() => {});
+            for (const ins of inserts) {
+              await query(
+                `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
+                 VALUES ($1, $2, $3, 'Info', 'driver', $4)`,
+                [ins.employee_id, ins.title, ins.message, Number(id) || null]
+              ).catch(() => {});
+            }
+            if (staffRecipients.length) {
+              sendPush({
+                employeeIds: staffRecipients,
+                title: staffCopy.title,
+                body: staffCopy.pushBody,
+                data: { reference_type: "driver", reference_id: Number(id) || null },
+              }).catch(() => {});
+            }
+            if (ownerEmployeeId) {
+              sendPush({
+                employeeIds: [ownerEmployeeId],
+                title: ownerCopy.title,
+                body: ownerCopy.pushBody,
+                data: { reference_type: "driver", reference_id: Number(id) || null },
+              }).catch(() => {});
+            }
           }
           await writeAudit(req, null, {
             action: "update",

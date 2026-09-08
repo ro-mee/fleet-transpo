@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject, maintenanceDateRule, completionDateRule } from "@/lib/validation/helpers";
 import { recomputeVehicleSchedule } from "@/services/maintenance-schedule.service";
 import { MAX_ODOMETER_KM } from "@/lib/vehicles/odometer";
+import { vehicleRepaired } from "@/lib/notifications/copy";
 
 // Repeated rather than shared with the POST route: the two accept different
 // required fields, and coupling them would make a PUT-only field silently
@@ -193,17 +194,16 @@ export async function PUT(req, { params }) {
             `SELECT plate_number FROM vehicles WHERE vehicle_id = $1`,
             [rows[0].vehicle_id]
           )).rows[0]?.plate_number;
+          const copy = vehicleRepaired({ plate: plate || null });
           await query(
             `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
              VALUES ($1, $2, $3, $4, $5, $6)`,
-            [reporterEmployeeId, "Vehicle Repair Completed",
-             `The vehicle from your incident report (#${rows[0].source_incident_id}) has been repaired${plate ? ` (${plate})` : ""} and is back in service.`,
-             "Info", "incident", rows[0].source_incident_id]
+            [reporterEmployeeId, copy.title, copy.message, "Info", "incident", rows[0].source_incident_id]
           );
           await sendPush({
             employeeIds: [reporterEmployeeId],
-            title: "Vehicle Repair Completed",
-            body: `The vehicle from your incident report (#${rows[0].source_incident_id}) is back in service.`,
+            title: copy.title,
+            body: copy.pushBody,
             data: { reference_type: "incident", reference_id: rows[0].source_incident_id },
           });
         }

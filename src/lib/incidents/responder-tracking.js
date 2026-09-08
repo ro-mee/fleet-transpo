@@ -6,6 +6,7 @@ import {
   etaFromDistanceKm,
   tomtomEtaMinutes,
 } from "@/lib/scheduling/travel-buffer";
+import { helpArrived, helpEnRoute, helpNewEta } from "@/lib/notifications/copy";
 
 // The physical rescue, automated. When the help sent to a stranded driver is
 // another fleet driver, that responder's phone already posts GPS to this
@@ -258,26 +259,21 @@ export async function evaluateResponder(incidentId, { req, session } = {}) {
     // roll back a status advance.
     if (result.reporterEmployeeId && result.shouldNotify) {
       try {
-        let title = "Help Update";
-        let message;
-        if (result.statusChanged && result.responseStatus === "Arrived") {
-          message = `Help has arrived: ${result.responderName}.`;
-        } else if (result.statusChanged && result.responseStatus === "En Route") {
-          const eta = result.etaMinutes != null ? ` — ETA about ${result.etaMinutes} minutes` : "";
-          message = `${result.responderName} is en route to your location${eta}.`;
-        } else {
-          title = "Help Update — New ETA";
-          message = `Updated ETA: help arrives in about ${result.etaMinutes} minutes.`;
-        }
+        const copy =
+          result.statusChanged && result.responseStatus === "Arrived"
+            ? helpArrived({ responderName: result.responderName })
+            : result.statusChanged && result.responseStatus === "En Route"
+            ? helpEnRoute({ responderName: result.responderName, etaMinutes: result.etaMinutes })
+            : helpNewEta({ responderName: result.responderName, etaMinutes: result.etaMinutes });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.reporterEmployeeId, title, message, "Info", "incident", incidentId]
+          [result.reporterEmployeeId, copy.title, copy.message, "Info", "incident", incidentId]
         );
         await sendPush({
           employeeIds: [result.reporterEmployeeId],
-          title,
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(incidentId) },
         });
       } catch (e) {

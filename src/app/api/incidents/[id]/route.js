@@ -5,6 +5,7 @@ import { syncVehicleStatus } from "@/services/status.service";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
 import { getIncidentPhotoUrls } from "@/lib/driver/incident-storage";
+import { incidentResolvedByStaff } from "@/lib/notifications/copy";
 import {
   normalizeIncidentStatus,
   canTransition,
@@ -322,17 +323,16 @@ export async function PATCH(req, props) {
     if (reporterEmployeeId && result.current.status !== "Resolved") {
       try {
         const excerpt = result.finalActions ? String(result.finalActions).slice(0, 200) : "";
+        const copy = incidentResolvedByStaff({ actions: excerpt || null });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [reporterEmployeeId, "Incident Report Resolved",
-           `Your incident report (#${id}) was resolved by the fleet team.${excerpt ? ` Actions taken: ${excerpt}` : ""}`,
-           "Info", "incident", id]
+          [reporterEmployeeId, copy.title, copy.message, "Info", "incident", id]
         );
         await sendPush({
           employeeIds: [reporterEmployeeId],
-          title: "Incident Report Resolved",
-          body: `Your incident report (#${id}) was resolved by the fleet team.`,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(id) },
         });
       } catch (e) {

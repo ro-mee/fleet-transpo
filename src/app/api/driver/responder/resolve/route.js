@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { syncVehicleStatus } from "@/services/status.service";
 import { resolveFromField } from "@/lib/incidents/field-resolution";
 import { fieldResolutionGuardMessage } from "@/lib/incidents/resolution";
+import { incidentResolvedByResponder } from "@/lib/notifications/copy";
 
 const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
@@ -117,18 +118,19 @@ export async function POST(req) {
     // gives them: confirm they are safe, or dispute with a reason.
     if (result.current.reporter_employee_id) {
       try {
-        const message =
-          `Your incident report (#${incidentId}) was resolved by ${responderName} from their phone.` +
-          `${note ? ` Note: ${note.slice(0, 200)}` : ""} Please confirm you are safe, or tell us if you still need help.`;
+        const copy = incidentResolvedByResponder({
+          responderName,
+          note: note ? note.slice(0, 200) : null,
+        });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.current.reporter_employee_id, "Incident Report Resolved", message, "Info", "incident", incidentId]
+          [result.current.reporter_employee_id, copy.title, copy.message, "Info", "incident", incidentId]
         );
         await sendPush({
           employeeIds: [result.current.reporter_employee_id],
-          title: "Incident Report Resolved",
-          body: `Your incident report (#${incidentId}) was resolved by ${responderName}. Please confirm or dispute.`,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(incidentId) },
         });
       } catch (e) {

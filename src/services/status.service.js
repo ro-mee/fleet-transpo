@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { suspensionAction } from "@/lib/drivers/compliance";
 import { DRIVER_STATUS, DRIVER_SUSPENSION_REASON } from "@/lib/constants";
 import { employeeIdsForRoles, notificationRolesFor, dedupeEmployeeIds } from "@/lib/notifications/recipients";
+import { driverAutoSuspendedDriver, driverAutoSuspendedStaff } from "@/lib/notifications/copy";
 
 function isBeforeToday(dateStr) {
   if (!dateStr) return false;
@@ -281,28 +282,43 @@ export async function syncDriverStatus(driverId) {
             AND role_id IS NOT NULL`,
         [notificationRolesFor("drivers", "update")]
       );
-      const recipients = dedupeEmployeeIds([
-        ...staff.map((s) => s.employee_id),
-        ownerEmployeeId,
-      ]);
-      if (recipients.length) {
-        await supabase.from("notifications").insert(
-          recipients.map((employee_id) => ({
-            employee_id,
-            title: "Driver Auto-Suspended",
-            message: `${name} was automatically suspended — license expired ${expiry}. Reinstate from their profile after renewal.`,
-            type: "Warning",
-            reference_type: "driver",
-            reference_id: driverId,
-          }))
-        );
+      // Two audiences, two copies: ops staff keep the operational wording;
+      // the suspended driver gets wording meant for them — telling the owner
+      // to "reinstate from their profile" is a staff instruction.
+      const staffRecipients = dedupeEmployeeIds(staff.map((s) => s.employee_id));
+      const staffCopy = driverAutoSuspendedStaff({ name, expiry });
+      const ownerCopy = driverAutoSuspendedDriver({ expiry });
+      const rowFor = (employee_id, copy) => ({
+        employee_id,
+        title: copy.title,
+        message: copy.message,
+        type: "Warning",
+        reference_type: "driver",
+        reference_id: driverId,
+      });
+      const inserts = [
+        ...staffRecipients.map((employee_id) => rowFor(employee_id, staffCopy)),
+        ...(ownerEmployeeId ? [rowFor(ownerEmployeeId, ownerCopy)] : []),
+      ];
+      if (inserts.length) {
+        await supabase.from("notifications").insert(inserts);
         const { sendPush } = await import("@/services/push.service");
-        await sendPush({
-          employeeIds: recipients,
-          title: "Driver Auto-Suspended",
-          body: `${name} suspended — license expired ${expiry}.`,
-          data: { reference_type: "driver", reference_id: driverId },
-        });
+        if (staffRecipients.length) {
+          await sendPush({
+            employeeIds: staffRecipients,
+            title: staffCopy.title,
+            body: staffCopy.pushBody,
+            data: { reference_type: "driver", reference_id: driverId },
+          });
+        }
+        if (ownerEmployeeId) {
+          await sendPush({
+            employeeIds: [ownerEmployeeId],
+            title: ownerCopy.title,
+            body: ownerCopy.pushBody,
+            data: { reference_type: "driver", reference_id: driverId },
+          });
+        }
       }
     } catch (e) {
       console.warn("driver suspend notification failed:", e?.message || e);

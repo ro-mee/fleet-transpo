@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { sendPush } from "@/services/push.service";
 import { writeAudit } from "@/lib/audit";
+import { helpArrived } from "@/lib/notifications/copy";
 
 const OVERSEER_ROLES = ["fleet_manager", "admin"];
 
@@ -76,16 +77,16 @@ export async function POST(req) {
     // best-effort — the status write is what matters.
     if (result.reporterEmployeeId) {
       try {
-        const message = `Help has arrived: ${result.responderName}.`;
+        const copy = helpArrived({ responderName: result.responderName });
         await query(
           `INSERT INTO notifications (employee_id, title, message, type, reference_type, reference_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [result.reporterEmployeeId, "Help Update", message, "Info", "incident", result.incidentId]
+          [result.reporterEmployeeId, copy.title, copy.message, "Info", "incident", result.incidentId]
         );
         await sendPush({
           employeeIds: [result.reporterEmployeeId],
-          title: "Help Update",
-          body: message,
+          title: copy.title,
+          body: copy.pushBody,
           data: { reference_type: "incident", reference_id: Number(result.incidentId) },
         });
       } catch (e) {
