@@ -7,6 +7,7 @@ import { estimateEfficiency, isProximityRelevant } from "@/lib/ai/rule-engine";
 import { predictVehicle } from "@/lib/ai/predictive-maintenance";
 import { estimateFuel, resolveCoordinates, haversineKm, HOTEL_BASE } from "@/lib/geo/distance";
 import { estimateForRequest, resolveRequestEstimate } from "@/services/route-resolver.service";
+import { selectShortlistCandidates, resolveDeadheadMinutes, DEADHEAD_SHORTLIST_LIMIT, attachPairFeasibility } from "@/services/route-feasibility-context.service";
 import { executeLlmCompletion } from "@/lib/ai/llm-adapter";
 import { saveRecommendationSnapshot, getActiveRecommendation, validatePairAvailability } from "@/services/recommendation.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -229,6 +230,10 @@ async function fetchCandidates(request, trip = estimateForRequest(request)) {
           ? Number(haversineKm(pickupCoords, position).toFixed(1))
           : null;
         d._position_basis = position.basis;
+        // PR #2: the feasibility layer needs raw coordinates, not just the
+        // Haversine number — carry them alongside the basis label.
+        d._position_lat = position.lat;
+        d._position_lng = position.lng;
         d._proximity_relevant = proximityRelevant;
         d._schedule_load = Number(d.schedule_load) || 0;
         // Rolling workload signals (AI Fair Workload Distribution). Coerce pg's
@@ -244,7 +249,34 @@ async function fetchCandidates(request, trip = estimateForRequest(request)) {
     ),
   ]);
 
+  if (proximityRelevant) {
+    await enrichShortlistDeadhead(drivers, gpsByDriver, pickupCoords, windowStart);
+  }
+
   return { vehicles, drivers, windowStart, windowEnd };
+}
+
+async function enrichShortlistDeadhead(drivers, gpsByDriver, pickupCoords, departAt) {
+  // PR #1 two-stage ETA: the Haversine distance above ranked everyone cheaply;
+  // only the shortlist (nearest 5) gets a live routed deadhead ETA — cached,
+  // fail-open, never the whole roster. Scoring still uses
+  // `_pickup_distance_km`; the routed minutes ride along as information for
+  // the feasibility layer, not as a new ranking input (Phase 2).
+  if (!pickupCoords) return;
+  const shortlist = selectShortlistCandidates(drivers, DEADHEAD_SHORTLIST_LIMIT);
+  await Promise.all(shortlist.map(async (d) => {
+    try {
+      const position = driverPosition(d, gpsByDriver.get(d.driver_id));
+      const { minutes, provenance } = await resolveDeadheadMinutes(position, pickupCoords, {
+        departAt: departAt || new Date(),
+      });
+      d._deadhead_minutes_routed = minutes;
+      d._deadhead_provenance = provenance;
+    } catch {
+      d._deadhead_minutes_routed = null;
+      d._deadhead_provenance = "unknown";
+    }
+  }));
 }
 
 /** Flatten the scorer's output into the facts the model is allowed to talk about. */
@@ -619,6 +651,15 @@ export async function GET(req, { params }) {
       scheduleContext,
     });
 
+    // PR #2: per-pair route feasibility (recommended + alternate + top-3).
+    // Advisory information only — scoring is untouched. Fail-open per pair.
+    await attachPairFeasibility({ query }, {
+      request: recommendationRequest,
+      estimate,
+      recommendation,
+      drivers,
+    });
+
     // Only the explicit second call pays for the provider round-trip.
     recommendation.narration = await narrateForRequest(req, recommendationRequest, recommendation, session);
 
@@ -657,6 +698,15 @@ export async function POST(req, { params }) {
       activeSubstitutes,
       returnAt: windowEnd ? new Date(windowEnd) : null,
       scheduleContext,
+    });
+
+    // Same feasibility attachment as GET, so the persisted snapshot carries
+    // exactly what the dispatcher saw (thesis: acceptance vs outcome).
+    await attachPairFeasibility({ query }, {
+      request: recommendationRequest,
+      estimate,
+      recommendation,
+      drivers,
     });
 
     const pairPayload = {

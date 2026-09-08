@@ -132,6 +132,11 @@ export async function PUT(req, { params }) {
         driver_id: driverId,
         forced: force && blocking.length > 0,
         overridden_conflicts: force && blocking.length > 0 ? blocking : undefined,
+        // PR #2 thesis field: why the dispatcher ignored the advisory/blocks.
+        override_reason:
+          force && typeof body?.override_reason === "string" && body.override_reason.trim()
+            ? body.override_reason.trim().slice(0, 500)
+            : undefined,
       },
       patch: { vehicle_id: vehicleId, driver_id: driverId },
       outbound: {

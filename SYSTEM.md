@@ -57,8 +57,14 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
 - **Global search** (`Ctrl/Cmd+K`): `src/components/ui/command-palette.jsx` +
   `GET /api/search` across reservations, dispatches, drivers, vehicles.
 - **TomTom routing** (`src/lib/tomtom.js` + `GET /api/tomtom/route` proxy with the
-  server key): route / distance / turn-by-turn for trip detail and live tracking;
-  the mobile **Live Map** uses TomTom static images (no native map SDK).
+  server key): traffic-aware routing (`traffic=true` by default, `departAt`,
+  0–2 alternatives, `trafficDelayMin` surfaced), short-TTL server cache
+  (`src/lib/routing/route-cache.js`, rounded coords + 10-min departure buckets,
+  `live/cached/snapshot/fallback/unknown` provenance), and the pure three-leg
+  feasibility engine (`src/lib/scheduling/route-feasibility.js` fed by
+  `src/services/route-feasibility-context.service.js`); route / distance /
+  turn-by-turn for trip detail and live tracking; the mobile **Live Map** uses
+  TomTom static images (no native map SDK).
 - **CORS lockdown:** `src/proxy.js` (Next 16 middleware) answers preflights only
   for the `NEXT_PUBLIC_APP_URL` origin and 403s every other cross-origin caller —
   fail-closed, no `*` (see §4.6).
@@ -174,7 +180,8 @@ fleet-transpo/
 │   │   ├── constants.js        # ROLES, ROLE_IDS, status lifecycles, NOTIFICATION_EVENTS/CHANNELS, derived-priority, etc.
 │   │   ├── workspaces.js       # ★ WORKS[role] per-role workspace (identity, accent, home, nav) + getWorkspace()
 │   │   ├── dispatch-policy.js  # ★ smart-queue thresholds (critical/high/medium minutes, vip/emergency flags)
-│   │   ├── tomtom.js           # ★ TomTom URLs + server-keyed route builder (two-key split)
+│   │   ├── tomtom.js           # ★ TomTom URLs + server-keyed route builder (two-key split, traffic/departAt/alternatives)
+│   │   ├── routing/            # route-cache.js — short-TTL live-route cache (rounded coords + departure buckets)
 │   │   ├── audit.js            # writeAudit() — the only audit_logs writer since 014b dropped the DB triggers
 │   │   ├── auth/               # api-auth, permissions.js (RBAC matrix), role-guard, mobile-token
 │   │   ├── api/                # utils (requireAuth/ok/err), client (apiFetch), service-auth, ownership, trips-query
@@ -183,7 +190,7 @@ fleet-transpo/
 │   │   ├── fuel/               # request-policy.js, gemini-gauge.js (gauge scan, fail-closed)
 │   │   ├── notifications/      # presentation.js (category/severity chips), target.js (per-role nav)
 │   │   ├── scheduling/         # calendar, conflicts, priority, queue-grouping, trip-progress, travel-buffer,
-│   │   │                       #   driver-schedule (shift/leave blocking), state machines
+│   │   │                       #   route-feasibility (pure 3-leg SAFE/TIGHT/INFEASIBLE/UNKNOWN), driver-schedule, state machines
 │   │   ├── integration/        # booking-gateway, contracts, ingest (shared writer), category-resolver, status-map
 │   │   ├── ai/                 # llm-adapter, rule-engine, dispatch-advisor, pair-scoring, predictive-maintenance,
 │   │   │                       #   gemini-document, report-narrative, license-scan-policy
@@ -509,6 +516,50 @@ Decision rule:
     Assignment` / `Restricted` / `Under Maintenance` (incident/grounding §7.3),
     then return to the available pool for the next request (loop to step 1).
 
+#### 4.8.5 Three-leg route feasibility (PR #1, 2026-09-07)
+
+`evaluateRouteFeasibility` (`src/lib/scheduling/route-feasibility.js`, pure —
+no DB, no fetch, `now` passed in) scores one pair against three journeys:
+driver→pickup (deadhead, live routing matters most), pickup→destination
+(canonical snapshot first, live only when freshness is required), and
+destination→next **assigned** pickup (hard constraint). Verdicts `SAFE /
+TIGHT / INFEASIBLE`, plus `UNKNOWN` fail-open whenever a leg ETA is missing —
+never a fabricated block. `pickupBufferMin` is slack before the latest safe
+departure net of the safety buffer (45 min to pickup − 19 deadhead − 10
+buffer = 16). "Next booking" means the next `Scheduled`/`In Progress`
+dispatch touching the vehicle or driver; a pending queue request is never a
+next booking (scarcity/lookahead is Phase 2). The I/O boundary
+(`src/services/route-feasibility-context.service.js`) resolves minutes +
+provenance and caps live routed ETAs to a nearest-5 Haversine shortlist
+(`_deadhead_minutes_routed` / `_deadhead_provenance` on candidates; scoring
+itself unchanged until Phase 2). Tests: `route-feasibility.test.js` (incl.
+the 8:15 → 9:00 → 11:00 acceptance case), `route-cache.test.js`,
+extended `tomtom.test.js`; PR #1 suite 654 passing.
+
+PR #2 (2026-09-07) makes the verdict dispatcher-visible: `attachPairFeasibility`
+stamps a JSON-safe `feasibility` object (verdict, legs, reasons, per-leg
+provenance) onto recommended + alternate + top-3 candidates in recommendation
+GET and POST (so persisted snapshots carry exactly what was shown), and
+`AiRecommendationPanel` renders it as a Route Feasibility card with provenance
+labels. Skipped-vehicle rejection reasons render in a collapsible list even
+when pairs exist; the assign endpoint records an optional `override_reason`
+(≤500 chars) in timeline metadata. Tests: `route-feasibility-context.test.js`;
+full suite 659 passing.
+
+PR #3 (2026-09-08) adds arrival intelligence (migration 108:
+`locations.pickup_radius_m/dropoff_radius_m` NOT NULL DEFAULT 100 with a
+1–1000 m check constraint, tuned live to hotel 60 / arrivals pickup 150 /
+departures dropoff 120; `trips.gps_distance_km`). Pure `evaluateGeofence` /
+`evaluateTripGeofences` (`src/lib/geo/geofence.js`) with an accuracy guard
+(>150 m → UNKNOWN, never a fake arrival) and `trailDistanceKm` (teleport
+filter 180 km/h). `trip-geofence.service.js` resolves per-trip targets
+(canonical location → gazetteer → null) with a 5-min cache, enriches every
+ingested ping, and backs `checkDestinationProximity` (latest-ping, 10-min
+freshness, fail-open). The mobile map shows near-geofence banners and gates
+completion through Go Back / Complete Anyway + required reason; geofences
+never auto-transition status. Tests: `geofence.test.js`,
+`trip-geofence.test.js`; full suite 678 passing.
+
 ### 4.9 Canonical route resolution and lifecycle
 
 `src/services/route-resolver.service.js` is the shared server-side path for
@@ -779,8 +830,9 @@ Protected handlers call `requireAuth(req, [...roles])` / `requireDriver(req)`; p
 - `trips/` (GET/POST), `trips/[id]` (GET/PUT) — shared `TRIPS_SELECT/TRIPS_JOINS` (`src/lib/api/trips-query.js`).
 - `trips/[id]/status` (PUT) — state-machine transition (`canTransitionTrip`); `transition.service.js` centralizes trip/dispatch status writes with derived-resource reconciliation + audit.
 - `trips/[id]/start` (PUT) — **pre-trip inspection gate**: requires the latest per-trip `vehicleinspection` for this driver+vehicle to be `Passed`, else 400 (migration 048); also runs the work-schedule/leave window guard.
-- `trips/[id]/complete` (PUT) — odometer validation + cascade sync.
-- `trips/[id]/locations` (GET/POST) — GPS breadcrumbs (trip-isolated route history).
+- `trips/[id]/complete` (PUT) — odometer validation + cascade sync + PR #3 completion validation: outside the destination geofence (server's own latest ping, 10-min freshness) → 409 unless `geofence_override: true` with a required `completion_reason` (≤500 chars, timeline metadata); GPS trail distance fills `trips.gps_distance_km` and backs `distance` only when odometer/supplied figures are absent.
+- `trips/[id]/destination-check` (GET) — read-only pre-completion proximity (inside/outside/unknown + distance) for the driver app's Complete-Anyway flow; the PUT above is the enforcing counterpart.
+- `trips/[id]/locations` (GET/POST) — GPS breadcrumbs (trip-isolated route history). POST (and the mobile `trips/[id]/gps` alias) now returns a `geofence` enrichment (`near_pickup/near_destination`, distances, accuracy-gated state) — advisory only, never transitions status.
 - `trips/active` (GET) — active fleet; **driver sees only own trips**.
 - `trips/latest-locations` (GET) — latest status-aware GPS telemetry per active vehicle/trip (`src/lib/gps.js`); filters by active states (`In Progress`, `Dispatched`, `Assigned`), marks staleness with a 3-minute disconnect threshold (`GPS_STALE_THRESHOLD_MS`), and isolates breadcrumbs to active trips.
 - `trips/[id]/accept|at-pickup|cancel|complete|dropoff|enroute|onboard|start` — explicit lifecycle action endpoints; the centralized transition service remains the status-write authority.
@@ -830,7 +882,7 @@ is the only reservation concept, and `integration/` is its only door.
 - `ai/report-narrative` (POST) ★ — LLM report narration over a client-computed payload: 24 h sticky cache, ≤3 forced regenerations per tab/day, deterministic rules fallback (`lib/ai/report-narrative.js`, `ai_report_narratives` table).
 - `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 037).
 - `search` (GET) ★ — global command-palette search across reservations, dispatches, drivers, vehicles (min 2 chars, LIMIT 5 per entity; any role).
-- `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin; all roles incl. driver.
+- `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`, optional `departAt` + `alternatives=0-2`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin, trafficDelayMin, alternative summaries, `provenance: "live"`; all roles incl. driver.
 - `audit/` (GET) ★ — system audit log (system_admin only).
 - `system/activity` (GET) ★ — system console activity feed.
 - `routes/`, `routes/[id]`, `routes/seed-naia`, `locations/`, `settings/hotel`, `settings/users`, `settings/connectors`, `manifest`, `status/sync`, `cron/sync`, `cron/reconcile` (service-token protected). The Routes registry stores canonical directional location pairs: reads include management/dispatcher, writes are limited to system_admin/admin/fleet_manager, endpoint edits lock after dispatch/trip use, and unused routes may be archived while historical routes are deactivated. `locations` hides retired identities by default; hotel rename preserves its location ID while a physical move versions and retires the old identity.

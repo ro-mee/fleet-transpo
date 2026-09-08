@@ -5,6 +5,7 @@ import { writeAudit } from "@/lib/audit";
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
+import { trailDistanceKm } from "@/lib/geo/geofence";
 
 const TERMINAL = new Set(["Completed", "Cancelled"]);
 
@@ -24,9 +25,16 @@ const TERMINAL = new Set(["Completed", "Cancelled"]);
  * @param {number|string} [params.startOdometer] optional start reading; when present and
  *                                               real (> 0), distance is derived from it and
  *                                               overrides the supplied distance
+ * @param {string|null}   [params.completionReason] PR #3: required reason when
+ *                                               completing away from the destination
+ * @param {boolean}       [params.geofenceOverride] PR #3: deliberate far-from-
+ *                                               destination completion (gate lives
+ *                                               in the complete route; recorded here)
+ * @param {object|null}   [params.destinationCheck] PR #3: proximity verdict at
+ *                                               completion time, for the timeline
  * @returns {Promise<object>} the updated trip row
  */
-export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer } = {}) {
+export async function completeTrip(tripId, session, { endOdometer, distance, startOdometer, completionReason = null, geofenceOverride = false, destinationCheck = null } = {}) {
   const { rows: before } = await query(
     `SELECT t.vehicle_id, t.driver_id, t.dispatch_id, t.trip_status, v.mileage AS vehicle_mileage
        FROM trips t
@@ -79,6 +87,24 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
   // COALESCE keeps whatever distance the trip already had: an unusable
   // reading must not clear a figure someone already recorded.
   //
+  // PR #3: the server-derived GPS trail distance fills the gap only when
+  // neither odometer math nor a supplied figure produced one — it never
+  // overrides them, and it is always persisted to gps_distance_km for the
+  // planned-vs-actual story regardless of which figure wins.
+  let gpsTrailKm = null;
+  try {
+    const { rows: trail } = await query(
+      `SELECT latitude, longitude, recorded_at
+         FROM gpstracking
+        WHERE trip_id = $1
+        ORDER BY recorded_at ASC`,
+      [tripId]
+    );
+    gpsTrailKm = trailDistanceKm(trail);
+  } catch {
+    gpsTrailKm = null;
+  }
+  //
   // actual_duration is derived in the same statement rather than a follow-up
   // query, so it can never drift from end_time — NOW() is one value per
   // statement. The CASE leaves trips that never started untouched: a duration
@@ -98,7 +124,8 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
           SET trip_status = 'Completed',
               end_time = NOW(),
               end_odometer = $1,
-              distance = COALESCE($2, distance),
+              distance = COALESCE($2, $4, distance),
+              gps_distance_km = COALESCE($4, gps_distance_km),
               actual_duration = CASE
                 WHEN start_time IS NOT NULL
                   THEN GREATEST(0, ROUND(EXTRACT(EPOCH FROM (NOW() - start_time)) / 60))::int
@@ -106,7 +133,7 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
               END
         WHERE trip_id = $3
         RETURNING *`,
-      [rawEndOdometer, dist, tripId]
+      [rawEndOdometer, dist, tripId, gpsTrailKm]
     );
     if (!r.rows[0]) throw new AuthError("Trip not found", 404);
     const txWrites = [];
@@ -173,6 +200,10 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
             dispatch_id: before[0].dispatch_id,
             end_odometer: rows[0]?.end_odometer ?? null,
             distance: rows[0]?.distance ?? null,
+            gps_distance_km: rows[0]?.gps_distance_km ?? null,
+            geofence_override: geofenceOverride || undefined,
+            completion_reason: completionReason || undefined,
+            destination_distance_m: destinationCheck?.distanceM ?? undefined,
           },
         });
       }

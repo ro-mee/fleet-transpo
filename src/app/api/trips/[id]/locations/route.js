@@ -3,6 +3,7 @@ import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/ut
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { isValidCoordinate } from "@/lib/gps";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
+import { evaluatePingGeofence } from "@/services/trip-geofence.service";
 
 export async function GET(req, { params }) {
   try {
@@ -81,6 +82,13 @@ export async function POST(req, { params }) {
       [latitude, longitude, trip.driver_id]
     );
 
-    return ok(rows[0], 201);
+    // Same PR #3 enrichment as the mobile alias above.
+    const geofence = await evaluatePingGeofence({ query }, trip, {
+      latitude,
+      longitude,
+      accuracy: toNumberOrNull(body.accuracy),
+    });
+
+    return ok({ ...rows[0], geofence }, 201);
   } catch (e) { return handleError(e); }
 }

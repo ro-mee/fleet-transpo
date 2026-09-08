@@ -20,7 +20,25 @@ const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
   address: { required: true, maxLength: 2000, label: "Address", validate: (value) => typeof value === "string" ? null : "Address must be text." },
   maps_url: { maxLength: 2000, label: "Google Maps link", validate: (value) => !String(value || "").trim() || isGoogleMapsUrl(String(value).trim()) ? null : "Google Maps link must be a valid Google Maps URL." },
+  pickup_radius_m: { label: "Pickup radius", validate: radiusRule("Pickup radius") },
+  dropoff_radius_m: { label: "Drop-off radius", validate: radiusRule("Drop-off radius") },
 };
+
+function radiusRule(label) {
+  return (value) => {
+    if (value === undefined || value === null || String(value).trim() === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0 || number > 1000) {
+      return `${label} must be between 1 and 1000 metres.`;
+    }
+    return null;
+  };
+}
+
+function radiusOrNull(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  return Math.round(Number(value));
+}
 
 function normalizeName(value) {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -28,7 +46,8 @@ function normalizeName(value) {
 
 async function loadLocation(tx, id) {
   const { rows } = await tx.query(
-    `SELECT location_id, name, address, latitude, longitude, created_at, is_active, retired_at
+    `SELECT location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+            created_at, is_active, retired_at
        FROM locations
       WHERE location_id = $1
       LIMIT 1`,
@@ -110,12 +129,18 @@ export async function PUT(req, { params }) {
       const usageCount = Number(usageResult.rows[0]?.usage_count || 0);
       const versioned = coordinateChanged && usageCount > 0;
 
+      // Radii are operational tuning, never identity: they ride along on
+      // whichever row survives but can never trigger versioning by themselves.
+      const nextPickupRadius = radiusOrNull(body.pickup_radius_m) ?? Number(current.pickup_radius_m) ?? 100;
+      const nextDropoffRadius = radiusOrNull(body.dropoff_radius_m) ?? Number(current.dropoff_radius_m) ?? 100;
+
       if (versioned) {
         const inserted = await tx.query(
-          `INSERT INTO locations (name, address, latitude, longitude, is_active)
-           VALUES ($1, $2, $3, $4, true)
-           RETURNING location_id, name, address, latitude, longitude, created_at, is_active, retired_at`,
-          [name, address, coordinates.latitude, coordinates.longitude]
+          `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m)
+           VALUES ($1, $2, $3, $4, true, $5, $6)
+           RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+                     created_at, is_active, retired_at`,
+          [name, address, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius]
         );
         await tx.query(
           `UPDATE locations
@@ -128,10 +153,12 @@ export async function PUT(req, { params }) {
 
       const updated = await tx.query(
         `UPDATE locations
-            SET name = $1, address = $2, latitude = $3, longitude = $4
-          WHERE location_id = $5 AND is_active = true
-          RETURNING location_id, name, address, latitude, longitude, created_at, is_active, retired_at`,
-        [name, address, coordinates.latitude, coordinates.longitude, Number(id)]
+            SET name = $1, address = $2, latitude = $3, longitude = $4,
+                pickup_radius_m = $5, dropoff_radius_m = $6
+          WHERE location_id = $7 AND is_active = true
+          RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m,
+                    created_at, is_active, retired_at`,
+        [name, address, coordinates.latitude, coordinates.longitude, nextPickupRadius, nextDropoffRadius, Number(id)]
       );
       if (name !== current.name) {
         await tx.query(

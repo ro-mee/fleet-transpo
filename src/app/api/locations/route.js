@@ -5,6 +5,12 @@ import { writeAudit } from "@/lib/audit";
 import { isGoogleMapsUrl, resolveGoogleMapsCoordinates } from "@/lib/google-maps";
 import { rolesFor } from "@/lib/auth/permissions";
 
+/** Validated radius or null (→ DB default 100 m). Schema validation ran first. */
+function radiusOrNull(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  return Math.round(Number(value));
+}
+
 function coordinateRule(label, min, max) {
   return (value) => {
     if ((typeof value !== "string" && typeof value !== "number") || String(value).trim() === "") {
@@ -22,7 +28,22 @@ const locationSchema = {
   name: { required: true, maxLength: 255, label: "Location name", validate: (value) => typeof value === "string" ? null : "Location name must be text." },
   address: { required: true, maxLength: 2000, label: "Address", validate: (value) => typeof value === "string" ? null : "Address must be text." },
   maps_url: { maxLength: 2000, label: "Google Maps link", validate: (value) => !String(value || "").trim() || isGoogleMapsUrl(String(value).trim()) ? null : "Google Maps link must be a valid Google Maps URL." },
+  // PR #3 arrival geofences: optional per-location radii (metres, 1–1000).
+  // Absent → DB default 100 m. Operational tuning, not identity.
+  pickup_radius_m: { label: "Pickup radius", validate: radiusRule("Pickup radius") },
+  dropoff_radius_m: { label: "Drop-off radius", validate: radiusRule("Drop-off radius") },
 };
+
+function radiusRule(label) {
+  return (value) => {
+    if (value === undefined || value === null || String(value).trim() === "") return null;
+    const number = Number(value);
+    if (!Number.isFinite(number) || number <= 0 || number > 1000) {
+      return `${label} must be between 1 and 1000 metres.`;
+    }
+    return null;
+  };
+}
 
 export async function GET(req) {
   try {
@@ -31,7 +52,7 @@ export async function GET(req) {
     const canSeeInactive = rolesFor("locations", "read_inactive").includes(session.user.role);
 
     const { rows } = await query(
-      `SELECT location_id, name, address, latitude, longitude, created_at
+      `SELECT location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, created_at
          FROM locations
         ${includeInactive && canSeeInactive ? "" : "WHERE is_active = true"}
         ORDER BY name ASC`
@@ -83,10 +104,10 @@ export async function POST(req) {
     if (duplicate.rows[0]) return err("An active location with this name already exists.", 409);
 
     const { rows } = await query(
-      `INSERT INTO locations (name, address, latitude, longitude, is_active)
-       VALUES ($1, $2, $3, $4, true)
-       RETURNING location_id, name, address, latitude, longitude, created_at, is_active, retired_at`,
-      [name, address, latitude, longitude]
+      `INSERT INTO locations (name, address, latitude, longitude, is_active, pickup_radius_m, dropoff_radius_m)
+       VALUES ($1, $2, $3, $4, true, COALESCE($5, 100), COALESCE($6, 100))
+       RETURNING location_id, name, address, latitude, longitude, pickup_radius_m, dropoff_radius_m, created_at, is_active, retired_at`,
+      [name, address, latitude, longitude, radiusOrNull(body.pickup_radius_m), radiusOrNull(body.dropoff_radius_m)]
     );
     const location = rows[0];
 

@@ -11,6 +11,7 @@ import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
+import { usePosterStatus } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
 import {
   startBackgroundTracking,
@@ -374,6 +375,18 @@ export default function MapTab() {
   const isState2 = ["At Pickup"].includes(status); // ARRIVED AT PICKUP
   const isState3 = ["Passenger Onboard", "En Route"].includes(status); // EN ROUTE TO DESTINATION
   const isState4 = ["Drop-off", "Arrived", "In Progress"].includes(status); // ARRIVED AT DESTINATION
+
+  // PR #3 arrival intelligence: the foreground poster's latest server-side
+  // geofence verdict, matched to THIS trip so a finished trip's banner cannot
+  // linger onto the next assignment. Suggestion only — every transition below
+  // stays human-confirmed.
+  const poster = usePosterStatus();
+  const tripGeofence =
+    poster.geofenceTripId != null && String(poster.geofenceTripId) === String(activeTrip?.trip_id)
+      ? poster.geofence
+      : null;
+  const nearPickupHint = isState1 && tripGeofence?.near_pickup === true;
+  const nearDestHint = isState3 && tripGeofence?.near_destination === true;
   
   const isHeadingToPickup = isPending || isDriverAccepted || isState1 || isState2;
 
@@ -672,6 +685,18 @@ export default function MapTab() {
           </View>
 
           {/* Action Button â€” outside panResponder zone so SwipeButton doesn't conflict */}
+          {/* PR #3 arrival suggestion: server says inside the geofence — the
+              swipe below still performs the human-confirmed transition. */}
+          {(nearPickupHint || nearDestHint) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.secondaryContainer }}>
+              <Ionicons name="navigate-circle" size={20} color={colors.onSecondaryContainer} />
+              <Text style={{ flex: 1, fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.onSecondaryContainer }}>
+                {nearPickupHint
+                  ? "You're near the pickup point — swipe ARRIVED AT PICKUP."
+                  : "You're near the destination — swipe ARRIVED AT DESTINATION."}
+              </Text>
+            </View>
+          )}
           {preDeparture ? (
             <Pressable 
               style={({ pressed }) => [
@@ -753,7 +778,7 @@ export default function MapTab() {
                       // live == loaded mileage, so distance = endOdo - startOdo
                       // equals totalKm exactly. If another device advanced the
                       // mileage mid-trip, the derived distance includes that extra
-                      // km â€” safe (never rejected), just slightly inflated.
+                      // km — safe (never rejected), just slightly inflated.
                       let freshMileage = null;
                       try {
                         const fresh = await api.get("/api/mobile/driver/trips");
@@ -764,21 +789,66 @@ export default function MapTab() {
                       }
                       const startOdo = Number(freshMileage) || Number(activeTrip.current_mileage) || 0;
                       const endOdo = startOdo + totalKm;
+                      const completeParams = {
+                        pickup: activeTrip.origin,
+                        destination: activeTrip.destination,
+                        duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
+                        distance: totalKm.toFixed(1) + " km",
+                        leg1: leg1.toFixed(1),
+                        leg2: leg2.toFixed(1),
+                        startOdo: Math.round(startOdo).toLocaleString(),
+                        endOdo: Math.round(endOdo).toLocaleString(),
+                        tripId: String(activeTrip.trip_id),
+                        rawDistanceKm: String(totalKm),
+                        rawStartOdo: String(startOdo),
+                        rawEndOdo: String(endOdo),
+                      };
+
+                      // PR #3 completion validation: ask the server whether the
+                      // trip's latest fix is inside the destination geofence
+                      // BEFORE showing the summary. Inside/unknown → existing
+                      // flow. Outside → Go Back / Complete Anyway (the reason
+                      // is captured on the summary screen and the PUT carries
+                      // the override). Fail-open: an unreadable check proceeds.
+                      let destCheck = null;
+                      try {
+                        destCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
+                      } catch {
+                        destCheck = null;
+                      }
+                      if (destCheck && destCheck.state === "outside") {
+                        const m = Number(destCheck.distance_m);
+                        const distanceText = Number.isFinite(m)
+                          ? (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
+                          : "an unknown distance";
+                        const destName = destCheck.destination || "the destination";
+                        AppAlert.alert(
+                          "Far from destination",
+                          `You appear to be ${distanceText} from ${destName}.`,
+                          [
+                            { text: "Go Back", style: "cancel" },
+                            {
+                              text: "Complete Anyway",
+                              onPress: () => router.push({
+                                pathname: '/(app)/trip/complete',
+                                params: {
+                                  ...completeParams,
+                                  needsOverride: "1",
+                                  farText: `You are completing ${distanceText} from ${destName}. A reason is required.`,
+                                },
+                              }),
+                            },
+                          ],
+                          { type: "warning" }
+                        );
+                        return;
+                      }
 
                       // Navigate to the summary, then run the completion API in the
                       // background. Values match: the screen shows what was sent.
                       router.push({
                         pathname: '/(app)/trip/complete',
-                        params: {
-                          pickup: activeTrip.origin,
-                          destination: activeTrip.destination,
-                          duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
-                          distance: totalKm.toFixed(1) + " km",
-                          leg1: leg1.toFixed(1),
-                          leg2: leg2.toFixed(1),
-                          startOdo: Math.round(startOdo).toLocaleString(),
-                          endOdo: Math.round(endOdo).toLocaleString()
-                        }
+                        params: completeParams,
                       });
 
                       // Clear the ref before the state update so a location

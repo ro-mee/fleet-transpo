@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { AppAlert } from '../../../components/AppAlert';
+import { api } from '../../../lib/api';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
@@ -25,6 +26,36 @@ export default function TripCompleteScreen() {
 
   // Route params
   const { pickup, destination, duration, distance, leg1, leg2, startOdo, endOdo } = useLocalSearchParams();
+  // PR #3 override completion: the map screen detected the trip is outside
+  // the destination geofence and deferred the PUT here so a reason can be
+  // captured. Normal completions never carry these params.
+  const { tripId, rawDistanceKm, rawStartOdo, rawEndOdo, needsOverride, farText } = useLocalSearchParams();
+  const overrideMode = needsOverride === "1" && tripId != null;
+  const [overrideReason, setOverrideReason] = useState('');
+  const [overriding, setOverriding] = useState(false);
+
+  const handleCompleteAnyway = async () => {
+    const reason = overrideReason.trim();
+    if (!reason) {
+      AppAlert.alert("Reason required", "Tell dispatch why you are completing away from the destination.");
+      return;
+    }
+    setOverriding(true);
+    try {
+      await api.put(`/api/trips/${tripId}/complete`, {
+        distance: Number(rawDistanceKm) || undefined,
+        start_odometer: Number(rawStartOdo) || undefined,
+        end_odometer: Number(rawEndOdo) || undefined,
+        geofence_override: true,
+        completion_reason: reason.slice(0, 500),
+      });
+      router.replace('/(app)/(tabs)/map');
+    } catch (e) {
+      AppAlert.alert("Error", e.message || "Could not complete trip");
+    } finally {
+      setOverriding(false);
+    }
+  };
 
   // Animation values
   const [heroScale] = useState(() => new Animated.Value(0.4));
@@ -145,6 +176,17 @@ export default function TripCompleteScreen() {
           <Text style={[styles.heroSubtitle, { color: colors.onSurfaceVariant }]}>
             Flawless run. Trip telemetry and logs are synchronized.
           </Text>
+
+          {/* PR #3: far-from-destination override — the completion PUT waits
+              for an explicit reason instead of firing from the map screen. */}
+          {overrideMode && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.errorContainer, maxWidth: 340 }}>
+              <Ionicons name="warning" size={18} color={colors.onErrorContainer} />
+              <Text style={{ flex: 1, fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.onErrorContainer }}>
+                {farText || "You appear to be away from the destination. A reason is required."}
+              </Text>
+            </View>
+          )}
 
           {/* Timestamp Pill */}
           <View style={[styles.timePill, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '30' }]}>
@@ -361,6 +403,53 @@ export default function TripCompleteScreen() {
           </View>
 
           {/* Primary High-Impact CTA (Island Button Architecture) */}
+          {overrideMode ? (
+            <>
+              <TextInput
+                style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
+                placeholder="Why are you completing away from the destination? (required)"
+                placeholderTextColor={colors.outline}
+                multiline
+                numberOfLines={3}
+                value={overrideReason}
+                onChangeText={setOverrideReason}
+              />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.primaryDoneBtn,
+                  {
+                    backgroundColor: colors.error,
+                    transform: [{ scale: pressed ? 0.985 : 1 }],
+                    shadowColor: colors.error,
+                    opacity: overriding ? 0.7 : 1,
+                  },
+                ]}
+                disabled={overriding}
+                onPress={handleCompleteAnyway}
+              >
+                <View style={styles.ctaGleam} />
+                <Text style={[styles.primaryDoneText, { color: colors.onError }]}>
+                  {overriding ? "COMPLETING…" : "COMPLETE ANYWAY"}
+                </Text>
+                <View style={[styles.trailingIconCircle, { backgroundColor: colors.onError + '20' }]}>
+                  <Ionicons name="arrow-forward" size={18} color={colors.onError} />
+                </View>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionBtn,
+                  {
+                    backgroundColor: pressed ? colors.surfaceVariant : colors.surfaceContainerLowest,
+                    borderColor: colors.outlineVariant + '50',
+                    transform: [{ scale: pressed ? 0.98 : 1 }],
+                  },
+                ]}
+                onPress={() => router.back()}
+              >
+                <Text style={[styles.secondaryActionText, { color: colors.onSurface }]}>Go Back</Text>
+              </Pressable>
+            </>
+          ) : (
           <Pressable
             style={({ pressed }) => [
               styles.primaryDoneBtn,
@@ -380,6 +469,7 @@ export default function TripCompleteScreen() {
               <Ionicons name="arrow-forward" size={18} color={colors.onPrimary} />
             </View>
           </Pressable>
+          )}
         </Animated.View>
       </ScrollView>
 

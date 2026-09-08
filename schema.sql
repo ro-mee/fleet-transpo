@@ -605,6 +605,9 @@ CREATE TABLE locations (
   created_at timestamptz DEFAULT now(),
   is_active boolean DEFAULT true NOT NULL,
   retired_at timestamptz,
+  pickup_radius_m integer DEFAULT 100 NOT NULL,
+  dropoff_radius_m integer DEFAULT 100 NOT NULL,
+  CONSTRAINT chk_locations_geofence_radii CHECK (((pickup_radius_m > 0) AND (pickup_radius_m <= 1000) AND (dropoff_radius_m > 0) AND (dropoff_radius_m <= 1000))),
   CONSTRAINT locations_pkey PRIMARY KEY (location_id)
 );
 
@@ -886,6 +889,7 @@ CREATE TABLE trips (
   smooth_driving_score numeric(3,2),
   customer_rating numeric(2,1),
   performance_notes text,
+  gps_distance_km numeric(10,2),
   CONSTRAINT chk_trip_status CHECK (((trip_status)::text = ANY ((ARRAY['Assigned'::character varying, 'Pending'::character varying, 'Approved'::character varying, 'Vehicle Assigned'::character varying, 'Driver Assigned'::character varying, 'Dispatched'::character varying, 'Driver Accepted'::character varying, 'Trip Started'::character varying, 'At Pickup'::character varying, 'Passenger Onboard'::character varying, 'En Route'::character varying, 'Drop-off'::character varying, 'Arrived'::character varying, 'In Progress'::character varying, 'Completed'::character varying, 'Cancelled'::character varying])::text[]))),
   CONSTRAINT trips_pkey PRIMARY KEY (trip_id)
 );

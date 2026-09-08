@@ -8,7 +8,7 @@ source:
   - src/lib/ai/pair-scoring.js
   - src/lib/ai/predictive-maintenance.js
   - resources/ai/instructions.md
-last_verified: 2026-08-17
+last_verified: 2026-09-07
 related: ["[[Dispatch]]", "[[AI Architecture]]"]
 ---
 
@@ -94,6 +94,25 @@ eligible and never overrides the designated-driver match.
   claim in the panel; `fairness_score`/`workload` passed through dispatch-advisor.
 
 → [[Dispatch]]
+
+## Routed deadhead signals — PR #1 (2026-09-07, information only, scoring unchanged)
+
+`fetchCandidates` now enriches the nearest-5 Haversine shortlist with
+`_deadhead_minutes_routed` + `_deadhead_provenance` (cached live TomTom,
+fail-open; `src/services/route-feasibility-context.service.js`). The pair
+scorer does NOT consume them yet — they ride along for the feasibility layer.
+Phase 2 will wire them into delay-risk / future-impact scoring. Pending queue
+requests are never treated as a pair's "next booking" (only `Scheduled`/`In
+Progress` dispatches are).
+
+## Route feasibility card — PR #2 (2026-09-07)
+
+Recommendation GET/POST now attach `feasibility` (verdict + legs + reasons +
+provenance) to recommended/alternate/top-3 via `attachPairFeasibility`; the
+panel renders it as a Route Feasibility card with per-leg provenance labels.
+Skipped-vehicle rejection reasons are disclosed in a collapsible list even
+when pairs exist. Overrides accept an optional `override_reason` recorded in
+timeline metadata (thesis: acceptance vs outcome analysis). Scoring unchanged.
 
 ## LLM narration is optional and currently off — CONFIRMED
 

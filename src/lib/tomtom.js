@@ -76,36 +76,126 @@ export function staticImageUrl({
 /**
  * Build the TomTom Routing API computeRoute URL (server-side only).
  * The path coordinates are `lat,lon` (TomTom's documented format).
+ *
+ * Preserved baseline (PR #1 correction): `routeType=fastest`,
+ * `computeTravelTimeFor=all` and `instructionsType=coded` were already here
+ * and stay. What PR #1 adds is opt-in traffic awareness (`traffic=true`,
+ * on by default), departure-time planning (`departAt`) and alternative
+ * routes (`maxAlternatives`, 0-2).
+ *
  * @param {[number, number]} origin      [lat, lng]
  * @param {[number, number]} destination [lat, lng]
+ * @param {object} [opts]
+ * @param {boolean} [opts.traffic=true]   include live traffic in travel time
+ * @param {Date|string|number} [opts.departAt] departure time for traffic prediction (ISO-8601)
+ * @param {number} [opts.maxAlternatives=0] 0-2 alternative routes
  */
-export function buildRouteUrl(origin, destination) {
+export function buildRouteUrl(origin, destination, opts = {}) {
   const key = getServerKey();
-  return `https://api.tomtom.com/routing/1/calculateRoute/${origin[0]},${origin[1]}:${destination[0]},${destination[1]}/json?key=${key}&routeType=fastest&computeTravelTimeFor=all&instructionsType=coded`;
+  const params = new URLSearchParams({
+    key,
+    routeType: "fastest",
+    computeTravelTimeFor: "all",
+    instructionsType: "coded",
+  });
+  if (opts.traffic !== false) params.set("traffic", "true");
+  if (opts.departAt != null && opts.departAt !== "") {
+    const ms = new Date(opts.departAt).getTime();
+    if (Number.isFinite(ms)) params.set("departAt", new Date(ms).toISOString());
+  }
+  const alt = Number(opts.maxAlternatives);
+  if (Number.isFinite(alt) && alt > 0) params.set("maxAlternatives", String(Math.min(2, Math.floor(alt))));
+  return `https://api.tomtom.com/routing/1/calculateRoute/${origin[0]},${origin[1]}:${destination[0]},${destination[1]}/json?${params.toString()}`;
 }
 
-/**
- * Fetch the numeric route summary used by canonical route records.
- * Returns null when routing is unavailable so callers can keep the estimate blank.
- */
-export async function fetchTomTomEstimate(origin, destination) {
-  const validPoint = (point) => Array.isArray(point)
+function isValidPoint(point) {
+  return Array.isArray(point)
     && point.length === 2
     && Number.isFinite(Number(point[0]))
     && Number.isFinite(Number(point[1]))
     && Number(point[0]) >= -90 && Number(point[0]) <= 90
     && Number(point[1]) >= -180 && Number(point[1]) <= 180;
-  if (!getServerKey() || !validPoint(origin) || !validPoint(destination)) return null;
+}
+
+function toMinutes(seconds) {
+  const s = Number(seconds);
+  return Number.isFinite(s) && s >= 0 ? Math.round(s / 60) : null;
+}
+
+/**
+ * Parse one TomTom route object into the numeric summary the app uses.
+ * `trafficDelayMin` comes from `summary.trafficDelayInSeconds`, which the
+ * proxy previously dropped — it is now first-class.
+ */
+export function parseRouteSummary(route) {
+  const summary = route?.summary || {};
+  if (summary?.lengthInMeters == null || summary?.travelTimeInSeconds == null) return null;
+  const delaySecs = Number(summary.trafficDelayInSeconds);
+  return {
+    distanceKm: Number((Number(summary.lengthInMeters) / 1000).toFixed(1)),
+    durationMin: toMinutes(summary.travelTimeInSeconds),
+    trafficDelayMin: Number.isFinite(delaySecs) && delaySecs >= 0 ? Math.round(delaySecs / 60) : 0,
+    noTrafficMinutes: summary?.noTrafficTravelTimeInSeconds != null
+      ? toMinutes(summary.noTrafficTravelTimeInSeconds)
+      : null,
+  };
+}
+
+/**
+ * Fetch the numeric route summary used by canonical route records.
+ * Returns null when routing is unavailable so callers can keep the estimate blank.
+ * Now also returns `trafficDelayMin` (0 when the provider reports none).
+ */
+export async function fetchTomTomEstimate(origin, destination, opts = {}) {
+  if (!getServerKey() || !isValidPoint(origin) || !isValidPoint(destination)) return null;
   try {
-    const response = await fetch(buildRouteUrl(origin, destination), { signal: AbortSignal.timeout(15000) });
+    const response = await fetch(buildRouteUrl(origin, destination, opts), { signal: AbortSignal.timeout(15000) });
     if (!response.ok) return null;
-    const summary = (await response.json())?.routes?.[0]?.summary;
-    if (summary?.lengthInMeters == null || summary?.travelTimeInSeconds == null) return null;
+    const parsed = parseRouteSummary((await response.json())?.routes?.[0]);
+    if (!parsed) return null;
     return {
-      distanceKm: Number((Number(summary.lengthInMeters) / 1000).toFixed(1)),
-      durationMin: Math.round(Number(summary.travelTimeInSeconds) / 60),
+      ...parsed,
       confidence: "high",
       basis: "TomTom",
+      source: "TomTom",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a full traffic-aware route: primary summary + geometry + guidance +
+ * up to `maxAlternatives` alternative summaries. Fail-open (null) like the
+ * estimate above — callers fall back to cached/snapshot/heuristic data.
+ *
+ * @param {[number, number]} origin      [lat, lng]
+ * @param {[number, number]} destination [lat, lng]
+ * @param {object} [opts]  { traffic, departAt, maxAlternatives, fetchImpl }
+ */
+export async function fetchTomTomRoute(origin, destination, opts = {}) {
+  const { fetchImpl = fetch, ...urlOpts } = opts;
+  if (!getServerKey() || !isValidPoint(origin) || !isValidPoint(destination)) return null;
+  try {
+    const response = await fetchImpl(buildRouteUrl(origin, destination, urlOpts), { signal: AbortSignal.timeout(15000) });
+    if (!response.ok) return null;
+    const routes = (await response.json())?.routes || [];
+    const primary = parseRouteSummary(routes[0]);
+    if (!primary) return null;
+    const points = routes[0]?.legs?.flatMap((leg) => leg.points || []) || [];
+    const guidance = routes[0]?.guidance || {};
+    return {
+      ...primary,
+      coordinates: points.map((p) => [p.latitude, p.longitude]),
+      instructions: (guidance.instructions || []).map((inst) => ({
+        message: inst.message || inst.instructionType || "Proceed along route",
+        street: inst.street || inst.roadNumbers?.join(", ") || "",
+        distanceMeters: inst.routeOffsetInMeters || 0,
+        instructionType: inst.instructionType || "CONTINUE",
+      })),
+      alternatives: routes.slice(1).map(parseRouteSummary).filter(Boolean),
+      confidence: "high",
+      provenance: "live",
       source: "TomTom",
     };
   } catch {

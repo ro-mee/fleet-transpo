@@ -1,5 +1,5 @@
 import { requirePermission, ok, err, handleError } from "@/lib/api/utils";
-import { buildRouteUrl, decodePolyline, getServerKey } from "@/lib/tomtom";
+import { buildRouteUrl, parseRouteSummary, getServerKey } from "@/lib/tomtom";
 
 // Proxy for the TomTom Routing API (computeRoute). The routing key stays
 // server-side here — it is never shipped to the browser or mobile client, which
@@ -29,7 +29,10 @@ export async function GET(req) {
       return err("TomTom server key is not configured", 500);
     }
 
-    const url = buildRouteUrl(origin, destination);
+    const url = buildRouteUrl(origin, destination, {
+      departAt: sp.get("departAt"),
+      maxAlternatives: Math.min(2, Math.max(0, Number(sp.get("alternatives")) || 0)),
+    });
     const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
     if (!res.ok) {
       return err(`TomTom routing failed (${res.status})`, 502);
@@ -40,7 +43,7 @@ export async function GET(req) {
 
     const points = route.legs?.flatMap((leg) => leg.points || []) || [];
     const coordinates = points.map((p) => [p.latitude, p.longitude]);
-    const summary = route.summary || {};
+    const summary = parseRouteSummary(route) || {};
     const guidance = route.guidance || {};
     const instructions = (guidance.instructions || []).map((inst) => ({
       message: inst.message || inst.instructionType || "Proceed along route",
@@ -52,8 +55,12 @@ export async function GET(req) {
     return ok({
       coordinates,
       instructions,
-      distanceKm: summary.lengthInMeters != null ? Number((summary.lengthInMeters / 1000).toFixed(1)) : null,
-      travelTimeMin: summary.travelTimeInSeconds != null ? Math.round(summary.travelTimeInSeconds / 60) : null,
+      distanceKm: summary.distanceKm ?? null,
+      travelTimeMin: summary.durationMin ?? null,
+      trafficDelayMin: summary.trafficDelayMin ?? 0,
+      noTrafficMinutes: summary.noTrafficMinutes ?? null,
+      alternatives: (data?.routes || []).slice(1).map(parseRouteSummary).filter(Boolean),
+      provenance: "live",
     });
   } catch (e) {
     return handleError(e);

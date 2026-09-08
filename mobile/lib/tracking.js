@@ -14,7 +14,7 @@ const TRIP_REFRESH_MS = 60 * 1000;
 // ── Poster status pub/sub ──────────────────────────────────────────────────
 // The poster is mounted once at the (app) layout level; screens subscribe to
 // this to render their tracking chip without each owning a poster.
-let posterStatus = { lastSentAt: null, error: null };
+let posterStatus = { lastSentAt: null, error: null, geofence: null, geofenceTripId: null };
 const statusListeners = new Set();
 
 function publishStatus(patch) {
@@ -121,7 +121,7 @@ export function useActiveTripGpsPoster(enabled) {
             // Trip GPS wins when both exist: it updates the same
             // drivers.current_* columns the responder evaluation reads, so
             // posting twice would only be a duplicate.
-            await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
+            const res = await api.post(`/api/mobile/driver/trips/${tripId}/gps`, {
               latitude: loc.coords.latitude,
               longitude: loc.coords.longitude,
               speed: loc.coords.speed ?? null,
@@ -130,6 +130,19 @@ export function useActiveTripGpsPoster(enabled) {
               accuracy: loc.coords.accuracy ?? null,
               recorded_at: new Date(loc.timestamp).toISOString(),
             });
+            // PR #3: the server describes this ping against the trip's
+            // pickup/destination geofences. Screens turn near_* into a
+            // human-confirmed arrival suggestion — never an auto-transition.
+            // Tagged with the trip id so a completed trip's last banner
+            // cannot linger onto the next assignment.
+            if (!cancelled) {
+              publishStatus({
+                lastSentAt: new Date().toISOString(),
+                error: null,
+                geofence: res?.geofence ?? null,
+                geofenceTripId: tripId,
+              });
+            }
           } else {
             // Never queued offline — a stale replayed fix must not overwrite
             // the live position driving the rescue status.
@@ -147,8 +160,7 @@ export function useActiveTripGpsPoster(enabled) {
           // A dropped post is not worth interrupting the driver over; the next
           // tick retries. Only surface it so the chip can show it is stale.
           if (!cancelled) publishStatus({ error: "Location not sent. Retrying." });
-        }
-      };
+        }      };
 
       await tick();
       if (cancelled) return;

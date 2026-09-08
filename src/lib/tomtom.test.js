@@ -7,6 +7,8 @@ import {
   trafficTileUrl,
   getPublicKey,
   getServerKey,
+  parseRouteSummary,
+  fetchTomTomRoute,
 } from "@/lib/tomtom";
 
 beforeEach(() => {
@@ -50,6 +52,75 @@ describe("buildRouteUrl", () => {
     expect(url).toContain("14.6,121:14.7,121.1/json");
     expect(url).toContain("key=srv-key");
     expect(url).toContain("routeType=fastest");
+  });
+
+  it("preserves computeTravelTimeFor=all and adds traffic by default", () => {
+    const url = buildRouteUrl([14.6, 121.0], [14.7, 121.1]);
+    expect(url).toContain("computeTravelTimeFor=all");
+    expect(url).toContain("traffic=true");
+  });
+
+  it("supports departAt and clamps maxAlternatives to 0-2", () => {
+    const url = buildRouteUrl([14.6, 121.0], [14.7, 121.1], {
+      departAt: "2026-09-07T08:15:00+08:00",
+      maxAlternatives: 9,
+    });
+    expect(url).toContain("departAt=2026-09-07T00%3A15%3A00.000Z");
+    expect(url).toContain("maxAlternatives=2");
+    expect(buildRouteUrl([14.6, 121.0], [14.7, 121.1], { traffic: false })).not.toContain("traffic=true");
+    expect(buildRouteUrl([14.6, 121.0], [14.7, 121.1], {})).not.toContain("maxAlternatives");
+  });
+});
+
+describe("parseRouteSummary", () => {
+  it("exposes traffic delay instead of dropping it", () => {
+    const out = parseRouteSummary({
+      summary: { lengthInMeters: 8200, travelTimeInSeconds: 1500, trafficDelayInSeconds: 300 },
+    });
+    expect(out).toMatchObject({ distanceKm: 8.2, durationMin: 25, trafficDelayMin: 5 });
+  });
+
+  it("defaults traffic delay to 0 and returns null without core fields", () => {
+    expect(parseRouteSummary({ summary: { lengthInMeters: 1000, travelTimeInSeconds: 120 } }).trafficDelayMin).toBe(0);
+    expect(parseRouteSummary({ summary: {} })).toBeNull();
+    expect(parseRouteSummary(null)).toBeNull();
+  });
+});
+
+describe("fetchTomTomRoute", () => {
+  it("returns primary + alternatives with live provenance", async () => {
+    const payload = {
+      routes: [
+        {
+          summary: { lengthInMeters: 8200, travelTimeInSeconds: 1500, trafficDelayInSeconds: 300 },
+          legs: [{ points: [{ latitude: 14.6, longitude: 121.0 }] }],
+          guidance: { instructions: [{ message: "Turn left", instructionType: "TURN" }] },
+        },
+        { summary: { lengthInMeters: 9000, travelTimeInSeconds: 1600, trafficDelayInSeconds: 60 } },
+      ],
+    };
+    const fetchImpl = async () => ({ ok: true, json: async () => payload });
+    const out = await fetchTomTomRoute([14.6, 121.0], [14.7, 121.1], { fetchImpl, maxAlternatives: 1 });
+    expect(out.provenance).toBe("live");
+    expect(out.trafficDelayMin).toBe(5);
+    expect(out.coordinates).toEqual([[14.6, 121.0]]);
+    expect(out.instructions).toHaveLength(1);
+    expect(out.alternatives).toHaveLength(1);
+    expect(out.alternatives[0].durationMin).toBe(27);
+  });
+
+  it("fails open to null without a key or on provider errors", async () => {
+    delete process.env.TOMTOM_API_KEY;
+    expect(await fetchTomTomRoute([14.6, 121.0], [14.7, 121.1], { fetchImpl: async () => ({}) })).toBeNull();
+    process.env.TOMTOM_API_KEY = "srv-key";
+    expect(
+      await fetchTomTomRoute([14.6, 121.0], [14.7, 121.1], { fetchImpl: async () => { throw new Error("down"); } })
+    ).toBeNull();
+    expect(
+      await fetchTomTomRoute([14.6, 121.0], [14.7, 121.1], {
+        fetchImpl: async () => ({ ok: true, json: async () => ({ routes: [] }) }),
+      })
+    ).toBeNull();
   });
 });
 

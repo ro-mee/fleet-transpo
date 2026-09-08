@@ -18,13 +18,15 @@ export async function getTransportRequest(id) {
 // Commit a vehicle+driver pair to a request (Pending -> Scheduled -> Assigned).
 // Blocking conflicts return 409 unless `force` is set, which is recorded on the
 // timeline as an override.
-export async function assignResources(id, { vehicleId, driverId, force = false } = {}) {
+export async function assignResources(id, { vehicleId, driverId, force = false, overrideReason = null } = {}) {
+  const reason = typeof overrideReason === "string" ? overrideReason.trim().slice(0, 500) : "";
   return apiFetch(`/api/integration/transport-requests/${id}/assign`, {
     method: "PUT",
     body: {
       vehicle_id: vehicleId,
       driver_id: driverId,
       ...(force ? { force: true } : {}),
+      ...(force && reason ? { override_reason: reason } : {}),
     },
   });
 }

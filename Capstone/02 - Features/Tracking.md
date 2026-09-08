@@ -82,6 +82,10 @@ Every accepted fix is appended to `gpstracking` with `vehicle_id`, `trip_id`, co
 
 `/tracking/history` (the "Trip Timeline" / completed-trips review table) is **out of scope** and was removed from the sidebar (`workspaces.js`, incl. the management "Operational Review" entry), the command palette, and the `/tracking` module card. Nothing was deleted — the page still works via direct URL (`permissions.js` unchanged), and executive dashboard stat links to it still resolve.
 
+## GPS Ingest Enrichment — PR #3 Arrival Intelligence (2026-09-08)
+
+Both ingest paths (`/api/mobile/driver/trips/[id]/gps` POST and `/api/trips/[id]/locations` POST) now return a `geofence` object alongside the stored row: `near_pickup`, `near_destination`, `distance_to_pickup_m/_destination_m`, `geofence_state` (known/unknown), and per-end verdicts. Targets resolve per trip (canonical location + radii → gazetteer → null) with a 5-min cache. Fixes worse than ±150 m accuracy are stored but yield UNKNOWN, never an arrival claim. The mobile foreground poster publishes the verdict to screens, which render "near pickup/destination" banners — the swipe/button transitions stay human-confirmed. No status is ever auto-mutated by position.
+
 ## Related
 
 [[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]] · [[ADR-011 Background GPS Tracking]]
