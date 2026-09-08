@@ -86,6 +86,14 @@ Every accepted fix is appended to `gpstracking` with `vehicle_id`, `trip_id`, co
 
 Both ingest paths (`/api/mobile/driver/trips/[id]/gps` POST and `/api/trips/[id]/locations` POST) now return a `geofence` object alongside the stored row: `near_pickup`, `near_destination`, `distance_to_pickup_m/_destination_m`, `geofence_state` (known/unknown), and per-end verdicts. Targets resolve per trip (canonical location + radii → gazetteer → null) with a 5-min cache. Fixes worse than ±150 m accuracy are stored but yield UNKNOWN, never an arrival claim. The mobile foreground poster publishes the verdict to screens, which render "near pickup/destination" banners — the swipe/button transitions stay human-confirmed. No status is ever auto-mutated by position.
 
+## Connectivity vs GPS — PR #3.1 (2026-09-08)
+
+Connectivity status and GPS status are separate surfaces. Offline + live trip tracking renders "Offline · GPS still recording / Last synced {age} · Showing saved data · Dispatcher may see your last synced location" — only when the poster is genuinely feeding the current trip (trip id set, no poster error, post within 90 s), never inferred from merely being offline, and never "live location active". GPS lifecycle, posting cadence, and geofence rules unchanged. → [[Mobile Architecture]]
+
+## Offline Read Mode fix (2026-09-08)
+
+The login route returns camelCase (`employeeId`) and `signIn` stores it verbatim, but `resolveDriverId` matched only snake_case — the offline cache was never written nor read on any screen, and `clearOfflineCache` was dead code. Fixed (camelCase first); regression-pinned against the exact wire shape. Work Schedule became the 4-state template (offline+cached rows+inline note / offline+never-synced card / online+confirmed-empty / online+data), with per-source `syncedAt` as the confirmed-empty signal. Details → [[Mobile Architecture]] Offline Read Mode.
+
 ## Related
 
 [[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]] · [[ADR-011 Background GPS Tracking]]
