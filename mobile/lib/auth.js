@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useCallback } from "rea
 import { apiFetch, setSessionExpiredHandler } from "./api";
 import { decodeJwtRole } from "./rbac";
 import { saveTokens, saveUser, getUser, getAccessToken, getRefreshToken, clearAll } from "./storage";
+import { clearOfflineCache, resolveDriverId } from "./offline-cache";
 import { registerDeviceToken, unregisterDeviceToken } from "./notifications/device-token";
 
 const AuthContext = createContext(null);
@@ -63,6 +64,12 @@ export function AuthProvider({ children }) {
       // ignored
     }
     unregisterDeviceToken();
+    // Offline Read Mode: remember WHO is signing out first (stored user —
+    // the state closure here is stale by design of useCallback([])), wipe
+    // their cached reads, then delete auth storage — driver B on a shared
+    // phone must never see driver A's cached trips.
+    const stored = await getUser().catch(() => null);
+    await clearOfflineCache(resolveDriverId(stored));
     await clearAll();
     setUser(null);
   }, []);

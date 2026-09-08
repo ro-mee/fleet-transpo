@@ -1,5 +1,5 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   ScrollView,
   StyleSheet,
@@ -13,7 +13,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
-import { api } from "../../lib/api";
+import { api, isTransportFailure } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../lib/offline-cache";
+import { combineOfflineSources } from "../../lib/offline-ux";
+import { SyncNote, NeverSyncedCard, SavedChip } from "../../components/OfflineStates";
+import { useConnectivity } from "../../lib/connectivity-context";
 import {
   getIncidentDeadLetters,
   retryIncidentDeadLetters,
@@ -169,6 +174,37 @@ export default function SubmissionsScreen() {
   // Incident reports that permanently failed to deliver while offline.
   const [deadLetterCount, setDeadLetterCount] = useState(0);
   const [retryingDead, setRetryingDead] = useState(false);
+  // Offline Read Mode: per-source server confirmation. A screen is only
+  // confirmed empty when BOTH sources were answered — one unanswered source
+  // is a partial state (it might hold items we cannot see), never a
+  // confirmed-empty claim. setCached stamps syncedAt even for [] payloads,
+  // so syncedAt != null means "the server answered this source".
+  const [subSyncedAt, setSubSyncedAt] = useState(null);
+  const [inspSyncedAt, setInspSyncedAt] = useState(null);
+  // Mirrors for load()'s error decision — the callback closure would otherwise
+  // read the stale mount-time values (nulls) forever.
+  const subSyncedAtRef = useRef(null);
+  const inspSyncedAtRef = useRef(null);
+  const subCountRef = useRef(0);
+  const inspCountRef = useRef(0);
+  useEffect(() => {
+    subSyncedAtRef.current = subSyncedAt;
+    inspSyncedAtRef.current = inspSyncedAt;
+    subCountRef.current = submissionsData.length;
+    inspCountRef.current = inspections.length;
+  }, [subSyncedAt, inspSyncedAt, submissionsData, inspections]);
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  // Unstable counts as online (the amber banner speaks for it) — only a fully
+  // offline verdict switches the screen to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
+  // Filter-empty (data exists, active filter yields nothing) is decided below
+  // against the combined sources, never inside the combiner.
+  const view = combineOfflineSources(offline, [
+    { syncedAt: subSyncedAt, itemCount: submissionsData.length },
+    { syncedAt: inspSyncedAt, itemCount: inspections.length },
+  ]);
 
   const refreshDeadLetters = useCallback(async () => {
     const list = await getIncidentDeadLetters();
@@ -176,22 +212,58 @@ export default function SubmissionsScreen() {
   }, []);
 
   const load = useCallback(async () => {
-    try {
-      setError(null);
-      await refreshDeadLetters();
-      const [subRes, inspRes] = await Promise.allSettled([
-        api.get("/api/mobile/driver/submissions"),
-        api.get("/api/mobile/driver/inspections"),
+    setError(null);
+    await refreshDeadLetters();
+    // Cache first: each source renders instantly from its own snapshot.
+    if (driverId) {
+      const [subC, inspC] = await Promise.all([
+        getCached(driverId, CACHE_KEYS.SUBMISSIONS),
+        getCached(driverId, CACHE_KEYS.INSPECTIONS),
       ]);
-      setSubmissionsData(subRes.status === "fulfilled" && Array.isArray(subRes.value) ? subRes.value : []);
-      setInspections(inspRes.status === "fulfilled" && Array.isArray(inspRes.value) ? inspRes.value : []);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (subC) {
+        setSubmissionsData(Array.isArray(subC.data) ? subC.data : []);
+        setSubSyncedAt(subC.syncedAt ?? Date.now());
+      }
+      if (inspC) {
+        setInspections(Array.isArray(inspC.data) ? inspC.data : []);
+        setInspSyncedAt(inspC.syncedAt ?? Date.now());
+      }
+      if (subC || inspC) setLoading(false);
     }
-  }, [refreshDeadLetters]);
+    const [subRes, inspRes] = await Promise.allSettled([
+      api.get("/api/mobile/driver/submissions"),
+      api.get("/api/mobile/driver/inspections"),
+    ]);
+    if (subRes.status === "fulfilled" && Array.isArray(subRes.value)) {
+      if (driverId) await setCached(driverId, CACHE_KEYS.SUBMISSIONS, subRes.value);
+      // Confirmed empty counts too — the server answered; stamp it.
+      setSubSyncedAt(Date.now());
+    }
+    if (inspRes.status === "fulfilled" && Array.isArray(inspRes.value)) {
+      if (driverId) await setCached(driverId, CACHE_KEYS.INSPECTIONS, inspRes.value);
+      setInspSyncedAt(Date.now());
+    }
+    // A rejected source keeps its previous state (cache or prior network
+    // data) instead of blanking to []. Error only when NEITHER source has
+    // confirmation (cache nor network) and the failure is genuine — transport
+    // failures belong to the global banner.
+    const reasons = [subRes, inspRes]
+      .filter((r) => r.status === "rejected")
+      .map((r) => r.reason);
+    setSubmissionsData((prev) =>
+      subRes.status === "fulfilled" && Array.isArray(subRes.value) ? subRes.value : prev
+    );
+    setInspections((prev) =>
+      inspRes.status === "fulfilled" && Array.isArray(inspRes.value) ? inspRes.value : prev
+    );
+    const confirmedAny = subSyncedAtRef.current != null || inspSyncedAtRef.current != null;
+    const genuine = reasons.filter((e) => !isTransportFailure(e));
+    if (!confirmedAny && subCountRef.current === 0 && inspCountRef.current === 0 && genuine.length > 0) {
+      setError(genuine[0]?.message || "Could not load records.");
+    }
+    setLoading(false);
+    setRefreshing(false);
+  }, [refreshDeadLetters, driverId]);
 
   useEffect(() => {
   // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
@@ -352,20 +424,56 @@ export default function SubmissionsScreen() {
           />
         }
       >
+        {view.showSyncNote && allItems.length > 0 ? (
+          // One note for the whole screen — per-source notes would be noise.
+          <SyncNote syncedAt={Math.min(subSyncedAt ?? Infinity, inspSyncedAt ?? Infinity)} label="activity logs" />
+        ) : null}
         {loading ? (
           <View style={styles.loadingBox}>
             <Text style={[styles.loadingText, { color: colors.onSurfaceVariant }]}>Loading records...</Text>
           </View>
         ) : filtered.length === 0 ? (
-          <View style={styles.emptyBox}>
-            <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
-              <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
+          view.state === "never-synced" ? (
+            <NeverSyncedCard body="Connect once while online to save your logs for offline viewing." />
+          ) : allItems.length > 0 ? (
+            // Filter artifact: the sources HAVE records — this empty is the
+            // filter's, not the sources'. Unchanged behavior, now explicit.
+            <View style={styles.emptyBox}>
+              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
+                <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
+              <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
+                Nothing filed under {filter === "ALL" ? "any category" : filter.toLowerCase()} yet.
+              </Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
-            <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
-              Submitted fuel, inspection, and expense logs will appear here.
-            </Text>
-          </View>
+          ) : view.state === "partial" ? (
+            // One source answered [], the other never answered — we cannot
+            // claim the screen is empty, only that part is unavailable.
+            <View style={styles.emptyBox}>
+              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
+                <Ionicons name="cloud-offline-outline" size={36} color={colors.onSurfaceVariant} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Activity incomplete</Text>
+              <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
+                Some offline activity may be unavailable. Reconnect to refresh all activity logs.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.emptyBox}>
+              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
+                <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
+              <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
+                {view.state === "empty-confirmed"
+                  ? // Offline confirmed-empty is a snapshot — "when last synced".
+                    (offline ? "No records were filed when last synced." : "Submitted fuel, inspection, and expense logs will appear here.")
+                  : "Records couldn't be confirmed right now. Pull to refresh or try again."}
+              </Text>
+              {view.state === "empty-confirmed" && offline ? <SavedChip syncedAt={Math.min(subSyncedAt ?? Infinity, inspSyncedAt ?? Infinity)} /> : null}
+            </View>
+          )
         ) : (
           filtered.map((item, idx) => (
             <LogCard

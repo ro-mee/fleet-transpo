@@ -1,10 +1,14 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import TomTomMap from "../../../components/TomTomMap";
-import { api } from "../../../lib/api";
+import { api, wasQueued } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
+import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
+import { useConnectivity } from "../../../lib/connectivity-context";
+import { SyncNote, NeverSyncedCard } from "../../../components/OfflineStates";
 import { fonts, statusColors } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
@@ -26,6 +30,20 @@ export default function TripDetailsScreen() {
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
   const [now, setNow] = useState(NOW_AT_LOAD);
+  // Offline Read Mode: last server confirmation for this trip's data.
+  const [lastSynced, setLastSynced] = useState(null);
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  // Unstable counts as online (the amber banner speaks for it); only a fully
+  // offline verdict switches this screen to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
+  // Ref so load() can read the current verdict without it being a dependency
+  // (a status flip must not re-identity the callback and re-fire the fetch).
+  const offlineRef = useRef(offline);
+  useEffect(() => {
+    offlineRef.current = offline;
+  }, [offline]);
 
   // Tick every 30s so the "start in X min" / START ROUTE gate refreshes.
   useEffect(() => {
@@ -35,22 +53,55 @@ export default function TripDetailsScreen() {
   }, [trip?.trip_status]);
 
   const load = useCallback(async () => {
+    // Offline Read Mode: list-cache-first. The shared TRIPS_ALL snapshot is
+    // the primary source; the per-trip key covers trips opened before that
+    // list was ever cached.
+    if (driverId) {
+      const listCached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
+      const inList = Array.isArray(listCached?.data)
+        ? listCached.data.find((t) => String(t.trip_id) === String(id))
+        : null;
+      if (inList) {
+        setTrip(inList);
+        setLastSynced(listCached.syncedAt);
+        setLoading(false);
+      } else {
+        const singleCached = await getCached(driverId, tripCacheKey(id));
+        if (singleCached?.data) {
+          setTrip(singleCached.data);
+          setLastSynced(singleCached.syncedAt);
+          setLoading(false);
+        }
+      }
+    }
     try {
       const data = await api.get("/api/mobile/driver/trips?status=all");
-      const found = Array.isArray(data) ? data.find((t) => String(t.trip_id) === String(id)) : null;
+      const list = Array.isArray(data) ? data : [];
+      // Display-only: refresh both the shared list and this trip's key.
+      if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+      const found = list.find((t) => String(t.trip_id) === String(id));
       if (found) {
         setTrip(found);
+        if (driverId) await setCached(driverId, tripCacheKey(id), found);
+        setLastSynced(Date.now());
       } else {
         // Fallback fetch specific trip if not in driver active/completed batch
         const single = await api.get(`/api/trips/${id}`).catch(() => null);
-        setTrip(single || { trip_id: id, trip_status: "Completed" });
+        const resolved = single || { trip_id: id, trip_status: "Completed" };
+        setTrip(resolved);
+        if (single && driverId) await setCached(driverId, tripCacheKey(id), single);
+        if (single) setLastSynced(Date.now());
       }
     } catch (e) {
-      setTrip({ trip_id: id, trip_status: "Completed" });
+      // Offline with NO cached copy → leave trip null: the render branch shows
+      // the honest never-synced card instead of a fabricated "Completed"
+      // shell. Online fetch failure keeps the legacy shell (follow-up logged:
+      // that shell is still fabricated data, out of this slice's scope).
+      setTrip((prev) => prev ?? (offlineRef.current ? null : { trip_id: id, trip_status: "Completed" }));
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, driverId]);
 
   useEffect(() => {
     // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
@@ -69,10 +120,16 @@ export default function TripDetailsScreen() {
     if (isFinished) return;
     setAccepting(true);
     try {
+      let queued = false;
       if (!isAccepted) {
-        await api.put(`/api/trips/${id}/accept`, { accept: true });
+        const acceptRes = await api.put(`/api/trips/${id}/accept`, { accept: true });
+        queued = wasQueued(acceptRes);
       }
-      await api.put(`/api/trips/${id}/start`, { odometer: Number(trip?.current_mileage) || undefined });
+      const startRes = await api.put(`/api/trips/${id}/start`, { odometer: Number(trip?.current_mileage) || undefined });
+      // PR #3.1: queued reached the outbox, not the server — say so.
+      if (queued || wasQueued(startRes)) {
+        AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
+      }
       router.replace("/map");
     } catch (e) {
       const msg = e.message || "Could not update trip.";
@@ -91,6 +148,25 @@ export default function TripDetailsScreen() {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (!trip && offline) {
+    // Offline never-synced: honest empty state — never a fabricated trip
+    // shell pretending this trip exists as "Completed".
+    return (
+      <View style={[styles.root, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
+          <Pressable onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
+          </Pressable>
+          <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Trip Details</Text>
+          <View style={{ width: 24 }} />
+        </View>
+        <View style={styles.scroll}>
+          <NeverSyncedCard title="Trip not saved for offline" body="Connect once while online to view this trip's details." />
+        </View>
       </View>
     );
   }
@@ -128,6 +204,11 @@ export default function TripDetailsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {offline && lastSynced != null && trip ? (
+          // Cached trip offline: one inline note under the header — the global
+          // banner owns "You're offline", this says what THIS screen shows.
+          <SyncNote syncedAt={lastSynced} label="trip details" />
+        ) : null}
         {/* Status Card */}
         {(() => {
           const sc = getTripStatusStyle(trip?.trip_status, colors);

@@ -6,7 +6,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { api, isTransportFailure } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
+import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
+import { offlineViewState } from "../../../lib/offline-ux";
+import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
+import { useConnectivity } from "../../../lib/connectivity-context";
 import { StatusPill, SkeletonCard } from "../../../components/ui";
 import { AppAlert } from '../../../components/AppAlert';
 
@@ -112,21 +117,47 @@ export default function TripsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [activeFilter, setActiveFilter] = useState("Active");
+  // Offline Read Mode: shares the TRIPS_ALL cache with the Trips tab.
+  const [lastSynced, setLastSynced] = useState(null);
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  // Unstable counts as online (the amber banner speaks for it) — only a fully
+  // offline verdict switches the list to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
+  // 4-state decider keys off the SOURCE count — a filter yielding zero is a
+  // separate concern handled in the empty branch below.
+  const view = offlineViewState({ offline, syncedAt: lastSynced, itemCount: trips.length });
 
   const FILTERS = ["Active", "Completed", "All"];
 
   const load = useCallback(async () => {
     try {
       setError(null);
+      // Cache first: show last-known trips instantly (offline included).
+      if (driverId) {
+        const cached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
+        if (cached) {
+          setTrips(Array.isArray(cached.data) ? cached.data : []);
+          setLastSynced(cached.syncedAt);
+          setLoading(false);
+        }
+      }
       const data = await api.get("/api/mobile/driver/trips?status=all");
-      setTrips(Array.isArray(data) ? data : []);
+      const list = Array.isArray(data) ? data : [];
+      setTrips(list);
+      // Display-only: refresh the cache, never treat it as authority.
+      if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+      setLastSynced(Date.now());
     } catch (e) {
-      setError(e.message || "Could not load trips.");
+      // Transport failures belong to the global banner; offline with cache
+      // keeps showing it, and the badge states its age.
+      if (!isTransportFailure(e)) setError(e.message || "Could not load trips.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [driverId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -206,6 +237,10 @@ export default function TripsTab() {
           />
         }
       >
+        {view.showSyncNote && trips.length > 0 ? (
+          // One note above the whole list — the badge states its age.
+          <SyncNote syncedAt={lastSynced} label="trips" />
+        ) : null}
         {loading ? (
           <>
             <SkeletonCard lines={3} />
@@ -224,15 +259,35 @@ export default function TripsTab() {
             </Pressable>
           </View>
         ) : filtered.length === 0 ? (
-          <View style={styles.centered}>
-            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
-              <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
+          view.state === "never-synced" ? (
+            <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
+          ) : trips.length > 0 ? (
+            // Filter artifact: the cache HAS trips — this empty is the filter's,
+            // not the source's. Unchanged behavior, now explicit.
+            <View style={styles.centered}>
+              <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
+                <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
+              <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
+                {activeFilter === "Active" ? "No active trips right now." : "No completed trips yet."}
+              </Text>
             </View>
-            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
-            <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
-              {activeFilter === "Active" ? "No active trips right now." : "No completed trips yet."}
-            </Text>
-          </View>
+          ) : (
+            <View style={styles.centered}>
+              <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
+                <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
+              </View>
+              <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
+              <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
+                {view.state === "empty-confirmed"
+                  ? // Offline confirmed-empty is a snapshot — "when last synced".
+                    (offline ? "No trips were assigned when last synced." : "No trips yet.")
+                  : "Trips couldn't be confirmed right now. Pull to refresh or try again."}
+              </Text>
+              {view.state === "empty-confirmed" && offline ? <SavedChip syncedAt={lastSynced} /> : null}
+            </View>
+          )
         ) : (
           filtered.map((trip) => (
             <TripItem key={trip.trip_id} trip={trip} colors={colors} onPress={handleTripPress} />

@@ -5,7 +5,11 @@ import LottieView from 'lottie-react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { api } from "../../../lib/api";
+import { api, wasQueued, isTransportFailure } from "../../../lib/api";
+import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
+import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
+import { useConnectivity } from "../../../lib/connectivity-context";
+import { SyncNote } from "../../../components/OfflineStates";
 import { useAuth } from "../../../lib/auth";
 import { ACTIONS, canAction } from "../../../lib/rbac";
 import { useTripTracking } from "../../../lib/tracking";
@@ -65,6 +69,17 @@ export default function Home() {
   // emergency report never reached dispatch.
   const [deadLetterCount, setDeadLetterCount] = useState(0);
   const [retryingDead, setRetryingDead] = useState(false);
+  // Offline Read Mode: per-source server confirmation. The hero's "All clear"
+  // is a claim about TRIP ASSIGNMENTS specifically, so it keys off
+  // tripsSyncedAt (HOME_TRIPS) alone — a cached DRIVER_ME profile proves
+  // nothing about assignments and must never green-light the claim.
+  const [tripsSyncedAt, setTripsSyncedAt] = useState(null);
+  const [meSyncedAt, setMeSyncedAt] = useState(null);
+  const driverId = resolveDriverId(user);
+  // Unstable counts as online (the amber banner speaks for it) — only a fully
+  // offline verdict switches the dashboard to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
 
   // Keep the GPS-age caption ticking without reading Date.now() during render.
   useEffect(() => {
@@ -86,23 +101,70 @@ export default function Home() {
   );
 
   const load = useCallback(async () => {
-    try {
-      setError(null);
-      const [data, active, me] = await Promise.all([
-        api.get("/api/mobile/driver/trips"),
-        getActiveStatuses(),
-        api.get("/api/driver/me"),
+    // Offline Read Mode: show last-known home data instantly (offline
+    // included), then revalidate. Statuses are local constants — no fetch.
+    if (driverId) {
+      const [tripsC, meC] = await Promise.all([
+        getCached(driverId, CACHE_KEYS.HOME_TRIPS),
+        getCached(driverId, CACHE_KEYS.DRIVER_ME),
       ]);
-      setTrips(Array.isArray(data) ? data : []);
-      setActiveStatuses(active);
-      setDriverProfile(me);
-    } catch (e) {
-      setError(e.message || "Could not load your trips.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (tripsC) {
+        setTrips(Array.isArray(tripsC.data) ? tripsC.data : []);
+        setTripsSyncedAt(tripsC.syncedAt ?? Date.now());
+      }
+      if (meC?.data) {
+        setDriverProfile(meC.data);
+        setMeSyncedAt(meC.syncedAt ?? Date.now());
+      }
+      try {
+        setActiveStatuses(await getActiveStatuses());
+      } catch {}
+      if (tripsC || meC) {
+        setLoading(false);
+      }
     }
-  }, []);
+    // Cold-start tolerance: one automatic retry for transient failures
+    // (transport blip, mid-rotation 401, 429 burst, cold 5xx) before
+    // bothering the driver — this is the retry they used to tap manually.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        setError(null);
+        const [data, active, me] = await Promise.all([
+          api.get("/api/mobile/driver/trips"),
+          getActiveStatuses(),
+          api.get("/api/driver/me"),
+        ]);
+        const list = Array.isArray(data) ? data : [];
+        setTrips(list);
+        setActiveStatuses(active);
+        setDriverProfile(me);
+        // Display-only: refresh the cache, never treat it as authority.
+        // Confirmed empty counts too — the server answered; stamp it, so the
+        // hero's "All clear" claim stays honest offline.
+        if (driverId) {
+          await setCached(driverId, CACHE_KEYS.HOME_TRIPS, list);
+          if (me) await setCached(driverId, CACHE_KEYS.DRIVER_ME, me);
+        }
+        setTripsSyncedAt(Date.now());
+        if (me) setMeSyncedAt(Date.now());
+        return;
+      } catch (e) {
+        if (attempt === 0 && shouldAutoRetry(e)) {
+          await new Promise((r) => setTimeout(r, LIST_AUTO_RETRY_MS));
+          continue;
+        }
+        // PR #3.1 dedup: transport failures already speak through the global
+        // connectivity banner — don't double them into an inline ErrorNotice.
+        // Offline with cache → it stays on screen; the badge states its age.
+        // Genuine errors (auth, validation, 5xx) still surface here.
+        if (!isTransportFailure(e)) setError(e.message || "Could not load your trips.");
+        return;
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [driverId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -149,7 +211,9 @@ export default function Home() {
                     ? `/api/trips/${trip.trip_id}/dropoff`
                     : `/api/trips/${trip.trip_id}/start`;
       const body = action === "accept" ? { accept: true } : {};
-      await api.put(path, body);
+      const res = await api.put(path, body);
+      // PR #3.1: queued reached the outbox, not the server — say so.
+      if (wasQueued(res)) AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
       await load();
     } catch (e) {
       AppAlert.alert("Unable to Update Status", e.message || "Please check your network connection and try again.");
@@ -184,8 +248,11 @@ export default function Home() {
     if (isPreStartTrip && nextObj.action === "accept" && trip.pre_trip_status === "Passed") {
       setActingOn(trip.trip_id);
       try {
-        await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true });
-        await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined });
+        const acceptRes = await api.put(`/api/trips/${trip.trip_id}/accept`, { accept: true });
+        const startRes = await api.put(`/api/trips/${trip.trip_id}/start`, { odometer: Number(trip.current_mileage) || undefined });
+        if (wasQueued(acceptRes) || wasQueued(startRes)) {
+          AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
+        }
         await load();
       } catch (e) {
         AppAlert.alert("Unable to Start Trip", e.message || "Please confirm your pre-trip inspection and try again.");
@@ -213,10 +280,13 @@ export default function Home() {
     try {
       setOdometerError(null);
       setOdometerSaving(true);
-      await api.put(
+      const completeRes = await api.put(
         `/api/trips/${completingTrip.trip_id}/complete`,
         { end_odometer: val }
       );
+      if (wasQueued(completeRes)) {
+        AppAlert.alert("Saved for sync", "This update will be sent when you're online.");
+      }
       setCompletingTrip(null);
       setOdometerInput("");
       await load();
@@ -419,6 +489,14 @@ export default function Home() {
         )}
 
         {/* ─── Hero / Trip Detail Panel ─── */}
+        {offline && trips.length > 0 && tripsSyncedAt != null ? (
+          // Saved dashboard: one note above the hero. Cached trips + a fresh
+          // enough saved snapshot is data worth explaining; the global banner
+          // owns the "You're offline" announcement itself.
+          <View style={styles.syncNoteWrap}>
+            <SyncNote syncedAt={Math.min(tripsSyncedAt ?? Infinity, meSyncedAt ?? Infinity)} label="dashboard" />
+          </View>
+        ) : null}
         <Animated.View style={fade(heroAnim)}>
           <View style={[styles.heroShell, { borderColor: colors.primary + '35' }]}>
             <View style={[styles.hero, { backgroundColor: colors.primary }]}>
@@ -544,6 +622,25 @@ export default function Home() {
                       </View>
                     ) : null}
                   </>
+                ) : offline && tripsSyncedAt == null ? (
+                  // Offline and trip assignments were never confirmed — the
+                  // hero must NOT claim readiness. "All clear" is a claim
+                  // about assignments; only HOME_TRIPS' syncedAt can make it.
+                  <>
+                    <View style={styles.heroTopRow}>
+                      <Text style={[styles.heroDate, { color: `${colors.onPrimary}CC` }]}>{todayLabel}</Text>
+                      <View style={[styles.statusChip, { backgroundColor: `${colors.onPrimary}38` }]}>
+                        <Ionicons name="cloud-offline-outline" size={11} color={colors.onPrimary} />
+                        <Text style={[styles.statusChipText, { color: colors.onPrimary }]}>Offline</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.heroGreeting, { color: colors.onPrimary }]} numberOfLines={2}>
+                      No saved trips yet
+                    </Text>
+                    <Text style={[styles.heroSupport, { color: colors.onPrimary }]}>
+                      Connect once while online to save your dashboard for offline viewing.
+                    </Text>
+                  </>
                 ) : (
                   <>
                     <View style={styles.heroTopRow}>
@@ -553,7 +650,9 @@ export default function Home() {
                         <Text style={[styles.statusChipText, { color: colors.onPrimary }]}>Ready</Text>
                       </View>
                     </View>
-                    <Text style={[styles.heroGreeting, { color: colors.onPrimary }]}>All clear</Text>
+                    <Text style={[styles.heroGreeting, { color: colors.onPrimary }]}>
+                      {offline ? "All clear when last synced" : "All clear"}
+                    </Text>
                     <Text style={[styles.heroSupport, { color: colors.onPrimary }]}>
                       You are ready for new assignments.
                     </Text>
@@ -879,6 +978,7 @@ const styles = StyleSheet.create({
     paddingTop: moderateScale(14),
     gap: moderateScale(18),
   },
+  syncNoteWrap: { paddingHorizontal: moderateScale(4) },
 
   // ── Hero (Double-Bezel Hardware Architecture) ──
   heroShell: {

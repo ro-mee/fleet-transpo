@@ -15,7 +15,11 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { moderateScale } from "../../lib/scaling";
-import { api } from "../../lib/api";
+import { api, isTransportFailure } from "../../lib/api";
+import { useAuth } from "../../lib/auth";
+import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../lib/offline-cache";
+import { useConnectivity } from "../../lib/connectivity-context";
+import { SyncNote, NeverSyncedCard } from "../../components/OfflineStates";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { AppAlert } from "../../components/AppAlert";
@@ -55,25 +59,97 @@ export default function WorkScheduleScreen() {
   const [leaveType, setLeaveType] = useState("Vacation");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Offline Read Mode: cachedTimes/freshTimes track which sources have ANY
+  // data (each source falls back independently — one failing never blanks the
+  // rest) for the no-data error decision below. Per-screen staleness display
+  // is per-source (scheduleSyncedAt/leavesSyncedAt) + the global banner.
+  // Per-source server confirmation for the 4-state UI. setCached stamps
+  // syncedAt even for an empty [] payload, so `syncedAt != null` honestly
+  // means "the server answered this source at some point" — that separates
+  // a confirmed-empty schedule from a never-synced device. Tracked for the
+  // two sources with row-level empty states (days, leaves); balances chips
+  // render-or-hide naturally and need no branch.
+  const [scheduleSyncedAt, setScheduleSyncedAt] = useState(null);
+  const [leavesSyncedAt, setLeavesSyncedAt] = useState(null);
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  // Unstable/syncing count as online here (fetches still revalidate, and the
+  // global banner already speaks for degraded connections) — only a fully
+  // offline verdict switches the screen to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
 
   const load = useCallback(async () => {
-    try {
-      setError(null);
-      const [scheduleData, leaveData, balanceData] = await Promise.all([
-        api.get("/api/driver-work-schedules"),
-        api.get("/api/driver/leave"),
-        api.get("/api/driver/balances"),
+    setError(null);
+    // Cache first: each source renders instantly from its own snapshot.
+    let cachedTimes = [];
+    if (driverId) {
+      const [daysC, leavesC, balancesC] = await Promise.all([
+        getCached(driverId, CACHE_KEYS.SCHEDULE_DAYS),
+        getCached(driverId, CACHE_KEYS.LEAVES),
+        getCached(driverId, CACHE_KEYS.BALANCES),
       ]);
-      setSchedule(Array.isArray(scheduleData?.days) ? scheduleData.days : []);
-      setLeaves(Array.isArray(leaveData) ? leaveData : []);
-      setBalances(Array.isArray(balanceData) ? balanceData : []);
-    } catch (e) {
-      setError(e.message || "Could not load your schedule.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (daysC) {
+        setSchedule(Array.isArray(daysC.data) ? daysC.data : []);
+        setScheduleSyncedAt(daysC.syncedAt ?? Date.now());
+        if (daysC.syncedAt != null) cachedTimes.push(daysC.syncedAt);
+      }
+      if (leavesC) {
+        setLeaves(Array.isArray(leavesC.data) ? leavesC.data : []);
+        setLeavesSyncedAt(leavesC.syncedAt ?? Date.now());
+        if (leavesC.syncedAt != null) cachedTimes.push(leavesC.syncedAt);
+      }
+      if (balancesC) {
+        setBalances(Array.isArray(balancesC.data) ? balancesC.data : []);
+        if (balancesC.syncedAt != null) cachedTimes.push(balancesC.syncedAt);
+      }
+      if (cachedTimes.length > 0) {
+        setLoading(false);
+      }
     }
-  }, []);
+    // Revalidate each source independently — display-only cache updates.
+    const results = await Promise.allSettled([
+      api.get("/api/driver-work-schedules"),
+      api.get("/api/driver/leave"),
+      api.get("/api/driver/balances"),
+    ]);
+    const freshTimes = [];
+    const [schedRes, leaveRes, balRes] = results;
+    if (schedRes.status === "fulfilled") {
+      const days = Array.isArray(schedRes.value?.days) ? schedRes.value.days : [];
+      setSchedule(days);
+      // Confirmed empty counts too — the server answered; stamp it.
+      setScheduleSyncedAt(Date.now());
+      if (driverId) await setCached(driverId, CACHE_KEYS.SCHEDULE_DAYS, days);
+      freshTimes.push(Date.now());
+    }
+    if (leaveRes.status === "fulfilled") {
+      const list = Array.isArray(leaveRes.value) ? leaveRes.value : [];
+      setLeaves(list);
+      setLeavesSyncedAt(Date.now());
+      if (driverId) await setCached(driverId, CACHE_KEYS.LEAVES, list);
+      freshTimes.push(Date.now());
+    }
+    if (balRes.status === "fulfilled") {
+      const list = Array.isArray(balRes.value) ? balRes.value : [];
+      setBalances(list);
+      if (driverId) await setCached(driverId, CACHE_KEYS.BALANCES, list);
+      freshTimes.push(Date.now());
+    }
+    // Error only when a source has NEITHER cache NOR network. Transport
+    // failures belong to the global banner; the badge covers cached staleness.
+    const failures = results.filter((r) => r.status === "rejected").map((r) => r.reason);
+    const genuine = failures.filter((e) => !isTransportFailure(e));
+    const hasAnyData = freshTimes.length > 0 || cachedTimes.length > 0;
+    if (!hasAnyData && genuine.length > 0) {
+      setError(genuine[0]?.message || "Could not load your schedule.");
+    } else if (!hasAnyData && failures.length > 0) {
+      // Offline with a never-synced device: badge + empty panels explain it.
+      setError(null);
+    }
+    setLoading(false);
+    setRefreshing(false);
+  }, [driverId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -158,20 +234,32 @@ export default function WorkScheduleScreen() {
                 <Text style={[styles.heroBody, { color: "rgba(255,255,255,0.76)" }]}>Your schedule is managed by the fleet team and syncs with the website.</Text>
               </View>
             </View>
-            <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
-              <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>Weekly work schedule</Text><Ionicons name="calendar-clear-outline" size={19} color={colors.primary} /></View>
-              {DAY_ORDER.map((dayId) => {
-                const day = byDay.get(dayId);
-                const isToday = today === dayId;
-                return (
-                  <View key={dayId} style={[styles.dayRow, { borderBottomColor: colors.outlineVariant + "55" }, isToday && { backgroundColor: colors.primaryContainer }]}>
-                    <View style={styles.dayNameWrap}><View style={[styles.dayDot, { backgroundColor: isToday ? colors.primary : colors.outlineVariant }]} /><Text style={[styles.dayName, { color: colors.onSurface }]}>{DAYS[dayId]}</Text>{isToday ? <Text style={[styles.today, { color: colors.primary }]}>TODAY</Text> : null}</View>
-                    {day?.is_rest_day ? <Text style={[styles.rest, { color: colors.secondary }]}>Rest day</Text> : day?.shift_start ? <Text style={[styles.shift, { color: colors.onSurface }]}>{formatTime(day.shift_start)} - {formatTime(day.shift_end)}</Text> : <Text style={[styles.noSchedule, { color: colors.onSurfaceVariant }]}>No schedule</Text>}
-                  </View>
-                );
-              })}
-              {!schedule.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>No weekly schedule on file yet. Ask your fleet manager to set it.</Text> : null}
-            </View>
+            {offline && scheduleSyncedAt == null ? (
+              // State 3: offline on a never-synced device — a dedicated card,
+              // not day rows pretending to be data.
+              <NeverSyncedCard body="Connect once while online to save your schedule for offline viewing." />
+            ) : (
+              <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
+                <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>Weekly work schedule</Text><Ionicons name="calendar-clear-outline" size={19} color={colors.primary} /></View>
+                {offline && scheduleSyncedAt != null ? (
+                  // State 1: cached rows + one contextual inline note. Microcopy
+                  // under the title — the global banner already says "You're
+                  // offline", this says what THIS screen is showing.
+                  <SyncNote syncedAt={scheduleSyncedAt} label="schedule" />
+                ) : null}
+                {DAY_ORDER.map((dayId) => {
+                  const day = byDay.get(dayId);
+                  const isToday = today === dayId;
+                  return (
+                    <View key={dayId} style={[styles.dayRow, { borderBottomColor: colors.outlineVariant + "55" }, isToday && { backgroundColor: colors.primaryContainer }]}>
+                      <View style={styles.dayNameWrap}><View style={[styles.dayDot, { backgroundColor: isToday ? colors.primary : colors.outlineVariant }]} /><Text style={[styles.dayName, { color: colors.onSurface }]}>{DAYS[dayId]}</Text>{isToday ? <Text style={[styles.today, { color: colors.primary }]}>TODAY</Text> : null}</View>
+                      {day?.is_rest_day ? <Text style={[styles.rest, { color: colors.secondary }]}>Rest day</Text> : day?.shift_start ? <Text style={[styles.shift, { color: colors.onSurface }]}>{formatTime(day.shift_start)} - {formatTime(day.shift_end)}</Text> : <Text style={[styles.noSchedule, { color: colors.onSurfaceVariant }]}>No schedule</Text>}
+                    </View>
+                  );
+                })}
+                {!schedule.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>{scheduleSyncedAt != null ? "No schedule assigned yet." : "No offline data available. Connect once to save your schedule for offline viewing."}</Text> : null}
+              </View>
+            )}
           </View>
         ) : (
           <View style={styles.contentGap}>
@@ -188,7 +276,7 @@ export default function WorkScheduleScreen() {
             </View>
             <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
               <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>My requests</Text><Ionicons name="list-outline" size={19} color={colors.primary} /></View>
-              {!leaves.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>Leave requests you submit will appear here.</Text> : leaves.map((leave) => <View key={leave.leave_request_id} style={[styles.leaveRow, { borderBottomColor: colors.outlineVariant + "55" }]}><View style={styles.leaveInfo}><Text style={[styles.leaveDate, { color: colors.onSurface }]}>{formatDate(leave.start_date)} - {formatDate(leave.end_date)}</Text><Text style={[styles.leaveMeta, { color: colors.onSurfaceVariant }]}>{leave.leave_type || "Leave"}{leave.reason ? ` · ${leave.reason}` : ""}</Text></View><Text style={[styles.status, { color: leave.status === "Approved" ? colors.success : leave.status === "Declined" ? colors.error : colors.secondary }]}>{leave.status}</Text></View>)}
+              {!leaves.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>{offline && leavesSyncedAt == null ? "No offline data yet. Connect once to save your requests." : "Leave requests you submit will appear here."}</Text> : leaves.map((leave) => <View key={leave.leave_request_id} style={[styles.leaveRow, { borderBottomColor: colors.outlineVariant + "55" }]}><View style={styles.leaveInfo}><Text style={[styles.leaveDate, { color: colors.onSurface }]}>{formatDate(leave.start_date)} - {formatDate(leave.end_date)}</Text><Text style={[styles.leaveMeta, { color: colors.onSurfaceVariant }]}>{leave.leave_type || "Leave"}{leave.reason ? ` · ${leave.reason}` : ""}</Text></View><Text style={[styles.status, { color: leave.status === "Approved" ? colors.success : leave.status === "Declined" ? colors.error : colors.secondary }]}>{leave.status}</Text></View>)}
             </View>
           </View>
         )}

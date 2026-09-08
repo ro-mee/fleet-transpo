@@ -14,7 +14,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, statusColorForTone } from "../../../lib/theme";
-import { api } from "../../../lib/api";
+import { api, isTransportFailure } from "../../../lib/api";
+import { useAuth } from "../../../lib/auth";
+import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
+import { offlineViewState } from "../../../lib/offline-ux";
+import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
+import { useConnectivity } from "../../../lib/connectivity-context";
+import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
 
 // The trips list is a time-aware QUEUE, not a plain time sort.
 // Priority (highest → lowest):
@@ -208,6 +214,17 @@ export default function TripsTab() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [now, setNow] = useState(NOW_AT_LOAD);
+  // Offline Read Mode: last time this list was confirmed by the server.
+  const [lastSynced, setLastSynced] = useState(null);
+  const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  // Unstable counts as online (the amber banner speaks for it) — only a fully
+  // offline verdict switches the list to saved data.
+  const { status } = useConnectivity();
+  const offline = status === "offline";
+  // 4-state decider: itemCount is the SOURCE count (never filtered — this
+  // screen has no filters, but the rule is uniform).
+  const view = offlineViewState({ offline, syncedAt: lastSynced, itemCount: trips.length });
 
   // Live clock: re-evaluate the queue every 30s so READY/OVERDUE flip live.
   useEffect(() => {
@@ -216,17 +233,43 @@ export default function TripsTab() {
   }, []);
 
   const load = useCallback(async () => {
-    try {
-      setError(null);
-      const data = await api.get("/api/mobile/driver/trips?status=all");
-      setTrips(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e.message || "Could not load trips.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    // Offline Read Mode: show last-known trips instantly (offline included),
+    // then revalidate against the server below.
+    if (driverId) {
+      const cached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
+      if (cached) {
+        setTrips(Array.isArray(cached.data) ? cached.data : []);
+        setLastSynced(cached.syncedAt);
+        setLoading(false);
+      }
     }
-  }, []);
+    // Same cold-start tolerance as Home: one automatic retry for transient
+    // failures before surfacing anything to the driver.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        setError(null);
+        const data = await api.get("/api/mobile/driver/trips?status=all");
+        const list = Array.isArray(data) ? data : [];
+        setTrips(list);
+        // Display-only: refresh the cache, never treat it as authority.
+        if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+        setLastSynced(Date.now());
+        return;
+      } catch (e) {
+        if (attempt === 0 && shouldAutoRetry(e)) {
+          await new Promise((r) => setTimeout(r, LIST_AUTO_RETRY_MS));
+          continue;
+        }
+        // Same PR #3.1 dedup as Home: the banner owns transport failures.
+        // Offline with cache → keep showing it; the badge states its age.
+        if (!isTransportFailure(e)) setError(e.message || "Could not load trips.");
+        return;
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [driverId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -279,6 +322,11 @@ export default function TripsTab() {
           </Pressable>
         </View>
 
+        {view.showSyncNote && trips.length > 0 ? (
+          // One note for the whole queue, not per bucket.
+          <SyncNote syncedAt={lastSynced} label="trips" />
+        ) : null}
+
         {loading ? (
           <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
         ) : error ? (
@@ -287,10 +335,25 @@ export default function TripsTab() {
             <Text style={{ color: colors.onSurface, marginTop: 16, textAlign: "center" }}>{error}</Text>
           </View>
         ) : sections.length === 0 ? (
-          <View style={{ alignItems: "center", marginTop: 60 }}>
-            <Ionicons name="checkmark-circle-outline" size={48} color={colors.onSurface} />
-            <Text style={{ color: colors.onSurface, marginTop: 16 }}>No trips assigned right now.</Text>
-          </View>
+          view.state === "never-synced" ? (
+            <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
+          ) : (
+            <View style={{ alignItems: "center", marginTop: 60, gap: 10 }}>
+              <Ionicons
+                name={view.state === "empty-unconfirmed" ? "alert-circle-outline" : "checkmark-circle-outline"}
+                size={48}
+                color={colors.onSurface}
+              />
+              <Text style={{ color: colors.onSurface, marginTop: 8, textAlign: "center" }}>
+                {view.state === "empty-confirmed"
+                  ? // Offline confirmed-empty is still a snapshot — "when last
+                    // synced", not a current-truth claim.
+                    (offline ? "No trips were assigned when last synced." : "No trips assigned right now.")
+                  : "Trips couldn't be confirmed right now. Pull to refresh or try again."}
+              </Text>
+              {view.state === "empty-confirmed" && offline ? <SavedChip syncedAt={lastSynced} /> : null}
+            </View>
+          )
         ) : (
           <View>
             {sections.map((section) => (
