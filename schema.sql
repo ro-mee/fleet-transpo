@@ -852,6 +852,23 @@ CREATE TABLE transportation_requests (
   CONSTRAINT transportation_requests_reservation_number_key UNIQUE (reservation_number)
 );
 
+CREATE TABLE trip_monitor_alerts (
+  alert_id bigint DEFAULT nextval('trip_monitor_alerts_alert_id_seq'::regclass) NOT NULL,
+  trip_id integer NOT NULL,
+  signal_key varchar(40) NOT NULL,
+  severity varchar(20) NOT NULL,
+  active boolean DEFAULT true NOT NULL,
+  first_detected_at timestamptz DEFAULT now() NOT NULL,
+  last_detected_at timestamptz DEFAULT now() NOT NULL,
+  resolved_at timestamptz,
+  last_notified_at timestamptz,
+  metadata jsonb,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT trip_monitor_alerts_pkey PRIMARY KEY (alert_id),
+  CONSTRAINT uq_trip_monitor_alerts_trip_signal UNIQUE (trip_id, signal_key)
+);
+
 CREATE TABLE trips (
   trip_id integer DEFAULT nextval('trips_trip_id_seq'::regclass) NOT NULL,
   vehicle_id integer NOT NULL,
@@ -1154,6 +1171,7 @@ ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_reque
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES employees(employee_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_service_type_id_fkey FOREIGN KEY (service_type_id) REFERENCES service_types(service_type_id);
 ALTER TABLE transportation_requests ADD CONSTRAINT transportation_requests_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
+ALTER TABLE trip_monitor_alerts ADD CONSTRAINT trip_monitor_alerts_trip_id_fkey FOREIGN KEY (trip_id) REFERENCES trips(trip_id);
 ALTER TABLE trips ADD CONSTRAINT trips_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE trips ADD CONSTRAINT trips_dispatch_id_fkey FOREIGN KEY (dispatch_id) REFERENCES dispatchschedules(dispatch_id);
 ALTER TABLE trips ADD CONSTRAINT trips_driver_id_fkey FOREIGN KEY (driver_id) REFERENCES drivers(driver_id);
@@ -1293,6 +1311,8 @@ CREATE INDEX idx_transport_requests_fleet_status ON public.transportation_reques
 CREATE INDEX idx_transport_requests_pickup ON public.transportation_requests USING btree (pickup_datetime);
 CREATE INDEX idx_transport_requests_reservation_number ON public.transportation_requests USING btree (reservation_number);
 CREATE INDEX idx_transport_requests_vehicle ON public.transportation_requests USING btree (vehicle_id);
+CREATE INDEX idx_trip_monitor_alerts_active ON public.trip_monitor_alerts USING btree (active, last_detected_at DESC);
+CREATE INDEX idx_trip_monitor_alerts_trip ON public.trip_monitor_alerts USING btree (trip_id) WHERE active;
 CREATE INDEX idx_trips_analytics ON public.trips USING btree (vehicle_id, start_time, trip_status) WHERE (deleted_at IS NULL);
 CREATE INDEX idx_trips_created_at ON public.trips USING btree (deleted_at, created_at DESC);
 CREATE INDEX idx_trips_date ON public.trips USING btree (start_time);
@@ -1374,7 +1394,7 @@ BEGIN
   SELECT
     d.employee_id,
     'Dispatch Assigned',
-    'You have been assigned to dispatch ' || NEW.dispatch_number || '.',
+    'You have a new dispatch (' || NEW.dispatch_number || '). Open the app for pickup time, guest, and route details.',
     'default',
     'dispatch',
     NEW.dispatch_id
@@ -1550,7 +1570,7 @@ BEGIN
   SELECT
     d.employee_id,
     'Dispatch Assigned',
-    'You have been assigned to dispatch ' || NEW.dispatch_number || '.',
+    'You have a new dispatch (' || NEW.dispatch_number || '). Open the app for pickup time, guest, and route details.',
     'Alert',
     'dispatch',
     NEW.dispatch_id
@@ -1619,7 +1639,10 @@ BEGIN
     SELECT
       d.employee_id,
       'Leave Request ' || NEW.status,
-      'Your leave request from ' || NEW.start_date || ' to ' || NEW.end_date || ' was ' || LOWER(NEW.status) || '.',
+      CASE WHEN NEW.status = 'Approved'
+        THEN 'Your leave request was approved. Check the app for the approved dates.'
+        ELSE 'Your leave request was declined. Check the app for details or talk to your fleet manager.'
+      END,
       CASE WHEN NEW.status = 'Approved' THEN 'Success' ELSE 'Warning' END,
       'leave_request',
       NEW.leave_request_id

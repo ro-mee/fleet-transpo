@@ -6,6 +6,7 @@ import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/consta
 import { advanceReservation, findRequestForDispatch } from "@/services/reservation-lifecycle.service";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { trailDistanceKm } from "@/lib/geo/geofence";
+import { resolveMonitorAlerts } from "@/services/live-trip-monitor.service";
 
 const TERMINAL = new Set(["Completed", "Cancelled"]);
 
@@ -150,6 +151,10 @@ export async function completeTrip(tripId, session, { endOdometer, distance, sta
     if (before[0]?.dispatch_id) {
       txWrites.push(tx.query(`UPDATE dispatchschedules SET status = 'Completed' WHERE dispatch_id = $1`, [before[0].dispatch_id]));
     }
+    // PR #4: a trip leaving the live lifecycle resolves its monitor alerts
+    // HERE, atomically with the status flip — whether or not anyone ever opens
+    // Live Operations again. The fleet summary's sweep is only a backstop.
+    txWrites.push(resolveMonitorAlerts(tx, tripId, "trip_completed"));
     await Promise.all(txWrites);
     return r;
   });
@@ -249,6 +254,9 @@ export async function cancelTrip(tripId, session, { reason = null } = {}) {
     if (before[0]?.dispatch_id) {
       await tx.query(`UPDATE dispatchschedules SET status = 'Cancelled' WHERE dispatch_id = $1`, [before[0].dispatch_id]);
     }
+    // PR #4: cancellation also leaves the live lifecycle — same atomic alert
+    // resolution contract as completion.
+    await resolveMonitorAlerts(tx, tripId, "trip_cancelled");
     return r;
   });
   if (!rows[0]) throw new AuthError("Trip not found", 404);
