@@ -47,7 +47,40 @@ describe("getTripGeofenceTargets", () => {
     expect(await getTripGeofenceTargets(null, { trip_id: 1 })).toEqual({ pickup: null, destination: null });
   });
 
-  it("prefers the trip's own route_id over the dispatch's", async () => {    const seen = [];
+  it("derives endpoints through the request when the trip row has none", async () => {
+    // Real callers (assertTripOwnership, the monitor's loadMonitorTrips rows)
+    // pass plain trip rows: dispatch_id but no origin — trips has no such
+    // column. The re-query must DERIVE the endpoint names from the booking
+    // request (route as fallback), never select them from trips: that raised
+    // "column does not exist" on the live database and this function's catch
+    // silently turned it into "no targets" — no geofence verdicts, no monitor
+    // target, no route line. Pinned after it bit twice.
+    clearTripGeofenceCache();
+    const seen = [];
+    const db = {
+      query: async (sql, params) => {
+        seen.push(sql);
+        if (sql.includes("FROM trips t")) {
+          return {
+            rows: [{
+              trip_id: params[0], dispatch_id: 9, route_id: null,
+              origin: "CoCo Star Hotel", destination: "NAIA Terminal 3 - Arrivals (Bay 9)",
+            }],
+          };
+        }
+        return { rows: [] };
+      },
+    };
+    const out = await getTripGeofenceTargets(db, { trip_id: 55, dispatch_id: 9 });
+    expect(out.pickup).toMatchObject({ source: "gazetteer", label: "CoCo Star Hotel" });
+    expect(out.destination).toMatchObject({ source: "gazetteer", label: "NAIA Terminal 3 - Arrivals (Bay 9)" });
+    const deriveQuery = seen.find((sql) => sql.includes("FROM trips t"));
+    expect(deriveQuery).toContain("transportation_requests");
+    expect(deriveQuery).toContain("COALESCE");
+  });
+
+  it("prefers the trip's own route_id over the dispatch's", async () => {
+    const seen = [];
     const db = {
       query: async (sql, params) => {
         seen.push(params?.[0]);

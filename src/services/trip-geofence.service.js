@@ -38,10 +38,25 @@ export async function getTripGeofenceTargets(db, trip) {
   try {
     let row = trip;
     if (trip.trip_id != null && (trip.origin === undefined || trip.dispatch_id === undefined)) {
+      // trips has NO origin/destination columns (migration 007 dropped them;
+      // see src/lib/api/trips-query.js). The endpoints are DERIVED through the
+      // dispatch's booking request first, the route as fallback — the same
+      // chain every other reader of trip endpoints uses. The previous version
+      // selected origin/destination straight from trips, which raised
+      // "column does not exist" on the real database; this function's
+      // try/catch swallowed it and every caller silently got
+      // {pickup: null, destination: null} — no geofence verdicts, no monitor
+      // target, no route line on the live map.
       const { rows } = await db.query(
-        `SELECT trip_id, origin, destination, dispatch_id, route_id
-           FROM trips
-          WHERE trip_id = $1
+        `SELECT t.trip_id, t.dispatch_id, t.route_id,
+                COALESCE(NULLIF(tr.pickup_location, ''), NULLIF(r.origin, ''))  AS origin,
+                COALESCE(NULLIF(tr.dropoff_location, ''), NULLIF(r.destination, '')) AS destination
+           FROM trips t
+           LEFT JOIN dispatchschedules ds ON t.dispatch_id = ds.dispatch_id
+           LEFT JOIN routes r ON t.route_id = r.route_id
+           LEFT JOIN transportation_requests tr
+             ON ds.request_id = tr.request_id AND tr.deleted_at IS NULL
+          WHERE t.trip_id = $1
           LIMIT 1`,
         [trip.trip_id]
       );
@@ -138,7 +153,7 @@ export function clearTripGeofenceCache() {
   targetCache.clear();
 }
 
-async function cachedTargets(db, trip) {
+export async function cachedTargets(db, trip) {
   const key = trip?.trip_id != null ? Number(trip.trip_id) : null;
   if (key != null) {
     const hit = targetCache.get(key);
