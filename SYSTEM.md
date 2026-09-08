@@ -188,7 +188,7 @@ fleet-transpo/
 │   │   ├── consent/            # policies.js, driver-visibility.js
 │   │   ├── driver/             # grounding.js — breakdown regex + vehicle-grounding rule (unit-tested)
 │   │   ├── fuel/               # request-policy.js, gemini-gauge.js (gauge scan, fail-closed)
-│   │   ├── notifications/      # presentation.js (category/severity chips), target.js (per-role nav)
+│   │   ├── notifications/      # presentation.js (category/severity chips), target.js (per-role nav), copy.js (driver microcopy), recipients.js (role-aware fan-out)
 │   │   ├── scheduling/         # calendar, conflicts, priority, queue-grouping, trip-progress, travel-buffer,
 │   │   │                       #   route-feasibility (pure 3-leg SAFE/TIGHT/INFEASIBLE/UNKNOWN), driver-schedule, state machines
 │   │   ├── integration/        # booking-gateway, contracts, ingest (shared writer), category-resolver, status-map

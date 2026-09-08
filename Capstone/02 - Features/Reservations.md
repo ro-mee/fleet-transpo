@@ -8,7 +8,7 @@ source:
   - src/services/reservation-lifecycle.service.js
   - src/lib/scheduling/reservation-state.js
   - src/lib/scheduling/priority.js
-last_verified: 2026-08-11
+last_verified: 2026-09-08
 related: ["[[Dispatch]]", "[[System Boundaries]]"]
 ---
 
@@ -82,6 +82,14 @@ already answering 410) was deleted with migration 036 on 2026-08-11.
 - **Malformed item in a pull batch** → skipped and counted, so one bad record
   from Booking cannot block the good ones behind it. Push answers its sender 400.
 - **Booking gateway down** → status still advances; the failure is recorded in `integration_log`.
+- **The New Reservation form (`/reservations/new`) must speak Booking's vocabulary**
+  → its Priority select offers Low/Normal/High/Urgent (the inbound Zod enum), never
+  "Medium" — the schema rejects `"Medium"` *before* `normalizePriority()` can run,
+  so a "Medium" default surfaced to the user as
+  `Invalid option: expected one of "Low"|"Normal"|"High"|"Urgent"` (fixed 2026-09-08;
+  the field also had native `<option>` children inside the Radix `FloatingSelect`,
+  which made the dropdown unopenable). Verified via a scratch vitest run against
+  `parseTransportationRequest`.
 
 ## What I learned
 

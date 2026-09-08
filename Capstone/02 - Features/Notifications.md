@@ -5,7 +5,7 @@ tags: [feature, notifications, triggers]
 source:
   - supabase/migrations (notification triggers)
   - src/app/api/notifications
-last_verified: 2026-09-07
+last_verified: 2026-09-08
 related: ["[[Dispatch]]", "[[Trips]]"]
 ---
 
@@ -228,6 +228,114 @@ audiences resolve without mgmt/sysadmin, dispatcher present, assign audience
 non-empty). Trip-completed `created_by`-NULL orphans and the dead
 `vehiclereservations` approval trigger remain documented follow-ups (need a
 trigger-touching migration batch).
+
+## Driver notification microcopy — SHIPPED (2026-09-08)
+
+All **JS-produced driver-facing** notification wording now lives in one pure
+module: `src/lib/notifications/copy.js` (119 vitest cases in `copy.test.js`).
+Producers pass data in and get `{ title, message, pushBody }` out — no
+hand-rolled driver strings in the routes anymore.
+
+**Tone rules** (module header, enforced by tests): title is a stable event
+name with no IDs/names/dates (title is the dedupe key in the SLA + maintenance
+paths); message = what happened + who + what happens next, never a promised
+response time; pushBody ≤ one short sentence; **no incident numbers in driver
+copy** — a driver never sees "report #47"; the notification's `reference_id`
+deep-links to the incident instead (revised 2026-09-08 per user feedback —
+the number read as clutter in the push banner); **dates read as words**
+("January 1, 2026", never ISO "2026-01-01" — via the module's `dateWords()`,
+UTC-calendar-stable for timestamped values); incident types pass through
+`incidentTypeLabel()` (`src/lib/incidents/resolution.js`) so a driver sees
+"Vehicle Breakdown", never "breakdown"; no staff jargon in driver copy.
+
+**Coverage — the full reporter loop-closure:** report submitted → under review
+(`driver/incidents/route.js`), acknowledged (`incidents/[id]/acknowledge`),
+manual response updates (`incidents/[id]/response` — was "Tow Truck en route
+for your incident report (#47)"), responder assigned to **both** driver
+audiences (`incidents/[id]/responder` — the responder driver and the stranded
+reporter), auto-tracking en-route/arrived/new-ETA
+(`lib/incidents/responder-tracking.js`), arrived-on-device
+(`driver/responder/arrived`), resolved by responder / by staff
+(`driver/responder/resolve`, `incidents/[id]`), and vehicle repaired
+(`vehicle-maintenance/[id]`).
+
+**Compliance audience split (fixed a real bug):** auto-suspend
+(`status.service.js`) and reinstatement (`drivers/[id]`) previously sent ONE
+copy to staff ∪ driver — the driver was told to "reinstate from their
+profile". Now staff keep the operational wording
+(`driverAutoSuspendedStaff` / `driverReinstatedStaff`, unchanged) while the
+owner gets driver-appropriate copy (`driverAutoSuspendedDriver` — renew your
+license and contact the fleet team; `driverReinstatedDriver`).
+
+**Two SQL-trigger copy exceptions** (migration 110, applied + dumped): the
+producers whose wording is composed inside plpgsql can't read the JS module —
+`notify_dispatch_created` + `enqueue_dispatch_push` (059, "You have a new
+dispatch (DSP-X). Open the app for pickup time, guest, and route details.")
+and `notify_leave_reviewed` (053, dates moved out of the copy — "Check the
+app for the approved dates."). Editing those means editing the migration's
+`CREATE OR REPLACE` bodies and re-dumping.
+
+**Left for a separate pass:** staff/overseer copy (SLA breach, Responder On
+Scene, Resolved by Driver, Reopened, Incident Report Submitted, Maintenance
+WO, grounding alerts), mobile-local toasts, and historical rows (old copy
+stays as-is — rendering is read-only).
+
+**Verified:** vitest 945/945 (82 files, incl. the 119 copy tests); eslint
+clean on all touched files; `db:up` applied 110, `db:dump` refreshed, the
+schema.sql diff also caught up migration 109's `trip_monitor_alerts` table
+(applied earlier but never dumped); live smoke
+`scripts/verify-notification-copy.mjs` (route-harness loader) — 10/10: the
+reporter's notification rows match the copy module byte-for-byte through the
+real driver POST → staff acknowledge → staff resolve flow, and `pg_proc`
+carries the new trigger copy. Test rows hard-deleted. Re-verified 2026-09-08
+after removing incident numbers from the wording and spelling out dates
+(same 10/10 smoke).
+
+## Staff notification copy audit — 2026-09-08 (prep for the deferred staff pass)
+
+Audited every producer that pages dispatcher / fleet_manager / admin. No code
+changed — findings only. Best copy in the codebase: the live-trip-monitor
+signals (`live-trip-monitor.service.js` — "Juan Dela Cruz is running about 8
+min behind the schedule", "projected to MISS the next assigned pickup (about
+12 min late)") — who + what + number + consequence, the exact benchmark the
+driver copy was built to; also UVVRP (`lib/uvvrp/uvvrp.service.js` — plate +
+restriction + day + what to do).
+
+Findings, worst first:
+
+1. **Raw `incident_type` leaks into staff copy** (the bug class the driver
+   pass fixed): "Incident Report Submitted" (`driver/incidents/route.js` —
+   "Driver Juan Dela Cruz reported breakdown (Severity: Critical)"), SLA
+   breach (`sla.js` — "Incident #47 (breakdown, Critical)"), Reopened
+   (`driver/incidents/[id]/reopen/route.js`). None pass through
+   `incidentTypeLabel()`.
+2. **ISO date in Driver License Updated** (`driver/license-scan/route.js` —
+   "New expiry on file: 2026-01-01") — the exact format removed from driver
+   copy; `dateWords()` lives in `copy.js` but that module is driver-only.
+3. **No pushBody discipline**: every staff producer pushes the full message
+   (SLA ~150 chars, GUEST STRANDED ~200); license-scan slices at 160
+   arbitrarily. Driver copy has dedicated ≤120-char push bodies.
+4. **Suppression gap**: when grounding fires, "Incident Report Submitted" is
+   skipped, so the *most severe* incidents notify staff only via "Vehicle
+   Taken Out of Service" — which omits driver name, severity, and type.
+5. **Three audience-resolution patterns for the same roles**:
+   `notificationRolesFor(...)` (the designed way) vs hardcoded
+   `OVERSEER_ROLES = ["fleet_manager","admin"]` duplicated in 4 files vs
+   inline role lists (`sla.js`, `grounding.js`). A MATRIX edit strands the
+   hardcoded lists — e.g. dispatcher holds `incidents.acknowledge: true` but
+   is **not** paged for SLA breach / Incident Report Submitted / Responder On
+   Scene, only for grounding + live-ops + transport-assigned.
+6. **grounding.js is the only producer with emoji + ALL CAPS +
+   "IMMEDIATELY!"** — urgency is right for stranded guests, the register is
+   not.
+7. Numbers ARE right for staff (lookup keys: Incident #47, WO #12, Dispatch
+   #DSP-X) — keep, just normalize "incident #47" vs "Incident #47" casing.
+
+Staff-pass shape (mirrors the driver pass): extend `copy.js` with staff
+variants, `incidentTypeLabel()` at every incident-type call site,
+`dateWords()` for the license-scan expiry, per-event pushBody, and replace
+hardcoded role lists with `notificationRolesFor()` after deciding whether the
+dispatcher belongs in the incident loop.
 
 ## Open questions
 

@@ -140,6 +140,14 @@ Stale-while-revalidate for the 6 core driver screens in one PR: Trips, History (
 - **Untouched:** write queue/retry semantics, incidents list, notifications history, map tiles, image bytes, GPS lifecycle, Settings screen.
 - **Verified:** `offline-cache.test.js` (12) + `offline-ux.test.js` (9: single-source decision table incl. the online-empty-unconfirmed distinction, multi-source combiner incl. the partial state) + `driver-context.test.js` (12) — full mobile suite 65 passing, eslint warning-clean on all touched files, `expo export -p android` bundles clean (5 MB Hermes). Physical-device checklist (airplane-mode persistence across kill/relaunch, shared-phone driver switch E2E — the cross-driver clear is only now actually exercisable since resolveDriverId was null before) still requires a device — not claimed.
 
+## Contextual Warnings — PR #4 Live Monitoring (2026-09-08)
+
+Both GPS ingest routes (`/api/mobile/driver/trips/[id]/gps` and `/api/trips/[id]/locations`) now also return a `monitor` payload — the ingest-side `evaluatePingMonitor` verdict (off-route state, GPS health, traffic delay when already cached), computed **best-effort inside try/catch**: a banner failure can never fail the GPS write it describes. The foreground poster publishes it to screens exactly like the PR #3 geofence verdict — trip-id-tagged (`monitor` + `monitorTripId`) with the same staleness guard, so a finished trip's banner cannot linger onto the next assignment.
+
+The map screen shows ONE calm banner while genuinely en route (gated to the en-route states, not at pickup/destination): "Route deviation detected / Check your navigation when safe." · "Heavy traffic ahead / Arrival may be delayed by about N min." (only from 5 min up, rounded) · "GPS updates delayed / Keep location access enabled." Derivation lives in the pure, RN-import-free `mobile/lib/monitor-banner.js` (priority: confirmed deviation > traffic > GPS delay; a single unconfirmed off-route observation or an unknown traffic value is silence) — re-exported by `tracking.js`, unit-tested by `monitor-banner.test.js` (5). No risk-level jargon, no dispatcher-style next-trip panic copy while driving; the driver's surface is this banner only, never the operational push (that goes to dispatch/fleet managers).
+
+**Untouched:** GPS posting cadence, background task, geofence rules, connectivity banner, offline read mode. Full PR #4 architecture (engine, thresholds, durable alerts, APIs, web UI) → [[Tracking]].
+
 ## Related
 
 [[Authentication]] · [[Tracking]] · [[Token Rotation And Refresh Races]] · [[Trips]] · [[Architecture]] · [[Driver Management]]

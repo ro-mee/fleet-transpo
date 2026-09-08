@@ -22,7 +22,7 @@ last_verified: 2026-09-02
 - **UVVRP number coding:** live and set to `block` mode for Manila.
 - **Double-booking prevention:** app check + DB trigger. See [[ADR-006 Dual Double-Booking Guard]].
 - **CI/security baseline:** GitHub Actions now runs install, lint, all tests, migration filename validation, and the production build. CORS, account role assignment, unexpected API errors, and vehicle-image uploads have explicit guards and tests.
-- **Test suite:** **474/474 tests across 43 files** pass. Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
+- **Test suite:** **826/826 tests across 81 files** pass (repo root + `mobile/lib` unit tests; counted at PR #4 completion, 2026-09-08). Temporary implementation checks were removed after verification; the retained suite is still not a complete link or device-integration check. → [[Things I Should Not Forget]]
 - **Schema is recorded in the repo** — `schema.sql` is checked in, so drift is visible in any diff, and a ledger records what has been applied. Rebuilding a fresh DB is `schema.sql` + `migrate.mjs baseline`, **not** `db:up` — and that path is untested. The runner hashes LF-normalized content (EOL churn can't trip it) and offers `db:rebaseline` for the rare deliberate re-record. See [[Migrations]].
 
 ## What is broken — CONFIRMED
@@ -31,6 +31,16 @@ last_verified: 2026-09-02
 |---|---|---|
 | ~~A live DB password sits in git history~~ | ~~**1**~~ | **CLOSED 2026-08-11 — rotated.** The leaked value is now rejected by the server. History still holds it; it is worthless. → [[SEC Database Password In Git History]] |
 | CI lint currently uses a warning ceiling while React Compiler/UI warnings are paid down | — | [[Bugs]] |
+
+**Live Monitoring & Delay Intelligence — PR #4 (2026-09-08):** deterministic operational intelligence over live trips (NOT the AI copilot — that is PR #5). While a trip is in the live window the system answers *okay pa ba? male-late ba? nalilihis ba? maaapektuhan ba ang susunod na assigned trip?* — and **recommends only**: nothing in this layer mutates a trip, dispatch, or assignment.
+
+- **Shared phase resolver** `src/lib/trip-phase.js` — the ONE trip_status→phase interpretation, consumed by the live map and the monitor alike. Pure engines: `src/lib/monitoring/live-trip-monitor.js` (risk NORMAL/WATCH/ATTENTION/ACTION/UNKNOWN; delay thresholds 5/10/15 min; 10-min turnaround floor; UNKNOWN never reads as NORMAL) and `src/lib/geo/off-route.js` (>250 m × 2 consecutive valid observations to confirm a deviation, <150 m × 2 to clear).
+- **I/O service** `src/services/live-trip-monitor.service.js` with two locked modes: **fleet summary = cheap triage** (cached signals + durable alert rows only, no fresh TomTom per trip) and **selected trip = expensive precision** (fresh traffic-aware ETA, next-trip reposition). The off-route corridor is intent-anchored (a pinned polyline, never re-anchored mid-deviation — re-anchoring would launder a detour into "on route"); streaks read from `gpstracking` breadcrumbs, never process memory.
+- **Durable alerts** `trip_monitor_alerts` (migration 109, applied + `schema.sql` diff committed): writes only on appear / severity-jump / resolve; **threshold-entry notifications** (entry into ≥ATTENTION → dispatcher Warning; into ≥ACTION → dispatcher + fleet_manager Alert with push), so any jump straight to ACTION notifies exactly once. **Resolution is lifecycle-owned** — `completeTrip`/`cancelTrip` resolve a trip's alerts inside their transaction; the fleet endpoint keeps only a defensive sweep.
+- **APIs:** `GET /api/trips/live-monitor` (operations-wide read_all) and `GET /api/trips/[id]/live-monitor` (full evaluation; a driver may read their OWN trip, foreign trips 404). `/api/trips/latest-locations` stays raw telemetry, untouched.
+- **Web** `/tracking/live-map`: LIVE OPERATIONS strip + risk chips (filter the trip list, never the map markers), a monitor block in the selected-mission drawer (risk badge, live ETA, schedule delay, traffic, route status, next-assigned-trip impact, signals, View Trip / Review Reassignment / View Incident links), and a restrained marker risk accent (ACTION rose+pulse, ATTENTION/WATCH amber, UNKNOWN gray; NORMAL and stale markers unchanged).
+- **Mobile:** both GPS POST routes return a `monitor` payload (ingest-side, best-effort — a banner failure can never fail the GPS write); the poster publishes it trip-id-tagged; the map screen shows ONE calm banner while en route (route deviation / heavy traffic / GPS delayed — pure `mobile/lib/monitor-banner.js`). No risk jargon, no dispatcher-style next-trip panic copy while driving.
+- **Verified:** suite **826/826 across 81 files** (5 marker-accent + 5 banner-derivation tests added); eslint clean on all touched files; `npx expo export -p android` compiles (Expo SDK 54). Runtime scenarios A–E against the dev server with the phone are still pending. → [[Tracking]]
 
 **Fixed in this session — 2026-09-08:**
 
