@@ -22,6 +22,19 @@ import {
  * old token, so a revoked driver or a role change takes effect within one
  * access-token lifetime instead of persisting for the full 30 days.
  */
+
+/**
+ * Minimum seconds between two rotations of one family. The foreground poster
+ * and the background GPS task run in SEPARATE JS contexts with independent
+ * single-flight guards, so both can refresh the same family concurrently;
+ * without a cooldown they alternate grace-rotations indefinitely (a 63-row
+ * churn was observed in production) until one lands outside the grace window
+ * and the replay rule wipes the family — a forced logout from normal use.
+ * A legitimate client never refreshes twice inside the cooldown; the loser
+ * gets a stateless 429 with no writes, which the mobile client already treats
+ * as transient (no logout).
+ */
+export const ROTATION_COOLDOWN_SECONDS = 10;
 export async function POST(req) {
   try {
     const body = await req.json().catch(() => null);
@@ -42,7 +55,13 @@ export async function POST(req) {
       rateLimit(`mobile-refresh:account:${claims.employeeId}`, { limit: 20, windowMs: 60_000 }),
     ]);
     if (!ipBucket.allowed || !accountBucket.allowed) {
-      return err("Too many requests. Try again later.", 429);
+      // Tell the client how long to wait: the mobile refresh treats 429 as
+      // "wait once, silently" instead of a session problem.
+      const retryAfter = Math.max(Number(ipBucket.retryAfter) || 0, Number(accountBucket.retryAfter) || 0);
+      return Response.json(
+        { error: "Too many requests. Try again later.", retry_after: retryAfter },
+        { status: 429 }
+      );
     }
 
     const rotated = await withTransaction(async (tx) => {
@@ -55,6 +74,26 @@ export async function POST(req) {
       );
       const existing = existingRows[0];
       if (!existing) return { invalid: true };
+
+      // Rotation cooldown (see ROTATION_COOLDOWN_SECONDS): concurrent losers
+      // are turned away with no state change. Checked inside the transaction
+      // so two simultaneous winners cannot both pass.
+      const { rows: cooldownRows } = await tx.query(
+        `SELECT MAX(created_at) AS last_rotation
+           FROM mobile_refresh_tokens
+          WHERE family_id = $1 AND employee_id = $2`,
+        [existing.family_id, existing.employee_id]
+      );
+      const lastRotation = cooldownRows[0]?.last_rotation
+        ? new Date(cooldownRows[0].last_rotation).getTime()
+        : null;
+      const elapsedMs = lastRotation ? Date.now() - lastRotation : null;
+      if (elapsedMs != null && elapsedMs < ROTATION_COOLDOWN_SECONDS * 1000) {
+        return {
+          rateLimited: true,
+          retryAfter: Math.max(1, Math.ceil((ROTATION_COOLDOWN_SECONDS * 1000 - elapsedMs) / 1000)),
+        };
+      }
 
       const { rows: revoked } = await tx.query(
         `UPDATE mobile_refresh_tokens
@@ -151,6 +190,15 @@ export async function POST(req) {
       return { accessToken, refreshToken: nextRefreshToken };
     });
 
+    if (rotated.rateLimited) {
+      return Response.json(
+        {
+          error: "Too many requests. Try again later.",
+          retry_after: Number(rotated.retryAfter) || ROTATION_COOLDOWN_SECONDS,
+        },
+        { status: 429 }
+      );
+    }
     if (rotated.replay) {
       await writeAudit(req, null, {
         action: "refresh_reuse",
