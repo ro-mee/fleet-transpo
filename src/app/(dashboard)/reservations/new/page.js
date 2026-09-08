@@ -81,7 +81,7 @@ export default function MockInjectorPage() {
     passenger_count: 1,
     special_requests: "",
     requested_vehicle_type: "",
-    priority: "Medium",
+    priority: "Normal",
   });
 
   const set = (key, value) => setForm((f) => ({ ...f, [key]: value }));
@@ -136,7 +136,7 @@ export default function MockInjectorPage() {
       passenger_count: Math.floor(Math.random() * 4) + 1,
       special_requests: "Cold towels & bottled water requested.",
       requested_vehicle_type: categories[0]?.category_name || "",
-      priority: Math.random() > 0.7 ? "High" : "Medium",
+      priority: Math.random() > 0.7 ? "High" : "Normal",
     });
     toast.success("Filled mock transport request data!");
   };
@@ -349,15 +349,17 @@ export default function MockInjectorPage() {
               icon={AlertCircle}
               id="priority"
               value={form.priority}
-              onChange={(e) => set("priority", e.target.value)}
+              onValueChange={(val) => set("priority", val)}
             >
-              {/* Vocabulary matches chk_transport_priority exactly — "Normal"
-                  is silently translated to Medium downstream, so offer Medium
-                  here and never show the user a word the record won't carry. */}
-              <option value="Low">Low</option>
-              <option value="Medium">Medium</option>
-              <option value="High">High (VIP)</option>
-              <option value="Urgent">Urgent</option>
+              {/* This form simulates the BOOKING side of the boundary, so it must
+                  speak Booking's vocabulary: Low/Normal/High/Urgent
+                  (TransportationRequestSchema). normalizePriority() translates
+                  "Normal" → "Medium" at ingest; "Medium" itself would be rejected
+                  by the schema, so never send it from here. */}
+              <SelectItem value="Low">Low</SelectItem>
+              <SelectItem value="Normal">Normal</SelectItem>
+              <SelectItem value="High">High (VIP)</SelectItem>
+              <SelectItem value="Urgent">Urgent</SelectItem>
             </FloatingSelect>
 
             <FloatingField label="Special Requests & Notes" icon={Sparkles} className="md:col-span-2">
