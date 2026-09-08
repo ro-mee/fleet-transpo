@@ -120,23 +120,34 @@ export async function resolvePassengerMinutes(request, db) {
 /**
  * Next ASSIGNED dispatch touching this vehicle or driver after `after`.
  * Either resource being committed blocks the pair, so the lookup is OR.
+ *
+ * pickup/dropoff locations live on transportation_requests (reached via
+ * dispatchschedules.request_id), NOT on dispatchschedules — an earlier
+ * revision selected them from the dispatch table, which raised "column does
+ * not exist" on the live DB and the catch below silently returned null, so
+ * the next-booking signal was permanently UNKNOWN in live use. A dispatch
+ * without a request (trip created outside the dispatch flow) has null
+ * locations → reposition stays honestly unknown rather than guessed.
  */
-export async function findNextAssignedDispatch(db, { vehicleId = null, driverId = null, after = null } = {}) {
+export async function findNextAssignedDispatch(db, { vehicleId = null, driverId = null, after = null, excludeDispatchId = null } = {}) {
   if (!db || (vehicleId == null && driverId == null)) return null;
   const afterIso = after != null && after !== "" ? new Date(after).toISOString() : null;
   try {
     const { rows } = await db.query(
-      `SELECT dispatch_id, vehicle_id, driver_id,
-              scheduled_departure, scheduled_arrival,
-              pickup_location, dropoff_location
-         FROM dispatchschedules
-        WHERE deleted_at IS NULL
-          AND status IN ('Scheduled', 'In Progress')
-          AND (vehicle_id = $1 OR driver_id = $2)
-          AND ($3::timestamptz IS NULL OR scheduled_departure > $3)
-        ORDER BY scheduled_departure ASC
+      `SELECT ds.dispatch_id, ds.vehicle_id, ds.driver_id,
+              ds.scheduled_departure, ds.scheduled_arrival,
+              tr.pickup_location, tr.dropoff_location
+         FROM dispatchschedules ds
+         LEFT JOIN transportation_requests tr
+           ON tr.request_id = ds.request_id AND tr.deleted_at IS NULL
+        WHERE ds.deleted_at IS NULL
+          AND ds.status IN ('Scheduled', 'In Progress')
+          AND (ds.vehicle_id = $1 OR ds.driver_id = $2)
+          AND ($3::timestamptz IS NULL OR ds.scheduled_departure > $3)
+          AND ($4::integer IS NULL OR ds.dispatch_id <> $4)
+        ORDER BY ds.scheduled_departure ASC
         LIMIT 1`,
-      [vehicleId, driverId, afterIso]
+      [vehicleId, driverId, afterIso, excludeDispatchId]
     );
     return rows?.[0] || null;
   } catch {
