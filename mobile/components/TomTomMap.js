@@ -207,7 +207,7 @@ const TomTomMap = forwardRef(({
                   position: absolute;
                   top: 50%;
                   left: 50%;
-                  transform: translate(-50%, -50%);
+                  transform: translate3d(-50%, -50%, 0);
                   width: 380px;
                   height: 380px;
                   display: flex;
@@ -215,7 +215,11 @@ const TomTomMap = forwardRef(({
                   justify-content: center;
                   pointer-events: none;
                   z-index: 0;
-                  transition: transform 0.5s cubic-bezier(0.2, 0, 0, 1);
+                  contain: layout paint;
+                  will-change: transform;
+                  -webkit-backface-visibility: hidden;
+                  backface-visibility: hidden;
+                  transition: transform 0.4s cubic-bezier(0.2, 0, 0, 1);
               }
 
               /* Central Vehicle Ambient Glow Core (Infographic Layer 1: #A8FFE1, 70-90% Opacity) */
@@ -226,19 +230,23 @@ const TomTomMap = forwardRef(({
                   border-radius: 50%;
                   pointer-events: none;
                   z-index: 1;
-                  animation: radarCoreBreathe 2.4s cubic-bezier(0.24, 0, 0.38, 1) infinite alternate;
+                  will-change: transform, opacity;
+                  -webkit-backface-visibility: hidden;
+                  backface-visibility: hidden;
+                  transform: translate3d(0, 0, 0);
+                  animation: radarCoreBreathe 2.7s ease-in-out infinite alternate;
               }
               .scheme-dark .radar-core-glow {
-                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.85) 0%, rgba(92, 255, 220, 0.50) 45%, rgba(0, 255, 179, 0.18) 70%, transparent 100%);
-                  box-shadow: 0 0 22px rgba(92, 255, 220, 0.60);
+                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.85) 0%, rgba(92, 255, 220, 0.48) 45%, rgba(0, 255, 179, 0.16) 70%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(92, 255, 220, 0.55);
               }
               .scheme-light .radar-core-glow {
                   background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.75) 0%, rgba(40, 107, 84, 0.45) 45%, rgba(169, 200, 185, 0.18) 70%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.35);
+                  box-shadow: 0 0 18px rgba(40, 84, 72, 0.30);
               }
               @keyframes radarCoreBreathe {
-                  0% { transform: scale(0.94); opacity: 0.85; }
-                  100% { transform: scale(1.06); opacity: 1; }
+                  0% { transform: translate3d(0, 0, 0) scale(0.95); opacity: 0.88; }
+                  100% { transform: translate3d(0, 0, 0) scale(1.05); opacity: 1.0; }
               }
 
               /* Multi-Layered Concentric Proximity Depth Zones (Infographic Base Terrain) */
@@ -249,84 +257,86 @@ const TomTomMap = forwardRef(({
                   outline: none !important;
                   pointer-events: none;
                   z-index: 0;
+                  will-change: transform;
+                  -webkit-backface-visibility: hidden;
+                  backface-visibility: hidden;
+                  transform: translate3d(0, 0, 0);
               }
 
               /* Dark Mode Concentric Depth Zones */
               .scheme-dark .radar-zone-layer.zone-4 {
                   width: 370px;
                   height: 370px;
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.08) 0%, rgba(0, 229, 168, 0.02) 75%, transparent 100%);
-                  filter: blur(1px);
-                  animation: zoneBreathe4 7.8s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.08) 0%, rgba(0, 229, 168, 0.04) 40%, rgba(0, 229, 168, 0.01) 75%, transparent 100%);
+                  animation: zoneBreathe4 8.1s ease-in-out infinite alternate;
               }
               .scheme-dark .radar-zone-layer.zone-3 {
                   width: 290px;
                   height: 290px;
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.14) 0%, rgba(0, 229, 168, 0.06) 80%, transparent 100%);
-                  box-shadow: 0 0 24px rgba(0, 229, 168, 0.10);
-                  animation: zoneBreathe3 6.0s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.14) 0%, rgba(0, 229, 168, 0.06) 65%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(0, 229, 168, 0.08);
+                  animation: zoneBreathe3 6.4s ease-in-out infinite alternate;
               }
               .scheme-dark .radar-zone-layer.zone-2 {
                   width: 210px;
                   height: 210px;
-                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.18) 0%, rgba(0, 255, 179, 0.10) 75%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(0, 255, 179, 0.14);
-                  animation: zoneBreathe2 4.6s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.18) 0%, rgba(0, 255, 179, 0.08) 70%, transparent 100%);
+                  box-shadow: 0 0 16px rgba(0, 255, 179, 0.12);
+                  animation: zoneBreathe2 5.4s ease-in-out infinite alternate;
               }
               .scheme-dark .radar-zone-layer.zone-1 {
                   width: 130px;
                   height: 130px;
-                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.26) 0%, rgba(92, 255, 220, 0.16) 70%, transparent 100%);
-                  box-shadow: 0 0 18px rgba(92, 255, 220, 0.20);
-                  animation: zoneBreathe1 3.4s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.26) 0%, rgba(92, 255, 220, 0.14) 65%, transparent 100%);
+                  box-shadow: 0 0 14px rgba(92, 255, 220, 0.16);
+                  animation: zoneBreathe1 3.8s ease-in-out infinite alternate;
               }
 
               /* Light Mode Concentric Depth Zones */
               .scheme-light .radar-zone-layer.zone-4 {
                   width: 370px;
                   height: 370px;
-                  background: radial-gradient(circle at 50% 50%, rgba(120, 168, 149, 0.10) 0%, rgba(220, 233, 227, 0.03) 75%, transparent 100%);
-                  filter: blur(1px);
-                  animation: zoneBreathe4 7.8s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(120, 168, 149, 0.10) 0%, rgba(120, 168, 149, 0.04) 45%, rgba(220, 233, 227, 0.01) 75%, transparent 100%);
+                  animation: zoneBreathe4 8.1s ease-in-out infinite alternate;
               }
               .scheme-light .radar-zone-layer.zone-3 {
                   width: 290px;
                   height: 290px;
-                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.14) 0%, rgba(120, 168, 149, 0.06) 80%, transparent 100%);
-                  box-shadow: 0 0 24px rgba(40, 84, 72, 0.08);
-                  animation: zoneBreathe3 6.0s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.14) 0%, rgba(120, 168, 149, 0.06) 65%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.07);
+                  animation: zoneBreathe3 6.4s ease-in-out infinite alternate;
               }
               .scheme-light .radar-zone-layer.zone-2 {
                   width: 210px;
                   height: 210px;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.18) 0%, rgba(64, 132, 114, 0.10) 75%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.12);
-                  animation: zoneBreathe2 4.6s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.18) 0%, rgba(64, 132, 114, 0.08) 70%, transparent 100%);
+                  box-shadow: 0 0 16px rgba(40, 84, 72, 0.10);
+                  animation: zoneBreathe2 5.4s ease-in-out infinite alternate;
               }
               .scheme-light .radar-zone-layer.zone-1 {
                   width: 130px;
                   height: 130px;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.24) 0%, rgba(40, 107, 84, 0.14) 70%, transparent 100%);
-                  box-shadow: 0 0 18px rgba(40, 84, 72, 0.16);
-                  animation: zoneBreathe1 3.4s ease-in-out infinite alternate;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.24) 0%, rgba(40, 107, 84, 0.12) 65%, transparent 100%);
+                  box-shadow: 0 0 14px rgba(40, 84, 72, 0.14);
+                  animation: zoneBreathe1 3.8s ease-in-out infinite alternate;
               }
 
-              /* Zone Breathing Animations */
+              /* Zone Breathing Animations with hardware composited translate3d */
               @keyframes zoneBreathe1 {
-                  0% { transform: scale(0.97); }
-                  100% { transform: scale(1.03); }
+                  0% { transform: translate3d(0, 0, 0) scale(0.97); }
+                  100% { transform: translate3d(0, 0, 0) scale(1.03); }
               }
               @keyframes zoneBreathe2 {
-                  0% { transform: scale(0.97); }
-                  100% { transform: scale(1.03); }
+                  0% { transform: translate3d(0, 0, 0) scale(0.97); }
+                  100% { transform: translate3d(0, 0, 0) scale(1.03); }
               }
               @keyframes zoneBreathe3 {
-                  0% { transform: scale(0.96); }
-                  100% { transform: scale(1.04); }
+                  0% { transform: translate3d(0, 0, 0) scale(0.96); }
+                  100% { transform: translate3d(0, 0, 0) scale(1.04); }
               }
               @keyframes zoneBreathe4 {
-                  0% { transform: scale(0.95); }
-                  100% { transform: scale(1.05); }
+                  0% { transform: translate3d(0, 0, 0) scale(0.95); }
+                  100% { transform: translate3d(0, 0, 0) scale(1.05); }
               }
 
               /* Distinct, Visible Radar Wave Pulse Layers (Infographic Specs) */
@@ -335,6 +345,12 @@ const TomTomMap = forwardRef(({
                   border-radius: 50%;
                   pointer-events: none;
                   z-index: 2;
+                  will-change: transform, opacity;
+                  -webkit-backface-visibility: hidden;
+                  backface-visibility: hidden;
+                  -webkit-transform-style: preserve-3d;
+                  transform-style: preserve-3d;
+                  transform: translate3d(0, 0, 0);
               }
 
               /* Dark Mode Wave Pulse Layers */
@@ -345,7 +361,7 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(92, 255, 220, 0.70);
                   background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.24) 0%, rgba(92, 255, 220, 0.08) 55%, transparent 85%);
                   box-shadow: 0 0 14px rgba(92, 255, 220, 0.50), inset 0 0 10px rgba(92, 255, 220, 0.25);
-                  animation: pulseInnerWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation: pulseInnerWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
                   animation-delay: 0s;
               }
 
@@ -356,8 +372,8 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(0, 255, 179, 0.50);
                   background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.18) 0%, rgba(0, 255, 179, 0.05) 60%, transparent 90%);
                   box-shadow: 0 0 18px rgba(0, 255, 179, 0.40), inset 0 0 12px rgba(0, 255, 179, 0.16);
-                  animation: pulseMiddleWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-                  animation-delay: 0.35s;
+                  animation: pulseMiddleWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                  animation-delay: 0.9s;
               }
 
               /* Layer 4 – Outer Pulse: #00E5A8, Low Opacity (15-25%), Soft Gradient */
@@ -367,8 +383,8 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(0, 229, 168, 0.32);
                   background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.12) 0%, rgba(0, 229, 168, 0.03) 70%, transparent 100%);
                   box-shadow: 0 0 22px rgba(0, 229, 168, 0.28);
-                  animation: pulseOuterWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-                  animation-delay: 0.70s;
+                  animation: pulseOuterWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                  animation-delay: 1.8s;
               }
 
               /* Light Mode Wave Pulse Layers */
@@ -378,7 +394,7 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(40, 107, 84, 0.65);
                   background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.20) 0%, rgba(40, 107, 84, 0.06) 55%, transparent 85%);
                   box-shadow: 0 0 12px rgba(40, 107, 84, 0.35), inset 0 0 8px rgba(40, 107, 84, 0.18);
-                  animation: pulseInnerWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation: pulseInnerWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
                   animation-delay: 0s;
               }
               .scheme-light .radar-pulse-ring.layer-middle {
@@ -387,8 +403,8 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(40, 107, 84, 0.45);
                   background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.15) 0%, rgba(64, 132, 114, 0.04) 60%, transparent 90%);
                   box-shadow: 0 0 16px rgba(40, 107, 84, 0.25), inset 0 0 10px rgba(64, 132, 114, 0.12);
-                  animation: pulseMiddleWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-                  animation-delay: 0.35s;
+                  animation: pulseMiddleWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                  animation-delay: 0.9s;
               }
               .scheme-light .radar-pulse-ring.layer-outer {
                   width: 110px;
@@ -396,50 +412,56 @@ const TomTomMap = forwardRef(({
                   border: 1.5px solid rgba(120, 168, 149, 0.30);
                   background: radial-gradient(circle at 50% 50%, rgba(169, 200, 185, 0.10) 0%, rgba(169, 200, 185, 0.02) 70%, transparent 100%);
                   box-shadow: 0 0 20px rgba(120, 168, 149, 0.18);
-                  animation: pulseOuterWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-                  animation-delay: 0.70s;
+                  animation: pulseOuterWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+                  animation-delay: 1.8s;
               }
 
-              /* Keyframes with Defined Layer Visibility */
+              /* Keyframes with Smooth Organic Fade-in & Continuous Dissipation */
               @keyframes pulseInnerWave {
                   0% {
-                      transform: scale(0.35);
-                      opacity: 0.75;
-                  }
-                  60% {
-                      transform: scale(1.35);
+                      transform: translate3d(0, 0, 0) scale(0.20);
                       opacity: 0;
                   }
+                  12% {
+                      opacity: 0.72;
+                  }
+                  55% {
+                      opacity: 0.38;
+                  }
                   100% {
-                      transform: scale(1.35);
+                      transform: translate3d(0, 0, 0) scale(1.45);
                       opacity: 0;
                   }
               }
               @keyframes pulseMiddleWave {
                   0% {
-                      transform: scale(0.42);
-                      opacity: 0.55;
-                  }
-                  65% {
-                      transform: scale(2.20);
+                      transform: translate3d(0, 0, 0) scale(0.25);
                       opacity: 0;
                   }
+                  14% {
+                      opacity: 0.52;
+                  }
+                  60% {
+                      opacity: 0.24;
+                  }
                   100% {
-                      transform: scale(2.20);
+                      transform: translate3d(0, 0, 0) scale(2.35);
                       opacity: 0;
                   }
               }
               @keyframes pulseOuterWave {
                   0% {
-                      transform: scale(0.50);
-                      opacity: 0.35;
-                  }
-                  70% {
-                      transform: scale(3.10);
+                      transform: translate3d(0, 0, 0) scale(0.30);
                       opacity: 0;
                   }
+                  16% {
+                      opacity: 0.32;
+                  }
+                  65% {
+                      opacity: 0.14;
+                  }
                   100% {
-                      transform: scale(3.10);
+                      transform: translate3d(0, 0, 0) scale(3.25);
                       opacity: 0;
                   }
               }
@@ -454,14 +476,18 @@ const TomTomMap = forwardRef(({
                   border-radius: 50%;
                   background-color: #ef4444;
                   border: none !important;
+                  will-change: transform, opacity;
+                  -webkit-backface-visibility: hidden;
+                  backface-visibility: hidden;
+                  transform: translate3d(0, 0, 0);
                   animation: fleet-pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
                   pointer-events: none;
                   z-index: 0;
               }
               @keyframes fleet-pulse-ring {
-                  0% { transform: scale(0.9); opacity: 0.85; }
-                  60% { transform: scale(1.85); opacity: 0; }
-                  100% { transform: scale(1.85); opacity: 0; }
+                  0% { transform: translate3d(0, 0, 0) scale(0.9); opacity: 0.85; }
+                  60% { transform: translate3d(0, 0, 0) scale(1.85); opacity: 0; }
+                  100% { transform: translate3d(0, 0, 0) scale(1.85); opacity: 0; }
               }
 
               /* Interactive Radar Markers & Clusters */
@@ -708,7 +734,7 @@ const TomTomMap = forwardRef(({
                       baseScale = Math.max(0.85, baseScale / (1 + zoomInDiff * 0.35));
                   }
 
-                  bloom.style.transform = 'translate(-50%, -50%) scale(' + baseScale.toFixed(2) + ')';
+                  bloom.style.transform = 'translate3d(-50%, -50%, 0) scale(' + baseScale.toFixed(2) + ')';
               };
 
               window.updateRadarCoverage = function(km, carLng, carLat) {

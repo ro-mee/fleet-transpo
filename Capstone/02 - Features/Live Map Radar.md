@@ -21,18 +21,19 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
 
 1. **Multi-Layered Concentric Depth Radar with High-Visibility Wave Pulse Layers**:
    - Inspired directly by the "Radar Wave Pulse – Visibility Layers" design specification ([`media_1788952463286.jpg`](file:///C:/Users/Joseph%20T%20Lopez/.gemini/antigravity-ide/brain/36335d0f-ca22-46a1-afe9-48cdff1fd179/.user_uploaded/media_1788952463286.jpg)):
-   - **4 Visible Proximity Depth Tiers**:
-     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.4s breathe.
-     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 4.6s breathe.
-     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.0s breathe.
-     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 7.8s breathe.
+   - **4 Visible Proximity Depth Tiers (GPU-Accelerated Ambient Terrain)**:
+     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.8s breathe.
+     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 5.4s breathe.
+     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.4s breathe.
+     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 8.1s breathe with multi-stop radial gradient falloff (replacing software `filter: blur` to eliminate CPU/GPU re-rasterization).
    - **Central Vehicle Ambient Core (`.radar-core-glow`, 88px)**:
-     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 22px glow (`rgba(92, 255, 220, 0.60)`).
-   - **3 Distinct, Defined Wave Pulse Rings (Layer-by-Layer Visibility)**:
-     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–70%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
-     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–45%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.35s.
-     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–25%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 0.70s.
-     - Full loop duration: 2.4s sequence (0ms -> 350ms -> 700ms -> 1200ms full pulse).
+     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 20px glow. Hardware-composited `transform: translate3d(0,0,0)` and `will-change: transform, opacity`.
+   - **3 Distinct, Defined Wave Pulse Rings (Continuous 60/120fps Wave Train)**:
+     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–72%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
+     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–52%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.9s.
+     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–32%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 1.8s.
+     - **Smooth Organic Keyframes**: 2.7s continuous loop with exponential deceleration `cubic-bezier(0.22, 1, 0.36, 1)`. Fades in organically from `0%` (`scale(0.20), opacity: 0`) -> `12%` peak opacity -> expands outward -> cleanly dissolves to `0%` opacity at boundary. Eliminates 0% opacity popping and dead freeze gaps.
+     - **Compositing & Anti-Aliasing**: Isolated with `contain: layout paint;`, `will-change: transform, opacity;`, `-webkit-backface-visibility: hidden;`, and `transform: translate3d(0, 0, 0);` to eliminate sub-pixel border shimmer.
    - **Vehicle Marker (Fleet Car)**:
      - Top-down fleet vehicle marker with headlights glow (`car-headlights-glow`), customizable color swatch palette (`carCustomizer` modal on vehicle tap), and heading rotation (`updateCarRotation`).
      - Pinned precisely to driver GPS coordinates; dynamically rotates to match vehicle heading and map bearing.

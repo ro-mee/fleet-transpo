@@ -40,6 +40,7 @@ Home verification follow-up: the final header revision also passes Android expor
 - Dispatcher-only booking acceptance: drivers can only accept trips with a valid `tripId` assigned by dispatcher/admin; gas stations offer a Fuel Report shortcut and drivers display availability status with no accept action.
 - Interactive Coverage Legend toggling: drivers can tap any category in the Coverage Legend to toggle its visibility on/off (e.g. hiding gas stations, fleet drivers, dispatch requests, or driver vehicle puck/pulse) with real-time marker cluster updates, eye/eye-off indicators, strikethrough styling, active layer counter badge, and a "Show all layers" button.
 - Radar pulse scaling: dynamic bloom expansion up to 5 km when zoomed out to envelope the full coverage scope.
+- Hardware-composited 60/120fps radar animation: isolated with `contain: layout paint`, `will-change: transform, opacity`, and `transform: translate3d(0, 0, 0)`; eliminated software `filter: blur` re-rasterization on Zone 4; refactored wave pulses into an organic 2.7s continuous loop with 0.9s phase stagger and smooth fade-in/fade-out keyframes to eliminate opacity popping and timing dead periods.
 - Removed redundant SOS button in idle dashboard sheet (standard header distress flow handles emergencies).
 - Full Map View: idle bottom sheet supports swipe-down gesture via `PanResponder` to collapse into a minimal ~44px peek bar.
 - Touched-file lint and 1,098 Vitest tests passed.
