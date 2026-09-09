@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,10 +7,12 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
+import ClayScreenHeader from '../../../components/ClayScreenHeader';
+import { clayShade, clayPill } from "../../../lib/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: isLast ? 0 : 1 }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -40,44 +42,47 @@ export default function SafetySettings() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>Safety & Privacy</Text>
-        <View style={{ width: TOUCH_TARGET }} />
-      </View>
+      <ClayScreenHeader title="Safety & Privacy" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-          
-          <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh }]}>
+        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+
+          <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>
               Data Privacy Consent
             </Text>
-            <View style={[styles.consentBadge, { backgroundColor: consent?.accepted ? colors.secondaryContainer : colors.errorContainer }]}>
+            <View
+              style={[
+                styles.consentBadge,
+                clayPill,
+                {
+                  backgroundColor: consent?.accepted ? colors.primaryContainer : colors.errorContainer,
+                  shadowColor: colors.shadow,
+                },
+              ]}
+            >
               <Ionicons
                 name={consent?.accepted ? "checkmark-circle" : "close-circle"}
                 size={14}
-                color={consent?.accepted ? colors.onSecondaryContainer : colors.onErrorContainer}
+                color={consent?.accepted ? colors.onPrimaryContainer : colors.onErrorContainer}
               />
               <Text
-                style={[styles.consentText, { color: consent?.accepted ? colors.onSecondaryContainer : colors.onErrorContainer }]}
+                style={[styles.consentText, { color: consent?.accepted ? colors.onPrimaryContainer : colors.onErrorContainer }]}
               >
                 {consent?.accepted ? "GIVEN" : "NOT GIVEN"}
               </Text>
             </View>
           </View>
-          
-          <InfoRow 
-            label="Date Accepted" 
-            value={consent?.acceptedAt ? new Date(consent.acceptedAt).toLocaleDateString() : null} 
-            colors={colors} 
+
+          <InfoRow
+            label="Date Accepted"
+            value={consent?.acceptedAt ? new Date(consent.acceptedAt).toLocaleDateString() : null}
+            colors={colors}
           />
-          <InfoRow 
-            label="Policy Version" 
-            value={consent?.acceptedVersion ? `v${consent.acceptedVersion}` : null} 
-            colors={colors} 
+          <InfoRow
+            label="Policy Version"
+            value={consent?.acceptedVersion ? `v${consent.acceptedVersion}` : null}
+            colors={colors}
             isLast={true}
           />
 
@@ -94,37 +99,34 @@ export default function SafetySettings() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center" },
-  scroll: { padding: 16, paddingTop: 24, gap: 24 },
-  
+  scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
+
   sectionCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: "hidden",
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     minHeight: TOUCH_TARGET,
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
-  
-  consentBadge: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 999 },
+
+  consentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    elevation: 2,
+  },
   consentText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
-  
+
   noteText: { fontSize: 12, fontFamily: fonts.body, textAlign: "center", lineHeight: 18, paddingHorizontal: 16 },
 });

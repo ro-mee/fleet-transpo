@@ -11,6 +11,7 @@ import {
   Platform,
   LayoutAnimation,
   AccessibilityInfo,
+  ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -28,9 +29,67 @@ import {
   summarizeStatuses,
 } from "../../lib/permissions";
 import { AppAlert } from "../../components/AppAlert";
-import { StatusPill, FilledButton, OutlinedButton } from "../../components/ui";
+import ClayScreenHeader from "../../components/ClayScreenHeader";
+import { statusColorForTone } from "../../lib/theme";
+import { clayShade, clayPill, clayCta, clayTile } from "../../lib/clay";
 import { moderateScale } from "../../lib/scaling";
 import { fonts } from "../../lib/theme";
+
+/** Raised clay pill for a permission state (replaces ui.js StatusPill here). */
+function ClayStatusPill({ label, tone }) {
+  const { colors, type } = useTheme();
+  const palette = statusColorForTone(colors, tone);
+  return (
+    <View style={[clayPill, { backgroundColor: palette.bg, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
+      <Text style={[type.caption, { color: palette.fg }]}>{label}</Text>
+    </View>
+  );
+}
+
+/** Clay primary CTA with a loading state (replaces ui.js FilledButton here). */
+function ClayPrimaryButton({ label, onPress, loading, disabled, style }) {
+  const { colors, type } = useTheme();
+  const isDisabled = disabled || loading;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={isDisabled}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      style={({ pressed }) => [
+        styles.ctaBase,
+        clayCta,
+        { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: isDisabled ? 0.55 : pressed ? 0.88 : 1 },
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator size="small" color={colors.onPrimary} />
+      ) : (
+        <Text style={[type.labelLg, { color: colors.onPrimary }]}>{label}</Text>
+      )}
+    </Pressable>
+  );
+}
+
+/** Clay outlined CTA (replaces ui.js OutlinedButton here). */
+function ClayOutlineButton({ label, onPress, style }) {
+  const { colors, type } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.ctaBase,
+        clayCta,
+        { borderWidth: 2, borderColor: colors.outline, opacity: pressed ? 0.7 : 1 },
+        style,
+      ]}
+    >
+      <Text style={[type.labelLg, { color: colors.onSurface }]}>{label}</Text>
+    </Pressable>
+  );
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -143,21 +202,25 @@ export default function SettingsScreen() {
     setTextSizeModalVisible(false);
   };
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/(app)/(tabs)');
+    }
+  };
+
+  // Clay card frame shared by every section below. Rows carry their own
+  // padding; the card only supplies the raised surface + curve.
+  const sectionCard = [
+    styles.sectionCard,
+    clayShade,
+    { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
+  ];
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => {
-          if (router.canGoBack()) {
-            router.back();
-          } else {
-            router.replace('/(app)/(tabs)');
-          }
-        }} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[type.titleLg, { color: colors.onSurface }]}>Settings</Text>
-        <View style={{ width: 24 }} />
-      </View>
+      <ClayScreenHeader title="Settings" onBack={goBack} />
 
       <ScrollView
         contentContainerStyle={[
@@ -167,13 +230,13 @@ export default function SettingsScreen() {
         ]}
       >
         {/* DISPLAY SECTION */}
-        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>DISPLAY</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>DISPLAY</Text>
+        <View style={sectionCard}>
 
-          <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="moon" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="moon" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Theme</Text>
             </View>
@@ -188,7 +251,21 @@ export default function SettingsScreen() {
                   <Pressable
                     key={opt.key}
                     onPress={() => setColorScheme(opt.key)}
-                    style={[styles.segmentOption, active && { backgroundColor: colors.primary }]}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    style={({ pressed }) => [
+                      styles.segmentOption,
+                      active && clayPill,
+                      active && {
+                        backgroundColor: colors.primary,
+                        shadowColor: colors.shadow,
+                        shadowOffset: { width: 0, height: 3 },
+                        shadowOpacity: 0.14,
+                        shadowRadius: 4,
+                        elevation: 2,
+                      },
+                      !active && pressed && { opacity: 0.7 },
+                    ]}
                   >
                     <Text style={[type.labelLg, { color: active ? colors.onPrimary : colors.onSurfaceVariant }]}>
                       {opt.label}
@@ -199,10 +276,10 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="text" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="text" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Text Size</Text>
             </View>
@@ -216,8 +293,8 @@ export default function SettingsScreen() {
 
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="contrast" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="contrast" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>High Contrast Mode</Text>
             </View>
@@ -231,13 +308,13 @@ export default function SettingsScreen() {
         </View>
 
         {/* PREFERENCES SECTION */}
-        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>PREFERENCES</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>PREFERENCES</Text>
+        <View style={sectionCard}>
 
-          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="notifications" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="notifications" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Push Notifications</Text>
             </View>
@@ -265,10 +342,10 @@ export default function SettingsScreen() {
             />
           </View>
 
-          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+          <View style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="location" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="location" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Location Tracking</Text>
             </View>
@@ -283,15 +360,15 @@ export default function SettingsScreen() {
         </View>
 
         {/* SECURITY SECTION */}
-        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>SECURITY</Text>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-          <Pressable 
-            style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}
+        <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>SECURITY</Text>
+        <View style={sectionCard}>
+          <Pressable
+            style={({ pressed }) => [styles.row, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
             onPress={() => router.push('/devices')}
           >
             <View style={styles.rowLeft}>
-              <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="hardware-chip-outline" size={18} color={colors.onSurfaceVariant} />
+              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                <Ionicons name="hardware-chip-outline" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Logged-in Devices</Text>
             </View>
@@ -300,8 +377,8 @@ export default function SettingsScreen() {
         </View>
 
         {/* PERMISSIONS SECTION */}
-        <Text style={[type.sectionTitle, { color: colors.primary, marginBottom: -16, marginLeft: 8 }]}>PERMISSIONS</Text>
-        <View style={[styles.cluster, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>PERMISSIONS</Text>
+        <View style={sectionCard}>
           <View style={styles.clusterTop}>
             <Text style={[type.labelLg, { color: colors.primary }]}>DEVICE ACCESS</Text>
             <Text style={[styles.clusterCount, { color: colors.onSurface }]}>
@@ -323,7 +400,7 @@ export default function SettingsScreen() {
                   accessibilityState={{ selected }}
                   style={({ pressed }) => [
                     styles.tick,
-                    { borderColor: colors.outline },
+                    { borderColor: colors.outline, backgroundColor: colors.surfaceContainerHigh },
                     denied && { borderColor: colors.error },
                     approved && { backgroundColor: colors.primary, borderColor: colors.primary },
                     selected && { borderWidth: 2, borderColor: colors.primary },
@@ -341,7 +418,7 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <View style={sectionCard}>
           {permissionRows.map((row, index) => {
             const isLast = index === permissionRows.length - 1;
             const presentation = describePermissionState(row.status);
@@ -349,7 +426,7 @@ export default function SettingsScreen() {
             const approved = row.status?.status === "granted";
             const blocked = row.status?.status === "denied" && !row.status.canAskAgain;
             return (
-              <View key={row.key} style={[!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant }]}>
+              <View key={row.key} style={[!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
                 <Pressable
                   onPress={() => toggleExpanded(row.key)}
                   accessibilityRole="button"
@@ -361,13 +438,13 @@ export default function SettingsScreen() {
                     pressed && { backgroundColor: colors.surfaceContainerHigh },
                   ]}
                 >
-                  <View style={[styles.iconBox, { backgroundColor: colors.surfaceContainer }]}>
-                    <Ionicons name={row.icon} size={18} color={colors.onSurfaceVariant} />
+                  <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                    <Ionicons name={row.icon} size={18} color={colors.onPrimaryContainer} />
                   </View>
                   <Text style={[type.bodyMd, styles.permissionTitle, { color: colors.onSurface }]}>{row.title}</Text>
                   <View style={styles.rowRight}>
                     {row.status ? (
-                      <StatusPill label={presentation.label} tone={presentation.tone} />
+                      <ClayStatusPill label={presentation.label} tone={presentation.tone} />
                     ) : (
                       <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>Checking…</Text>
                     )}
@@ -387,16 +464,14 @@ export default function SettingsScreen() {
                       </Text>
                     )}
                     {blocked ? (
-                      <OutlinedButton
+                      <ClayOutlineButton
                         label="Open device settings"
-                        size="sm"
                         onPress={() => openSystemSettingsFor(row)}
                         style={styles.permissionAction}
                       />
                     ) : !approved ? (
-                      <FilledButton
+                      <ClayPrimaryButton
                         label="Allow"
-                        size="sm"
                         loading={requestingKey === row.key}
                         onPress={() => allowPermission(row)}
                         style={styles.permissionAction}
@@ -425,7 +500,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setTextSizeModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+          <View style={[styles.modalContent, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <Text style={[type.titleLg, { color: colors.onSurface, marginBottom: 16 }]}>Select Text Size</Text>
             {['small', 'medium', 'large'].map((size) => (
               <Pressable
@@ -445,10 +520,10 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setTextSizeModalVisible(false)} style={styles.modalBtn}>
-                <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>Cancel</Text>
+              <Pressable onPress={() => setTextSizeModalVisible(false)} style={[styles.modalBtn, { borderWidth: 2, borderColor: colors.outline }]}>
+                <Text style={[type.labelLg, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, { backgroundColor: colors.primary }]}>
+              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
                 <Text style={[type.labelLg, { color: colors.onPrimary }]}>Confirm</Text>
               </Pressable>
             </View>
@@ -461,40 +536,39 @@ export default function SettingsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e2e8f0",
+  scroll: { paddingHorizontal: 18, paddingTop: 10, gap: 22 },
+  sectionLabel: {
+    marginLeft: 8,
+    marginBottom: -12,
+    fontFamily: fonts.dataSemiBold,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
-  backBtn: { padding: 4 },
-  scroll: { padding: 16, paddingTop: 24, gap: 24 },
   sectionCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: "hidden",
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: 16,
+    padding: 20,
+    minHeight: moderateScale(56),
   },
   themeBlock: {
-    padding: 16,
+    padding: 20,
   },
   rowLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
+    flexShrink: 1,
   },
-  iconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+  iconTile: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -502,18 +576,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: moderateScale(8),
+    flexShrink: 1,
   },
 
-  cluster: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: moderateScale(16),
-    gap: moderateScale(12),
-  },
   clusterTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    padding: 20,
+    paddingBottom: 0,
   },
   clusterCount: {
     fontFamily: fonts.dataSemiBold,
@@ -524,11 +595,12 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: moderateScale(8),
     flexWrap: "wrap",
+    padding: 20,
   },
   tick: {
     width: moderateScale(38),
-    height: moderateScale(18),
-    borderRadius: moderateScale(5),
+    height: moderateScale(20),
+    borderRadius: moderateScale(8),
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
@@ -538,40 +610,46 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: moderateScale(12),
-    paddingHorizontal: moderateScale(16),
+    paddingHorizontal: moderateScale(20),
     paddingVertical: moderateScale(14),
     minHeight: moderateScale(56),
   },
   permissionTitle: { flex: 1 },
   permissionPane: {
-    paddingHorizontal: moderateScale(16),
-    paddingBottom: moderateScale(16),
-    paddingLeft: moderateScale(64),
+    paddingHorizontal: moderateScale(20),
+    paddingBottom: moderateScale(20),
+    paddingLeft: moderateScale(70),
     gap: moderateScale(10),
   },
   permissionConsequence: { lineHeight: moderateScale(16) },
-  permissionAction: { alignSelf: "flex-start", marginTop: moderateScale(2) },
+  permissionAction: { alignSelf: "flex-start", marginTop: moderateScale(2), paddingHorizontal: 24 },
   permissionApprovedNote: { lineHeight: moderateScale(16) },
   permissionsFootnote: {
     fontSize: moderateScale(12),
     fontFamily: fonts.body,
     lineHeight: moderateScale(17),
-    marginTop: -16,
+    marginTop: -10,
     marginLeft: 8,
     marginRight: 8,
   },
   segment: {
     flexDirection: "row",
-    marginTop: 12,
-    borderRadius: 10,
-    padding: 3,
+    marginTop: 14,
+    gap: 6,
   },
   segmentOption: {
     flex: 1,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 9,
+    borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+  },
+  ctaBase: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
   modalOverlay: {
     flex: 1,
@@ -582,7 +660,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '100%',
-    borderRadius: 16,
+    borderRadius: 24,
     padding: 24,
   },
   modalOption: {
@@ -590,18 +668,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: 16,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingHorizontal: 16,
+    borderRadius: 18,
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
     marginTop: 24,
     gap: 12,
   },
   modalBtn: {
+    flex: 1,
+    minHeight: 48,
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

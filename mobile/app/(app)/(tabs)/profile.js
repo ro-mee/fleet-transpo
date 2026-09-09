@@ -15,28 +15,30 @@ import { useAuth } from "../../../lib/auth";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { clayShade, clayCard, clayPill, clayCta, clayTile } from "../../../lib/clay";
 
-function MenuRow({ title, isNew = false, onPress, colors }) {
-  const { type } = useTheme();
+function MenuRow({ title, icon, isNew = false, onPress, colors, type, isLast = false }) {
   return (
     <Pressable
       style={({ hovered, pressed }) => [
         styles.menuRow,
-        { 
-          borderBottomColor: colors.surfaceContainerHigh,
-          backgroundColor: hovered || pressed ? colors.hover : "transparent"
-        }
+        !isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" },
+        (hovered || pressed) && { backgroundColor: colors.surfaceContainerHigh, borderRadius: 18 },
       ]}
       onPress={onPress}
       accessibilityRole="button"
+      accessibilityLabel={title}
     >
       <View style={styles.menuRowLeft}>
+        <View style={[styles.menuIconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+          <Ionicons name={icon} size={18} color={colors.onPrimaryContainer} />
+        </View>
         <Text style={[type.bodyLg, styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>
       </View>
       <View style={styles.menuRowRight}>
         {isNew && (
-          <View style={[styles.newBadge, { backgroundColor: colors.secondaryContainer }]}>
-            <Text style={[type.caption, styles.newBadgeText, { color: colors.onSecondaryContainer }]}>New</Text>
+          <View style={[styles.newBadge, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
+            <Text style={[type.caption, styles.newBadgeText, { color: colors.onPrimaryContainer }]}>New</Text>
           </View>
         )}
         <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
@@ -44,6 +46,18 @@ function MenuRow({ title, isNew = false, onPress, colors }) {
     </Pressable>
   );
 }
+
+const ACCOUNT_ROWS = [
+  { title: "Personal Information", icon: "person-outline", route: "/profile/personal" },
+  { title: "License & Compliance", icon: "card-outline", route: "/profile/license" },
+  { title: "Assigned Vehicle", icon: "car-outline", route: "/profile/vehicle" },
+  { title: "Safety Settings", icon: "shield-checkmark-outline", route: "/profile/safety", isNew: true },
+];
+
+const GENERAL_ROWS = [
+  { title: "Help Center", icon: "help-circle-outline", route: "/profile/help" },
+  { title: "Settings", icon: "settings-outline", route: "/settings" },
+];
 
 export default function Profile() {
   const insets = useSafeAreaInsets();
@@ -77,41 +91,85 @@ export default function Profile() {
         contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header Profile Section */}
-        <View style={styles.headerProfile}>
+        {/* Identity — raised clay card */}
+        <View
+          style={[
+            styles.identityCard,
+            clayShade,
+            clayCard,
+            { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
+          ]}
+        >
           <View style={styles.avatarContainer}>
-            <View style={[styles.avatarCircle, { backgroundColor: colors.primaryContainer }]}>
+            <View
+              style={[
+                styles.avatarCircle,
+                { backgroundColor: colors.primaryContainer, borderTopColor: "#FFFFFF60", borderBottomWidth: 2, borderBottomColor: "#00000012" },
+              ]}
+            >
               <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
             </View>
-            <View style={[styles.editBadge, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
-              <Ionicons name="pencil" size={12} color={colors.onSurfaceVariant} />
+            <View style={[styles.editBadge, clayShade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
+              <Ionicons name="pencil" size={13} color={colors.onSurfaceVariant} />
             </View>
           </View>
-          <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
+          <View style={styles.identityText}>
+            <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
+            {currentUser?.status ? (
+              <View style={[styles.statusPill, clayPill, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
+                <Text style={[type.caption, { color: colors.onPrimaryContainer }]}>
+                  {String(currentUser.status)}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
 
         {/* My Account Section */}
         <View style={styles.section}>
-          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurface }]}>Account</Text>
-          <MenuRow title="Personal Information" colors={colors} onPress={() => router.push('/profile/personal')} />
-          <MenuRow title="License & Compliance" colors={colors} onPress={() => router.push('/profile/license')} />
-          <MenuRow title="Assigned Vehicle" colors={colors} onPress={() => router.push('/profile/vehicle')} />
-          <MenuRow title="Safety Settings" isNew={true} colors={colors} onPress={() => router.push('/profile/safety')} />
+          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>Account</Text>
+          <View style={[styles.sectionCard, clayShade, clayCard, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, paddingVertical: 8 }]}>
+            {ACCOUNT_ROWS.map((row, i) => (
+              <MenuRow
+                key={row.route}
+                title={row.title}
+                icon={row.icon}
+                isNew={row.isNew}
+                colors={colors}
+                type={type}
+                isLast={i === ACCOUNT_ROWS.length - 1}
+                onPress={() => router.push(row.route)}
+              />
+            ))}
+          </View>
         </View>
 
         {/* General Section */}
         <View style={styles.section}>
-          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurface }]}>General</Text>
-          <MenuRow title="Help Center" colors={colors} onPress={() => router.push('/profile/help')} />
-          <MenuRow title="Settings" colors={colors} onPress={() => router.push('/settings')} />
+          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>General</Text>
+          <View style={[styles.sectionCard, clayShade, clayCard, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, paddingVertical: 8 }]}>
+            {GENERAL_ROWS.map((row, i) => (
+              <MenuRow
+                key={row.route}
+                title={row.title}
+                icon={row.icon}
+                colors={colors}
+                type={type}
+                isLast={i === GENERAL_ROWS.length - 1}
+                onPress={() => router.push(row.route)}
+              />
+            ))}
+          </View>
         </View>
 
         {/* Sign Out */}
         <Pressable
           onPress={() => setLogoutModal(true)}
+          accessibilityRole="button"
           style={({ pressed }) => [
             styles.logoutBtn,
-            { borderColor: colors.error, opacity: pressed ? 0.7 : 1 },
+            clayCta,
+            { borderColor: colors.error, shadowColor: colors.shadow, opacity: pressed ? 0.7 : 1 },
           ]}
         >
           <Ionicons name="log-out-outline" size={20} color={colors.error} />
@@ -146,13 +204,9 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: moderateScale(24), gap: moderateScale(32) },
-  
-  headerProfile: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: moderateScale(16),
-  },
+  scroll: { paddingHorizontal: 18, gap: 22 },
+
+  identityCard: { flexDirection: "row", alignItems: "center", gap: 16 },
   avatarContainer: {
     position: "relative",
   },
@@ -162,44 +216,56 @@ const styles = StyleSheet.create({
     borderRadius: moderateScale(32),
     alignItems: "center",
     justifyContent: "center",
+    borderTopWidth: 2,
   },
   avatarInitials: {
   },
   editBadge: {
     position: "absolute",
-    bottom: 0,
-    right: 0,
-    width: moderateScale(20),
-    height: moderateScale(20),
-    borderRadius: moderateScale(10),
-    borderWidth: 1,
+    bottom: -2,
+    right: -4,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
   },
+  identityText: { flexShrink: 1, gap: 8 },
   profileName: {
   },
+  statusPill: { alignSelf: "flex-start" },
 
   section: {
-    gap: moderateScale(8),
+    gap: 10,
   },
   sectionTitle: {
-    marginBottom: moderateScale(8),
+    marginLeft: 8,
+    fontFamily: fonts.dataSemiBold,
+    fontSize: 12,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
-  
+
   menuRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: moderateScale(16),
-    borderBottomWidth: 1,
+    paddingVertical: moderateScale(12),
+    paddingHorizontal: 8,
     minHeight: TOUCH_TARGET,
   },
   menuRowLeft: {
     flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  menuIconTile: {
+    width: 38,
+    height: 38,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
   menuTitle: {
   },
@@ -209,30 +275,32 @@ const styles = StyleSheet.create({
     gap: moderateScale(8),
   },
   newBadge: {
-    paddingHorizontal: moderateScale(8),
-    paddingVertical: moderateScale(2),
-    borderRadius: moderateScale(12),
+    paddingHorizontal: moderateScale(10),
+    paddingVertical: moderateScale(3),
+    borderRadius: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#FFFFFF60",
+    borderBottomWidth: 1,
+    borderBottomColor: "#00000010",
   },
   newBadgeText: {
   },
 
   logoutBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(12),
     borderWidth: 2,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: moderateScale(8),
-    marginTop: moderateScale(16),
+    marginTop: moderateScale(4),
   },
   logoutText: {
   },
-  
+
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: moderateScale(24) },
   modalCard: {
     width: "100%",
-    borderRadius: moderateScale(16),
+    borderRadius: 24,
     borderWidth: 1,
     padding: moderateScale(24),
     gap: moderateScale(12),
@@ -244,8 +312,8 @@ const styles = StyleSheet.create({
   modalTitle: { },
   modalBody: { },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
-  modalCancelBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  modalCancelBtn: { flex: 1, minHeight: 48, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   modalCancelText: { },
-  modalConfirmBtn: { flex: 1, height: moderateScale(48), borderRadius: moderateScale(8), alignItems: "center", justifyContent: "center" },
+  modalConfirmBtn: { flex: 1, minHeight: 48, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   modalConfirmText: { },
 });

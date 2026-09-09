@@ -10,6 +10,8 @@ import { fonts, TOUCH_TARGET, statusSurfaces } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
+import ClayScreenHeader from '../../../components/ClayScreenHeader';
+import { clayShade, clayPill } from "../../../lib/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 const SCAN_MAX_WIDTH = 1400;
@@ -33,7 +35,7 @@ function formatExpiry(expiry) {
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: isLast ? 0 : 1 }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -52,7 +54,11 @@ function ScanSourceButtons({ side, colors, busy, onPick }) {
         accessibilityLabel={`Take a photo of the ${side} of your license`}
         style={({ pressed }) => [
           styles.sourceBtn,
-          { backgroundColor: colors.primary, opacity: isUploading || pressed ? 0.85 : 1 },
+          {
+            backgroundColor: colors.primary,
+            shadowColor: colors.shadow,
+            opacity: isUploading || pressed ? 0.85 : 1,
+          },
         ]}
       >
         {isUploading ? (
@@ -72,7 +78,7 @@ function ScanSourceButtons({ side, colors, busy, onPick }) {
         style={({ pressed }) => [
           styles.sourceBtn,
           styles.sourceBtnSecondary,
-          { borderColor: colors.outlineVariant, opacity: pressed ? 0.8 : 1 },
+          { borderColor: colors.outline, opacity: pressed ? 0.8 : 1 },
         ]}
       >
         <Ionicons name="images-outline" size={16} color={colors.primary} />
@@ -203,16 +209,10 @@ export default function LicenseInformation() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>License & Compliance</Text>
-        <View style={{ width: TOUCH_TARGET }} />
-      </View>
+      <ClayScreenHeader title="License & Compliance" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <InfoRow label="License Number" value={license?.number} colors={colors} />
           <InfoRow label="License Class" value={license?.class} colors={colors} />
           <InfoRow label="License Type" value={license?.type} colors={colors} />
@@ -221,19 +221,19 @@ export default function LicenseInformation() {
             value={license?.expiry ? formatExpiry(license.expiry) : null}
             colors={colors}
           />
-          <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: 1 }]}>
+          <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
-            <View style={[styles.statusPill, { backgroundColor: statusTone.bg }]}>
+            <View style={[styles.statusPill, clayPill, { backgroundColor: statusTone.bg, shadowColor: colors.shadow }]}>
               <Text style={[styles.statusPillText, { color: statusTone.fg }]}>{status.label}</Text>
             </View>
           </View>
           <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} />
         </View>
 
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant, padding: 16, gap: 16 }]}>
+        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20, gap: 16 }]}>
           <Text style={[type.label, styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
 
-          <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
+          <View style={[styles.scanBox, { backgroundColor: colors.surfaceContainerHigh }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Front of License</Text>
               {license?.frontScanImageUrl ? (
@@ -261,7 +261,7 @@ export default function LicenseInformation() {
             )}
           </View>
 
-          <View style={[styles.scanBox, { borderColor: colors.outlineVariant }]}>
+          <View style={[styles.scanBox, { backgroundColor: colors.surfaceContainerHigh }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Back of License</Text>
               {license?.backScanImageUrl ? (
@@ -309,66 +309,67 @@ export default function LicenseInformation() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center" },
-  scroll: { padding: 16, paddingTop: 24, gap: 24 },
+  scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
 
   sectionCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: "hidden",
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     minHeight: TOUCH_TARGET,
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
 
   statusPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 999,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.14,
+    shadowRadius: 4,
+    elevation: 2,
   },
   statusPillText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
 
   sectionHeading: {},
   scanBox: {
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    padding: 16,
+    borderRadius: 24,
     gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#FFFFFF45",
+    borderBottomWidth: 2,
+    borderBottomColor: "#00000010",
   },
   scanHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   scanTitle: { fontSize: 14, fontFamily: fonts.bodyMedium },
   sourceRow: { flexDirection: "row", gap: 10 },
   sourceBtn: {
     flex: 1,
-    height: 40,
-    borderRadius: 8,
+    minHeight: 48,
+    borderRadius: 18,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
+    borderTopWidth: 2,
+    borderTopColor: "#FFFFFF60",
+    borderBottomWidth: 2,
+    borderBottomColor: "#00000012",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    elevation: 2,
   },
-  sourceBtnSecondary: { borderWidth: 1, backgroundColor: "transparent" },
+  sourceBtnSecondary: { borderWidth: 2, backgroundColor: "transparent" },
   sourceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
 
   previewWrap: {
     height: 140,
-    borderRadius: 8,
+    borderRadius: 18,
     overflow: "hidden",
     position: "relative",
     backgroundColor: "#000",

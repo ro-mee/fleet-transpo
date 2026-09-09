@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,10 +7,12 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
+import ClayScreenHeader from '../../../components/ClayScreenHeader';
+import { clayShade } from "../../../lib/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh, borderBottomWidth: isLast ? 0 : 1 }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -41,44 +43,38 @@ export default function VehicleInformation() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>Assigned Vehicle</Text>
-        <View style={{ width: TOUCH_TARGET }} />
-      </View>
+      <ClayScreenHeader title="Assigned Vehicle" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         {vehicle ? (
-          <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+          <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             {vehicle.imageUrl ? (
-              <Image 
-                source={{ uri: vehicle.imageUrl }} 
-                style={styles.vehicleImage} 
-                resizeMode="cover" 
+              <Image
+                source={{ uri: vehicle.imageUrl }}
+                style={styles.vehicleImage}
+                resizeMode="cover"
               />
             ) : (
-              <View style={[styles.vehicleImagePlaceholder, { backgroundColor: colors.surfaceContainerLow }]}>
+              <View style={[styles.vehicleImagePlaceholder, { backgroundColor: colors.surfaceContainerHigh }]}>
                 <Ionicons name="car-sport" size={48} color={colors.onSurfaceVariant} />
               </View>
             )}
             <View style={styles.infoContainer}>
               <InfoRow label="Plate Number" value={vehicle.plateNumber} colors={colors} />
-            <InfoRow label="Model" value={vehicle.model} colors={colors} />
-            <InfoRow label="Name" value={vehicle.name} colors={colors} />
-            <InfoRow label="Capacity" value={`${vehicle.seatingCapacity} Seats`} colors={colors} />
-            <InfoRow label="Status" value={vehicle.vehicleStatus} colors={colors} />
-            <InfoRow 
-                label="Assigned Since" 
-                value={vehicle.assignedFrom ? new Date(vehicle.assignedFrom).toLocaleDateString() : null} 
-                colors={colors} 
+              <InfoRow label="Model" value={vehicle.model} colors={colors} />
+              <InfoRow label="Name" value={vehicle.name} colors={colors} />
+              <InfoRow label="Capacity" value={`${vehicle.seatingCapacity} Seats`} colors={colors} />
+              <InfoRow label="Status" value={vehicle.vehicleStatus} colors={colors} />
+              <InfoRow
+                label="Assigned Since"
+                value={vehicle.assignedFrom ? new Date(vehicle.assignedFrom).toLocaleDateString() : null}
+                colors={colors}
                 isLast={true}
               />
             </View>
           </View>
         ) : (
-          <View style={[styles.emptyBox, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+          <View style={[styles.emptyBox, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
               <Ionicons name="car-outline" size={24} color={statusColorForTone(colors, "neutral").fg} />
             </View>
@@ -96,46 +92,34 @@ export default function VehicleInformation() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center" },
-  scroll: { padding: 16, paddingTop: 24, gap: 24 },
-  
+  scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
+
   sectionCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: "hidden",
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     minHeight: TOUCH_TARGET,
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
-  
+
   emptyBox: {
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     gap: 8,
   },
   emptyTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold, marginTop: 8 },
-  emptyTile: { width: 52, height: 52, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  emptyTile: { width: 52, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   emptySubtitle: { fontSize: 14, fontFamily: fonts.body, textAlign: "center", lineHeight: 20 },
-  
+
   vehicleImage: {
     width: "100%",
     height: 180,

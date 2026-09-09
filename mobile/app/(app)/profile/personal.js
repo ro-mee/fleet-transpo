@@ -5,14 +5,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
-import { api, apiFetch } from "../../../lib/api";
+import { apiFetch } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
+import ClayScreenHeader from '../../../components/ClayScreenHeader';
+import { clayShade } from "../../../lib/clay";
 import { notify } from "../../../lib/notifications/notify";
 
-function InfoRow({ label, value, colors }) {
+function InfoRow({ label, value, colors, isLast = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomColor: colors.surfaceContainerHigh }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -72,52 +74,65 @@ export default function PersonalInformation() {
     );
   }
 
-  const driverName = profile?.firstName && profile?.lastName 
+  const driverName = profile?.firstName && profile?.lastName
     ? `${profile.firstName} ${profile.lastName}`
     : profile?.name || "Driver";
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[type.titleLg, styles.headerTitle, { color: colors.onSurface }]}>Personal Information</Text>
-        <View style={{ width: TOUCH_TARGET }} />
-      </View>
+      <ClayScreenHeader title="Personal Information" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}>
+        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <InfoRow label="Full Name" value={driverName} colors={colors} />
           <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} />
           <InfoRow label="Email" value={profile?.email} colors={colors} />
-          
+
           {/* Editable Phone Row */}
           <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Phone</Text>
             {editingPhone ? (
               <View style={styles.phoneEdit}>
                 <TextInput
-                  style={[styles.phoneInput, { borderColor: colors.outline, color: colors.onSurface }]}
+                  style={[styles.phoneInput, { backgroundColor: colors.surfaceContainerHigh, color: colors.onSurface }]}
                   value={phone}
                   onChangeText={setPhone}
                   keyboardType="phone-pad"
                   placeholder="Phone number"
                   placeholderTextColor={colors.outline}
                 />
-                <Pressable onPress={savePhone} disabled={saving}>
+                <Pressable
+                  onPress={savePhone}
+                  disabled={saving}
+                  accessibilityRole="button"
+                  accessibilityLabel="Save phone number"
+                  style={({ pressed }) => [
+                    styles.phoneAction,
+                    clayShade,
+                    { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed || saving ? 0.75 : 1 },
+                  ]}
+                >
                   {saving ? (
-                    <ActivityIndicator size="small" color={colors.primary} />
+                    <ActivityIndicator size="small" color={colors.onPrimary} />
                   ) : (
-                    <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                    <Ionicons name="checkmark" size={18} color={colors.onPrimary} />
                   )}
                 </Pressable>
-                <Pressable onPress={() => setEditingPhone(false)}>
-                  <Ionicons name="close-circle" size={24} color={colors.outline} />
+                <Pressable
+                  onPress={() => setEditingPhone(false)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel phone number edit"
+                  style={({ pressed }) => [
+                    styles.phoneAction,
+                    clayShade,
+                    { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.75 : 1 },
+                  ]}
+                >
+                  <Ionicons name="close" size={18} color={colors.onSurfaceVariant} />
                 </Pressable>
               </View>
             ) : (
-              <Pressable style={styles.phoneRow} onPress={() => setEditingPhone(true)}>
+              <Pressable style={styles.phoneRow} onPress={() => setEditingPhone(true)} accessibilityRole="button" accessibilityLabel="Edit phone number">
                 <Text style={[styles.infoValue, { color: colors.onSurface }]}>
                   {phone || "—"}
                 </Text>
@@ -134,44 +149,39 @@ export default function PersonalInformation() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   root: { flex: 1 },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-  },
-  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center" },
-  headerTitle: { flex: 1, textAlign: "center" },
-  scroll: { padding: 16, paddingTop: 24, gap: 24 },
-  
+  scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
+
   sectionCard: {
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 30,
     overflow: "hidden",
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     minHeight: TOUCH_TARGET,
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
-  phoneEdit: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1 },
+  phoneEdit: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1, justifyContent: "flex-end" },
   phoneInput: {
     flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    borderRadius: 18,
+    paddingHorizontal: 14,
     fontSize: 14,
     fontFamily: fonts.body,
-    height: 36,
+    minHeight: 44,
+    maxWidth: 180,
+  },
+  phoneAction: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
   },
   phoneRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" },
 });
