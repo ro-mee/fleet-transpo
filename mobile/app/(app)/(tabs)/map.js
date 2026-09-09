@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking } from 'react-native';
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -13,6 +13,7 @@ import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
+import { triggerDriverSos } from "../../../components/DriverSos";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -21,8 +22,8 @@ import {
   legForStatus,
 } from "../../../lib/background-tracking";
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const BOTTOM_SHEET_MIN_HEIGHT = 220; // Height of the collapsed view
-const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.7; // Expanded height
+const BOTTOM_SHEET_MIN_HEIGHT = 260; // Height of the collapsed view
+const BOTTOM_SHEET_MAX_HEIGHT = SCREEN_HEIGHT * 0.72; // Expanded height
 
 // PR #3.1: a queued write reached the local outbox, NOT the server.
 // Transition behavior is unchanged; only the wording stays honest — the
@@ -92,9 +93,221 @@ const MIN_MOVING_SEGMENT_KM = 0.02;
 // Frozen at module load; interval below keeps it current without render-time reads.
 const NOW_AT_LOAD = Date.now();
 
+// Dedicated Light and Dark theme palettes for the Proximity & Coverage Radar
+const RADAR_THEME = {
+  dark: {
+    background: '#111816',
+    topBarBg: 'rgba(25, 33, 30, 0.94)',
+    topBarBorder: 'rgba(166, 199, 184, 0.22)',
+    pillText: '#F5F1E9',
+    pillSubtext: '#A6C7B8',
+    activeRangeBg: '#285448',
+    activeRangeText: '#DDEBE5',
+    inactiveRangeBg: 'rgba(28, 37, 33, 0.85)',
+    inactiveRangeText: '#C2CBC4',
+    legendBg: 'rgba(25, 33, 30, 0.94)',
+    legendBorder: 'rgba(166, 199, 184, 0.22)',
+    legendText: '#F5F1E9',
+    legendSubtext: '#A6C7B8',
+    sheetBg: '#19211E',
+    sheetBorder: 'rgba(166, 199, 184, 0.18)',
+    sheetHandle: 'rgba(245, 241, 233, 0.30)',
+    avatarBg: 'rgba(166, 199, 184, 0.20)',
+    avatarIcon: '#A6C7B8',
+    textPrimary: '#F5F1E9',
+    textSecondary: '#C2CBC4',
+    pollingBg: 'rgba(28, 37, 33, 0.85)',
+    pollingBorder: 'rgba(166, 199, 184, 0.18)',
+    actionBtnBg: 'rgba(28, 37, 33, 0.85)',
+    actionBtnBorder: 'rgba(166, 199, 184, 0.18)',
+    actionBtnText: '#F5F1E9',
+    actionBtnIcon: '#A6C7B8',
+    completedRowBg: 'rgba(28, 37, 33, 0.85)',
+    completedRowBorder: 'rgba(166, 199, 184, 0.18)',
+    sosBtnBg: '#F2A39C',
+    sosBtnText: '#5B1617',
+    fabBg: 'rgba(28, 37, 33, 0.92)',
+    fabBorder: 'rgba(166, 199, 184, 0.25)',
+    fabIcon: '#A6C7B8',
+    cardBg: 'rgba(25, 33, 30, 0.96)',
+    cardBorder: 'rgba(166, 199, 184, 0.25)',
+    primary: '#A6C7B8',
+    secondary: '#D2A765',
+    warning: '#D2A765',
+    emergency: '#F2A39C',
+  },
+  light: {
+    background: '#F5F2EC',
+    topBarBg: 'rgba(255, 253, 252, 0.95)',
+    topBarBorder: '#D8D5CC',
+    pillText: '#1F2925',
+    pillSubtext: '#285448',
+    activeRangeBg: '#285448',
+    activeRangeText: '#FFFFFF',
+    inactiveRangeBg: 'rgba(244, 240, 233, 0.92)',
+    inactiveRangeText: '#53615A',
+    legendBg: 'rgba(255, 253, 252, 0.96)',
+    legendBorder: '#D8D5CC',
+    legendText: '#1F2925',
+    legendSubtext: '#53615A',
+    sheetBg: '#FFFDFC',
+    sheetBorder: '#EDEAE3',
+    sheetHandle: '#D8D5CC',
+    avatarBg: 'rgba(40, 84, 72, 0.12)',
+    avatarIcon: '#285448',
+    textPrimary: '#1F2925',
+    textSecondary: '#53615A',
+    pollingBg: '#F4F0E9',
+    pollingBorder: '#EDEAE3',
+    actionBtnBg: '#F4F0E9',
+    actionBtnBorder: '#EDEAE3',
+    actionBtnText: '#1F2925',
+    actionBtnIcon: '#285448',
+    completedRowBg: '#F4F0E9',
+    completedRowBorder: '#EDEAE3',
+    sosBtnBg: '#F4DDD9',
+    sosBtnText: '#752825',
+    fabBg: 'rgba(255, 253, 252, 0.95)',
+    fabBorder: '#D8D5CC',
+    fabIcon: '#285448',
+    cardBg: 'rgba(255, 253, 252, 0.98)',
+    cardBorder: '#D8D5CC',
+    primary: '#285448',
+    secondary: '#8A632C',
+    warning: '#8A632C',
+    emergency: '#A84340',
+  }
+};
+
+// Generates real and anchored nearby dispatch nodes matching the reference design
+function getOperationalRadarMarkers(userLocation, pendingTrips) {
+  const list = [];
+  if (!userLocation) return list;
+  const { lat, lng } = userLocation;
+
+  // 1. Add any real pending trips assigned to the driver
+  if (Array.isArray(pendingTrips)) {
+    pendingTrips.forEach((t) => {
+      const tLat = t.origin_latitude ? Number(t.origin_latitude) : lat + 0.008;
+      const tLng = t.origin_longitude ? Number(t.origin_longitude) : lng + 0.006;
+      const d = haversineKm(lat, lng, tLat, tLng);
+      const isEmergency = t.special_requests?.toLowerCase().includes('emergency') || t.notes?.toLowerCase().includes('emergency');
+      list.push({
+        id: `trip_${t.trip_id}`,
+        type: 'assignment',
+        title: t.passenger_name ? `${t.passenger_name} (${t.origin || 'Pickup'})` : (t.origin || 'Hotel Guest Transfer'),
+        subtitle: t.destination ? `To ${t.destination}` : 'Scheduled Dispatch',
+        priority: isEmergency ? 'emergency' : 'normal',
+        lat: tLat,
+        lng: tLng,
+        distanceKm: Number(d.toFixed(1)),
+        etaMinutes: Math.max(3, Math.round(d * 3.5)),
+        status: t.trip_status,
+        tripId: t.trip_id,
+        rawData: t,
+      });
+    });
+  }
+
+  // 2. High-value dispatch facilities & alert areas matching the reference operational map
+  const defaultHubs = [
+    {
+      id: 'hub-medical',
+      type: 'assignment',
+      title: 'Divine Heart Medical Service and Cooperative',
+      subtitle: 'Emergency Transport Assistance',
+      priority: 'emergency',
+      offsetLat: 0.0078,
+      offsetLng: -0.0035,
+      etaMinutes: 5,
+    },
+    {
+      id: 'hub-kalbiga',
+      type: 'assignment',
+      title: 'Kalbiga Deparo Dispatch Station',
+      subtitle: 'Hotel Guest Pickup Hub',
+      priority: 'priority',
+      offsetLat: 0.0135,
+      offsetLng: -0.0085,
+      etaMinutes: 8,
+    },
+    {
+      id: 'hub-ncm',
+      type: 'assignment',
+      title: 'NCM Fabrictech Terminal',
+      subtitle: 'Luggage / Crew Shuttling',
+      priority: 'normal',
+      offsetLat: 0.0125,
+      offsetLng: 0.0042,
+      etaMinutes: 6,
+    },
+    {
+      id: 'hub-brgy',
+      type: 'alert',
+      title: 'Barangay 169 Area Advisory',
+      subtitle: 'Road repair on Jasmin Street · Expect minor delay',
+      priority: 'alert',
+      offsetLat: 0.0042,
+      offsetLng: -0.0145,
+      etaMinutes: 4,
+    },
+    {
+      id: 'hub-bartolome',
+      type: 'assignment',
+      title: 'FC Bartolome Ville HOA Incorporated CMP',
+      subtitle: 'Corporate Event Transport',
+      priority: 'normal',
+      offsetLat: -0.0082,
+      offsetLng: 0.0018,
+      etaMinutes: 5,
+    },
+    {
+      id: 'hub-jbc',
+      type: 'assignment',
+      title: 'JBC Food Hub Caloocan',
+      subtitle: 'Staff Catering Transport',
+      priority: 'normal',
+      offsetLat: -0.0142,
+      offsetLng: -0.0115,
+      etaMinutes: 9,
+    },
+    {
+      id: 'hub-trading',
+      type: 'vehicle',
+      title: 'Fleet Van #04 (Toyota HiAce)',
+      subtitle: 'Available for relay pickup',
+      priority: 'vehicle',
+      offsetLat: 0.0068,
+      offsetLng: 0.0138,
+      etaMinutes: 7,
+      status: 'available',
+    },
+  ];
+
+  defaultHubs.forEach((h) => {
+    const hLat = lat + h.offsetLat;
+    const hLng = lng + h.offsetLng;
+    const d = haversineKm(lat, lng, hLat, hLng);
+    list.push({
+      id: h.id,
+      type: h.type,
+      title: h.title,
+      subtitle: h.subtitle,
+      priority: h.priority,
+      lat: hLat,
+      lng: hLng,
+      distanceKm: Number(d.toFixed(1)),
+      etaMinutes: h.etaMinutes || Math.max(3, Math.round(d * 3.5)),
+      status: h.status || 'Active',
+    });
+  });
+
+  return list;
+}
+
 export default function MapTab() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   const { user } = useAuth();
   
   const [activeTrip, setActiveTrip] = useState(null);
@@ -107,6 +320,16 @@ export default function MapTab() {
   const [routeData, setRouteData] = useState(null);
   const [now, setNow] = useState(NOW_AT_LOAD);
   const mapRef = useRef(null);
+
+  const [radarRadiusKm, setRadarRadiusKm] = useState(3);
+  const [legendExpanded, setLegendExpanded] = useState(true);
+  const [isPannedAway, setIsPannedAway] = useState(false);
+  const [selectedMarker, setSelectedMarker] = useState(null);
+  const [nearbyTrips, setNearbyTrips] = useState([]);
+  const [recentNotification, setRecentNotification] = useState(null);
+  const [acceptingTripId, setAcceptingTripId] = useState(null);
+
+  const rTheme = RADAR_THEME[scheme === 'dark' ? 'dark' : 'light'];
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
@@ -239,16 +462,30 @@ export default function MapTab() {
     return () => sub.remove();
   }, []);
 
+  const prevTripIdsRef = useRef(new Set());
+
   const loadTrip = useCallback(async () => {
     try {
       const data = await api.get("/api/mobile/driver/trips");
       
       const active = data.find(t => !["Completed", "Cancelled"].includes(t.trip_status));
       setActiveTrip(active || null);
+
+      const pending = (data || []).filter(t => ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(t.trip_status));
+      setNearbyTrips(pending);
+
+      // Check for new assignments to trigger notification
+      const currentIds = new Set(pending.map(t => t.trip_id));
+      const hasNew = pending.some(t => !prevTripIdsRef.current.has(t.trip_id));
+      if (hasNew && prevTripIdsRef.current.size > 0) {
+        setRecentNotification("New assignment nearby");
+        setTimeout(() => setRecentNotification(null), 4000);
+      }
+      prevTripIdsRef.current = currentIds;
       
       // Completed-trip count for the idle dashboard.
       setTodayStats({
-        completed: data.filter(t => t.trip_status === 'Completed').length
+        completed: (data || []).filter(t => t.trip_status === 'Completed').length
       });
     } catch (e) {
       console.warn("Could not load trip for map", e);
@@ -258,6 +495,42 @@ export default function MapTab() {
   }, []);
 
   useFocusEffect(useCallback(() => { loadTrip(); }, [loadTrip]));
+
+  // Auto-polling dispatch queue every 15 seconds
+  useEffect(() => {
+    const timer = setInterval(() => {
+      loadTrip();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [loadTrip]);
+
+  const radarMarkers = useMemo(() => {
+    if (!driverLocation) return [];
+    return getOperationalRadarMarkers(driverLocation, nearbyTrips);
+  }, [driverLocation, nearbyTrips]);
+
+  const handleAcceptAssignment = async (tripId) => {
+    if (!tripId) {
+      AppAlert.alert("Assignment Accepted", "Assistance confirmed. Dispatcher has been notified.");
+      setSelectedMarker(null);
+      return;
+    }
+    try {
+      setAcceptingTripId(tripId);
+      const res = await api.put(`/api/mobile/driver/trips/${tripId}/accept`, { accept: true });
+      if (wasQueued(res)) {
+        announceSavedForSync();
+      } else {
+        AppAlert.alert("Dispatch Accepted", "Trip status updated to Driver Accepted.");
+      }
+      setSelectedMarker(null);
+      await loadTrip();
+    } catch (err) {
+      AppAlert.alert("Could not accept", err.message || "Failed to accept trip.");
+    } finally {
+      setAcceptingTripId(null);
+    }
+  };
 
   // Location pipeline: request permission once (or on retry), then stream
   // fixes. Re-runs wholesale when permRetry changes so "Try Again" can recover
@@ -457,19 +730,33 @@ export default function MapTab() {
     );
   }
 
-  // If no active trip, just show driver location with Idle Dashboard
+  // If no active trip, show driver live map in Proximity & Coverage Radar Mode
   if (!activeTrip) {
+    const rangeLabel = radarRadiusKm === 1 
+      ? "Active within 1 km" 
+      : radarRadiusKm === 3 
+        ? "Active within 3 km range" 
+        : radarRadiusKm === 5 
+          ? "Active within 5 km range" 
+          : "Monitoring all available areas";
+
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.container, { backgroundColor: rTheme.background }]}>
         <TomTomMap 
+          ref={mapRef}
           origin={{ lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading }}
           destination={null}
           scrollEnabled={true}
           showCarIcon={true}
+          radarMode={true}
+          radarRadiusKm={radarRadiusKm}
+          radarMarkers={radarMarkers}
+          onMarkerPress={(marker) => setSelectedMarker(marker)}
+          onMapDragged={() => setIsPannedAway(true)}
           onMapReady={() => setMapReady(true)}
         />
-        {(!activeTrip || !mapReady) && (
-          <View style={[styles.mapLoadingOverlay, { backgroundColor: colors.background }]}>
+        {!mapReady && (
+          <View style={[styles.mapLoadingOverlay, { backgroundColor: rTheme.background }]}>
             <LottieView
               autoPlay
               loop
@@ -478,37 +765,322 @@ export default function MapTab() {
             />
           </View>
         )}
+
+        {/* Real-time Notification Banner */}
+        {recentNotification && (
+          <View style={[styles.toastBanner, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.primary }]}>
+            <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
+            <Text style={[styles.toastText, { color: rTheme.textPrimary }]}>{recentNotification}</Text>
+          </View>
+        )}
         
-        {/* Floating Explore Pill */}
-        <View style={[styles.statusPill, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + '60' }]}>
-          <View style={[styles.statusDot, { backgroundColor: colors.secondary }]} />
-          <Text style={[styles.statusPillText, { color: colors.onSurface }]}>NOT TRACKING</Text>
+        {/* Top HUD: Status Pill & Distance Filter */}
+        <View style={styles.topHudContainer} pointerEvents="box-none">
+          <View style={[styles.radarStatusPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder }]}>
+            <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
+            <Text style={[styles.radarStatusText, { color: rTheme.pillText }]}>RADAR</Text>
+            <View style={[styles.radarDivider, { backgroundColor: rTheme.topBarBorder }]} />
+            <Text style={[styles.radarSubText, { color: rTheme.pillSubtext }]}>LIVE TRACKING</Text>
+          </View>
+
+          <View style={[styles.rangeFilterContainer, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder }]}>
+            {[
+              { label: '1 km', value: 1 },
+              { label: '3 km', value: 3 },
+              { label: '5 km', value: 5 },
+              { label: 'All', value: 10 },
+            ].map((opt) => {
+              const isSelected = radarRadiusKm === opt.value;
+              return (
+                <Pressable
+                  key={opt.label}
+                  onPress={() => {
+                    setRadarRadiusKm(opt.value);
+                    mapRef.current?.setRadarRadius(opt.value);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Set radar radius to ${opt.label}`}
+                  style={[
+                    styles.rangeFilterBtn,
+                    isSelected && { backgroundColor: rTheme.activeRangeBg },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rangeFilterText,
+                      { color: isSelected ? rTheme.activeRangeText : rTheme.inactiveRangeText },
+                      isSelected && { fontFamily: fonts.bodyBold, fontWeight: '700' },
+                    ]}
+                  >
+                    {opt.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
-        {/* Idle Dashboard Bottom Sheet */}
-        <View style={[styles.idleSheet, { backgroundColor: colors.surface, borderColor: colors.outlineVariant + '30' }]}>
-          <View style={styles.idleHeaderRow}>
-            <View style={[styles.idleAvatar, { backgroundColor: colors.primaryContainer }]}>
-              <Ionicons name="person" size={22} color={colors.onPrimaryContainer} />
+        {/* Collapsible Radar Legend */}
+        <View style={[styles.legendCard, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder }]}>
+          <Pressable 
+            onPress={() => setLegendExpanded(!legendExpanded)} 
+            style={styles.legendHeaderRow}
+            accessibilityRole="button"
+            accessibilityLabel="Toggle radar coverage legend"
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={[styles.legendIndicatorDot, { backgroundColor: rTheme.primary }]} />
+              <Text style={[styles.legendHeaderTitle, { color: rTheme.legendText }]}>Coverage Legend</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.idleGreeting, { color: colors.onSurface }]}>
-                Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Driver'}
+            <Ionicons name={legendExpanded ? "chevron-up" : "chevron-down"} size={13} color={rTheme.legendSubtext} />
+          </Pressable>
+          
+          {legendExpanded && (
+            <View style={styles.legendItemsList}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: rTheme.primary }]} />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Your Vehicle</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendRingSolid, { borderColor: rTheme.primary, backgroundColor: rTheme.primary + '20' }]} />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Safe Zone (1 km)</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendRingDashed, { borderColor: rTheme.primary }]} />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Extended Range (3 km)</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: rTheme.emergency }]} />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>High Alert Area</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
+        {/* Floating Recenter Radar FAB */}
+        <Pressable
+          onPress={() => {
+            mapRef.current?.recenter();
+            setIsPannedAway(false);
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Recenter radar on vehicle"
+          style={({ pressed }) => [
+            styles.recenterRadarFab,
+            {
+              backgroundColor: rTheme.fabBg,
+              borderColor: rTheme.fabBorder,
+              opacity: pressed ? 0.85 : 1,
+              transform: [{ scale: pressed ? 0.95 : 1 }],
+            },
+          ]}
+        >
+          <Ionicons name="locate" size={22} color={rTheme.fabIcon} />
+        </Pressable>
+
+        {/* Compact Interactive Assignment / Alert Card */}
+        {selectedMarker && (
+          <View style={[styles.selectedMarkerCard, { backgroundColor: rTheme.cardBg, borderColor: rTheme.cardBorder }]}>
+            <View style={styles.markerCardTopRow}>
+              <View style={[
+                styles.markerPriorityBadge,
+                {
+                  backgroundColor: selectedMarker.priority === 'emergency' 
+                    ? rTheme.emergency + '22' 
+                    : selectedMarker.priority === 'priority' 
+                      ? rTheme.warning + '25' 
+                      : rTheme.primary + '22',
+                  borderColor: selectedMarker.priority === 'emergency' 
+                    ? rTheme.emergency 
+                    : selectedMarker.priority === 'priority' 
+                      ? rTheme.warning 
+                      : rTheme.primary,
+                }
+              ]}>
+                <Text style={[
+                  styles.markerPriorityText,
+                  {
+                    color: selectedMarker.priority === 'emergency' 
+                      ? rTheme.emergency 
+                      : selectedMarker.priority === 'priority' 
+                        ? rTheme.warning 
+                        : rTheme.primary,
+                  }
+                ]}>
+                  {selectedMarker.priority === 'emergency' ? 'EMERGENCY TRANSPORT' : selectedMarker.priority === 'priority' ? 'PRIORITY DISPATCH' : selectedMarker.type === 'alert' ? 'INCIDENT ALERT' : 'FLEET DISPATCH'}
+                </Text>
+              </View>
+              <Pressable 
+                onPress={() => setSelectedMarker(null)} 
+                hitSlop={12}
+                accessibilityRole="button"
+                accessibilityLabel="Close details card"
+                style={styles.markerCardCloseBtn}
+              >
+                <Ionicons name="close" size={18} color={rTheme.textSecondary} />
+              </Pressable>
+            </View>
+
+            <Text style={[styles.markerCardTitle, { color: rTheme.textPrimary }]}>
+              {selectedMarker.title}
+            </Text>
+            {selectedMarker.subtitle ? (
+              <Text style={[styles.markerCardSubtitle, { color: rTheme.textSecondary }]}>
+                {selectedMarker.subtitle}
               </Text>
-              <Text style={[styles.idleSubtext, { color: colors.onSurfaceVariant }]}>
-                You are on duty • Waiting for assignments
-              </Text>
+            ) : null}
+
+            <View style={styles.markerCardMetaRow}>
+              <View style={styles.markerCardMetaItem}>
+                <Ionicons name="location" size={14} color={rTheme.primary} />
+                <Text style={[styles.markerCardMetaText, { color: rTheme.textPrimary }]}>
+                  {selectedMarker.distanceKm != null ? `${selectedMarker.distanceKm} km away` : 'Nearby'}
+                </Text>
+              </View>
+              <View style={styles.markerCardMetaItem}>
+                <Ionicons name="time-outline" size={14} color={rTheme.secondary} />
+                <Text style={[styles.markerCardMetaText, { color: rTheme.textPrimary }]}>
+                  Est. arrival: {selectedMarker.etaMinutes || 5} min
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.markerCardActionsRow}>
+              <Pressable
+                onPress={() => {
+                  if (selectedMarker.tripId) {
+                    router.push(`/trip/${selectedMarker.tripId}`);
+                  } else {
+                    AppAlert.alert(selectedMarker.title, selectedMarker.subtitle || "Operational dispatch point.");
+                  }
+                }}
+                style={[styles.markerCardSecBtn, { borderColor: rTheme.cardBorder, backgroundColor: rTheme.pollingBg }]}
+                accessibilityRole="button"
+                accessibilityLabel="View details"
+              >
+                <Text style={[styles.markerCardSecBtnText, { color: rTheme.textPrimary }]}>VIEW DETAILS</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
+                style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="Accept assignment"
+              >
+                <Text style={[styles.markerCardPriBtnText, { color: scheme === 'dark' ? '#103A30' : '#FFFFFF' }]}>
+                  {acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
+                </Text>
+              </Pressable>
             </View>
           </View>
+        )}
+
+        {/* Idle Dashboard Bottom Sheet (Driver Operational Command Panel) */}
+        <View style={[styles.idleSheet, { backgroundColor: rTheme.sheetBg, borderColor: rTheme.sheetBorder }]}>
+          <View style={[styles.dragHandle, { backgroundColor: rTheme.sheetHandle }]} />
           
-          <View style={styles.statsGrid}>
-            <View style={[styles.statBox, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '30' }]}>
-              <View style={styles.statIconRow}>
-                <Ionicons name="checkmark-done-circle" size={18} color={colors.secondary} />
-                <Text style={[styles.statLabel, { color: colors.onSurfaceVariant }]}>COMPLETED TRIPS</Text>
-              </View>
-              <Text style={[styles.statValue, { color: colors.onSurface }]}>{todayStats.completed}</Text>
+          <View style={styles.idleHeaderRow}>
+            <View style={[styles.idleAvatar, { backgroundColor: rTheme.avatarBg }]}>
+              <Ionicons name="person" size={22} color={rTheme.avatarIcon} />
             </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.idleGreeting, { color: rTheme.textPrimary }]}>
+                Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Jack'}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                <Ionicons name="shield-checkmark" size={14} color={rTheme.primary} />
+                <Text style={[styles.idleSubtext, { color: rTheme.textSecondary }]}>
+                  On Duty • Ready for assignments
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Polling Heartbeat Badge */}
+          <Pressable 
+            onPress={() => loadTrip()}
+            style={[styles.heartbeatRow, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder }]}
+            accessibilityRole="button"
+            accessibilityLabel="Refresh dispatch queue"
+          >
+            <View style={[styles.pulseDotSmall, { backgroundColor: rTheme.warning }]} />
+            <Text style={[styles.heartbeatText, { color: rTheme.textSecondary }]}>
+              Auto-polling dispatch queue • {rangeLabel}
+            </Text>
+          </Pressable>
+
+          {/* Standby Fast Actions */}
+          <View style={styles.idleActionsRow}>
+            <Pressable
+              onPress={() => router.push('/trips')}
+              accessibilityRole="button"
+              accessibilityLabel="View trip schedule"
+              style={({ pressed }) => [
+                styles.idleActionBtn,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+              ]}
+            >
+              <Ionicons name="calendar-outline" size={17} color={rTheme.actionBtnIcon} />
+              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Schedule</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push('/inspection')}
+              accessibilityRole="button"
+              accessibilityLabel="Pre-trip inspection"
+              style={({ pressed }) => [
+                styles.idleActionBtn,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+              ]}
+            >
+              <Ionicons name="clipboard-outline" size={17} color={rTheme.actionBtnIcon} />
+              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Inspection</Text>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push('/profile/vehicle')}
+              accessibilityRole="button"
+              accessibilityLabel="Assigned vehicle"
+              style={({ pressed }) => [
+                styles.idleActionBtn,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+              ]}
+            >
+              <Ionicons name="car-outline" size={17} color={rTheme.actionBtnIcon} />
+              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Vehicle</Text>
+            </Pressable>
+          </View>
+          
+          {/* Bottom Row: Completed Trips + prominent Coral SOS button */}
+          <View style={styles.bottomSheetActionsRow}>
+            <Pressable
+              onPress={() => router.push('/trips')}
+              style={[styles.completedTripsRow, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder }]}
+              accessibilityRole="button"
+              accessibilityLabel="View completed trips today"
+            >
+              <View style={styles.statIconRow}>
+                <Ionicons name="checkmark-circle" size={18} color={rTheme.warning} />
+                <Text style={[styles.statLabel, { color: rTheme.textSecondary }]}>COMPLETED TRIPS TODAY</Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.statValue, { color: rTheme.textPrimary }]}>{todayStats.completed}</Text>
+                <Ionicons name="chevron-forward" size={16} color={rTheme.textSecondary} />
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={() => triggerDriverSos()}
+              accessibilityRole="button"
+              accessibilityLabel="Trigger emergency SOS assistance"
+              style={({ pressed }) => [
+                styles.sosButtonRound,
+                { backgroundColor: rTheme.sosBtnBg, opacity: pressed ? 0.85 : 1 }
+              ]}
+            >
+              <Ionicons name="shield" size={18} color={rTheme.sosBtnText} />
+              <Text style={[styles.sosButtonText, { color: rTheme.sosBtnText }]}>SOS</Text>
+            </Pressable>
           </View>
         </View>
 
@@ -1064,13 +1636,95 @@ const styles = StyleSheet.create({
     fontSize: 12,
     letterSpacing: 0.8,
   },
+  topHudContainer: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    right: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  radarStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  radarLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  radarStatusText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 11,
+    letterSpacing: 0.8,
+  },
+  radarDivider: {
+    width: 1,
+    height: 12,
+    marginHorizontal: 2,
+  },
+  radarSubText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  rangeFilterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 3,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  rangeFilterBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 14,
+  },
+  rangeFilterText: {
+    fontSize: 11,
+    fontFamily: fonts.bodySemiBold,
+  },
+  recenterRadarFab: {
+    position: 'absolute',
+    bottom: 330,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 10,
+  },
   idleSheet: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     padding: 20,
-    paddingBottom: 40,
+    paddingBottom: 36,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopWidth: 1,
@@ -1084,12 +1738,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    marginBottom: 20,
+    marginBottom: 14,
   },
   idleAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1097,11 +1751,58 @@ const styles = StyleSheet.create({
     fontFamily: fonts.displaySemiBold || fonts.bodySemiBold,
     fontSize: 17,
     letterSpacing: -0.2,
-    marginBottom: 2,
   },
   idleSubtext: {
     fontFamily: fonts.body,
-    fontSize: 13,
+    fontSize: 12,
+  },
+  heartbeatRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  pulseDotSmall: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  heartbeatText: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+    flex: 1,
+  },
+  idleActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  idleActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  idleActionText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 12,
+  },
+  statBoxCompact: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -1117,7 +1818,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
   },
   statLabel: {
     fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
@@ -1126,8 +1826,216 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontFamily: fonts.displayBold || fonts.bodySemiBold,
-    fontSize: 22,
+    fontSize: 20,
     letterSpacing: -0.5,
+  },
+  toastBanner: {
+    position: 'absolute',
+    top: 104,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+    zIndex: 15,
+  },
+  toastText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 12,
+  },
+  legendCard: {
+    position: 'absolute',
+    top: 104,
+    left: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 3,
+    zIndex: 10,
+    minWidth: 150,
+  },
+  legendHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 28,
+  },
+  legendIndicatorDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  legendHeaderTitle: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 11,
+    letterSpacing: 0.4,
+  },
+  legendItemsList: {
+    marginTop: 8,
+    gap: 6,
+  },
+  legendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendRingSolid: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
+  },
+  legendRingDashed: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+  },
+  legendLabel: {
+    fontFamily: fonts.body,
+    fontSize: 11,
+  },
+  selectedMarkerCard: {
+    position: 'absolute',
+    bottom: 300,
+    left: 16,
+    right: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 8,
+    zIndex: 20,
+  },
+  markerCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  markerPriorityBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  markerPriorityText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 10,
+    letterSpacing: 0.6,
+  },
+  markerCardCloseBtn: {
+    padding: 4,
+  },
+  markerCardTitle: {
+    fontFamily: fonts.displayBold || fonts.bodySemiBold,
+    fontSize: 16,
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+  markerCardSubtitle: {
+    fontFamily: fonts.body,
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  markerCardMetaRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 14,
+  },
+  markerCardMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  markerCardMetaText: {
+    fontFamily: fonts.data || fonts.body,
+    fontSize: 12,
+  },
+  markerCardActionsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  markerCardSecBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerCardSecBtnText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 11,
+    letterSpacing: 0.5,
+  },
+  markerCardPriBtn: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markerCardPriBtnText: {
+    fontFamily: fonts.dataBold || fonts.bodySemiBold,
+    fontSize: 12,
+    letterSpacing: 0.6,
+  },
+  bottomSheetActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  completedTripsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  sosButtonRound: {
+    height: 52,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  sosButtonText: {
+    fontFamily: fonts.dataBold || fonts.bodySemiBold,
+    fontSize: 14,
+    letterSpacing: 1,
   },
   bottomSheet: {
     position: "absolute",

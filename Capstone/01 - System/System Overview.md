@@ -51,7 +51,7 @@ Six roles. See [[RBAC]] — and note [[DOC rbac-model Says 9 Roles]], because th
 5. **Execution** — trip start → GPS → complete → [[Trips]]
 6. **Reporting back** — outbound status to Booking → [[System Boundaries]]
 
-Cross-cutting: [[UVVRP Number Coding]], [[Fuel]], [[Maintenance]], [[Notifications]], [[AI Advisory]].
+Cross-cutting: [[UVVRP Number Coding]], [[Fuel]], [[Maintenance]], [[Notifications]], [[AI Advisory]], [[Live Map Radar]].
 
 ## Two clients — CONFIRMED
 

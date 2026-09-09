@@ -22,15 +22,31 @@ import { api } from "../lib/api";
 import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
 import { AppAlert } from "./AppAlert";
+import RadarPulse from "./RadarPulse";
 
 const STORAGE_KEY = "driver-sos-offset";
 const SOS_WIDTH = moderateScale(68);
+
+let openSosHandler = null;
+export function registerSosHandler(fn) {
+  openSosHandler = fn;
+}
+export function triggerDriverSos() {
+  if (openSosHandler) {
+    openSosHandler();
+  }
+}
 
 export function DriverSos() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { colors, type } = useTheme();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    registerSosHandler(() => setOpen(true));
+    return () => registerSosHandler(null);
+  }, []);
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [position] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
@@ -204,7 +220,11 @@ export function DriverSos() {
         <View style={styles.backdrop}>
           <View style={[styles.sheet, { backgroundColor: colors.surfaceContainerLowest }]}>
             <View style={[styles.icon, { backgroundColor: colors.errorContainer }]}>
-              <Ionicons name="shield" size={26} color={colors.error} />
+              {sending ? (
+                <RadarPulse size={38} color={colors.error} icon="warning" />
+              ) : (
+                <Ionicons name="shield" size={26} color={colors.error} />
+              )}
             </View>
             <Text style={[type.titleLg, { color: colors.onSurface }]}>Emergency assistance</Text>
             <Text style={[type.bodyMd, styles.body, { color: colors.onSurfaceVariant }]}>
@@ -309,3 +329,5 @@ const styles = StyleSheet.create({
   cancel: { minHeight: TOUCH_TARGET, justifyContent: "center", paddingHorizontal: moderateScale(16) },
   pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
 });
+
+export default DriverSos;

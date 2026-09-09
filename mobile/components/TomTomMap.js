@@ -2,6 +2,7 @@ import React, { useRef, useEffect, useMemo, forwardRef, useImperativeHandle } fr
 import { StyleSheet, View } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../lib/theme-context';
+import { palettes } from '../lib/theme';
 
 const TomTomMap = forwardRef(({ 
   origin, 
@@ -14,6 +15,11 @@ const TomTomMap = forwardRef(({
   dropoffLabel = "Destination",
   showCarIcon = false,
   autoSwoop = false,
+  radarMode = false,
+  radarRadiusKm = 3,
+  radarMarkers = [],
+  onMarkerPress,
+  onMapDragged,
   onRouteData,
   onMapReady
 }, ref) => {
@@ -21,9 +27,29 @@ const TomTomMap = forwardRef(({
   const { colors, scheme } = useTheme();
 
   useImperativeHandle(ref, () => ({
-    recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterMap) window.recenterMap(); true;`),
-    overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`)
+    recenter: () => webViewRef.current?.injectJavaScript(`if(window.recenterRadar && ${radarMode}) window.recenterRadar(); else if(window.recenterMap) window.recenterMap(); true;`),
+    overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`),
+    setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${km}); true;`),
+    setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(markers)}, ${radarRadiusKm}); true;`),
   }));
+
+  useEffect(() => {
+    if (radarMode && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${radarRadiusKm}); true;`);
+    }
+  }, [radarMode, radarRadiusKm]);
+
+  useEffect(() => {
+    if (radarMode && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(radarMarkers)}, ${radarRadiusKm}); true;`);
+    }
+  }, [radarMode, radarMarkers, radarRadiusKm]);
+
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.applyFleetMapTheme) window.applyFleetMapTheme(${scheme === 'dark'}); true;`);
+    }
+  }, [scheme]);
   const tomtomKey = process.env.EXPO_PUBLIC_TOMTOM_API_KEY || "";
 
   const safeOriginAddr = (originAddress || "").replace(/'/g, "\\'");
@@ -142,9 +168,274 @@ const TomTomMap = forwardRef(({
               .color-swatch.active { outline: 3px solid ${colors.secondary}; outline-offset: 2px; }
               .color-swatch:active { transform: scale(0.94); }
               .customizer-close { width: 100%; min-height: 48px; padding: 14px; background: ${colors.primary}; color: ${colors.onPrimary}; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
+
+              /* Car Headlights Glow */
+              .car-headlights-glow {
+                  position: absolute;
+                  top: -6px;
+                  width: 32px;
+                  height: 24px;
+                  background: radial-gradient(ellipse at 50% 30%, rgba(253, 224, 71, 0.55) 0%, rgba(250, 204, 21, 0.18) 55%, transparent 80%);
+                  pointer-events: none;
+                  z-index: 1;
+              }
+
+              /* Winky-Style Organic Animated Bloom Radar */
+              .radar-winky-container {
+                  position: absolute;
+                  top: 50%;
+                  left: 50%;
+                  transform: translate(-50%, -50%);
+                  width: 420px;
+                  height: 420px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  pointer-events: none;
+                  z-index: 0;
+                  transition: transform 0.5s cubic-bezier(0.2, 0, 0, 1);
+              }
+
+              /* Concentric Expanding Ripple Waves */
+              .radar-bloom-ripple {
+                  position: absolute;
+                  width: 110px;
+                  height: 110px;
+                  border-radius: 50%;
+                  pointer-events: none;
+                  z-index: 0;
+              }
+              .scheme-dark .radar-bloom-ripple {
+                  border: 1.5px solid rgba(166, 199, 184, 0.45);
+                  background: radial-gradient(circle, rgba(166, 199, 184, 0.22) 0%, rgba(40, 84, 72, 0.1) 50%, transparent 75%);
+                  animation: winkyRipple 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+              }
+              .scheme-light .radar-bloom-ripple {
+                  border: 1.5px solid rgba(40, 84, 72, 0.4);
+                  background: radial-gradient(circle, rgba(169, 200, 185, 0.30) 0%, rgba(220, 233, 227, 0.12) 50%, transparent 75%);
+                  animation: winkyRipple 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+              }
+              .ripple-1 { animation-delay: 0s !important; }
+              .ripple-2 { animation-delay: 1.4s !important; }
+              .ripple-3 { animation-delay: 2.8s !important; }
+
+              @keyframes winkyRipple {
+                  0% {
+                      transform: scale(0.35);
+                      opacity: 0.85;
+                  }
+                  40% {
+                      opacity: 0.5;
+                  }
+                  100% {
+                      transform: scale(3.4);
+                      opacity: 0;
+                  }
+              }
+
+              /* Multi-layered Organic Undulating Petal Blooms */
+              .radar-bloom-layer {
+                  position: absolute;
+                  pointer-events: none;
+                  z-index: 0;
+              }
+
+              /* Dark Mode Bloom Layers */
+              .scheme-dark .radar-bloom-layer.layer-4 {
+                  width: 380px;
+                  height: 380px;
+                  border-radius: 48% 52% 51% 49% / 52% 47% 53% 48%;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.16) 0%, rgba(30, 68, 58, 0.08) 60%, rgba(20, 50, 42, 0.03) 85%, transparent 100%);
+                  box-shadow: 0 0 40px rgba(40, 84, 72, 0.12);
+                  animation: winkyBreathe4 7.6s ease-in-out infinite alternate;
+              }
+
+              .scheme-dark .radar-bloom-layer.layer-3 {
+                  width: 290px;
+                  height: 290px;
+                  border-radius: 53% 47% 48% 52% / 48% 53% 47% 52%;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.28) 0%, rgba(40, 84, 72, 0.18) 65%, rgba(25, 55, 46, 0.08) 90%, transparent 100%);
+                  box-shadow: 0 0 32px rgba(77, 227, 193, 0.16);
+                  animation: winkyBreathe3 5.8s ease-in-out infinite alternate;
+              }
+
+              .scheme-dark .radar-bloom-layer.layer-2 {
+                  width: 205px;
+                  height: 205px;
+                  border-radius: 46% 54% 53% 47% / 52% 48% 52% 48%;
+                  background: radial-gradient(circle at 50% 50%, rgba(77, 227, 193, 0.42) 0%, rgba(40, 107, 84, 0.30) 68%, rgba(40, 84, 72, 0.18) 90%, transparent 100%);
+                  box-shadow: 0 0 28px rgba(77, 227, 193, 0.25);
+                  animation: winkyBreathe2 4.4s ease-in-out infinite alternate;
+              }
+
+              .scheme-dark .radar-bloom-layer.layer-1 {
+                  width: 125px;
+                  height: 125px;
+                  border-radius: 50%;
+                  background: radial-gradient(circle at 50% 50%, rgba(166, 199, 184, 0.65) 0%, rgba(77, 227, 193, 0.48) 65%, rgba(40, 84, 72, 0.32) 90%, transparent 100%);
+                  box-shadow: 0 0 35px rgba(166, 199, 184, 0.45), inset 0 0 16px rgba(255, 255, 255, 0.25);
+                  animation: winkyBreathe1 3.2s ease-in-out infinite alternate;
+              }
+
+              /* Light Mode Bloom Layers */
+              .scheme-light .radar-bloom-layer.layer-4 {
+                  width: 380px;
+                  height: 380px;
+                  border-radius: 48% 52% 51% 49% / 52% 47% 53% 48%;
+                  background: radial-gradient(circle at 50% 50%, rgba(220, 233, 227, 0.26) 0%, rgba(244, 240, 233, 0.15) 60%, rgba(244, 240, 233, 0.05) 85%, transparent 100%);
+                  box-shadow: 0 0 40px rgba(40, 84, 72, 0.10);
+                  animation: winkyBreathe4 7.6s ease-in-out infinite alternate;
+              }
+
+              .scheme-light .radar-bloom-layer.layer-3 {
+                  width: 290px;
+                  height: 290px;
+                  border-radius: 53% 47% 48% 52% / 48% 53% 47% 52%;
+                  background: radial-gradient(circle at 50% 50%, rgba(169, 200, 185, 0.38) 0%, rgba(220, 233, 227, 0.24) 65%, rgba(244, 240, 233, 0.12) 90%, transparent 100%);
+                  box-shadow: 0 0 32px rgba(40, 84, 72, 0.15);
+                  animation: winkyBreathe3 5.8s ease-in-out infinite alternate;
+              }
+
+              .scheme-light .radar-bloom-layer.layer-2 {
+                  width: 205px;
+                  height: 205px;
+                  border-radius: 46% 54% 53% 47% / 52% 48% 52% 48%;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.42) 0%, rgba(169, 200, 185, 0.32) 68%, rgba(220, 233, 227, 0.20) 90%, transparent 100%);
+                  box-shadow: 0 0 28px rgba(40, 84, 72, 0.22);
+                  animation: winkyBreathe2 4.4s ease-in-out infinite alternate;
+              }
+
+              .scheme-light .radar-bloom-layer.layer-1 {
+                  width: 125px;
+                  height: 125px;
+                  border-radius: 50%;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.58) 0%, rgba(40, 107, 84, 0.45) 65%, rgba(169, 200, 185, 0.30) 90%, transparent 100%);
+                  box-shadow: 0 0 35px rgba(40, 84, 72, 0.35), inset 0 0 16px rgba(255, 255, 255, 0.4);
+                  animation: winkyBreathe1 3.2s ease-in-out infinite alternate;
+              }
+
+              /* Keyframe Breathing Animations with Organic Asymmetric Harmonic Movement */
+              @keyframes winkyBreathe1 {
+                  0% { transform: scale(0.96); }
+                  100% { transform: scale(1.04); }
+              }
+              @keyframes winkyBreathe2 {
+                  0% { transform: scale(0.95) rotate(0deg); }
+                  100% { transform: scale(1.05) rotate(5deg); }
+              }
+              @keyframes winkyBreathe3 {
+                  0% { transform: scale(0.94) rotate(0deg); }
+                  100% { transform: scale(1.06) rotate(-5deg); }
+              }
+              @keyframes winkyBreathe4 {
+                  0% { transform: scale(0.93) rotate(0deg); }
+                  100% { transform: scale(1.07) rotate(4deg); }
+              }
+
+              /* Interactive Radar Markers & Clusters */
+              .radar-marker-item {
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                  cursor: pointer;
+                  pointer-events: auto;
+                  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+              }
+              .radar-marker-item:active {
+                  transform: scale(0.94);
+              }
+
+              .radar-marker-icon-box {
+                  width: 28px;
+                  height: 28px;
+                  border-radius: 14px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  box-shadow: 0 3px 10px rgba(0,0,0,0.32);
+                  border: 2px solid ${colors.surface};
+                  flex-shrink: 0;
+              }
+
+              .priority-emergency .radar-marker-icon-box {
+                  background: ${colors.error};
+                  color: ${colors.onError};
+                  box-shadow: 0 0 12px rgba(168, 67, 64, 0.6);
+              }
+              .priority-priority .radar-marker-icon-box {
+                  background: ${colors.secondary};
+                  color: ${colors.onSecondary};
+                  box-shadow: 0 0 12px rgba(138, 99, 44, 0.6);
+              }
+              .priority-normal .radar-marker-icon-box {
+                  background: ${colors.primary};
+                  color: ${colors.onPrimary};
+                  box-shadow: 0 0 12px rgba(40, 84, 72, 0.6);
+              }
+              .priority-vehicle .radar-marker-icon-box {
+                  background: #286B54;
+                  color: #FFFFFF;
+                  box-shadow: 0 0 12px rgba(40, 107, 84, 0.5);
+              }
+              .priority-vehicle-busy .radar-marker-icon-box {
+                  background: ${colors.outline};
+                  color: ${colors.surface};
+              }
+              .priority-alert .radar-marker-icon-box {
+                  background: ${colors.secondary};
+                  color: ${colors.onSecondary};
+              }
+
+              .radar-marker-label {
+                  background: ${colors.surface};
+                  color: ${colors.onSurface};
+                  border: 1px solid ${colors.outlineVariant};
+                  padding: 4px 9px;
+                  border-radius: 12px;
+                  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+                  font-family: system-ui, -apple-system, sans-serif;
+                  display: flex;
+                  align-items: center;
+                  gap: 6px;
+                  white-space: nowrap;
+                  max-width: 200px;
+              }
+              .radar-marker-name {
+                  font-size: 11px;
+                  font-weight: 700;
+                  overflow: hidden;
+                  text-overflow: ellipsis;
+              }
+              .radar-marker-dist {
+                  font-size: 10px;
+                  font-weight: 600;
+                  color: ${colors.onSurfaceVariant};
+              }
+
+              /* Marker Clusters */
+              .radar-cluster-badge {
+                  width: 34px;
+                  height: 34px;
+                  border-radius: 17px;
+                  background: ${colors.surface};
+                  border: 2px solid ${colors.primary};
+                  color: ${colors.primary};
+                  font-family: system-ui, -apple-system, sans-serif;
+                  font-weight: 800;
+                  font-size: 13px;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  box-shadow: 0 4px 14px rgba(0,0,0,0.22);
+                  cursor: pointer;
+                  transition: transform 0.15s cubic-bezier(0.2, 0, 0, 1);
+              }
+              .radar-cluster-badge:active {
+                  transform: scale(0.92);
+              }
           </style>
       </head>
-      <body>
+      <body class="scheme-${scheme === 'dark' ? 'dark' : 'light'}">
           <div id="map"></div>
           
           <div id="navHeader" class="nav-header">
@@ -207,6 +498,229 @@ const TomTomMap = forwardRef(({
               window.isFollowing = true;
               
               window.carColor = 'forest';
+
+              window.createGeoJsonCircle = function(centerLng, centerLat, radiusInMeters, points) {
+                  if (!points) points = 64;
+                  const coords = [];
+                  const km = radiusInMeters / 1000;
+                  const distanceX = km / (111.32 * Math.cos(centerLat * Math.PI / 180));
+                  const distanceY = km / 110.574;
+
+                  for (let i = 0; i < points; i++) {
+                      const theta = (i / points) * (2 * Math.PI);
+                      const x = distanceX * Math.cos(theta);
+                      const y = distanceY * Math.sin(theta);
+                      coords.push([centerLng + x, centerLat + y]);
+                  }
+                  coords.push(coords[0]);
+                  return {
+                      type: 'Feature',
+                      geometry: {
+                          type: 'Polygon',
+                          coordinates: [coords]
+                      },
+                      properties: {}
+                  };
+              };
+
+              window.currentRadarKm = ${radarRadiusKm};
+              window.currentRadarZoom = ${radarRadiusKm <= 1 ? 15.5 : radarRadiusKm <= 3 ? 14.2 : radarRadiusKm <= 5 ? 13.0 : 11.8};
+              window.radarMarkerInstances = [];
+              window.currentMarkersData = [];
+
+              window.updateRadarCirclePositions = function(carLng, carLat) {
+                  if (!window.ttMap) return;
+                  const innerSrc = window.ttMap.getSource('radar-inner-source');
+                  const outerSrc = window.ttMap.getSource('radar-outer-source');
+                  if (!innerSrc || !outerSrc) return;
+
+                  let outerRadius = 3000;
+                  const km = window.currentRadarKm || 3;
+                  if (km <= 1) outerRadius = 2000;
+                  else if (km <= 3) outerRadius = 3000;
+                  else if (km <= 5) outerRadius = 5000;
+                  else outerRadius = 8000;
+
+                  innerSrc.setData(window.createGeoJsonCircle(carLng, carLat, 1000));
+                  outerSrc.setData(window.createGeoJsonCircle(carLng, carLat, outerRadius));
+              };
+
+              window.updateRadarCoverage = function(km, carLng, carLat) {
+                  if (!window.ttMap) return;
+                  window.currentRadarKm = km;
+                  const cLng = carLng !== undefined ? carLng : (window.currentCarLng !== undefined ? window.currentCarLng : ${origin?.lng ?? 'null'});
+                  const cLat = carLat !== undefined ? carLat : (window.currentCarLat !== undefined ? window.currentCarLat : ${origin?.lat ?? 'null'});
+
+                  let zoomLevel = 14.2;
+                  if (km <= 1) zoomLevel = 15.5;
+                  else if (km <= 3) zoomLevel = 14.2;
+                  else if (km <= 5) zoomLevel = 13.0;
+                  else zoomLevel = 11.8;
+                  window.currentRadarZoom = zoomLevel;
+
+                  if (cLng !== null && cLat !== null) {
+                      window.updateRadarCirclePositions(cLng, cLat);
+                      if (window.isFollowing) {
+                          window.ttMap.easeTo({
+                              center: [cLng, cLat],
+                              zoom: zoomLevel,
+                              duration: 600
+                          });
+                      }
+                  }
+
+                  const bloom = document.getElementById('radarBloomContainer');
+                  if (bloom) {
+                      const scale = km <= 1 ? 0.95 : km <= 3 ? 1.05 : km <= 5 ? 1.15 : 1.25;
+                      bloom.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
+                  }
+
+                  if (window.currentMarkersData && window.renderRadarMarkers) {
+                      window.renderRadarMarkers(window.currentMarkersData, km);
+                  }
+              };
+
+              window.recenterRadar = function() {
+                  if (!window.ttMap) return;
+                  window.isFollowing = true;
+                  const targetLng = window.currentCarLng !== undefined ? window.currentCarLng : ${origin?.lng ?? 'null'};
+                  const targetLat = window.currentCarLat !== undefined ? window.currentCarLat : ${origin?.lat ?? 'null'};
+                  if (targetLng !== null && targetLat !== null) {
+                      window.ttMap.easeTo({
+                          center: [targetLng, targetLat],
+                          zoom: window.currentRadarZoom || 14.2,
+                          duration: 700,
+                          pitch: 0,
+                          bearing: 0
+                      });
+                  }
+              };
+
+              function getMarkerIconSymbol(marker) {
+                  if (marker.type === 'vehicle') {
+                      return '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4.66l.12-.34h13.77l.11.34V17z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>';
+                  }
+                  if (marker.priority === 'emergency') {
+                      return 'H';
+                  }
+                  if (marker.priority === 'priority') {
+                      return '★';
+                  }
+                  if (marker.type === 'alert') {
+                      return '!';
+                  }
+                  return '●';
+              }
+
+              window.renderRadarMarkers = function(markers, selectedKm) {
+                  if (!window.ttMap || !Array.isArray(markers)) return;
+                  window.currentMarkersData = markers;
+                  const effectiveKm = selectedKm !== undefined ? selectedKm : (window.currentRadarKm || 3);
+
+                  // Clear old markers
+                  if (window.radarMarkerInstances) {
+                      window.radarMarkerInstances.forEach(function(m) {
+                          try { m.remove(); } catch(e) {}
+                      });
+                  }
+                  window.radarMarkerInstances = [];
+
+                  // Filter by selected range (range 10 = 'All')
+                  const visible = markers.filter(function(m) {
+                      if (m.lat == null || m.lng == null) return false;
+                      if (effectiveKm >= 10) return true;
+                      if (m.distanceKm == null) return true;
+                      return m.distanceKm <= (effectiveKm + 0.35);
+                  });
+
+                  // Simple proximity clustering (~150m threshold)
+                  const clusters = [];
+                  const used = new Set();
+
+                  for (let i = 0; i < visible.length; i++) {
+                      if (used.has(i)) continue;
+                      const cluster = [visible[i]];
+                      used.add(i);
+
+                      for (let j = i + 1; j < visible.length; j++) {
+                          if (used.has(j)) continue;
+                          const dLat = Math.abs(visible[i].lat - visible[j].lat);
+                          const dLng = Math.abs(visible[i].lng - visible[j].lng);
+                          if (dLat < 0.0018 && dLng < 0.0018) {
+                              cluster.push(visible[j]);
+                              used.add(j);
+                          }
+                      }
+                      clusters.push(cluster);
+                  }
+
+                  clusters.forEach(function(group) {
+                      if (group.length > 1) {
+                          // Render Cluster Badge
+                          const avgLat = group.reduce((s, g) => s + g.lat, 0) / group.length;
+                          const avgLng = group.reduce((s, g) => s + g.lng, 0) / group.length;
+
+                          const clusterEl = document.createElement('div');
+                          clusterEl.className = 'radar-cluster-badge';
+                          clusterEl.innerText = group.length;
+                          clusterEl.title = group.length + ' nearby dispatches';
+                          clusterEl.onclick = function(e) {
+                              e.stopPropagation();
+                              window.ttMap.flyTo({
+                                  center: [avgLng, avgLat],
+                                  zoom: Math.min(window.ttMap.getZoom() + 2, 17.5),
+                                  duration: 600
+                              });
+                          };
+
+                          const markerObj = new tt.Marker({ element: clusterEl, anchor: 'center' })
+                              .setLngLat([avgLng, avgLat])
+                              .addTo(window.ttMap);
+                          window.radarMarkerInstances.push(markerObj);
+                      } else {
+                          // Render Single Marker
+                          const m = group[0];
+                          const priorityClass = m.priority === 'emergency' 
+                              ? 'priority-emergency' 
+                              : m.priority === 'priority' 
+                                  ? 'priority-priority' 
+                                  : m.type === 'vehicle'
+                                      ? (m.status === 'busy' ? 'priority-vehicle-busy' : 'priority-vehicle')
+                                      : m.type === 'alert'
+                                          ? 'priority-alert'
+                                          : 'priority-normal';
+
+                          const markerEl = document.createElement('div');
+                          markerEl.className = 'radar-marker-item ' + priorityClass;
+                          
+                          const iconBox = document.createElement('div');
+                          iconBox.className = 'radar-marker-icon-box';
+                          iconBox.innerHTML = getMarkerIconSymbol(m);
+                          markerEl.appendChild(iconBox);
+
+                          const labelEl = document.createElement('div');
+                          labelEl.className = 'radar-marker-label';
+                          labelEl.innerHTML = '<span class="radar-marker-name">' + (m.title || 'Assignment') + '</span>' +
+                              (m.distanceKm ? '<span class="radar-marker-dist">' + m.distanceKm + ' km</span>' : '');
+                          markerEl.appendChild(labelEl);
+
+                          markerEl.onclick = function(e) {
+                              e.stopPropagation();
+                              if (window.ReactNativeWebView) {
+                                  window.ReactNativeWebView.postMessage(JSON.stringify({
+                                      type: 'MARKER_TAPPED',
+                                      marker: m
+                                  }));
+                              }
+                          };
+
+                          const markerObj = new tt.Marker({ element: markerEl, anchor: 'center' })
+                              .setLngLat([m.lng, m.lat])
+                              .addTo(window.ttMap);
+                          window.radarMarkerInstances.push(markerObj);
+                      }
+                  });
+              };
 
               window.generateCarSvg = function(color) {
                   let baseColor, lightColor;
@@ -678,7 +1192,7 @@ const TomTomMap = forwardRef(({
                       key: '${tomtomKey}',
                       container: 'map',
                       center: [centerLng, centerLat],
-                      zoom: 12, // Start zoomed out so the route reveal is smooth
+                      zoom: ${radarMode ? (radarRadiusKm <= 1 ? 15.5 : radarRadiusKm <= 3 ? 14.2 : 13.2) : 12}, // Zoom level adapted for radar or full route
                       pitch: 0, // Start flat for the full route overview
                       dragPan: ${scrollEnabled},
                       scrollZoom: ${scrollEnabled},
@@ -688,107 +1202,143 @@ const TomTomMap = forwardRef(({
                       }
                   });
                   window.ttMap = map;
+                  window.applyFleetMapTheme = function(forceDark) {
+                        const isDark = forceDark !== undefined ? forceDark : ${scheme === 'dark'};
+                        document.body.className = isDark ? 'scheme-dark' : 'scheme-light';
+                        const bgCol = isDark ? '${palettes.dark.background}' : '${palettes.light.background}';
+                        const waterCol = isDark ? '${palettes.dark.surfaceVariant}' : '${palettes.light.surfaceVariant}';
+                        const parkCol = isDark ? '${palettes.dark.surfaceContainerLow}' : '${palettes.light.surfaceContainerLow}';
+                        const bldgCol = isDark ? '${palettes.dark.surfaceContainerHigh}' : '${palettes.light.surfaceContainerHigh}';
+                        const roadCol = isDark ? '${palettes.dark.surfaceBright}' : '${palettes.light.surfaceBright}';
+                        const textCol = isDark ? '${palettes.dark.onSurface}' : '${palettes.light.onSurface}';
+                        const haloCol = isDark ? '${palettes.dark.surface}' : '${palettes.light.surface}';
 
-                  window.applyFleetMapTheme = function() {
-                      const layers = map.getStyle().layers || [];
-                      layers.forEach(layer => {
-                          const id = layer.id.toLowerCase();
-                          if (layer.type === 'background') {
-                              map.setPaintProperty(layer.id, 'background-color', '${colors.primaryContainer}');
-                          } else if (layer.type === 'fill') {
-                              const fill = id.includes('water')
-                                  ? '${colors.info}'
-                                  : id.includes('park') || id.includes('forest') || id.includes('landcover')
-                                      ? '${colors.primaryContainer}'
-                                      : id.includes('building')
-                                          ? '${colors.surfaceContainerHigh}'
-                                          : '${colors.surfaceContainerLow}';
-                              map.setPaintProperty(layer.id, 'fill-color', fill);
-                          } else if (layer.type === 'line' && (id.includes('road') || id.includes('street') || id.includes('highway'))) {
-                              map.setPaintProperty(layer.id, 'line-color', '${colors.surfaceBright}');
-                          } else if (layer.type === 'symbol') {
-                              map.setPaintProperty(layer.id, 'text-color', '${colors.onSurface}');
-                              map.setPaintProperty(layer.id, 'text-halo-color', '${colors.surface}');
-                              map.setPaintProperty(layer.id, 'text-halo-width', 1.25);
-                          }
-                      });
-                  };
-                  
-                  map.on('dragstart', () => {
-                      if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
-                      if (window.isFollowing && ${showCarIcon}) {
-                          window.isFollowing = false;
-                          document.getElementById('recenterBtn').style.display = 'flex';
-                      }
-                  });
-                  map.on('rotate', () => {
-                      if (window.updateCarRotation) window.updateCarRotation();
-                  });
-                  map.on('zoomstart', (e) => {
-                      if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
-                      if (e.originalEvent && window.isFollowing && ${showCarIcon}) {
-                          window.isFollowing = false;
-                          document.getElementById('recenterBtn').style.display = 'flex';
-                      }
-                  });
+                        const layers = map.getStyle().layers || [];
+                        layers.forEach(layer => {
+                            const id = layer.id.toLowerCase();
+                            try {
+                                if (layer.type === 'background') {
+                                    map.setPaintProperty(layer.id, 'background-color', bgCol);
+                                } else if (layer.type === 'fill') {
+                                    const fill = id.includes('water')
+                                        ? waterCol
+                                        : (id.includes('park') || id.includes('forest') || id.includes('landcover') || id.includes('green'))
+                                            ? parkCol
+                                            : id.includes('building')
+                                                ? bldgCol
+                                                : parkCol;
+                                    map.setPaintProperty(layer.id, 'fill-color', fill);
+                                } else if (layer.type === 'line') {
+                                    if (id.includes('road') || id.includes('street') || id.includes('highway') || id.includes('bridge') || id.includes('path')) {
+                                        map.setPaintProperty(layer.id, 'line-color', roadCol);
+                                    }
+                                } else if (layer.type === 'symbol') {
+                                    map.setPaintProperty(layer.id, 'text-color', textCol);
+                                    map.setPaintProperty(layer.id, 'text-halo-color', haloCol);
+                                    map.setPaintProperty(layer.id, 'text-halo-width', 1.25);
+                                }
+                            } catch(e) {}
+                        });
+                    };
+                    
+                    map.on('dragstart', () => {
+                        if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
+                        window.isFollowing = false;
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_DRAGGED' }));
+                        }
+                        if (${showCarIcon}) {
+                            document.getElementById('recenterBtn').style.display = 'flex';
+                        }
+                    });
+                    map.on('rotate', () => {
+                        if (window.updateCarRotation) window.updateCarRotation();
+                    });
 
-                  if (${showCarIcon}) {
-                      if (hasOrigin && hasDestination) {
-                          document.getElementById('navHeader').style.display = 'flex';
-                          document.getElementById('navDistVal').innerText = "---";
-                          document.getElementById('navDistUnit').innerText = "";
-                          document.getElementById('navStreet').innerText = "Calculating route...";
-                      } else {
-                          document.getElementById('navHeader').style.display = 'none';
-                      }
-                      document.getElementById('overviewBtn').style.display = 'flex';
-                  }
+                    if (${showCarIcon}) {
+                        map.setBearing(${origin?.heading ?? 0});
+                        if (destLat !== null && destLng !== null && originLat !== null && originLng !== null) {
+                            document.getElementById('navHeader').style.display = 'flex';
+                            document.getElementById('navStreet').innerText = "Calculating route...";
+                        } else {
+                            document.getElementById('navHeader').style.display = 'none';
+                        }
+                        document.getElementById('overviewBtn').style.display = 'flex';
+                    }
 
-                  map.on('load', () => {
-                      window.applyFleetMapTheme();
-                      if (window.ReactNativeWebView) {
-                          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
-                      }
+                    map.on('load', () => {
+                        window.applyFleetMapTheme();
+                        if (window.ReactNativeWebView) {
+                            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
+                        }
 
-                      // Do not invent a driver marker when the trip has no
-                      // valid origin/GPS coordinate.
-                      if (!hasOrigin) return;
+                        if (${radarMode} && hasOrigin) {
+                            window.renderRadarMarkers(${JSON.stringify(radarMarkers)}, ${radarRadiusKm});
+                        }
 
-                      // Origin Marker
-                      const originEl = document.createElement('div');
-                      if (${showCarIcon}) {
-                          originEl.className = 'origin-marker-container';
-                          originEl.style.width = '40px';
-                          originEl.style.height = '72px';
-                          originEl.style.display = 'flex';
-                          originEl.style.alignItems = 'center';
-                          originEl.style.justifyContent = 'center';
-                          originEl.style.pointerEvents = 'auto';
-                          originEl.onclick = function() {
-                              document.getElementById('carCustomizer').style.display = 'flex';
-                          };
-                          
-                          const carInner = document.createElement('div');
-                          carInner.className = 'origin-marker-car';
-                          carInner.id = 'carInnerIcon';
-                          originEl.appendChild(carInner);
-                          window.updateCarIcon();
-                      } else {
-                          originEl.className = 'origin-pin-container';
-                          originEl.style.width = '28px';
-                          originEl.style.height = '34px';
-                          originEl.style.display = 'flex';
-                          originEl.style.alignItems = 'center';
-                          originEl.style.justifyContent = 'center';
-                          originEl.style.cursor = 'pointer';
-                          originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
-                      }
+                        // Do not invent a driver marker when the trip has no
+                        // valid origin/GPS coordinate.
+                        if (!hasOrigin) return;
 
-                      const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
-                      window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon ? "'center'" : "'bottom'"} })
-                          .setLngLat([originLng, originLat])
-                          ${!showCarIcon ? '.setPopup(originPopup)' : ''}
-                          .addTo(map);
+                        // Origin Marker
+                        const originEl = document.createElement('div');
+                        if (${showCarIcon} || ${radarMode}) {
+                            originEl.className = 'origin-marker-container' + (${radarMode} ? ' radar-origin-mode' : '');
+                            originEl.style.width = '44px';
+                            originEl.style.height = '76px';
+                            originEl.style.display = 'flex';
+                            originEl.style.alignItems = 'center';
+                            originEl.style.justifyContent = 'center';
+                            originEl.style.pointerEvents = 'auto';
+                            originEl.style.position = 'relative';
+                            originEl.onclick = function() {
+                                document.getElementById('carCustomizer').style.display = 'flex';
+                            };
+
+                            if (${radarMode}) {
+                                const bloomWrap = document.createElement('div');
+                                bloomWrap.className = 'radar-winky-container';
+                                bloomWrap.id = 'radarBloomContainer';
+                                bloomWrap.innerHTML = '<div class="radar-bloom-ripple ripple-1"></div>' +
+                                    '<div class="radar-bloom-ripple ripple-2"></div>' +
+                                    '<div class="radar-bloom-ripple ripple-3"></div>' +
+                                    '<div class="radar-bloom-layer layer-4"></div>' +
+                                    '<div class="radar-bloom-layer layer-3"></div>' +
+                                    '<div class="radar-bloom-layer layer-2"></div>' +
+                                    '<div class="radar-bloom-layer layer-1"></div>';
+                                originEl.appendChild(bloomWrap);
+                            }
+
+                            const headlights = document.createElement('div');
+                            headlights.className = 'car-headlights-glow';
+                            originEl.appendChild(headlights);
+                            
+                            const carInner = document.createElement('div');
+                            carInner.className = 'origin-marker-car';
+                            carInner.id = 'carInnerIcon';
+                            originEl.appendChild(carInner);
+                            window.updateCarIcon();
+
+                            const initHeading = ${origin?.heading ?? 0};
+                            if (initHeading) {
+                                carInner.style.transform = 'rotate(' + initHeading + 'deg)';
+                            }
+                        } else {
+                            originEl.className = 'origin-pin-container';
+                            originEl.style.width = '28px';
+                            originEl.style.height = '34px';
+                            originEl.style.display = 'flex';
+                            originEl.style.alignItems = 'center';
+                            originEl.style.justifyContent = 'center';
+                            originEl.style.cursor = 'pointer';
+                            originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
+                        }
+
+                        const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
+                        window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon || radarMode ? "'center'" : "'bottom'"} })
+                            .setLngLat([originLng, originLat])
+                            ${!showCarIcon && !radarMode ? '.setPopup(originPopup)' : ''}
+                            .addTo(map);
 
                       // Destination Marker
                       const hasValidDest = hasDestination && (originLat !== destLat || originLng !== destLng);
@@ -1057,17 +1607,23 @@ const TomTomMap = forwardRef(({
           window.lastHeading = ${origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 ? origin.heading : 'window.lastHeading'};
           
           if (window.updateCarRotation) window.updateCarRotation();
+
+          if (${radarMode} && window.updateRadarCirclePositions) {
+              window.updateRadarCirclePositions(finalLng, finalLat);
+          }
           
           if (window.ttMap && window.isFollowing) {
               const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
-              // Ease on every fix with a duration matched to the ~3s GPS
-              // cadence, so the camera glides continuously instead of letting
-              // the car drift to the screen edge and jumping after it.
+              // In radar mode, keep zoom comfortable and orientation north-up.
+              // In navigation mode, zoom into street level and track route bearing.
+              const isRadar = ${radarMode};
+              const targetZoom = isRadar ? (window.currentRadarZoom || 14.2) : 18.5;
+              const targetBearing = isRadar ? 0 : routeBearing;
               window.ttMap.easeTo({
                   center: [finalLng, finalLat],
-                  zoom: 18.5,
+                  zoom: targetZoom,
                   pitch: 0,
-                  bearing: routeBearing,
+                  bearing: targetBearing,
                   duration: 2800
               });
           }
@@ -1077,7 +1633,7 @@ const TomTomMap = forwardRef(({
       `;
       webViewRef.current.injectJavaScript(script);
     }
-  }, [origin?.lat, origin?.lng, origin?.heading, showCarIcon]);
+  }, [origin?.lat, origin?.lng, origin?.heading, showCarIcon, radarMode]);
 
   return (
     <View style={[styles.container, style]}>
@@ -1099,6 +1655,12 @@ const TomTomMap = forwardRef(({
             // MAP_READY must fire even when the caller passes no onRouteData
             // (the idle map) — otherwise the loading overlay never lifts.
             if (data.type === 'MAP_READY' && onMapReady) onMapReady();
+            if (data.type === 'MARKER_TAPPED' && onMarkerPress) {
+              onMarkerPress(data.marker);
+            }
+            if (data.type === 'MAP_DRAGGED' && onMapDragged) {
+              onMapDragged();
+            }
           } catch(e){}
         }}
       />
