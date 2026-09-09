@@ -278,7 +278,7 @@ export default function TripMap({
   );
 }
 
-function staticImageSource({ key, center, markers, width, height, zoom }) {
+export function staticImageSource({ key, center, markers, width, height, zoom }) {
   const params = new URLSearchParams({
     key,
     format: "png",
@@ -288,7 +288,9 @@ function staticImageSource({ key, center, markers, width, height, zoom }) {
   });
   if (center) params.set("center", `${center[1]},${center[0]}`);
   for (const m of markers) {
-    const label = m.color === "10B981" ? "A" : "B";
+    // Marker label: explicit per-marker override first (so callers can render
+    // same-colored A/B endpoints), else the historic green→A / other→B rule.
+    const label = m.label ?? (m.color === "10B981" ? "A" : "B");
     params.append("markers", `color:0x${m.color}|label:${label}|${m.lat},${m.lng}`);
   }
   return `https://api.tomtom.com/map/1/staticimage?${params.toString()}`;

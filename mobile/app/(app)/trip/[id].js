@@ -1,35 +1,44 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, Pressable, ScrollView, Image, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useCallback, useRef } from "react";
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import TomTomMap from "../../../components/TomTomMap";
+import TripMapPreview from "../../../components/TripMapPreview";
+import RouteTimeline from "../../../components/RouteTimeline";
 import { api, wasQueued } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SyncNote, NeverSyncedCard } from "../../../components/OfflineStates";
-import { fonts, statusColors } from "../../../lib/theme";
+import { statusColors, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
+import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
 
-function getTripStatusStyle(status, colors) {
-  return statusColors(colors, status);
-}
+// Clay material values copied from the Home implementation (DriverHomeCards)
+// so the surfaces match without touching Home's uncommitted WIP files.
+const shade = { shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 7, borderTopWidth: 2, borderTopColor: '#FFFFFF70', borderBottomWidth: 3, borderBottomColor: '#00000016' };
 
 // Frozen at module load; the 30s interval below keeps it current without render-time reads.
 const NOW_AT_LOAD = Date.now();
+
+const fmtTime = (ms) =>
+  ms == null ? null : new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 export default function TripDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
 
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
   const [accepting, setAccepting] = useState(false);
   const [now, setNow] = useState(NOW_AT_LOAD);
+  // Honest absence states: the fetch answered but this trip isn't among the
+  // driver's loaded assignments / the fetch failed with nothing cached.
+  const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState(null);
   // Offline Read Mode: last server confirmation for this trip's data.
   const [lastSynced, setLastSynced] = useState(null);
   const { user } = useAuth();
@@ -56,26 +65,36 @@ export default function TripDetailsScreen() {
     // Offline Read Mode: list-cache-first. The shared TRIPS_ALL snapshot is
     // the primary source; the per-trip key covers trips opened before that
     // list was ever cached.
+    let cachedTrip = null;
+    let cachedSyncedAt = null;
     if (driverId) {
       const listCached = await getCached(driverId, CACHE_KEYS.TRIPS_ALL);
       const inList = Array.isArray(listCached?.data)
         ? listCached.data.find((t) => String(t.trip_id) === String(id))
         : null;
       if (inList) {
-        setTrip(inList);
-        setLastSynced(listCached.syncedAt);
-        setLoading(false);
+        cachedTrip = inList;
+        cachedSyncedAt = listCached.syncedAt;
       } else {
         const singleCached = await getCached(driverId, tripCacheKey(id));
         if (singleCached?.data) {
-          setTrip(singleCached.data);
-          setLastSynced(singleCached.syncedAt);
-          setLoading(false);
+          cachedTrip = singleCached.data;
+          cachedSyncedAt = singleCached.syncedAt;
         }
+      }
+      if (cachedTrip) {
+        setTrip(cachedTrip);
+        setLastSynced(cachedSyncedAt);
+        setLoading(false);
       }
     }
     try {
-      const data = await api.get("/api/mobile/driver/trips?status=all");
+      setLoadError(null);
+      setNotFound(false);
+      // limit=100 widens coverage past the default page cap. This is the only
+      // trip source — the old /api/trips/{id} fallback required
+      // trips:read_all (drivers get 403), so it could never succeed here.
+      const data = await api.get("/api/mobile/driver/trips?status=all&limit=100");
       const list = Array.isArray(data) ? data : [];
       // Display-only: refresh both the shared list and this trip's key.
       if (driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
@@ -84,20 +103,20 @@ export default function TripDetailsScreen() {
         setTrip(found);
         if (driverId) await setCached(driverId, tripCacheKey(id), found);
         setLastSynced(Date.now());
-      } else {
-        // Fallback fetch specific trip if not in driver active/completed batch
-        const single = await api.get(`/api/trips/${id}`).catch(() => null);
-        const resolved = single || { trip_id: id, trip_status: "Completed" };
-        setTrip(resolved);
-        if (single && driverId) await setCached(driverId, tripCacheKey(id), single);
-        if (single) setLastSynced(Date.now());
+      } else if (!cachedTrip) {
+        // Online, but this trip is not among the driver's assignments. Never
+        // fabricate a shell — the render branch states the absence plainly.
+        setNotFound(true);
       }
+      // A cached copy stays visible with its sync note even when the fresh
+      // list omits it; the driver keeps the last-known data they had.
     } catch (e) {
-      // Offline with NO cached copy → leave trip null: the render branch shows
-      // the honest never-synced card instead of a fabricated "Completed"
-      // shell. Online fetch failure keeps the legacy shell (follow-up logged:
-      // that shell is still fabricated data, out of this slice's scope).
-      setTrip((prev) => prev ?? (offlineRef.current ? null : { trip_id: id, trip_status: "Completed" }));
+      // Offline with NO cached copy → the never-synced card. Online failure
+      // with no cache → error + retry. With a cached copy → keep showing it;
+      // the connectivity banner owns transport failures.
+      if (!cachedTrip && !offlineRef.current) {
+        setLoadError(e.message || "Could not load this trip.");
+      }
     } finally {
       setLoading(false);
     }
@@ -109,15 +128,22 @@ export default function TripDetailsScreen() {
     return () => clearTimeout(t);
   }, [load]);
 
-  const PRE_START = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched", "Driver Accepted"];
-  const isPreStart = PRE_START.includes(trip?.trip_status);
+  const retry = () => {
+    setLoading(true);
+    setNotFound(false);
+    setLoadError(null);
+    load();
+  };
+
+  const action = detailPrimaryAction(trip); // 'accept-start' | 'navigate' | 'closed'
+  const isPreStart = action === "accept-start";
+  const isTerminal = action === "closed";
   const isAccepted = trip?.trip_status === "Driver Accepted";
   const isCompleted = trip?.trip_status === "Completed";
-  const isCancelled = trip?.trip_status === "Cancelled";
-  const isFinished = isCompleted || isCancelled;
 
-  const handleAction = async () => {
-    if (isFinished) return;
+  // Pre-start only: the existing accept→start sequence. Active trips never
+  // reach this — CONTINUE TO MAP navigates without writing status.
+  const handleAcceptStart = async () => {
     setAccepting(true);
     try {
       let queued = false;
@@ -144,6 +170,26 @@ export default function TripDetailsScreen() {
     }
   };
 
+  // Active trips: navigation only.
+  const handleContinue = () => router.replace("/map");
+
+  // Render function (not a nested component) so the header doesn't remount
+  // on every state tick.
+  const headerBar = (onClose) => (
+    <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+      <Pressable
+        onPress={onClose}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        style={({ pressed }) => [styles.backBtn, shade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }]}
+      >
+        <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+      </Pressable>
+      <Text style={type.titleLg}>Trip Details</Text>
+      <View style={{ width: TOUCH_TARGET }} />
+    </View>
+  );
+
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -152,279 +198,209 @@ export default function TripDetailsScreen() {
     );
   }
 
-  if (!trip && offline) {
-    // Offline never-synced: honest empty state — never a fabricated trip
-    // shell pretending this trip exists as "Completed".
+  if (!trip) {
+    // Honest absence states — never a fabricated trip shell.
     return (
       <View style={[styles.root, { backgroundColor: colors.background }]}>
-        <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-          <Pressable onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-          </Pressable>
-          <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Trip Details</Text>
-          <View style={{ width: 24 }} />
-        </View>
+        {headerBar(() => router.back())}
         <View style={styles.scroll}>
-          <NeverSyncedCard title="Trip not saved for offline" body="Connect once while online to view this trip's details." />
+          {offline ? (
+            <NeverSyncedCard title="Trip not saved for offline" body="Connect once while online to view this trip's details." />
+          ) : notFound ? (
+            <View style={styles.absent}>
+              <Ionicons name="help-circle-outline" size={44} color={colors.onSurfaceVariant} />
+              <Text style={[type.cardTitle, { textAlign: "center" }]}>This trip isn&apos;t in your loaded assignments.</Text>
+              <Text style={[type.supporting, { textAlign: "center" }]}>
+                It may have been reassigned or removed by dispatch. Pull to refresh if you were expecting it.
+              </Text>
+              <Pressable onPress={retry} accessibilityRole="button" style={({ pressed }) => [styles.absentBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try Again</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.absent}>
+              <Ionicons name="alert-circle-outline" size={44} color={colors.onSurfaceVariant} />
+              <Text style={[type.cardTitle, { textAlign: "center" }]}>{loadError || "This trip couldn't be loaded."}</Text>
+              <Pressable onPress={retry} accessibilityRole="button" style={({ pressed }) => [styles.absentBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
+                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try Again</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     );
   }
 
-  const depTime = trip?.departure_time
-    ? new Date(trip.departure_time).toLocaleString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "10:00 AM";
-
-  const earliestStart = trip?.earliest_start
-    ? new Date(trip.earliest_start).getTime()
+  const ready = readinessFor(trip, now);
+  const depMs = scheduledDeparture(trip);
+  const depLabel = depMs != null
+    ? new Date(depMs).toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + fmtTime(depMs)
     : null;
-  const recommended = trip?.recommended_departure
-    ? new Date(trip.recommended_departure).getTime()
-    : null;
-  const preTripPassed = trip?.pre_trip_status === "Passed";
-  const windowOpen = earliestStart != null && now >= earliestStart;
-  const startReady = isPreStart && windowOpen && preTripPassed;
-  const minsToStart = earliestStart != null
-    ? Math.max(0, Math.ceil((earliestStart - now) / 60000))
-    : null;
-  const fmt = (ms) =>
-    ms == null ? null : new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const endMs = completionTime(trip);
+  const pax = passengerSummary(trip);
+  const sc = statusColors(colors, trip.trip_status);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <View style={[styles.header, { paddingTop: insets.top + 10, backgroundColor: colors.surface }]}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={colors.onSurface} />
-        </Pressable>
-        <Text style={[styles.headerTitle, { color: colors.onSurface }]}>Trip Details</Text>
-        <View style={{ width: 24 }} />
-      </View>
+      {headerBar(() => router.back())}
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {offline && lastSynced != null && trip ? (
+        {offline && lastSynced != null ? (
           // Cached trip offline: one inline note under the header — the global
           // banner owns "You're offline", this says what THIS screen shows.
           <SyncNote syncedAt={lastSynced} label="trip details" />
         ) : null}
-        {/* Status Card */}
-        {(() => {
-          const sc = getTripStatusStyle(trip?.trip_status, colors);
-          return (
-            <View style={[styles.statusCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-              <View>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>STATUS</Text>
-                <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-                  <View style={[styles.statusDot, { backgroundColor: sc.dot }]} />
-                  <Text style={[styles.statusText, { color: sc.fg }]}>{trip?.trip_status ? String(trip.trip_status) : "Scheduled"}</Text>
-                </View>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>TRIP ID</Text>
-                <Text style={[styles.idText, { color: colors.primary }]}>#TRP-{id ? String(id).substring(0, 4) : "0000"}</Text>
-              </View>
-            </View>
-          );
-        })()}
 
-        {/* Start Timing Card for Pre-Start / In-Progress OR Completion Telemetry Summary for Finished Trips */}
-        {isFinished ? (
-          <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
-              <Ionicons name="flag-outline" size={16} color={isCompleted ? colors.primary : colors.error} />
-              <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>
-                {isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLATION LOG"}
-              </Text>
+        {/* Summary card */}
+        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
+            <View style={[styles.pill, { backgroundColor: sc.bg }]}>
+              <Text style={[type.labelMd, { color: sc.fg }]}>{String(trip.trip_status)}</Text>
             </View>
+            <Text style={[type.supporting, { color: colors.primary }]}>Trip #{String(id)}</Text>
+          </View>
+          <View>
+            <Text style={[type.labelMd, { marginBottom: 2 }]}>Scheduled departure</Text>
+            <Text style={type.cardTitle}>{depLabel || "Not provided"}</Text>
+          </View>
+        </View>
 
-            <View style={styles.timingRow}>
-              <View>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>SCHEDULED DEPARTURE</Text>
-                <Text style={[styles.timingBig, { color: colors.onSurface }]}>
-                  {depTime}
-                </Text>
-              </View>
-              <View style={{ alignItems: "flex-end" }}>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>
-                  {isCompleted ? "ARRIVAL / COMPLETED" : "STATUS"}
-                </Text>
-                <Text style={[styles.timingBig, { color: isCompleted ? colors.primary : colors.error }]}>
-                  {isCompleted
-                    ? (trip?.updated_at || trip?.completed_at ? new Date(trip.updated_at || trip.completed_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Completed")
-                    : "Cancelled"}
+        {/* Readiness panel (pre-start) or completion summary (terminal) */}
+        {isTerminal ? (
+          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
+              <Ionicons name={isCompleted ? "flag-outline" : "close-circle-outline"} size={16} color={isCompleted ? colors.primary : colors.error} />
+              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLED"}</Text>
+            </View>
+            <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
+              <View style={styles.pair}>
+                <Text style={type.labelMd}>{isCompleted ? "COMPLETED AT" : "STATUS"}</Text>
+                <Text style={[type.headlineMd, { color: isCompleted ? colors.primary : colors.error }]}>
+                  {isCompleted ? (fmtTime(endMs) || "Time not recorded") : "Cancelled"}
                 </Text>
               </View>
             </View>
-
-            {/* Bento metric row for mileage & odometer */}
-            <View style={[styles.timingBanner, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '30' }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>START ODOMETER</Text>
-                <Text style={[styles.statText, { color: colors.onSurface, fontFamily: fonts.dataSemiBold, fontSize: 13 }]}>
-                  {trip?.start_mileage ? `${trip.start_mileage} km` : "Logged"}
+            <View style={[styles.meterRow, { backgroundColor: colors.surfaceContainer }]}>
+              <View style={styles.pair}>
+                <Text style={type.labelMd}>START ODOMETER</Text>
+                <Text style={[type.data, { color: colors.onSurface }]}>
+                  {trip?.start_odometer != null && trip.start_odometer !== "" ? `${trip.start_odometer} km` : "Not recorded"}
                 </Text>
               </View>
-              <View style={{ width: 1, height: 24, backgroundColor: colors.outlineVariant + '40', marginHorizontal: 8 }} />
-              <View style={{ flex: 1, alignItems: "flex-end" }}>
-                <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>END ODOMETER</Text>
-                <Text style={[styles.statText, { color: colors.onSurface, fontFamily: fonts.dataSemiBold, fontSize: 13 }]}>
-                  {trip?.current_mileage ? `${trip.current_mileage} km` : "Recorded"}
+              <View style={[styles.pair, { alignItems: "flex-end" }]}>
+                <Text style={type.labelMd}>VEHICLE MILEAGE</Text>
+                <Text style={[type.data, { color: colors.onSurface }]}>
+                  {trip?.current_mileage != null && trip.current_mileage !== "" ? `${trip.current_mileage} km` : "Not recorded"}
                 </Text>
               </View>
             </View>
           </View>
         ) : (
-          <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
+          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>START TIMING</Text>
+              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isPreStart ? "START READINESS" : "TRIP IN PROGRESS"}</Text>
             </View>
-            {earliestStart != null ? (
-              <>
-                <View style={styles.timingRow}>
-                  <View>
-                    <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>EARLIEST START</Text>
-                    <Text style={[styles.timingBig, { color: windowOpen ? colors.secondary : colors.onSurface }]}>
-                      {fmt(earliestStart)}
+            {isPreStart ? (
+              ready.earliestStart != null ? (
+                <>
+                  <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
+                    <View style={styles.pair}>
+                      <Text style={type.labelMd}>EARLIEST START</Text>
+                      <Text style={[type.headlineMd, { color: ready.windowOpen ? colors.secondary : colors.onSurface }]}>
+                        {fmtTime(ready.earliestStart)}
+                      </Text>
+                    </View>
+                    {ready.recommended != null ? (
+                      <View style={[styles.pair, { alignItems: "flex-end" }]}>
+                        <Text style={type.labelMd}>RECOMMENDED</Text>
+                        <Text style={type.headlineMd}>{fmtTime(ready.recommended)}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <View
+                    style={[
+                      styles.banner,
+                      {
+                        backgroundColor: ready.windowOpen ? colors.secondaryContainer : colors.surfaceContainerHighest,
+                        borderColor: ready.windowOpen ? colors.secondary : colors.outlineVariant + "55",
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={ready.windowOpen ? "checkmark-circle" : "hourglass-outline"}
+                      size={18}
+                      color={ready.windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                    />
+                    <Text style={[type.supporting, { flexShrink: 1, color: ready.windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
+                      {ready.windowOpen
+                        ? ready.preTripPassed ? "Departure window is open. Ready to start." : "Departure window is open. Pre-trip inspection is still required."
+                        : `Window opens in ${ready.minsToStart} min (${fmtTime(ready.earliestStart)}).`}
                     </Text>
                   </View>
-                  {recommended != null ? (
-                    <View style={{ alignItems: "flex-end" }}>
-                      <Text style={[styles.labelText, { color: colors.onSurfaceVariant }]}>RECOMMENDED</Text>
-                      <Text style={[styles.timingBig, { color: colors.onSurface }]}>{fmt(recommended)}</Text>
+                  {!ready.preTripPassed ? (
+                    <View style={styles.hintRow}>
+                      <Ionicons name="information-circle-outline" size={14} color={colors.error} />
+                      <Text style={[type.caption, { flexShrink: 1 }]}>Pre-trip inspection must be completed before starting.</Text>
                     </View>
                   ) : null}
-                </View>
-                <View
-                  style={[
-                    styles.timingBanner,
-                    {
-                      backgroundColor: windowOpen
-                        ? colors.secondaryContainer
-                        : colors.surfaceContainerHighest,
-                      borderColor: windowOpen ? colors.secondary : colors.outlineVariant + '40',
-                    },
-                  ]}
-                >
-                  <Ionicons
-                    name={windowOpen ? "checkmark-circle" : "hourglass-outline"}
-                    size={18}
-                    color={windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
-                  />
-                  <Text style={[styles.timingBannerText, { color: windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
-                    {windowOpen
-                      ? "Departure window is open. Ready to start."
-                      : minsToStart != null
-                        ? `Window opens in ${minsToStart} min (${fmt(earliestStart)}).`
-                        : `Earliest departure ${fmt(earliestStart)}.`}
+                </>
+              ) : (
+                // No verified start window — say so instead of guessing one.
+                <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                  <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
+                  <Text style={[type.supporting, { flexShrink: 1 }]}>
+                    Start window isn&apos;t confirmed yet. Check with dispatch for your scheduled departure.
                   </Text>
                 </View>
-                {!preTripPassed ? (
-                  <View style={styles.hintRow}>
-                    <Ionicons name="information-circle-outline" size={14} color={colors.error} />
-                    <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
-                      Pre-trip inspection must be completed before starting.
-                    </Text>
-                  </View>
-                ) : null}
-              </>
+              )
             ) : (
-              <Text style={[styles.timingHint, { color: colors.onSurfaceVariant }]}>
-                Schedule window will appear once departure time is confirmed.
+              <Text style={type.supporting}>
+                This trip is underway. Continue to the map to track the route and progress.
               </Text>
             )}
           </View>
         )}
 
-        {/* Passenger Information */}
-        <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-          <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
-            <Ionicons name="person-outline" size={16} color={colors.primary} />
-            <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>PASSENGER INFORMATION</Text>
-          </View>
-          <View style={styles.passengerBody}>
-            <View style={[styles.avatar, { backgroundColor: colors.primaryContainer }]}>
-              <Text style={[styles.avatarText, { color: colors.onPrimaryContainer }]}>
-                {(trip?.passenger_name || "G")[0]?.toUpperCase()}
-              </Text>
-            </View>
-            <View style={styles.passengerInfo}>
-              <Text style={[styles.passengerName, { color: colors.onSurface }]}>{trip?.passenger_name ? String(trip.passenger_name) : "Guest"}</Text>
-              <View style={styles.passengerStats}>
-                <Ionicons name="people-outline" size={14} color={colors.onSurfaceVariant} />
-                <Text style={[styles.statText, { color: colors.onSurfaceVariant }]}>{trip?.passenger_count || 1} Pax</Text>
-                <Text style={[styles.statDivider, { color: colors.outlineVariant }]}>•</Text>
-                <Ionicons name="star" size={13} color={colors.warning} />
-                <Text style={[styles.statText, { color: colors.onSurfaceVariant }]}>VIP Guest</Text>
-              </View>
-            </View>
-            <Pressable style={({ pressed }) => [styles.callBtn, { backgroundColor: colors.surfaceContainerHighest, opacity: pressed ? 0.8 : 1 }]}>
-              <Ionicons name="call-outline" size={18} color={colors.primary} />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Route Details */}
-        <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-          <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
+        {/* Route */}
+        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="navigate-outline" size={16} color={colors.primary} />
-            <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>ROUTE DETAILS</Text>
+            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>ROUTE</Text>
           </View>
-          <View style={styles.routeBody}>
-            <View style={styles.timeline}>
-              <View style={[styles.timelineDotBlue, { backgroundColor: colors.primary }]} />
-              <View style={[styles.timelineLine, { backgroundColor: colors.outlineVariant + '50' }]} />
-              <View style={[styles.timelineDotGreen, { borderColor: colors.secondary, backgroundColor: colors.secondaryContainer }]} />
-            </View>
-            <View style={styles.routeStops}>
-              <View style={styles.stopBox}>
-                <Text style={[styles.stopLabel, { color: colors.onSurfaceVariant }]}>PICKUP • {depTime}</Text>
-                <Text style={[styles.stopName, { color: colors.onSurface }]}>{trip?.origin ? String(trip.origin) : "Origin TBD"}</Text>
-              </View>
-              <View style={styles.stopBox}>
-                <Text style={[styles.stopLabel, { color: colors.onSurfaceVariant }]}>DESTINATION</Text>
-                <Text style={[styles.stopName, { color: colors.onSurface }]}>{trip?.destination ? String(trip.destination) : "Destination TBD"}</Text>
-              </View>
-            </View>
-          </View>
+          <RouteTimeline
+            accent={colors.primary}
+            stops={[
+              { label: "Pickup", value: trip?.origin ? String(trip.origin) : null, time: fmtTime(depMs) },
+              { label: "Drop-off", value: trip?.destination ? String(trip.destination) : null },
+            ]}
+          />
         </View>
 
-        {/* Map Preview Card with Pickup & Drop-Off Waypoints */}
-        <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40', padding: 0, overflow: 'hidden' }]}>
-          <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30', paddingHorizontal: 16, paddingTop: 14, paddingBottom: 10 }]}>
+        {/* Map panel — static route preview only; interactive navigation
+            lives on the Live Map tab. */}
+        <View style={{ gap: 12 }}>
+          <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="map-outline" size={16} color={colors.primary} />
-            <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>ROUTE MAP OVERVIEW</Text>
+            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>ROUTE MAP</Text>
           </View>
-          
-          <View style={styles.mapPreview}>
-            <TomTomMap 
-              key={`${trip?.trip_id}-${trip?.origin}-${trip?.destination}`}
-              origin={trip?.origin_latitude ? { lat: Number(trip.origin_latitude), lng: Number(trip.origin_longitude) } : undefined}
-              destination={trip?.destination_latitude ? { lat: Number(trip.destination_latitude), lng: Number(trip.destination_longitude) } : undefined}
-              originAddress={trip?.origin || ""}
-              destAddress={trip?.destination || ""}
-              pickupLabel={trip?.origin ? `Pickup: ${trip.origin}` : "Pickup Location"}
-              dropoffLabel={trip?.destination ? `Drop-off: ${trip.destination}` : "Drop-off Location"}
-              style={styles.mapImage}
-              scrollEnabled={true}
-            />
-          </View>
+          <TripMapPreview key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}`}
+            trip={trip} offline={offline} airport={/\b(airport|NAIA)\b/i.test(trip.destination || '')} />
+        </View>
 
-          {/* Quick Route Leg Summary Footer */}
-          <View style={styles.mapFooterSummary}>
-            <View style={styles.mapFooterCol}>
-              <View style={[styles.dotIndicator, { backgroundColor: colors.primary }]} />
-              <Text style={[styles.mapFooterText, { color: colors.onSurface }]} numberOfLines={1}>
-                {trip?.origin || "Pickup Location"}
-              </Text>
-            </View>
-            <Ionicons name="arrow-forward" size={14} color={colors.outline} style={{ marginHorizontal: 8 }} />
-            <View style={styles.mapFooterCol}>
-              <View style={[styles.dotIndicator, { backgroundColor: colors.secondary }]} />
-              <Text style={[styles.mapFooterText, { color: colors.onSurface }]} numberOfLines={1}>
-                {trip?.destination || "Drop-off Location"}
+        {/* Passenger — supplied facts only, no VIP tier, no call action (the
+            API has no phone field for this trip). */}
+        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
+            <Ionicons name="person-outline" size={16} color={colors.primary} />
+            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>PASSENGER</Text>
+          </View>
+          <View style={styles.paxRow}>
+            <Ionicons name="people-outline" size={18} color={colors.onSurfaceVariant} />
+            <View style={{ flexShrink: 1 }}>
+              <Text style={type.cardTitle}>{pax.name || "Passenger not listed"}</Text>
+              <Text style={type.supporting}>
+                {pax.count != null ? `${pax.count} ${pax.count === 1 ? "passenger" : "passengers"}` : "Passenger count not listed"}
               </Text>
             </View>
           </View>
@@ -432,27 +408,27 @@ export default function TripDetailsScreen() {
 
         {/* Notes */}
         {trip?.special_requests ? (
-          <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
-            <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '30' }]}>
+          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-              <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>SPECIAL REQUESTS</Text>
+              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>SPECIAL REQUESTS</Text>
             </View>
-            <Text style={[styles.notesText, { color: colors.onSurface }]}>
+            <Text style={[type.bodyMd, { color: colors.onSurface }]}>
               {trip.special_requests}
             </Text>
           </View>
         ) : null}
       </ScrollView>
 
-      {/* Bottom Bar */}
-      {isFinished ? (
-        <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + '30', paddingBottom: Math.max(insets.bottom, 16) }]}>
+      {/* Bottom action bar */}
+      <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + "55", paddingBottom: Math.max(insets.bottom, 16) }]}>
+        {isTerminal ? (
           <View
             style={[
               styles.finishedBanner,
               {
-                backgroundColor: isCompleted ? colors.primaryContainer + '35' : colors.surfaceContainerHigh,
-                borderColor: isCompleted ? colors.primary + '40' : colors.outlineVariant + '50',
+                backgroundColor: isCompleted ? colors.primaryContainer + "35" : colors.surfaceContainerHigh,
+                borderColor: isCompleted ? colors.primary + "40" : colors.outlineVariant + "55",
               },
             ]}
           >
@@ -462,84 +438,65 @@ export default function TripDetailsScreen() {
               color={isCompleted ? colors.primary : colors.onSurfaceVariant}
             />
             <View style={{ flex: 1 }}>
-              <Text style={[styles.finishedBannerTitle, { color: colors.onSurface }]}>
-                {isCompleted ? "Trip Completed" : "Trip Cancelled"}
-              </Text>
-              <Text style={[styles.finishedBannerSub, { color: colors.onSurfaceVariant }]}>
+              <Text style={type.labelLg}>{isCompleted ? "Trip Completed" : "Trip Cancelled"}</Text>
+              <Text style={type.caption}>
                 {isCompleted
                   ? "Telemetry and route logs are archived."
                   : "This trip was cancelled and is closed for dispatch."}
               </Text>
             </View>
           </View>
-        </View>
-      ) : (
-        <View style={[styles.bottomBar, { backgroundColor: colors.surface, borderTopColor: colors.outlineVariant + '30', paddingBottom: Math.max(insets.bottom, 16) }]}>
-          {isPreStart ? (
-            <Pressable
-              style={({ pressed }) => [
-                styles.acceptBtn,
-                {
-                  backgroundColor: startReady ? colors.primary : colors.surfaceContainerHigh,
-                  width: '100%',
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: pressed ? 0.9 : 1,
-                },
-              ]}
-              onPress={handleAction}
-              disabled={accepting || !startReady}
-              accessibilityRole="button"
-              accessibilityLabel={startReady ? (isAccepted ? "Start route" : "Accept and start trip") : "Start route not yet available"}
-            >
-              {accepting ? (
-                <ActivityIndicator color={colors.onPrimary} />
-              ) : (
-                <React.Fragment>
-                  <Text style={[styles.acceptText, { color: startReady ? colors.onPrimary : colors.onSurfaceVariant }]}>
-                    {startReady
-                      ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
-                      : !preTripPassed
-                        ? "PRE-TRIP CHECK REQUIRED"
-                        : minsToStart != null
-                          ? `START ROUTE IN ${minsToStart} MIN`
-                          : "START ROUTE"}
-                  </Text>
-                  <View style={[styles.btnIconCapsule, { backgroundColor: startReady ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }]}>
-                    <Ionicons name={startReady ? "car-outline" : "lock-closed-outline"} size={17} color={startReady ? colors.onPrimary : colors.onSurfaceVariant} />
-                  </View>
-                </React.Fragment>
-              )}
-            </Pressable>
-          ) : (
-            <Pressable 
-              style={({ pressed }) => [
-                styles.acceptBtn, 
-                { 
-                  backgroundColor: colors.primary, 
-                  width: '100%', 
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: pressed ? 0.9 : 1 
-                }
-              ]} 
-              onPress={handleAction} 
-              disabled={accepting}
-              accessibilityRole="button"
-              accessibilityLabel="Continue to map"
-            >
-              {accepting ? (
-                <ActivityIndicator color={colors.onPrimary} />
-              ) : (
-                <React.Fragment>
-                  <Text style={[styles.acceptText, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
-                  <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                    <Ionicons name="navigate-outline" size={17} color={colors.onPrimary} />
-                  </View>
-                </React.Fragment>
-              )}
-            </Pressable>
-          )}
-        </View>
-      )}
+        ) : isPreStart ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.cta,
+              {
+                backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
+                opacity: pressed ? 0.85 : 1,
+              },
+            ]}
+            onPress={handleAcceptStart}
+            disabled={accepting || !ready.startReady}
+            accessibilityRole="button"
+            accessibilityLabel={ready.startReady
+              ? (isAccepted ? "Start route" : "Accept and start trip")
+              : "Start route not yet available"}
+            accessibilityState={{ disabled: accepting || !ready.startReady, busy: !!accepting }}
+          >
+            {accepting ? (
+              <ActivityIndicator color={colors.onPrimary} />
+            ) : (
+              <>
+                <Text style={[type.labelLg, { color: ready.startReady ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
+                  {ready.startReady
+                    ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
+                    : ready.unavailableReason === "inspection"
+                      ? "PRE-TRIP CHECK REQUIRED"
+                      : ready.unavailableReason === "window"
+                        ? `START ROUTE IN ${ready.minsToStart} MIN`
+                        : "START NOT YET SCHEDULED"}
+                </Text>
+                <Ionicons
+                  name={ready.startReady ? "car-outline" : "lock-closed-outline"}
+                  size={19}
+                  color={ready.startReady ? colors.onPrimary : colors.onSurfaceVariant}
+                />
+              </>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            style={({ pressed }) => [styles.cta, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
+            onPress={handleContinue}
+            disabled={accepting}
+            accessibilityRole="button"
+            accessibilityLabel="Continue to map"
+          >
+            <Text style={[type.labelLg, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
+            <Ionicons name="navigate-outline" size={19} color={colors.onPrimary} />
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -552,137 +509,53 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 14,
+    paddingBottom: 12,
   },
-  backBtn: { width: 40, height: 40, alignItems: "center", justifyContent: "center", borderRadius: 20 },
-  headerTitle: { fontSize: 17, fontFamily: fonts.displayBold },
-  scroll: { padding: 16, gap: 12 },
-  statusCard: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-  },
-  labelText: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, marginBottom: 6 },
-  statusBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  statusText: { fontSize: 13, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.3 },
-  idText: { fontSize: 15, fontFamily: fonts.dataSemiBold || fonts.displayBold },
-  
+  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center", borderRadius: TOUCH_TARGET / 2 },
+  scroll: { padding: 18, paddingBottom: 26, gap: 22 },
   card: {
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
+    borderRadius: 30,
+    padding: 20,
+    gap: 16,
   },
-  cardHeader: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingBottom: 10, marginBottom: 12 },
-  cardHeaderTitle: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6 },
-  passengerBody: { flexDirection: "row", alignItems: "center", gap: 12 },
-  avatar: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
-  avatarText: { fontFamily: fonts.displayBold, fontSize: 18 },
-  passengerInfo: { flex: 1, gap: 3 },
-  passengerName: { fontSize: 15, fontFamily: fonts.bodySemiBold },
-  passengerStats: { flexDirection: "row", alignItems: "center", gap: 4 },
-  statText: { fontSize: 12, fontFamily: fonts.body },
-  statDivider: { fontSize: 12, marginHorizontal: 2 },
-  callBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-
-  routeBody: { flexDirection: "row", gap: 14, paddingVertical: 2 },
-  timingRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 },
-  timingBig: { fontSize: 20, fontFamily: fonts.displayBold, letterSpacing: -0.3 },
-  timingBanner: {
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  pill: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, maxWidth: "100%", borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012' },
+  sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingBottom: 10 },
+  pairRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  pair: { gap: 2, flexShrink: 1 },
+  meterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderRadius: 16,
+    padding: 12,
+    gap: 12,
+  },
+  banner: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     paddingVertical: 10,
     paddingHorizontal: 12,
   },
-  timingBannerText: { flex: 1, fontSize: 13, fontFamily: fonts.bodyMedium },
-  hintRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
-  timingHint: { fontSize: 12, fontFamily: fonts.body },
-
-  timeline: { alignItems: "center", width: 14, paddingTop: 4, paddingBottom: 4 },
-  timelineDotBlue: { width: 8, height: 8, borderRadius: 4 },
-  timelineLine: { width: 1.5, flex: 1, marginVertical: 3 },
-  timelineDotGreen: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
-  routeStops: { flex: 1, gap: 14 },
-  stopBox: { gap: 1 },
-  stopLabel: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6 },
-  stopName: { fontSize: 15, fontFamily: fonts.bodyMedium },
-
-  mapPreview: { height: 220, overflow: "hidden" },
-  mapFooterSummary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(0,0,0,0.06)',
-  },
-  mapFooterCol: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  dotIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  mapFooterText: {
-    fontSize: 12,
-    fontFamily: fonts.bodyMedium,
-    flex: 1,
-  },
-  notesText: { fontSize: 13, fontFamily: fonts.body, lineHeight: 20 },
-
+  hintRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  paxRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  absent: { alignItems: "center", gap: 12, marginTop: 48, padding: 16 },
+  absentBtn: { minHeight: TOUCH_TARGET, borderRadius: 18, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
   bottomBar: {
     paddingTop: 12,
     paddingHorizontal: 16,
     borderTopWidth: 1,
   },
-  acceptBtn: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    justifyContent: "center", 
-    gap: 12, 
-    height: 52, 
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  acceptText: { fontSize: 15, fontFamily: fonts.bodySemiBold, letterSpacing: 0.5 },
-  btnIconCapsule: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  cta: { minHeight: 58, borderRadius: 22, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 },
   finishedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     paddingVertical: 14,
     paddingHorizontal: 16,
-  },
-  finishedBannerTitle: {
-    fontFamily: fonts.displayBold || fonts.bodySemiBold,
-    fontSize: 14,
-    marginBottom: 2,
-  },
-  finishedBannerSub: {
-    fontFamily: fonts.body,
-    fontSize: 12,
-    lineHeight: 16,
   },
 });
