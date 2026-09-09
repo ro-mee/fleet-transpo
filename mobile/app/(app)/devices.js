@@ -7,7 +7,7 @@ import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth";
 import { AppAlert } from "../../components/AppAlert";
 import ClayScreenHeader from "../../components/ClayScreenHeader";
-import { clayShade, clayCta, clayTile } from "../../lib/clay";
+import { clayMaterials } from "../../lib/clay";
 import { apiFetch } from "../../lib/api";
 import { TOUCH_TARGET, fonts } from "../../lib/theme";
 
@@ -29,7 +29,8 @@ function formatDate(dateString) {
 export default function LoggedInDevicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const { clearAuth } = useAuth();
 
   const [sessions, setSessions] = useState([]);
@@ -110,7 +111,7 @@ export default function LoggedInDevicesScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.retryBtn,
-              clayCta,
+              mats.clayCta,
               { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
             ]}
             onPress={fetchSessions}
@@ -141,6 +142,7 @@ export default function LoggedInDevicesScreen() {
                   session={session}
                   colors={colors}
                   type={type}
+                  mats={mats}
                   isRevoking={revoking === session.id}
                   onRevoke={() => handleRevoke(session)}
                 />
@@ -157,6 +159,7 @@ export default function LoggedInDevicesScreen() {
                   session={session}
                   colors={colors}
                   type={type}
+                  mats={mats}
                   isRevoking={revoking === session.id}
                   onRevoke={() => handleRevoke(session)}
                 />
@@ -169,16 +172,16 @@ export default function LoggedInDevicesScreen() {
   );
 }
 
-function SessionCard({ session, colors, type, isRevoking, onRevoke }) {
+function SessionCard({ session, colors, type, mats, isRevoking, onRevoke }) {
   const isCurrent = session.is_current || session.current;
   const isMobile = session.kind === 'mobile';
   const IconName = isMobile ? 'phone-portrait-outline' : 'laptop-outline';
 
   return (
-    <View style={[styles.card, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+    <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
-          <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+          <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
             <Ionicons name={IconName} size={20} color={colors.onPrimaryContainer} />
           </View>
           <Text style={[type.titleMd, { color: colors.onSurface }]} numberOfLines={1}>
@@ -223,8 +226,8 @@ function SessionCard({ session, colors, type, isRevoking, onRevoke }) {
         <Pressable
           style={({ pressed }) => [
             styles.actionBtn,
-            clayCta,
-            { borderWidth: 2, borderColor: colors.error, opacity: pressed ? 0.7 : 1 },
+            mats.clayCta,
+            { backgroundColor: colors.errorContainer, shadowColor: colors.shadow, opacity: pressed ? 0.7 : 1 },
           ]}
           onPress={onRevoke}
           disabled={isRevoking}
@@ -232,9 +235,9 @@ function SessionCard({ session, colors, type, isRevoking, onRevoke }) {
           accessibilityLabel={`Sign out ${session.device || "device"}`}
         >
           {isRevoking ? (
-            <ActivityIndicator size="small" color={colors.error} />
+            <ActivityIndicator size="small" color={colors.onErrorContainer} />
           ) : (
-            <Text style={[type.labelLg, { color: colors.error }]}>Sign Out</Text>
+            <Text style={[type.labelLg, { color: colors.onErrorContainer }]}>Sign Out</Text>
           )}
         </Pressable>
       </View>

@@ -21,7 +21,10 @@ import { api, wasQueued } from '../../../lib/api';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
-  const { colors, isDark } = useTheme();
+  // `scheme` (not isDark — the context never exposed that key; the old
+  // destructure silently evaluated undefined) drives the gleam/badge tints.
+  const { colors, scheme } = useTheme();
+  const dark = scheme === "dark";
   const insets = useSafeAreaInsets();
 
   // Route params
@@ -214,7 +217,7 @@ export default function TripCompleteScreen() {
         >
           {/* Outer Shell */}
           <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
-            <View style={styles.topGleam} />
+            <View style={[styles.topGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.10)" }]} />
 
             {/* Inner Core */}
             <View style={styles.cardInner}>
@@ -318,7 +321,7 @@ export default function TripCompleteScreen() {
                     <Text style={[styles.odoSub, { color: colors.outline }]}>END</Text>
                     <Text style={[styles.odoNum, { color: colors.onSurface }]}>{endOdo || '45,831'}</Text>
                   </View>
-                  <View style={styles.kmBadge}>
+                  <View style={[styles.kmBadge, dark && { backgroundColor: colors.surfaceContainerHigh }]}>
                     <Text style={[styles.kmBadgeText, { color: colors.outline }]}>KM</Text>
                   </View>
                 </View>
@@ -432,7 +435,7 @@ export default function TripCompleteScreen() {
                 disabled={overriding}
                 onPress={handleCompleteAnyway}
               >
-                <View style={styles.ctaGleam} />
+                <View style={[styles.ctaGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.12)" }]} />
                 <Text style={[styles.primaryDoneText, { color: colors.onError }]}>
                   {overriding ? "COMPLETING…" : "COMPLETE ANYWAY"}
                 </Text>
@@ -466,7 +469,7 @@ export default function TripCompleteScreen() {
             ]}
             onPress={() => router.replace('/(app)/(tabs)/map')}
           >
-            <View style={styles.ctaGleam} />
+            <View style={[styles.ctaGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.12)" }]} />
             <Text style={[styles.primaryDoneText, { color: colors.onPrimary }]}>
               COMPLETE & RETURN
             </Text>

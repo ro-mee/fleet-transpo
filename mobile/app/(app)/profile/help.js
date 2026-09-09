@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayShade, clayTile } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 
 const FAQS = [
   {
@@ -59,11 +59,12 @@ function FAQItem({ item, colors, isLast }) {
 export default function HelpCenter() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   const sectionCard = [
     styles.sectionCard,
-    clayShade,
+    mats.clayShade,
     { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
   ];
 
@@ -88,7 +89,7 @@ export default function HelpCenter() {
             onPress={() => Linking.openURL('tel:18001234567')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
               </View>
               <View>
@@ -106,7 +107,7 @@ export default function HelpCenter() {
             onPress={() => Linking.openURL('mailto:support@fleetops.com')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="mail" size={18} color={colors.onPrimaryContainer} />
               </View>
               <View>

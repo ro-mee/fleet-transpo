@@ -11,7 +11,7 @@ import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import ClayMenuRow from '../../../components/ClayMenuRow';
-import { clayShade, compactShade } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 function InfoRow({ label, value, colors, isLast = false }) {
@@ -26,7 +26,8 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function PersonalInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently instead of erroring (the phone PATCH below still needs a
@@ -85,7 +86,7 @@ export default function PersonalInformation() {
       <ClayScreenHeader title="Personal Information" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <InfoRow label="Full Name" value={driverName} colors={colors} />
           <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} />
           <InfoRow label="Email" value={profile?.email} colors={colors} />
@@ -110,7 +111,7 @@ export default function PersonalInformation() {
                   accessibilityLabel="Save phone number"
                   style={({ pressed }) => [
                     styles.phoneAction,
-                    clayShade,
+                    mats.clayShade,
                     { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed || saving ? 0.75 : 1 },
                   ]}
                 >
@@ -126,7 +127,7 @@ export default function PersonalInformation() {
                   accessibilityLabel="Cancel phone number edit"
                   style={({ pressed }) => [
                     styles.phoneAction,
-                    clayShade,
+                    mats.clayShade,
                     { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.75 : 1 },
                   ]}
                 >
@@ -145,7 +146,7 @@ export default function PersonalInformation() {
         </View>
 
         {/* Hub: related compliance screens live inside Personal Information */}
-        <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <ClayMenuRow
             title="License & Compliance"
             icon="card-outline"

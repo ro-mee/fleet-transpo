@@ -21,15 +21,27 @@ import { moderateScale } from "../lib/scaling";
 import { api } from "../lib/api";
 import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
+import { clayMaterials } from "../lib/clay";
 import { AppAlert } from "./AppAlert";
 
 const STORAGE_KEY = "driver-sos-offset";
-const SOS_WIDTH = moderateScale(68);
+const SOS_SIZE = moderateScale(68);
 
 export function DriverSos() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
+  // The FAB sits on colors.error, which flips from a deep red (light mode) to
+  // a light salmon (dark mode) — the light-tuned white edge strip would read
+  // as a harsh ring on the lighter surface, so the edges are moderated per
+  // scheme and the shadow deepened to lift off the dark stage.
+  const sosEdges = scheme === "dark"
+    ? { borderTopColor: "rgba(255,255,255,0.40)", borderBottomColor: "rgba(0,0,0,0.18)", shadowOpacity: 0.35 }
+    : { borderTopColor: "#FFFFFF70", borderBottomColor: "#00000014", shadowOpacity: 0.2 };
+  const chipEdges = scheme === "dark"
+    ? { borderTopColor: "rgba(255,255,255,0.35)", borderBottomColor: "rgba(0,0,0,0.14)" }
+    : { borderTopColor: "rgba(255,255,255,0.45)", borderBottomColor: "rgba(0,0,0,0.10)" };
   const [open, setOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
@@ -68,7 +80,7 @@ export function DriverSos() {
     position.stopAnimation();
     const screen = Dimensions.get("window");
     bounds.current = {
-      maxX: screen.width - SOS_WIDTH - moderateScale(32),
+      maxX: screen.width - SOS_SIZE - moderateScale(32),
       maxY: screen.height - moderateScale(220),
     };
   };
@@ -86,7 +98,7 @@ export function DriverSos() {
       return;
     }
     const screen = Dimensions.get("window");
-    const maxX = screen.width - SOS_WIDTH - moderateScale(32);
+    const maxX = screen.width - SOS_SIZE - moderateScale(32);
     const current = offset.current;
     const snapped = { x: current.x < -maxX / 2 ? -maxX : 0, y: current.y };
     offset.current = snapped;
@@ -184,8 +196,10 @@ export function DriverSos() {
         {...pan.panHandlers}
         style={[
           styles.sos,
+          sosEdges,
           {
             backgroundColor: colors.error,
+            shadowColor: colors.shadow,
             bottom: insets.bottom + 88,
             transform: position.getTranslateTransform(),
           },
@@ -196,14 +210,19 @@ export function DriverSos() {
         accessible
         onAccessibilityTap={() => setOpen(true)}
       >
-        <Ionicons name="shield" size={22} color={colors.onError} />
-        <Text style={[type.labelLg, styles.sosText, { color: colors.onError }]}>SOS</Text>
+        <View style={[styles.iconChip, chipEdges, { shadowColor: colors.shadow }]}>
+          <Ionicons name="shield" size={20} color={colors.onError} />
+        </View>
+        <View style={styles.sosWord}>
+          <Text style={[type.labelLg, styles.sosTextBase, styles.sosWordDepth]}>SOS</Text>
+          <Text style={[type.labelLg, styles.sosTextBase, styles.sosWordFace, { color: colors.onError }]}>SOS</Text>
+        </View>
       </Animated.View>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>
-          <View style={[styles.sheet, { backgroundColor: colors.surfaceContainerLowest }]}>
-            <View style={[styles.icon, { backgroundColor: colors.errorContainer }]}>
+          <View style={[styles.sheet, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View style={[styles.icon, mats.clayTile, { backgroundColor: colors.errorContainer, shadowColor: colors.shadow }]}>
               <Ionicons name="shield" size={26} color={colors.error} />
             </View>
             <Text style={[type.titleLg, { color: colors.onSurface }]}>Emergency assistance</Text>
@@ -212,7 +231,7 @@ export function DriverSos() {
             </Text>
             <Pressable
               onPress={() => Linking.openURL("tel:911")}
-              style={({ pressed }) => [styles.primary, { backgroundColor: colors.error }, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.primary, mats.clayCta, { backgroundColor: colors.error, shadowColor: colors.shadow }, pressed && styles.pressed]}
               accessibilityRole="button"
               accessibilityLabel="Call emergency services"
             >
@@ -222,14 +241,14 @@ export function DriverSos() {
             <Pressable
               onPress={sendEmergencyLocation}
               disabled={sending}
-              style={({ pressed }) => [styles.secondary, { borderColor: colors.outlineVariant }, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.secondary, mats.clayCta, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }, pressed && styles.pressed, sending && styles.disabled]}
               accessibilityRole="button"
               accessibilityLabel={sending ? "Sending emergency location" : "Share current location"}
             >
               {sending
-                ? <ActivityIndicator size="small" color={colors.error} />
-                : <Ionicons name="location" size={21} color={colors.error} />}
-              <Text style={[type.labelLg, { color: colors.onSurface }]}>
+                ? <ActivityIndicator size="small" color={colors.onPrimaryContainer} />
+                : <Ionicons name="location" size={21} color={colors.onPrimaryContainer} />}
+              <Text style={[type.labelLg, { color: colors.onPrimaryContainer }]}>
                 {sending ? "Sending emergency..." : "Share current location"}
               </Text>
             </Pressable>
@@ -244,23 +263,65 @@ export function DriverSos() {
 }
 
 const styles = StyleSheet.create({
+  // Puffy round clay button — same white top-edge / shaded bottom-edge
+  // language as the clay tiles, sized as a circle so it reads as one soft
+  // clay blob rather than a flat rectangle.
   sos: {
     position: "absolute",
     right: moderateScale(16),
-    width: SOS_WIDTH,
-    height: moderateScale(58),
-    borderRadius: moderateScale(20),
+    width: SOS_SIZE,
+    height: SOS_SIZE,
+    borderRadius: SOS_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(1),
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 12,
+    gap: moderateScale(2),
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+    borderTopWidth: 2,
+    borderTopColor: "#FFFFFF70",
+    borderBottomWidth: 2.5,
+    borderBottomColor: "#00000014",
     zIndex: 10,
   },
-  sosText: { fontSize: moderateScale(11), lineHeight: moderateScale(15), textAlign: "center", includeFontPadding: false },
+  // Raised clay chip the shield sits on — its own top highlight, shaded
+  // bottom edge and tiny shadow, so the icon reads as a puffy clay element
+  // instead of a flat glyph printed on the button.
+  iconChip: {
+    width: moderateScale(30),
+    height: moderateScale(30),
+    borderRadius: moderateScale(11),
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderTopWidth: 1.5,
+    borderTopColor: "rgba(255,255,255,0.45)",
+    borderBottomWidth: 2,
+    borderBottomColor: "rgba(0,0,0,0.10)",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  // Puffy embossed word: a dark copy offset below gives the letters depth,
+  // and the face layer carries a soft top glow — the same highlight/shade
+  // language as the clay edges, applied to type.
+  sosWord: { alignItems: "center", justifyContent: "center" },
+  sosTextBase: {
+    fontSize: moderateScale(11),
+    lineHeight: moderateScale(15),
+    fontWeight: "800",
+    letterSpacing: moderateScale(1.2),
+    textAlign: "center",
+    includeFontPadding: false,
+  },
+  sosWordDepth: { position: "absolute", top: moderateScale(1.5), color: "rgba(0,0,0,0.20)" },
+  sosWordFace: {
+    textShadowColor: "rgba(255,255,255,0.5)",
+    textShadowOffset: { width: 0, height: -1 },
+    textShadowRadius: 2,
+  },
   backdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -271,15 +332,15 @@ const styles = StyleSheet.create({
   sheet: {
     width: "100%",
     maxWidth: moderateScale(420),
-    borderRadius: moderateScale(22),
-    padding: moderateScale(22),
+    borderRadius: moderateScale(30),
+    padding: moderateScale(24),
     alignItems: "center",
     gap: moderateScale(12),
   },
   icon: {
-    width: moderateScale(52),
-    height: moderateScale(52),
-    borderRadius: moderateScale(16),
+    width: moderateScale(56),
+    height: moderateScale(56),
+    borderRadius: moderateScale(20),
     alignItems: "center",
     justifyContent: "center",
     marginBottom: moderateScale(2),
@@ -288,7 +349,6 @@ const styles = StyleSheet.create({
   primary: {
     width: "100%",
     minHeight: TOUCH_TARGET,
-    borderRadius: moderateScale(14),
     paddingHorizontal: moderateScale(16),
     flexDirection: "row",
     alignItems: "center",
@@ -298,8 +358,6 @@ const styles = StyleSheet.create({
   secondary: {
     width: "100%",
     minHeight: TOUCH_TARGET,
-    borderRadius: moderateScale(14),
-    borderWidth: 1,
     paddingHorizontal: moderateScale(16),
     flexDirection: "row",
     alignItems: "center",
@@ -308,4 +366,5 @@ const styles = StyleSheet.create({
   },
   cancel: { minHeight: TOUCH_TARGET, justifyContent: "center", paddingHorizontal: moderateScale(16) },
   pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
+  disabled: { opacity: 0.6 },
 });

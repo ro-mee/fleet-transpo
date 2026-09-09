@@ -6,16 +6,20 @@ import { useSettings } from '../../lib/settings-context';
 import WeatherChip from '../WeatherChip';
 
 export default function DriverHomeHeader({ driverName, initial, weather, unreadCount, topInset, onProfile, onNotifications }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
   const stacked = width < 380 || fontScale > 1.15 || settings.textSize === 'large';
   const count = Math.max(0, Number(unreadCount) || 0);
-  const shadow = { shadowColor: colors.shadow, shadowOpacity: settings.highContrast ? 0 : 0.17 };
+  const shadow = { shadowColor: colors.shadow, shadowOpacity: settings.highContrast ? 0 : scheme === 'dark' ? 0.35 : 0.17 };
+  // Avatar sheen: on the forest avatar (colors.primary) the white gradient is
+  // the light recipe; in dark the primary flips to pale sage, so the sheen
+  // drops to a whisper and the bottom shade deepens instead.
+  const sheen = scheme === 'dark' ? ['rgba(255,253,252,0.10)', 'rgba(255,253,252,0)', 'rgba(0,0,0,0.22)'] : ['#FFFFFF24', '#FFFFFF00', '#00000016'];
   return <View style={[s.header, { paddingTop: topInset + 4, backgroundColor: colors.background }]}>
     <View style={[s.identity, stacked && { flexBasis: '100%' }]}>
       <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, s.raised, shadow, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-        {!settings.highContrast && <LinearGradient pointerEvents="none" colors={['#FFFFFF24', '#FFFFFF00', '#00000016']} style={[StyleSheet.absoluteFill, { borderRadius: 14 }]} />}
+        {!settings.highContrast && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 14 }]} />}
         <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24 }]}>{initial || 'D'}</Text>
       </Pressable>
       <View style={s.copy}>

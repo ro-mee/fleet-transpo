@@ -5,17 +5,31 @@
  * pull in theme.js/scaling.js drag react-native side effects into the test
  * runner; this one cannot).
  *
- * Values are copied from the Home/Trips clay implementation (trips.js,
- * trip/[id].js), which remain the visual reference. Those screens keep their
- * local copies; new screens import from here.
+ * Light values are the original recipe (white top edge / shaded bottom edge).
+ * Dark mode cannot reuse them literally: a 2px 44%-white strip on a near-black
+ * card renders as a harsh straight gray line, and a black shadow on a
+ * near-black stage is invisible — depth collapses into flat rectangles. The
+ * dark variants below keep the same "light from above" language but diffuse
+ * it: a soft low-alpha border all around, a faint brighter top, a deeper
+ * bottom shade, and stronger/wider shadows so the lift survives the dark
+ * stage. Consumers pick via clayMaterials(scheme === "dark").
  */
 
-/** Soft raised-card depth with white top edge / shaded bottom edge. */
+/** Soft raised-card depth with white top edge / shaded bottom edge.
+ * borderWidth/borderColor are declared explicitly (as 0/transparent) so the
+ * light materials carry the SAME keys as the dark ones — React Native does
+ * not reliably reset a style prop that merely vanishes from the style
+ * object, so a dark-only key that has no light counterpart survives a
+ * Dark→Light switch as stale native state (a visible rectangular border /
+ * shadow outline on Android). Dark variants override both keys; light
+ * restores them to invisible defaults. */
 export const clayShade = {
   shadowOffset: { width: 0, height: 8 },
   shadowOpacity: 0.22,
   shadowRadius: 14,
   elevation: 7,
+  borderWidth: 0,
+  borderColor: "transparent",
   borderTopWidth: 2,
   borderTopColor: "#FFFFFF70",
   borderBottomWidth: 3,
@@ -59,6 +73,8 @@ export const compactShade = {
   shadowOpacity: 0.15,
   shadowRadius: 10,
   elevation: 4,
+  borderWidth: 0,
+  borderColor: "transparent",
   borderTopWidth: 2,
   borderTopColor: "#FFFFFF70",
   borderBottomWidth: 2,
@@ -77,3 +93,68 @@ export const clayTile = {
   shadowRadius: 5,
   elevation: 2,
 };
+
+const lightMaterials = { clayShade, clayCard, clayPill, clayCta, compactShade, clayTile };
+
+/** Dark clay: diffused highlights instead of hard strips. The overall soft
+ * border + faint brighter top replaces the light mode's solid white strip
+ * (no visible straight line); the bottom shade goes deep enough to read on
+ * a dark card; shadows gain opacity and radius so lift is perceptible. */
+const darkMaterials = {
+  clayShade: {
+    ...clayShade,
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+    borderTopWidth: 1.5,
+    borderTopColor: "rgba(255,255,255,0.11)",
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(0,0,0,0.45)",
+  },
+  clayCard,
+  clayPill: {
+    ...clayPill,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.10)",
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(0,0,0,0.35)",
+  },
+  clayCta: {
+    ...clayCta,
+    borderTopWidth: 1.5,
+    borderTopColor: "rgba(255,255,255,0.12)",
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(0,0,0,0.38)",
+  },
+  compactShade: {
+    ...compactShade,
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 5,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    borderTopWidth: 1.5,
+    borderTopColor: "rgba(255,255,255,0.09)",
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(0,0,0,0.38)",
+  },
+  clayTile: {
+    ...clayTile,
+    borderTopWidth: 1.5,
+    borderTopColor: "rgba(255,255,255,0.10)",
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(0,0,0,0.32)",
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+};
+
+/** Scheme-aware clay materials. Pass `scheme === "dark"` (not just
+ * high-contrast — the materials are subtle enough to keep in HC dark, where
+ * the palette already forces white borders for legibility). */
+export function clayMaterials(isDark) {
+  return isDark ? darkMaterials : lightMaterials;
+}

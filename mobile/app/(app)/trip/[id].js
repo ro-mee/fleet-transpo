@@ -14,10 +14,10 @@ import { statusColors, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
+import { clayMaterials } from "../../../lib/clay";
 
-// Clay material values copied from the Home implementation (DriverHomeCards)
-// so the surfaces match without touching Home's uncommitted WIP files.
-const shade = { shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 7, borderTopWidth: 2, borderTopColor: '#FFFFFF70', borderBottomWidth: 3, borderBottomColor: '#00000016' };
+// Scheme-aware clay material (clayMaterials) — the old local copy baked in
+// light-mode edge strips that read as a harsh gray line in dark mode.
 
 // Frozen at module load; the 30s interval below keeps it current without render-time reads.
 const NOW_AT_LOAD = Date.now();
@@ -29,7 +29,9 @@ export default function TripDetailsScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
+  const dark = scheme === "dark";
 
   const [trip, setTrip] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -181,7 +183,7 @@ export default function TripDetailsScreen() {
         onPress={onClose}
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        style={({ pressed }) => [styles.backBtn, shade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }]}
+        style={({ pressed }) => [styles.backBtn, mats.clayShade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }]}
       >
         <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
       </Pressable>
@@ -252,9 +254,9 @@ export default function TripDetailsScreen() {
         ) : null}
 
         {/* Summary card */}
-        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
-            <View style={[styles.pill, { backgroundColor: sc.bg }]}>
+            <View style={[styles.pill, dark && { borderTopColor: "rgba(255,255,255,0.10)", borderBottomColor: "rgba(0,0,0,0.35)" }, { backgroundColor: sc.bg }]}>
               <Text style={[type.labelMd, { color: sc.fg }]}>{String(trip.trip_status)}</Text>
             </View>
             <Text style={[type.supporting, { color: colors.primary }]}>Trip #{String(id)}</Text>
@@ -267,7 +269,7 @@ export default function TripDetailsScreen() {
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (
-          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name={isCompleted ? "flag-outline" : "close-circle-outline"} size={16} color={isCompleted ? colors.primary : colors.error} />
               <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLED"}</Text>
@@ -296,7 +298,7 @@ export default function TripDetailsScreen() {
             </View>
           </View>
         ) : (
-          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="time-outline" size={16} color={colors.primary} />
               <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isPreStart ? "START READINESS" : "TRIP IN PROGRESS"}</Text>
@@ -363,7 +365,7 @@ export default function TripDetailsScreen() {
         )}
 
         {/* Route */}
-        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="navigate-outline" size={16} color={colors.primary} />
             <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>ROUTE</Text>
@@ -390,7 +392,7 @@ export default function TripDetailsScreen() {
 
         {/* Passenger — supplied facts only, no VIP tier, no call action (the
             API has no phone field for this trip). */}
-        <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="person-outline" size={16} color={colors.primary} />
             <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>PASSENGER</Text>
@@ -408,7 +410,7 @@ export default function TripDetailsScreen() {
 
         {/* Notes */}
         {trip?.special_requests ? (
-          <View style={[styles.card, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="document-text-outline" size={16} color={colors.primary} />
               <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>SPECIAL REQUESTS</Text>
@@ -450,6 +452,7 @@ export default function TripDetailsScreen() {
           <Pressable
             style={({ pressed }) => [
               styles.cta,
+              dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 },
               {
                 backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
                 opacity: pressed ? 0.85 : 1,
@@ -486,7 +489,7 @@ export default function TripDetailsScreen() {
           </Pressable>
         ) : (
           <Pressable
-            style={({ pressed }) => [styles.cta, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
             onPress={handleContinue}
             disabled={accepting}
             accessibilityRole="button"

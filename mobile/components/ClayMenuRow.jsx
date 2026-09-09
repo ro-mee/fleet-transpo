@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { moderateScale } from "../lib/scaling";
 import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
-import { clayTile } from "../lib/clay";
+import { clayMaterials } from "../lib/clay";
 
 /**
  * Clay menu row — the exact anatomy established on the Profile tab: forest
@@ -13,7 +13,8 @@ import { clayTile } from "../lib/clay";
  * hub rows) reuses one row instead of inventing siblings.
  */
 export default function ClayMenuRow({ title, icon, onPress, isLast = false }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   return (
     <Pressable
       style={({ hovered, pressed }) => [
@@ -26,7 +27,7 @@ export default function ClayMenuRow({ title, icon, onPress, isLast = false }) {
       accessibilityLabel={title}
     >
       <View style={styles.menuRowLeft}>
-        <View style={[styles.menuIconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+        <View style={[styles.menuIconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
           <Ionicons name={icon} size={18} color={colors.onPrimaryContainer} />
         </View>
         <Text style={[type.bodyMd, styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>

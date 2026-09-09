@@ -6,20 +6,30 @@ import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
 import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone } from '../../lib/theme';
+import { clayMaterials } from '../../lib/clay';
 import TripMapPreview from '../TripMapPreview';
 
-const shade = { shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 7, borderTopWidth: 2, borderTopColor: '#FFFFFF70', borderBottomWidth: 3, borderBottomColor: '#00000016' };
+// Raised-control edges for surfaces whose color is FIXED across schemes
+// (the forest hero tiles) — the light recipe is correct in both modes.
+// Scheme-dependent surfaces (cards, pills, CTAs on theme accents) use
+// clayMaterials instead: white 33% strips wash out on dark's pale accents.
 const raisedControl = { borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 };
+// Dark variant for raised controls on scheme-dependent accent surfaces.
+const raisedControlDark = { borderTopWidth: 1.5, borderTopColor: 'rgba(255,255,255,0.12)', borderBottomWidth: 1.5, borderBottomColor: 'rgba(0,0,0,0.40)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 9, elevation: 5 };
+// Status pill edges, light and dark (geometry lives in s.status).
+const pillEdgesLight = { borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012' };
+const pillEdgesDark = { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.10)', borderBottomWidth: 1.5, borderBottomColor: 'rgba(0,0,0,0.35)' };
 const pressedStyle = ({ pressed }) => pressed ? { opacity: 0.72 } : null;
 
 export function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed, profileConfirmed, offline, onTrips, onHistory, onVehicle }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
   const ink = settings.highContrast ? colors.onPrimary : '#FFFDFC';
   const fill = settings.highContrast ? colors.primary : '#123E33';
   const tile = settings.highContrast ? colors.primary : '#1D5145E8';
   const date = new Date().toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
-  return <View style={[s.heroShell, shade, { shadowColor: colors.shadow, backgroundColor: fill }]}>
+  return <View style={[s.heroShell, mats.clayShade, { shadowColor: colors.shadow, backgroundColor: fill }]}>
     <ImageBackground source={require('../../assets/images/kpi bg.png')} imageStyle={{ opacity: settings.highContrast ? 0 : 1 }} style={s.hero} accessible={false}>
       <LinearGradient pointerEvents="none" colors={settings.highContrast ? [fill, fill] : ['#103B32F5', '#103B32AA', '#103B3210']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       <Text style={[type.titleLg, { color: ink }]}>{date}</Text>
@@ -45,15 +55,16 @@ export function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed
 
 export function HomeQuickActions({ actions }) {
   const [expanded, setExpanded] = useState(false);
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
   const largeText = fontScale > 1.3 || settings.textSize === 'large';
   const wide = width >= 700 && fontScale <= 1.15 && !largeText;
   const visible = wide || expanded ? actions : actions.slice(0, 4);
-  return <View style={[s.actions, shade, { backgroundColor: colors.surfaceContainer, shadowColor: colors.shadow }]}>
+  return <View style={[s.actions, mats.clayShade, { backgroundColor: colors.surfaceContainer, shadowColor: colors.shadow }]}>
     {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: () => setExpanded(!expanded), toggle: true }] : [])].map(a => <Pressable key={a.label} onPress={a.action} disabled={a.disabled} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }} style={({ pressed }) => [s.shortcut, { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%', opacity: a.disabled ? 0.5 : pressed ? 0.7 : 1 }]}>
-      <View style={[s.actionIcon, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}><Ionicons name={a.icon} size={22} color={colors.primary} /></View>
+      <View style={[s.actionIcon, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}><Ionicons name={a.icon} size={22} color={colors.primary} /></View>
       <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
     </Pressable>)}
   </View>;
@@ -72,6 +83,12 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
+  const mats = clayMaterials(scheme === 'dark');
+  // Raised-control and pill edges for the scheme-dependent surfaces in this
+  // card (accent tag, primary CTA, status pill) — the light recipe washes
+  // out on dark's pale accents.
+  const raised = scheme === 'dark' ? raisedControlDark : raisedControl;
+  const pillEdges = scheme === 'dark' ? pillEdgesDark : pillEdgesLight;
   const v = VARIANT[variant] ?? (current ? VARIANT.current : VARIANT.next);
   const isCurrent = v.isCurrent;
   // Current card: forest green. Scheduled cards: muted teal.
@@ -85,15 +102,15 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
   // Live trip status — the real trip_status, never a hardcoded label.
   const sc = statusColorForTone(colors, tripStatusTone(trip?.trip_status));
   const horizontal = width >= 420 && fontScale < 1.2 && settings.textSize !== 'large';
-  return <View style={[s.trip, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+  return <View style={[s.trip, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {/* Inner top highlight — clay's "light from above". Skipped in
         high-contrast mode where decoration must not soften legibility. */}
     {!settings.highContrast ? <LinearGradient pointerEvents="none" colors={scheme === 'dark' ? ['rgba(255,253,252,0.07)', 'rgba(255,253,252,0)'] : ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={s.tripSheen} /> : null}
     <View style={[s.row, { flexWrap: 'wrap', justifyContent: 'space-between' }]}>
-      <View style={[s.cardTag, { backgroundColor: accent }]}>
+      <View style={[s.cardTag, raised, { backgroundColor: accent }]}>
         <Text style={[type.label, { color: onAccent, letterSpacing: 0.8 }]}>{v.label}</Text>
       </View>
-      {trip ? <View style={[s.status, { backgroundColor: sc.bg }]}>
+      {trip ? <View style={[s.status, pillEdges, { backgroundColor: sc.bg }]}>
         <View style={[s.statusDot, { backgroundColor: sc.fg }]} />
         <Text style={[type.caption, { color: sc.fg }]}>{trip.trip_status}</Text>
       </View> : null}
@@ -125,7 +142,7 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
         </View>
         <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
           <TripMapPreview key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
-      <Pressable onPress={() => isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip)} disabled={busy} accessibilityRole="button" accessibilityLabel={isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy, busy: !!busy }} style={({ pressed }) => [s.cta, { backgroundColor: colors.primary }, busy ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
+      <Pressable onPress={() => isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip)} disabled={busy} accessibilityRole="button" accessibilityLabel={isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy, busy: !!busy }} style={({ pressed }) => [s.cta, raised, { backgroundColor: colors.primary, shadowColor: colors.shadow }, busy ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
         {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Ionicons name={isCurrent && action !== 'Trip Details' ? 'play' : 'document-text-outline'} size={20} color={colors.onPrimary} />}
         <Text style={[type.labelLg, { color: colors.onPrimary }]}>{isCurrent && canManage ? action : 'Trip Details'}</Text>
         <Ionicons name="chevron-forward" size={18} color={colors.onPrimary} />
@@ -153,14 +170,14 @@ const s = StyleSheet.create({
   vehicle: { ...raisedControl, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, borderRadius: 18, padding: 10, minHeight: 56, maxWidth: 310 },
   actions: { padding: 10, borderRadius: 24, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6 },
   shortcut: { alignItems: 'center', gap: 6, paddingVertical: 4, minWidth: 48 }, actionIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
-  trip: { borderRadius: 24, padding: 14, gap: 12 }, status: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6, borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012' },
+  trip: { borderRadius: 24, padding: 14, gap: 12 }, status: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6 },
   tripSheen: { position: 'absolute', top: 0, left: 0, right: 0, height: 30, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
-  cardTag: { ...raisedControl, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, justifyContent: 'center' },
+  cardTag: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, justifyContent: 'center' },
   statusDot: { width: 6, height: 6, borderRadius: 3 },
   placeRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 }, place: { flex: 1, minWidth: 0 },
   ctaPressed: { transform: [{ scale: 0.98 }], opacity: 0.94 },
   tripBody: { gap: 10 }, stop: { flexDirection: 'row', gap: 10 }, track: { width: 22, alignItems: 'center', paddingTop: 4 }, node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 }, line: { width: 2, flex: 1, marginBottom: -4 }, stopText: { flex: 1, minWidth: 0, paddingBottom: 12, gap: 2 },
   preview: { height: 126, overflow: 'hidden', borderRadius: 16 }, mapMessage: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, padding: 12 },
-  cta: { ...raisedControl, minHeight: 48, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8 },
+  cta: { minHeight: 48, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8 },
   empty: { minHeight: 84, gap: 8, justifyContent: 'center', paddingVertical: 8 }, scheduleLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4 },
 });

@@ -22,10 +22,7 @@ import { useConnectivity } from "../../../lib/connectivity-context";
 import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
 import { groupTrips, bucketTone, OPEN_BUCKETS } from "../../../lib/trips-queue";
 import RouteTimeline from "../../../components/RouteTimeline";
-
-// Clay material values copied from the Home implementation (DriverHomeCards)
-// so the surfaces match without touching Home's uncommitted WIP files.
-const shade = { shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 14, elevation: 7, borderTopWidth: 2, borderTopColor: '#FFFFFF70', borderBottomWidth: 3, borderBottomColor: '#00000016' };
+import { clayMaterials } from "../../../lib/clay";
 
 function formatWhen(value) {
   if (!value) return null;
@@ -34,7 +31,7 @@ function formatWhen(value) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function TripCard({ trip, display, router, colors, type }) {
+function TripCard({ trip, display, router, colors, type, mats, dark }) {
   // The whole card is the single tap target → that trip's details. The list
   // never offers a start action (the old START TRIP button routed to the
   // unscoped live map); starting happens on the detail screen where the
@@ -50,14 +47,15 @@ function TripCard({ trip, display, router, colors, type }) {
       onPress={() => router.push(`/trip/${trip.trip_id}`)}
       style={({ pressed }) => [
         styles.card,
-        shade,
+        mats.clayShade,
         {
           backgroundColor: colors.surfaceContainerLow,
           shadowColor: colors.shadow,
-          borderTopWidth: 2,
-          borderTopColor: colors.surface + "BB",
-          shadowOpacity: pressed ? 0.1 : 0.22,
-          elevation: pressed ? 2 : 7,
+          // Light keeps the tonal top edge; dark uses clayShade's diffused
+          // border treatment (a tonal strip on a dark card reads flat).
+          ...(dark ? null : { borderTopWidth: 2, borderTopColor: colors.surface + "BB" }),
+          shadowOpacity: pressed ? 0.1 : dark ? 0.5 : 0.22,
+          elevation: pressed ? 2 : dark ? 8 : 7,
           opacity: pressed ? 0.92 : 1,
         },
       ]}
@@ -65,7 +63,7 @@ function TripCard({ trip, display, router, colors, type }) {
       accessibilityLabel={`Trip ${trip.trip_id}: ${display}. Pickup ${trip?.origin || "not provided"}, destination ${trip?.destination || "not provided"}. View details.`}
     >
       <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
-        <View style={[styles.pill, { backgroundColor: bc.bg, shadowColor: colors.shadow }]}>
+        <View style={[styles.pill, dark && { borderTopColor: "rgba(255,255,255,0.10)", borderBottomWidth: 1.5, borderBottomColor: "rgba(0,0,0,0.35)" }, { backgroundColor: bc.bg, shadowColor: colors.shadow }]}>
           <Text style={[type.labelMd, { color: bc.fg }]}>{display}</Text>
         </View>
         <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
@@ -99,7 +97,7 @@ function TripCard({ trip, display, router, colors, type }) {
         ) : null}
       </View>
 
-      <View style={[styles.detailsRow, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
+      <View style={[styles.detailsRow, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)" }, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
         <Text style={[type.labelLg, { color: colors.onPrimary }]}>Details</Text>
         <Ionicons name="chevron-forward" size={16} color={colors.onPrimary} />
       </View>
@@ -112,7 +110,9 @@ const NOW_AT_LOAD = Date.now();
 
 export default function TripsTab() {
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
+  const dark = scheme === "dark";
   const router = useRouter();
 
   const [trips, setTrips] = useState([]);
@@ -200,7 +200,7 @@ export default function TripsTab() {
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
         }
       >
-        <View style={[styles.summary, shade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.summary, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <View style={styles.summaryText}>
             <Text style={type.titleLg}>Trips</Text>
             <Text style={[type.supporting, { marginTop: 2 }]}>{dateStr}</Text>
@@ -249,7 +249,7 @@ export default function TripsTab() {
               <View key={section.bucket}>
                 <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>{section.label}</Text>
                 {section.items.map((trip) => (
-                  <TripCard key={trip.trip_id} trip={trip} display={section.label} router={router} colors={colors} type={type} />
+                  <TripCard key={trip.trip_id} trip={trip} display={section.label} router={router} colors={colors} type={type} mats={mats} dark={dark} />
                 ))}
               </View>
             ))}
@@ -274,7 +274,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: "100%", borderTopWidth: 1, borderTopColor: '#FFFFFF80', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 },
+  // borderBottomWidth/Color declared (as 0/transparent) for key parity with
+  // the dark-only inline override above — RN won't reset a prop that merely
+  // vanishes, so the dark bottom edge would survive a Dark→Light switch.
+  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: "100%", borderTopWidth: 1, borderTopColor: '#FFFFFF80', borderBottomWidth: 0, borderBottomColor: 'transparent', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderTopWidth: 1, paddingTop: 8 },
   metaLeft: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   plateChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
