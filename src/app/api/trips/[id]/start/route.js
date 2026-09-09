@@ -8,8 +8,7 @@ import { advanceReservation, findRequestForDispatch } from "@/services/reservati
 import { isExpired, toCalendarDay } from "@/lib/dates";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { writeAudit } from "@/lib/audit";
-import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
-import { tomtomEtaMinutes, etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
+import { resolveStartWindow } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -108,9 +107,10 @@ export async function PUT(req, { params }) {
 
     if (pickup) {
       // ETA = live routing from the driver's current position to the pickup
-      // (trip origin). Fallbacks in order: TomTom route → straight-line
-      // heuristic → the stored route/request estimate. All fail-open to null.
-      let etaMinutes = null;
+      // (trip origin). The ladder (TomTom → straight-line heuristic → stored
+      // estimate) lives in the shared start-window resolver so this gate, the
+      // driver trips feed, and the start-window notification producer can
+      // never drift apart. All fail-open to null.
       const { rows: tripRoutes } = await query(
         `SELECT route_id FROM trips WHERE trip_id = $1 LIMIT 1`,
         [id]
@@ -131,28 +131,20 @@ export async function PUT(req, { params }) {
       const src = pos[0]?.current_latitude != null
         ? [Number(pos[0].current_latitude), Number(pos[0].current_longitude)]
         : null;
-      if (src && dest) {
-        etaMinutes = await tomtomEtaMinutes({ origin: src, destination: dest });
-      }
-      if (etaMinutes == null && src && dest) {
-        etaMinutes = etaFromDistanceKm(haversineKm(src, dest));
-      }
-      if (etaMinutes == null) {
-        const { rows: estimates } = await query(
-          `SELECT COALESCE(r.estimated_duration, tr.estimated_duration) AS d
-             FROM trips t
-             LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
-             LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
-             LEFT JOIN routes r ON r.route_id = t.route_id
-            WHERE t.trip_id = $1 LIMIT 1`,
-          [id]
-        );
-        const d = Number(estimates[0]?.d);
-        etaMinutes = Number.isFinite(d) && d > 0 ? d : null;
-      }
-      window = computeDepartureWindow({
+      const { rows: estimates } = await query(
+        `SELECT COALESCE(r.estimated_duration, tr.estimated_duration) AS d
+           FROM trips t
+           LEFT JOIN dispatchschedules ds ON ds.dispatch_id = t.dispatch_id
+           LEFT JOIN transportation_requests tr ON tr.request_id = ds.request_id
+           LEFT JOIN routes r ON r.route_id = t.route_id
+          WHERE t.trip_id = $1 LIMIT 1`,
+        [id]
+      );
+      window = await resolveStartWindow({
         pickup,
-        etaMinutes,
+        driverPosition: src,
+        pickupPosition: dest,
+        storedDurationMinutes: estimates[0]?.d,
         departureBufferMinutes: policy.departureBufferMinutes,
         earlyStartAllowanceMinutes: policy.earlyStartAllowanceMinutes,
       });

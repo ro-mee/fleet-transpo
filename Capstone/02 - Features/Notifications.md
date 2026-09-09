@@ -5,7 +5,7 @@ tags: [feature, notifications, triggers]
 source:
   - supabase/migrations (notification triggers)
   - src/app/api/notifications
-last_verified: 2026-09-08
+last_verified: 2026-09-09
 related: ["[[Dispatch]]", "[[Trips]]"]
 ---
 
@@ -111,19 +111,120 @@ DB-trigger notifications (which bypass the API routes that call `sendPush`) now 
 
 **Remaining limits:** delivery is one-shot best-effort (outbox rows go straight to `error`, no retry loop); receipts not polled (only `DeviceNotRegistered` cleanup). iOS APNs needs a matching `google-services`-equivalent setup if the iOS build is ever pushed for real.
 
+## Time-driven trip start-window notifications — SHIPPED (2026-09-09)
+
+The first **JS time-driven producer** (everything before this was
+request-triggered). A driver now gets notified when their trip start window
+opens, when it's time to head to the pickup, and when the scheduled pickup
+has passed without the trip starting.
+
+**Three thresholds of one window** (the same
+`computeDepartureWindow` model the start gate enforces):
+
+| Threshold crossed | Title | Tier / channel | Audience |
+|---|---|---|---|
+| `earliest_start` | "Trip Start Window Open" | quiet heads-up (`Warning` type, `heads-up` channel, no sound) | driver |
+| `recommended_departure` | "Time to Head to Pickup" | loud Alert (`default` channel, sound) | driver |
+| `latest_start` (= scheduled pickup) | "Trip Has Not Started" / "Scheduled Trip Has Not Started" | loud Alert | driver + dispatchers (`dispatch.update_all` → admin, fleet_manager, dispatcher; management/system_admin never) |
+
+**Design rules** (full contract in
+[[Trip Start Window Notifications Implementation Plan]]):
+- **Driver Accepted only.** Pending/Approved/Assigned/Vehicle Assigned/
+  Driver Assigned/Dispatched trips are never scanned — a driver who hasn't
+  accepted cannot start, so a start-window notification is noise. A trip
+  that starts or is cancelled between scans simply disappears from the scan.
+- **No third window implementation.** The ETA ladder (TomTom → haversine
+  heuristic → stored `COALESCE(r.estimated_duration, tr.estimated_duration)`)
+  + policy buffers were extracted into
+  `src/lib/scheduling/start-window.js` (`resolveEtaMinutes` /
+  `resolveStartWindow` / `crossedStartWindowThreshold`); the start gate
+  (`PUT /api/trips/[id]/start`) and the driver trips feed
+  (`GET /api/mobile/driver/trips`) now consume it too. Parity is pinned by
+  tests.
+- **Catch-up rule:** one threshold event per trip per run — only the MOST
+  ADVANCED crossed threshold fires. A scan that slept through earliest_start
+  jumps straight to departure_due or overdue.
+- **Concurrency-safe dedupe:** per-trip
+  `pg_advisory_xact_lock(hashtext('trip_start_notif_' || trip_id))` inside a
+  transaction, then check-then-insert on (employee, title, reference) —
+  titles are stable (copy.js rule), so the title IS the event key. No
+  global unique constraint (other events legitimately repeat titles).
+- **Copy honesty:** never mentions the pre-trip inspection and never says
+  "you can start your trip" — the start endpoint still gates on inspection,
+  vehicle/driver status and work schedule, and is untouched. Pickup times
+  render in **Asia/Manila** explicitly (`manilaTime()` in copy.js), never
+  the server's zone. 4 new copy entries: `tripStartWindowOpen`,
+  `timeToHeadToPickup`, `tripNotStartedDriver`, `tripNotStartedStaff`.
+- **Deep-link:** `reference_type = "trip"`, `reference_id = trip_id` →
+  Home tab via `mobileNotificationTarget`.
+
+**Wiring** (`src/services/start-window-notifications.service.js`, called from
+`/api/cron/sync` as an isolated best-effort step — one trip's failure never
+stops the scan; a scan failure never fails the sync): returns
+`start_window_notifications_created` / `start_window_pushes_attempted` /
+`start_window_skipped` observability fields, plus
+**`start_window_stale_locations`** — eligible trips whose driver position fed
+the ETA but is older than 10 minutes or of unknown age
+(`drivers.last_location_update`; a NULL position is not counted, that trip's
+ETA used the stored duration instead). The ETA ladder keys off
+`current_latitude/longitude`, so a driver who hasn't posted recently makes
+the window legitimately based on stale position data — pre-existing
+behavior, surfaced for acceptance testing. **Cadence: ~once per minute
+target; the endpoint is NOT a scheduler** — production must configure an
+external caller with `CRON_SECRET` (same deploy-check as the rest of the
+sync; see the acceptance checklist in
+`[[Trip Start Window Notifications Implementation Plan]]` — as of 2026-09-09
+no scheduler is active and the `cron_sync_last_ok` heartbeat has been stale
+since 2026-09-06). After inserts it drains the outbox **targeted**:
+`flushOutbox({ employeeIds: affected })`, never a global flush. Also fixed
+`flushOutbox` to send heads-up-channel rows without sound (it previously
+always sent `sound: "default"`).
+
+**Verified:** vitest 1088/1088 (94 files) incl. 3 new suites —
+`start-window.test.js` (ladder + parity + catch-up),
+`start-window-notifications.service.test.js` (all 15 plan scenarios + the
+staleness watch item), `preferences.test.js` — plus extended `copy.test.js`
+(+30 cases) and `cron/sync/route.test.js` (step isolation + counters);
+eslint clean on all touched files; no migration (no schema change).
+
+## Notification preferences are now real — SHIPPED (2026-09-09)
+
+`notification_preferences` is no longer dead schema. Two halves:
+
+- **Producer side:** the start-window service is the first producer that
+  reads preferences (`src/lib/notifications/preferences.js` —
+  `channelEnabled()` / `loadPreferenceRows()`): a row overrides, an absent
+  row inherits the `NOTIFICATION_EVENTS` default. A disabled `in_app`
+  suppresses the notifications row; a disabled `push` suppresses the
+  push_outbox row (a push-only user still gets the OS push without the
+  inbox row).
+- **Mobile Push toggle sync:** the app-local Push ON/OFF toggle in
+  profile/permissions.js now also best-effort PUTs a **bulk** preference
+  (`{ channel: "push", enabled, bulk: true }`) to
+  `/api/notifications/preferences` — OFF writes one explicit false row per
+  event for the push channel; ON deletes the channel's rows so every event
+  falls back to its default (the master switch deliberately wins over
+  per-event customization). Without this, remote FCM pushes kept arriving
+  even with the in-app toggle OFF.
+- Three new `NOTIFICATION_EVENTS` keys: `trip_start_window`,
+  `trip_departure_due`, `trip_start_overdue` (in_app + push on, email off).
+
 ## Header dropdown behavior (2026-09-05)
 
 `src/components/ui/notification-dropdown.jsx` shows the 5 most recent, **unread-first** (stable sort, read order preserved within each group). Read items stay visible but dimmed (`opacity-70`, full on hover) instead of vanishing — the unread badge is the read/unread signal, and keeping rows stable preserves traceability (re-click a just-read link) per the Gmail-style pattern.
 
 Dedup is by `notification_id`, falling back to the content key only when an id is missing — content-key dedup was collapsing genuinely different notifications with identical text. Same fix in `src/app/(dashboard)/notifications/page.js`. Verified: eslint clean on both files; no unit tests cover this surface.
 
-## The unused table
+## The unused table → WIRED (2026-09-09)
 
-`notification_preferences` — **0 rows**. Per-user notification settings were designed and never wired. Everyone gets everything.
+`notification_preferences` was **0 rows** and read by nothing until
+2026-09-09 — see "Notification preferences are now real" above. The
+start-window producer reads it; the mobile Push toggle bulk-writes it.
 
 ## Database tables used
 
-`notifications` (164) · `notification_preferences` (**0**)
+`notifications` (164) · `notification_preferences` (**0** at last audit;
+written by the mobile Push toggle since 2026-09-09) · `push_outbox`
 
 ## Producer audit + event→recipient matrix — 2026-09-07
 
@@ -340,7 +441,7 @@ dispatcher belongs in the incident loop.
 ## Open questions
 
 - Why triggers rather than service-layer calls? Undocumented. → [[ADR-005 Notifications In Database Triggers]]
-- Is `notification_preferences` read anywhere? **TODO:** grep for it; if nothing reads it, it's dead schema.
+- ~~Is `notification_preferences` read anywhere?~~ **Answered 2026-09-09:** yes — the start-window producer reads it (`src/lib/notifications/preferences.js`), the mobile Push toggle bulk-writes it, and the preferences API GET/PUT resolves it.
 
 ## Related
 

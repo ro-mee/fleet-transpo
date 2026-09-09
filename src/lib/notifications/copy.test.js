@@ -15,6 +15,10 @@ import {
   driverAutoSuspendedStaff,
   driverReinstatedDriver,
   driverReinstatedStaff,
+  tripStartWindowOpen,
+  timeToHeadToPickup,
+  tripNotStartedDriver,
+  tripNotStartedStaff,
 } from "./copy";
 
 // Every driver-facing variant. Staff variants are exercised separately —
@@ -34,12 +38,16 @@ const DRIVER_CASES = [
   ["responderAssignedReporter", responderAssignedReporter, { responderName: "Juan Dela Cruz", etaMinutes: 15 }],
   ["driverAutoSuspendedDriver", driverAutoSuspendedDriver, { expiry: "2026-01-01" }],
   ["driverReinstatedDriver", driverReinstatedDriver, {}],
+  ["tripStartWindowOpen", tripStartWindowOpen, { pickup: "2026-09-09T02:30:00.000Z", etaMinutes: 12 }],
+  ["timeToHeadToPickup", timeToHeadToPickup, { pickup: "2026-09-09T02:30:00.000Z", etaMinutes: 12 }],
+  ["tripNotStartedDriver", tripNotStartedDriver, { pickup: "2026-09-09T02:30:00.000Z" }],
 ];
 
 const ALL_CASES = [
   ...DRIVER_CASES,
   ["driverAutoSuspendedStaff", driverAutoSuspendedStaff, { name: "Juan Dela Cruz", expiry: "2026-01-01" }],
   ["driverReinstatedStaff", driverReinstatedStaff, { name: "Juan Dela Cruz" }],
+  ["tripNotStartedStaff", tripNotStartedStaff, { driverName: "Juan Dela Cruz", pickup: "2026-09-09T02:30:00.000Z" }],
 ];
 
 describe("copy module — structural invariants (all variants)", () => {
@@ -209,6 +217,10 @@ describe("copy module — missing optional data still reads naturally", () => {
       driverAutoSuspendedStaff({}),
       driverReinstatedDriver({}),
       driverReinstatedStaff({}),
+      tripStartWindowOpen({}),
+      timeToHeadToPickup({}),
+      tripNotStartedDriver({}),
+      tripNotStartedStaff({}),
     ];
     for (const out of outputs) {
       for (const field of ["title", "message", "pushBody"]) {
@@ -226,5 +238,57 @@ describe("copy module — missing optional data still reads naturally", () => {
 
   it("helpNewEta with an ETA states the number", () => {
     expect(helpNewEta({ responderName: "Juan", etaMinutes: 12 }).message).toContain("about 12 minutes");
+  });
+});
+
+describe("copy module — trip start-window group", () => {
+  // The start endpoint still gates on pre-trip inspection, vehicle/driver
+  // status and work schedule. The copy must reflect the WINDOW, never claim
+  // the trip can start — and never mention the inspection.
+  const PICKUP_UTC = "2026-09-09T02:30:00.000Z"; // 10:30 AM in Asia/Manila
+
+  it("renders pickup times in Asia/Manila, not the server's zone", () => {
+    for (const fn of [tripStartWindowOpen, timeToHeadToPickup, tripNotStartedDriver]) {
+      const out = fn({ pickup: PICKUP_UTC, etaMinutes: 12 });
+      expect(out.message).toContain("10:30 AM");
+      expect(out.message).not.toContain("02:30");
+    }
+    expect(tripNotStartedStaff({ driverName: "Juan Dela Cruz", pickup: PICKUP_UTC }).message).toContain("10:30 AM");
+  });
+
+  it("never claims the trip can be started and never mentions the inspection", () => {
+    for (const fn of [tripStartWindowOpen, timeToHeadToPickup]) {
+      const out = fn({ pickup: PICKUP_UTC, etaMinutes: 12 });
+      for (const field of ["title", "message", "pushBody"]) {
+        expect(out[field], field).not.toMatch(/can start|you can now start|inspection/i);
+      }
+    }
+    // The overdue copy may tell the driver to START the trip (it already
+    // should have started), but still never mentions the inspection.
+    const out = tripNotStartedDriver({ pickup: PICKUP_UTC });
+    for (const field of ["title", "message", "pushBody"]) {
+      expect(out[field], field).not.toMatch(/inspection/i);
+    }
+  });
+
+  it("titles are the stable threshold event names (the dedupe keys)", () => {
+    expect(tripStartWindowOpen({ pickup: PICKUP_UTC }).title).toBe("Trip Start Window Open");
+    expect(timeToHeadToPickup({ pickup: PICKUP_UTC }).title).toBe("Time to Head to Pickup");
+    expect(tripNotStartedDriver({ pickup: PICKUP_UTC }).title).toBe("Trip Has Not Started");
+    expect(tripNotStartedStaff({ driverName: "X", pickup: PICKUP_UTC }).title).toBe("Scheduled Trip Has Not Started");
+  });
+
+  it("ETA text appears only when the ETA resolved", () => {
+    expect(tripStartWindowOpen({ pickup: PICKUP_UTC, etaMinutes: 12 }).message).toContain("about 12 minutes");
+    expect(tripStartWindowOpen({ pickup: PICKUP_UTC, etaMinutes: null }).message).not.toContain("about");
+    expect(timeToHeadToPickup({ pickup: PICKUP_UTC, etaMinutes: 12 }).message).toContain("about 12 min");
+    expect(timeToHeadToPickup({ pickup: PICKUP_UTC, etaMinutes: null }).message).not.toContain("about");
+  });
+
+  it("staff overdue copy names the driver; driver copy never does", () => {
+    expect(tripNotStartedStaff({ driverName: "Juan Dela Cruz", pickup: PICKUP_UTC }).message).toContain("Juan Dela Cruz");
+    for (const field of ["title", "message", "pushBody"]) {
+      expect(tripNotStartedDriver({ pickup: PICKUP_UTC })[field]).not.toContain("Juan");
+    }
   });
 });

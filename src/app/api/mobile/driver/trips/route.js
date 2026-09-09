@@ -1,8 +1,9 @@
 import { query } from "@/lib/db";
 import { requireDriver, ok, err, handleError } from "@/lib/api/utils";
 import { computeDepartureWindow } from "@/lib/scheduling/departure-window";
-import { tomtomEtaMinutes, etaFromDistanceKm, haversineKm } from "@/lib/scheduling/travel-buffer";
+import { resolveEtaMinutes } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
+import { resolveCoordinates } from "@/lib/geo/distance";
 
 /**
  * GET /api/mobile/driver/trips
@@ -99,6 +100,23 @@ export async function GET(req) {
       [session.user.driverId, statuses, limit]
     );
 
+    // Routeless booking dispatches (trips whose dispatch carries a request but
+    // no route) have no location rows to join, so their endpoint coordinates
+    // come back null and the Home/Trip Details previews fall to "unavailable".
+    // Fill the gap with the shared gazetteer on the endpoint text — the same
+    // canonical → gazetteer → none chain getTripGeofenceTargets uses. Unmatched
+    // text stays null; coordinates are never guessed.
+    for (const t of rows) {
+      if (t.origin_latitude == null && t.origin) {
+        const c = resolveCoordinates(t.origin);
+        if (c) { t.origin_latitude = c.lat; t.origin_longitude = c.lng; }
+      }
+      if (t.destination_latitude == null && t.destination) {
+        const c = resolveCoordinates(t.destination);
+        if (c) { t.destination_latitude = c.lat; t.destination_longitude = c.lng; }
+      }
+    }
+
     // Pre-trip + departure-window enrichment. Every pre-start trip (not yet
     // STARTED) gets the window fields so the app can show "when can I start".
     // ETA (a TomTom network call) is only computed for the one trip actually
@@ -109,6 +127,9 @@ export async function GET(req) {
     const actionable = preStart.find((t) => t.trip_status === "Driver Accepted");
 
     // ETA is resolved once (from the driver's current position) and reused.
+    // The ladder itself (TomTom → haversine heuristic → stored estimate) is
+    // the shared start-window resolver — the same one the start gate and the
+    // start-window notification producer use — so all three never drift.
     let driverPos = null;
     const resolveEta = async (trip) => {
       if (trip.eta_to_pickup_min != null) return trip.eta_to_pickup_min;
@@ -124,14 +145,11 @@ export async function GET(req) {
           ? [Number(pos[0].current_latitude), Number(pos[0].current_longitude)]
           : null;
       }
-      const src = driverPos;
-      let eta = null;
-      if (src && dest) eta = await tomtomEtaMinutes({ origin: src, destination: dest });
-      if (eta == null && src && dest) eta = etaFromDistanceKm(haversineKm(src, dest));
-      if (eta == null) {
-        const d = Number(trip.estimated_duration);
-        eta = Number.isFinite(d) && d > 0 ? d : null;
-      }
+      const eta = await resolveEtaMinutes({
+        driverPosition: driverPos,
+        pickupPosition: dest,
+        storedDurationMinutes: trip.estimated_duration,
+      });
       trip.eta_to_pickup_min = eta;
       return eta;
     };

@@ -1,6 +1,7 @@
 import { ok, err, handleError } from "@/lib/api/utils";
 import { verifyServiceToken } from "@/lib/api/service-auth";
 import { syncAllVehicleStatuses, syncAllDriverStatuses, syncComplianceNotifications } from "@/services/status.service";
+import { syncStartWindowNotifications } from "@/services/start-window-notifications.service";
 import { pruneAppErrors } from "@/lib/app-errors";
 import { recordSyncHeartbeat } from "@/lib/system-health";
 
@@ -13,6 +14,11 @@ import { recordSyncHeartbeat } from "@/lib/system-health";
 //     Authorization: Bearer <CRON_SECRET>
 // (a `?token=<CRON_SECRET>` query param is also accepted for schedulers that
 // cannot set headers).
+//
+// Cadence: ~once per minute is the target, so the trip start-window scan's
+// thresholds (start window open / time to head to pickup / trip not started)
+// land within a minute of crossing. The route itself is NOT a scheduler —
+// it only runs when called.
 //
 // Fail-closed: if CRON_SECRET is unset, every request is rejected.
 //
@@ -29,7 +35,7 @@ async function runSync(req) {
   // pruneAppErrors never throws by contract, but it runs in its own isolated
   // step anyway: retention cleanup must never fail vehicle/driver/compliance
   // sync just because pruning had a bad day.
-  const [vehicleResult, driverResult, complianceResult, pruneResult] = await Promise.all([
+  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult] = await Promise.all([
     syncAllVehicleStatuses(),
     syncAllDriverStatuses(),
     syncComplianceNotifications(),
@@ -40,6 +46,17 @@ async function runSync(req) {
         return { deleted: 0 };
       }
     })(),
+    // Isolated best-effort step by the same rule: the trip start-window
+    // notification scan must never fail (or be failed by) the status and
+    // compliance sync. The service itself also never throws — the guard is
+    // defense in depth.
+    (async () => {
+      try {
+        return await syncStartWindowNotifications();
+      } catch {
+        return { created: 0, pushes_attempted: 0, skipped: 0, errors: 1, stale_locations: 0 };
+      }
+    })(),
   ]);
 
   return ok({
@@ -47,8 +64,14 @@ async function runSync(req) {
     drivers_synced: driverResult.synced,
     notifications_created: complianceResult.created,
     errors_pruned: pruneResult.deleted,
+    start_window_notifications_created: startWindowResult.created,
+    start_window_pushes_attempted: startWindowResult.pushes_attempted,
+    start_window_skipped: startWindowResult.skipped,
+    // Driver positions older than 10 min (or of unknown age) still fed those
+    // trips' ETAs — surfaced for acceptance testing, not an error.
+    start_window_stale_locations: startWindowResult.stale_locations,
     heartbeat_recorded: await recordSyncHeartbeat(),
-    message: `Scheduled sync complete (${vehicleResult.synced} vehicles, ${driverResult.synced} drivers, ${complianceResult.created} notifications, ${pruneResult.deleted} old error rows pruned)`,
+    message: `Scheduled sync complete (${vehicleResult.synced} vehicles, ${driverResult.synced} drivers, ${complianceResult.created} notifications, ${startWindowResult.created} start-window notifications, ${pruneResult.deleted} old error rows pruned)`,
   });
 }
 
