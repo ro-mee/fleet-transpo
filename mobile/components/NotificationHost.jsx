@@ -447,7 +447,10 @@ const styles = StyleSheet.create({
     height: "100%",
     borderBottomLeftRadius: moderateScale(20),
     borderBottomRightRadius: moderateScale(20),
-    transformOrigin: "left",
+    // RN native requires transformOrigin with exactly 3 values (x y z); the
+    // CSS-style single "left" threw "Transform origin must have exactly 3
+    // values" whenever a heads-up banner rendered on Android.
+    transformOrigin: "left top",
   },
   toastShell: {
     borderRadius: moderateScale(18),

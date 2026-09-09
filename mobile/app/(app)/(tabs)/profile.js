@@ -15,7 +15,7 @@ import { useAuth } from "../../../lib/auth";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts } from "../../../lib/theme";
-import { clayShade, clayPill, clayCta, compactShade } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 import ClayMenuRow from "../../../components/ClayMenuRow";
 
 const ACCOUNT_ROWS = [
@@ -34,11 +34,11 @@ const GENERAL_ROWS = [
   { title: "Settings", icon: "settings-outline", route: "/settings" },
 ];
 
-function Section({ title, rows, colors, type, onNavigate }) {
+function Section({ title, rows, colors, type, mats, onNavigate }) {
   return (
     <View style={styles.section}>
       <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>{title}</Text>
-      <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+      <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
         {rows.map((row, i) => (
           <ClayMenuRow
             key={row.route}
@@ -56,7 +56,8 @@ function Section({ title, rows, colors, type, onNavigate }) {
 export default function Profile() {
   const insets = useSafeAreaInsets();
   const { user, signOut } = useAuth();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const router = useRouter();
 
   // Cached /api/driver/me read — offline the tab falls back cached profile →
@@ -89,7 +90,7 @@ export default function Profile() {
         <View
           style={[
             styles.identityCard,
-            compactShade,
+            mats.compactShade,
             { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
           ]}
         >
@@ -97,7 +98,7 @@ export default function Profile() {
             <View
               style={[
                 styles.avatarCircle,
-                { backgroundColor: colors.primaryContainer, borderTopColor: "#FFFFFF60", borderBottomWidth: 2, borderBottomColor: "#00000012" },
+                { backgroundColor: colors.primaryContainer, borderTopColor: mats.clayTile.borderTopColor, borderBottomWidth: 2, borderBottomColor: mats.clayTile.borderBottomColor },
               ]}
             >
               <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
@@ -108,9 +109,9 @@ export default function Profile() {
                 {
                   backgroundColor: colors.surfaceContainerHigh,
                   borderTopWidth: 1,
-                  borderTopColor: "#FFFFFF70",
+                  borderTopColor: mats.clayTile.borderTopColor,
                   borderBottomWidth: 1.5,
-                  borderBottomColor: "#00000012",
+                  borderBottomColor: mats.clayTile.borderBottomColor,
                   shadowColor: colors.shadow,
                   shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.12,
@@ -125,7 +126,7 @@ export default function Profile() {
           <View style={styles.identityText}>
             <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
             {currentUser?.status ? (
-              <View style={[styles.statusPill, clayPill, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
+              <View style={[styles.statusPill, mats.clayPill, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
                 <Text style={[type.caption, { color: colors.onPrimaryContainer }]}>
                   {String(currentUser.status)}
                 </Text>
@@ -134,9 +135,9 @@ export default function Profile() {
           </View>
         </View>
 
-        <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
-        <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
-        <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
+        <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
+        <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
 
         {/* Sign Out — soft destructive clay: important, but not the same
             danger level as a destructive confirm, so no harsh red outline.
@@ -150,8 +151,8 @@ export default function Profile() {
             {
               backgroundColor: colors.errorContainer,
               borderColor: colors.error + "24",
-              borderTopColor: "#FFFFFF66",
-              borderBottomColor: "#00000016",
+              borderTopColor: mats.clayCta.borderTopColor,
+              borderBottomColor: mats.clayCta.borderBottomColor,
               shadowColor: colors.shadow,
               opacity: pressed ? 0.92 : 1,
               transform: [{ scale: pressed ? 0.985 : 1 }],
@@ -163,8 +164,8 @@ export default function Profile() {
               styles.logoutIconTile,
               {
                 backgroundColor: colors.error + "14",
-                borderTopColor: "#FFFFFF70",
-                borderBottomColor: "#00000010",
+                borderTopColor: mats.clayTile.borderTopColor,
+                borderBottomColor: mats.clayTile.borderBottomColor,
                 shadowColor: colors.shadow,
               },
             ]}
@@ -180,14 +181,14 @@ export default function Profile() {
           Confirm (solid error, the actual destructive action). */}
       <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.modalCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View
               style={[
                 styles.modalIconWrap,
                 {
                   backgroundColor: colors.errorContainer,
-                  borderTopColor: "#FFFFFF60",
-                  borderBottomColor: "#00000014",
+                  borderTopColor: mats.clayTile.borderTopColor,
+                  borderBottomColor: mats.clayTile.borderBottomColor,
                   shadowColor: colors.shadow,
                 },
               ]}
@@ -203,7 +204,7 @@ export default function Profile() {
                 onPress={() => setLogoutModal(false)}
                 style={({ pressed }) => [
                   styles.modalCancelBtn,
-                  clayCta,
+                  mats.clayCta,
                   { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
                 ]}
               >
@@ -213,7 +214,7 @@ export default function Profile() {
                 onPress={signOut}
                 style={({ pressed }) => [
                   styles.modalConfirmBtn,
-                  clayCta,
+                  mats.clayCta,
                   { backgroundColor: colors.error, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
                 ]}
               >

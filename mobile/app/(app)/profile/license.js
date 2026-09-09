@@ -11,7 +11,7 @@ import { api } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayShade, clayPill } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 const SCAN_MAX_WIDTH = 1400;
@@ -42,9 +42,14 @@ function InfoRow({ label, value, colors, isLast = false }) {
   );
 }
 
-function ScanSourceButtons({ side, colors, busy, onPick }) {
+function ScanSourceButtons({ side, colors, dark, busy, onPick }) {
   const disabled = busy !== null;
   const isUploading = busy === side;
+  // Dark: white strip edges wash out / read harsh — swap for the diffused
+  // clay CTA edges and a deeper shadow.
+  const edges = dark
+    ? { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.35 }
+    : null;
   return (
     <View style={styles.sourceRow}>
       <Pressable
@@ -54,6 +59,7 @@ function ScanSourceButtons({ side, colors, busy, onPick }) {
         accessibilityLabel={`Take a photo of the ${side} of your license`}
         style={({ pressed }) => [
           styles.sourceBtn,
+          edges,
           {
             backgroundColor: colors.primary,
             shadowColor: colors.shadow,
@@ -78,6 +84,7 @@ function ScanSourceButtons({ side, colors, busy, onPick }) {
         style={({ pressed }) => [
           styles.sourceBtn,
           styles.sourceBtnSecondary,
+          edges,
           { borderColor: colors.outline, opacity: pressed ? 0.8 : 1 },
         ]}
       >
@@ -91,7 +98,9 @@ function ScanSourceButtons({ side, colors, busy, onPick }) {
 export default function LicenseInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
+  const dark = scheme === "dark";
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently; the alert only fires when nothing was ever saved.
@@ -212,7 +221,7 @@ export default function LicenseInformation() {
       <ClayScreenHeader title="License & Compliance" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <InfoRow label="License Number" value={license?.number} colors={colors} />
           <InfoRow label="License Class" value={license?.class} colors={colors} />
           <InfoRow label="License Type" value={license?.type} colors={colors} />
@@ -223,17 +232,17 @@ export default function LicenseInformation() {
           />
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
-            <View style={[styles.statusPill, clayPill, { backgroundColor: statusTone.bg, shadowColor: colors.shadow }]}>
+            <View style={[styles.statusPill, mats.clayPill, { backgroundColor: statusTone.bg, shadowColor: colors.shadow }]}>
               <Text style={[styles.statusPillText, { color: statusTone.fg }]}>{status.label}</Text>
             </View>
           </View>
           <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} />
         </View>
 
-        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20, gap: 16 }]}>
+        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20, gap: 16 }]}>
           <Text style={[type.label, styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
 
-          <View style={[styles.scanBox, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <View style={[styles.scanBox, dark && { borderTopColor: "rgba(255,255,255,0.09)", borderBottomColor: "rgba(0,0,0,0.38)" }, { backgroundColor: colors.surfaceContainerHigh }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Front of License</Text>
               {license?.frontScanImageUrl ? (
@@ -255,13 +264,14 @@ export default function LicenseInformation() {
               <ScanSourceButtons
                 side="front"
                 colors={colors}
+                dark={dark}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />
             )}
           </View>
 
-          <View style={[styles.scanBox, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <View style={[styles.scanBox, dark && { borderTopColor: "rgba(255,255,255,0.09)", borderBottomColor: "rgba(0,0,0,0.38)" }, { backgroundColor: colors.surfaceContainerHigh }]}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Back of License</Text>
               {license?.backScanImageUrl ? (
@@ -283,6 +293,7 @@ export default function LicenseInformation() {
               <ScanSourceButtons
                 side="back"
                 colors={colors}
+                dark={dark}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />

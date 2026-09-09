@@ -341,6 +341,9 @@ export default function MapTab() {
   const [permRetry, setPermRetry] = useState(0);
   const [mapReady, setMapReady] = useState(false);
   const [routeData, setRouteData] = useState(null);
+  // In-flight lock for the swipe transitions: SwipeButton honors `busy` so a
+  // second swipe cannot fire a concurrent PUT while the first is pending.
+  const [inFlight, setInFlight] = useState(false);
   const [now, setNow] = useState(NOW_AT_LOAD);
   const mapRef = useRef(null);
 
@@ -700,6 +703,44 @@ export default function MapTab() {
     setPermRetry((c) => c + 1);
   };
 
+  // Arrival-gate helpers: the server enforces pickup/destination proximity in
+  // setTripStatus (409 when a fresh fix proves the driver is outside), so the
+  // pre-check here is advisory UX — outside offers Go Back / Proceed Anyway
+  // (reason captured on the override screen), inside/unknown proceeds, and a
+  // 409 race between check and PUT surfaces the same override offer instead
+  // of a dead-end error. Spamming the button can no longer silently advance:
+  // every outside verdict needs a typed reason, audited server-side.
+  const formatGateDistance = (m) => {
+    const n = Number(m);
+    if (!Number.isFinite(n)) return "an unknown distance";
+    return n < 1000 ? `${Math.round(n)} m` : `${(n / 1000).toFixed(1)} km`;
+  };
+  const offerOverride = ({ title, check, placeKey, placeFallback, action, needsEnroute }) => {
+    const tripId = String(activeTrip.trip_id);
+    const distanceText = formatGateDistance(check?.distance_m);
+    const placeName = check?.[placeKey] || placeFallback;
+    setInFlight(false);
+    AppAlert.alert(
+      title,
+      `You appear to be ${distanceText} from ${placeName}.`,
+      [
+        { text: "Go Back", style: "cancel" },
+        {
+          text: "Proceed Anyway",
+          onPress: () => router.push({
+            pathname: '/(app)/trip/override',
+            params: {
+              tripId, action,
+              distanceText, placeName,
+              ...(needsEnroute ? { needsEnroute: "1" } : {}),
+            },
+          }),
+        },
+      ],
+      { type: "warning" }
+    );
+  };
+
   // Determine trip state machine for UI
   const status = activeTrip?.trip_status;
   const isPending = ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(status);
@@ -744,6 +785,28 @@ export default function MapTab() {
     return () => clearInterval(t);
   }, [activeTripStatus]);
 
+  // Fail-open for the map overlay: MAP_READY normally lifts it, but a dead
+  // WebView (offline CDN, bad key, init exception) must never pin globe.json
+  // forever — observed as infinite loading on the Drop-off leg. After 20s we
+  // lift the overlay anyway; the map area may be blank but the trip sheet
+  // (ARRIVED AT DESTINATION / DROPPED OFF GUEST) stays usable.
+  useEffect(() => {
+    if (mapReady) return;
+    const t = setTimeout(() => setMapReady(true), 20000);
+    return () => clearTimeout(t);
+  }, [mapReady]);
+
+  // Fail-open for GPS: getCurrentPositionAsync can hang or throw (GPS off,
+  // timeout) while its catch only warns, leaving driverLocation null forever
+  // — a second infinite-loading path. After 15s fall through and render the
+  // map from the trip's stored coords so a Drop-off trip is never stuck.
+  const [gpsTimedOut, setGpsTimedOut] = useState(false);
+  useEffect(() => {
+    if (driverLocation) return;
+    const t = setTimeout(() => setGpsTimedOut(true), 15000);
+    return () => clearTimeout(t);
+  }, [driverLocation]);
+
   // Permission denied — an honest dead-end with a way out, not a loader that
   // never resolves.
   if (permissionDenied) {
@@ -770,7 +833,10 @@ export default function MapTab() {
     );
   }
 
-  if (!driverLocation) {
+  // GPS still resolving — but fail-open after gpsTimedOut so a hung fix can
+  // never strand a Drop-off trip on a fullscreen spinner. The active-trip
+  // branch below already falls back to the trip's stored origin coords.
+  if (!driverLocation && !gpsTimedOut) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }]}>
         <LottieView
@@ -797,7 +863,7 @@ export default function MapTab() {
       <View style={[styles.container, { backgroundColor: rTheme.background }]}>
         <TomTomMap 
           ref={mapRef}
-          origin={{ lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading }}
+          origin={driverLocation ? { lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading } : { lat: 14.6, lng: 121.0 }}
           destination={null}
           scrollEnabled={true}
           showCarIcon={true}
@@ -1459,9 +1525,12 @@ export default function MapTab() {
                 isState4 ? "DROPPED OFF GUEST" : "SWIPE TO CONFIRM"
               }
               disabled={(isPending || isDriverAccepted) && preTripDone && !windowOpen}
+              busy={inFlight}
               backgroundColor={colors.primary}
               textColor={colors.onPrimary}
               onSwipeSuccess={async () => {
+                if (inFlight) return;
+                setInFlight(true);
                 try {
                   if (isPending || isDriverAccepted) {
                     if (isPending) {
@@ -1482,21 +1551,123 @@ export default function MapTab() {
                       if (wasQueued(startRes)) announceSavedForSync();
                       loadTrip();
                     } else if (isState1) {
-                      const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
-                      if (wasQueued(pickupRes)) announceSavedForSync();
+                      // Arrival gate: the server 409s ARRIVED AT PICKUP filed
+                      // from outside the pickup geofence. Pre-check first so
+                      // the driver gets Go Back / Proceed Anyway (with reason)
+                      // instead of a dead-end error. Fail-open: an unreadable
+                      // check proceeds — the PUT re-evaluates server-side.
+                      let pickupCheck = null;
+                      try {
+                        pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
+                      } catch {
+                        pickupCheck = null;
+                      }
+                      if (pickupCheck && pickupCheck.state === "outside") {
+                        offerOverride({
+                          title: "Too far from pickup",
+                          check: pickupCheck,
+                          placeKey: "pickup",
+                          placeFallback: activeTrip.origin || "the pickup point",
+                          action: "at-pickup",
+                        });
+                        return;
+                      }
+                      try {
+                        const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                        if (wasQueued(pickupRes)) announceSavedForSync();
+                      } catch (e) {
+                        // Check→PUT race (a new fix landed between the two
+                        // calls): surface the same override offer.
+                        if (e?.status === 409) {
+                          offerOverride({
+                            title: "Too far from pickup",
+                            check: null,
+                            placeKey: "pickup",
+                            placeFallback: activeTrip.origin || "the pickup point",
+                            action: "at-pickup",
+                          });
+                          return;
+                        }
+                        throw e;
+                      }
                       loadTrip();
                     } else if (isState2) {
-                      const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
-                      const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
-                      if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
+                      let pickupCheck = null;
+                      try {
+                        pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
+                      } catch {
+                        pickupCheck = null;
+                      }
+                      if (pickupCheck && pickupCheck.state === "outside") {
+                        offerOverride({
+                          title: "Too far from pickup",
+                          check: pickupCheck,
+                          placeKey: "pickup",
+                          placeFallback: activeTrip.origin || "the pickup point",
+                          action: "onboard",
+                        });
+                        return;
+                      }
+                      try {
+                        const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
+                        // En Route is the ungated mid-leg consequence of onboard.
+                        const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                        if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
+                      } catch (e) {
+                        if (e?.status === 409) {
+                          offerOverride({
+                            title: "Too far from pickup",
+                            check: null,
+                            placeKey: "pickup",
+                            placeFallback: activeTrip.origin || "the pickup point",
+                            action: "onboard",
+                          });
+                          return;
+                        }
+                        throw e;
+                      }
                       loadTrip();
                     } else if (isState3) {
-                      let legRes = null;
-                      if (activeTrip.trip_status === "Passenger Onboard") {
-                        legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                      // Destination gate for ARRIVED AT DESTINATION, mirroring
+                      // the completion flow below.
+                      let destPreCheck = null;
+                      try {
+                        destPreCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
+                      } catch {
+                        destPreCheck = null;
                       }
-                      const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
-                      if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
+                      if (destPreCheck && destPreCheck.state === "outside") {
+                        offerOverride({
+                          title: "Far from destination",
+                          check: destPreCheck,
+                          placeKey: "destination",
+                          placeFallback: activeTrip.destination || "the destination",
+                          action: "dropoff",
+                          needsEnroute: activeTrip.trip_status === "Passenger Onboard",
+                        });
+                        return;
+                      }
+                      try {
+                        let legRes = null;
+                        if (activeTrip.trip_status === "Passenger Onboard") {
+                          legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                        }
+                        const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                        if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
+                      } catch (e) {
+                        if (e?.status === 409) {
+                          offerOverride({
+                            title: "Far from destination",
+                            check: null,
+                            placeKey: "destination",
+                            placeFallback: activeTrip.destination || "the destination",
+                            action: "dropoff",
+                            needsEnroute: activeTrip.trip_status === "Passenger Onboard",
+                          });
+                          return;
+                        }
+                        throw e;
+                      }
                       loadTrip();
                     } else if (isState4) {
                       // Sum the GPS-accumulated km from both legs. If the watcher
@@ -1611,6 +1782,8 @@ export default function MapTab() {
                     }
                   } catch(e) {
                     AppAlert.alert("Error", e.message || "Could not update trip");
+                  } finally {
+                    setInFlight(false);
                   }
                 }}
               />

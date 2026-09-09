@@ -152,12 +152,14 @@ export async function flushOutbox({ employeeIds } = {}) {
 
     const out = [];
     for (const row of rows) {
+      const quiet = row.channel_id === CHANNEL.HEADS_UP.id;
       const results = await sendPush({
         employeeIds: [row.employee_id],
         title: row.title,
         body: row.body,
         data: { reference_type: row.reference_type, reference_id: row.reference_id },
         channelId: row.channel_id,
+        sound: quiet ? CHANNEL.HEADS_UP.sound : CHANNEL.PUSH.sound,
       });
       const ok = delivered(results);
       try {

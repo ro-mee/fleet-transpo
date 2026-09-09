@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { useSettings } from "../../../lib/settings-context";
+import { api } from "../../../lib/api";
 import { requestPushPermission, dismissAllLocalNotifications } from "../../../lib/notifications/push";
 import {
   describePermissionState,
@@ -30,7 +31,7 @@ import {
 import { AppAlert } from "../../../components/AppAlert";
 import ClayScreenHeader from "../../../components/ClayScreenHeader";
 import { statusColorForTone } from "../../../lib/theme";
-import { clayShade, clayPill, clayCta, clayTile } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 import { moderateScale } from "../../../lib/scaling";
 import { fonts } from "../../../lib/theme";
 
@@ -41,10 +42,11 @@ const DEVICE_ACCESS_KEYS = ["locationBackground", "camera", "mediaLibrary"];
 
 /** Raised clay pill for a permission state (replaces ui.js StatusPill here). */
 function ClayStatusPill({ label, tone }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const palette = statusColorForTone(colors, tone);
   return (
-    <View style={[clayPill, { backgroundColor: palette.bg, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
+    <View style={[mats.clayPill, { backgroundColor: palette.bg, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
       <Text style={[type.caption, { color: palette.fg }]}>{label}</Text>
     </View>
   );
@@ -52,7 +54,8 @@ function ClayStatusPill({ label, tone }) {
 
 /** Clay primary CTA with a loading state (replaces ui.js FilledButton here). */
 function ClayPrimaryButton({ label, onPress, loading, disabled, style }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const isDisabled = disabled || loading;
   return (
     <Pressable
@@ -62,7 +65,7 @@ function ClayPrimaryButton({ label, onPress, loading, disabled, style }) {
       accessibilityState={{ disabled: isDisabled, busy: loading }}
       style={({ pressed }) => [
         styles.ctaBase,
-        clayCta,
+        mats.clayCta,
         { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: isDisabled ? 0.55 : pressed ? 0.88 : 1 },
         style,
       ]}
@@ -78,14 +81,15 @@ function ClayPrimaryButton({ label, onPress, loading, disabled, style }) {
 
 /** Clay outlined CTA (replaces ui.js OutlinedButton here). */
 function ClayOutlineButton({ label, onPress, style }) {
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   return (
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
       style={({ pressed }) => [
         styles.ctaBase,
-        clayCta,
+        mats.clayCta,
         { borderWidth: 2, borderColor: colors.outline, opacity: pressed ? 0.7 : 1 },
         style,
       ]}
@@ -101,13 +105,13 @@ function ClayOutlineButton({ label, onPress, style }) {
  * granted, so the device state is always shown alongside, and the OFF
  * wording says FleetOps will not use the feature, never "permission revoked".
  */
-function AppControlRow({ icon, title, description, value, onValueChange, permissionStatus, colors, type, isLast }) {
+function AppControlRow({ icon, title, description, value, onValueChange, permissionStatus, colors, type, mats, isLast }) {
   const presentation = permissionStatus ? describePermissionState(permissionStatus) : null;
   const palette = presentation ? statusColorForTone(colors, presentation.tone) : null;
   return (
     <View style={[!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <View style={styles.controlRow}>
-        <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+        <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
           <Ionicons name={icon} size={18} color={colors.onPrimaryContainer} />
         </View>
         <View style={styles.controlText}>
@@ -135,7 +139,8 @@ function AppControlRow({ icon, title, description, value, onValueChange, permiss
 export default function AppPermissionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const { width: windowWidth } = useWindowDimensions();
   const wide = windowWidth >= 768;
 
@@ -265,6 +270,16 @@ export default function AppPermissionsScreen() {
   // App-level Push Notifications toggle. ON needs OS notification
   // permission (requested if missing); OFF stops FleetOps push behavior and
   // dismisses queued local notifications — the OS permission is untouched.
+  // The toggle ALSO syncs a bulk server preference: remote FCM pushes are
+  // delivered by the OS regardless of this app-local setting, so without
+  // the server-side opt-out a driver who turned Push off here would still
+  // get real pushes. Best-effort — a sync failure never blocks the toggle.
+  const syncPushPreference = (enabled) => {
+    api
+      .put("/api/notifications/preferences", { channel: "push", enabled, bulk: true })
+      .catch(() => {});
+  };
+
   const togglePushNotifications = async (val) => {
     if (val) {
       const granted = await requestPushPermission();
@@ -279,9 +294,11 @@ export default function AppPermissionsScreen() {
         return;
       }
       updateSetting("pushNotifications", true);
+      syncPushPreference(true);
     } else {
       await dismissAllLocalNotifications();
       updateSetting("pushNotifications", false);
+      syncPushPreference(false);
     }
   };
 
@@ -301,7 +318,7 @@ export default function AppPermissionsScreen() {
   // padding; the card only supplies the raised surface + curve.
   const sectionCard = [
     styles.sectionCard,
-    clayShade,
+    mats.clayShade,
     { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
   ];
 
@@ -329,6 +346,7 @@ export default function AppPermissionsScreen() {
             permissionStatus={statusByKey.location}
             colors={colors}
             type={type}
+            mats={mats}
           />
           <AppControlRow
             icon="notifications"
@@ -339,6 +357,7 @@ export default function AppPermissionsScreen() {
             permissionStatus={statusByKey.notifications}
             colors={colors}
             type={type}
+            mats={mats}
             isLast
           />
         </View>
@@ -407,7 +426,7 @@ export default function AppPermissionsScreen() {
                     pressed && { backgroundColor: colors.surfaceContainerHigh },
                   ]}
                 >
-                  <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+                  <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                     <Ionicons name={row.icon} size={18} color={colors.onPrimaryContainer} />
                   </View>
                   <Text style={[type.bodyMd, styles.permissionTitle, { color: colors.onSurface }]}>{row.title}</Text>

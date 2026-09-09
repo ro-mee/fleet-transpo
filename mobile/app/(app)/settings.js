@@ -15,14 +15,15 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { useSettings } from "../../lib/settings-context";
 import ClayScreenHeader from "../../components/ClayScreenHeader";
-import { clayShade, clayPill, clayCta, clayTile, compactShade } from "../../lib/clay";
+import { clayMaterials } from "../../lib/clay";
 import { moderateScale } from "../../lib/scaling";
 import { fonts } from "../../lib/theme";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, preference, setColorScheme, type } = useTheme();
+  const { colors, preference, setColorScheme, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
   const { width: windowWidth } = useWindowDimensions();
   const wide = windowWidth >= 768;
 
@@ -53,7 +54,7 @@ export default function SettingsScreen() {
   // padding; the card only supplies the raised surface + curve.
   const sectionCard = [
     styles.sectionCard,
-    compactShade,
+    mats.compactShade,
     { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
   ];
 
@@ -74,7 +75,7 @@ export default function SettingsScreen() {
 
           <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "40" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="moon" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Theme</Text>
@@ -94,7 +95,7 @@ export default function SettingsScreen() {
                     accessibilityState={{ selected: active }}
                     style={({ pressed }) => [
                       styles.segmentOption,
-                      active && clayPill,
+                      active && mats.clayPill,
                       active && {
                         backgroundColor: colors.primary,
                         shadowColor: colors.shadow,
@@ -117,7 +118,7 @@ export default function SettingsScreen() {
 
           <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "40" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="text" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Text Size</Text>
@@ -132,7 +133,7 @@ export default function SettingsScreen() {
 
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="contrast" size={18} color={colors.onPrimaryContainer} />
               </View>
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>High Contrast Mode</Text>
@@ -155,7 +156,7 @@ export default function SettingsScreen() {
         onRequestClose={() => setTextSizeModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.modalContent, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <Text style={[type.titleLg, { color: colors.onSurface, marginBottom: 16 }]}>Select Text Size</Text>
             {['small', 'medium', 'large'].map((size) => (
               <Pressable
@@ -175,10 +176,10 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setTextSizeModalVisible(false)} style={[styles.modalBtn, { borderWidth: 2, borderColor: colors.outline }]}>
+              <Pressable onPress={() => setTextSizeModalVisible(false)} style={[styles.modalBtn, mats.clayCta, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
                 <Text style={[type.labelLg, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
+              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
                 <Text style={[type.labelLg, { color: colors.onPrimary }]}>Confirm</Text>
               </Pressable>
             </View>
@@ -242,12 +243,29 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 6,
   },
+  // The active segment overlays mats.clayPill + a shadow/background block
+  // via `active && {...}`. Those keys must exist here too (as neutral
+  // defaults) so a segment losing selection explicitly resets them — RN
+  // doesn't reliably clear a style prop that merely disappears from the
+  // style array, which left stale borders/shadows on the deselected pill.
   segmentOption: {
     flex: 1,
     paddingVertical: 9,
+    paddingHorizontal: 0,
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 0,
+    borderColor: "transparent",
+    borderTopWidth: 0,
+    borderTopColor: "transparent",
+    borderBottomWidth: 0,
+    borderBottomColor: "transparent",
+    backgroundColor: "transparent",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   modalOverlay: {
     flex: 1,

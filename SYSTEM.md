@@ -2,8 +2,11 @@
 
 Comprehensive system overview for AI assistants and new developers. Covers architecture, tech stack, directory layout, database schema, API surface, auth/RBAC, the mobile companion app, and the business logic domains.
 
-**Mobile Live Map Radar & Standby HUD (2026-09-09, implemented):** See [Live Map Radar feature note](Capstone/02%20-%20Features/Live%20Map%20Radar.md). Redesigned idle standby mode into an interactive "Proximity + Dispatch Coverage Map" featuring a 4-tier concentric depth zone structure with distinct visibility layers matching the "Radar Wave Pulse – Visibility Layers" design specification: 4 background proximity zones (Zone 1: 130px 1km, Zone 2: 210px 3km, Zone 3: 290px 5km, Zone 4: 370px All) with subtle harmonic breathing; central ambient core `#A8FFE1` (70-90% opacity, 22px glow); and 3 distinct, defined wave pulse rings layer-by-layer (Inner: `#5CFFDC` sharp 1.5px border, 45-70% opacity; Middle: `#00FFB3` 1.5px border with 18px glow, 25-45% opacity; Outer: `#00E5A8` 1.5px border with soft dispersion, 15-25% opacity) emitting across a 2.4s stepped loop (0ms -> 350ms -> 700ms -> 1200ms full pulse) in FleetOps brand colors (Mint/Emerald dark, Forest/Sage light); top-down fleet car with headlights glow, customizable color swatches modal on tap, and heading orientation rotation; parity red `#ef4444` pulse disc applied to standby emergency dispatch markers; reverted map view to FleetOps tactical palette (`palettes.dark` / `palettes.light`); top HUD status pill cleaned of manual theme toggle with automatic dark/light theme adaptation; range filter (`1 km`, `3 km`, `5 km`, `All`); color-coded circular dispatch markers with dynamic proximity clustering (`[ 3 ]`); compact floating Assignment Info Card; collapsible legend; pan-detection recenter FAB; and driver operational command bottom sheet with prominent coral SOS button wired to the emergency distress workflow. All 996 Vitest tests passing.
+**Mobile dark-mode clay depth pass (2026-09-09, implemented):** App-wide fix for dark mode reading as flat "dark neumorphism". `mobile/lib/clay.js` now exposes scheme-aware `clayMaterials(isDark)` — light values byte-identical, dark variants use a diffused low-alpha border + faint top sheen (no harsh white strip) and deeper/wider shadows; all 13 clay consumers plus the local recipes in Trips/Trip Details/Home cards switched to it. Dark palette nudges (dark-only): `background`/`surfaceDim` `#111816`→`#0D1713` (stage separation from the container ladder) and `primaryContainer` `#285448`→`#245F50` (muted-emerald tiles; onPrimaryContainer ≈ 5.7:1 AA). Screen fixes: Profile inline strips → materials, Settings text-size Cancel → clay CTA, SOS FAB/chip/emboss scheme-aware, Work Schedule hero white overlays → onPrimary alphas, AppAlert foreign Tailwind palette → theme tone tokens, Vehicle tab's foreign blue → `colors.info` tint, license scan-box/source-button strips dark-aware, and `trip/complete.js`'s dead `isDark` destructure (the context never exposed that key — it silently evaluated undefined) replaced with `scheme`. Light mode and high-contrast palettes untouched. Mobile suite 106 tests, touched-file lint (24 files), and Android export passed; native device acceptance pending.
 
+**Mobile Dark→Light theme-switch regression fix (2026-09-09, implemented):** After the depth pass, toggling Dark→Light left rectangular shadow/backing artifacts on clay cards — React Native does not reliably reset a style prop that merely *vanishes* from a style object, and the dark clay materials added `borderWidth`/`borderColor` keys with no light counterparts (the stale border + Android elevation drew a rectangular outline). Fix is state cleanup only, both themes' recipes otherwise unchanged: light `clayShade`/`compactShade` now declare `borderWidth: 0, borderColor: "transparent"` (explicit restoration), Trips' `styles.pill` gained a `borderBottomWidth: 0` reset its dark-only override was missing, and the Settings theme segment's `segmentOption` static now carries the full border/shadow/background key set as neutral defaults so the `active && mats.clayPill` pattern resets on deselection. New `mobile/lib/clay.test.js` locks in key parity between `clayMaterials(true)` and `clayMaterials(false)`. Mobile suite 113 tests, touched-file lint, and Android export passed; repeated Light→Dark→Light cycle verification on a native device pending.
+
+**Mobile Live Map Radar & Standby HUD (2026-09-09, implemented):** See [Live Map Radar feature note](Capstone/02%20-%20Features/Live%20Map%20Radar.md). Redesigned idle standby mode into an interactive "Proximity + Dispatch Coverage Map" featuring a 4-tier concentric depth zone structure with distinct visibility layers matching the "Radar Wave Pulse – Visibility Layers" design specification: 4 background proximity zones (Zone 1: 130px 1km, Zone 2: 210px 3km, Zone 3: 290px 5km, Zone 4: 370px All) with subtle harmonic breathing; central ambient core `#A8FFE1` (70-90% opacity, 22px glow); and 3 distinct, defined wave pulse rings layer-by-layer (Inner: `#5CFFDC` sharp 1.5px border, 45-70% opacity; Middle: `#00FFB3` 1.5px border with 18px glow, 25-45% opacity; Outer: `#00E5A8` 1.5px border with soft dispersion, 15-25% opacity) emitting across a 2.4s stepped loop (0ms -> 350ms -> 700ms -> 1200ms full pulse) in FleetOps brand colors (Mint/Emerald dark, Forest/Sage light); top-down fleet car with headlights glow, customizable color swatches modal on tap, and heading orientation rotation; parity red `#ef4444` pulse disc applied to standby emergency dispatch markers; reverted map view to FleetOps tactical palette (`palettes.dark` / `palettes.light`); top HUD status pill cleaned of manual theme toggle with automatic dark/light theme adaptation; range filter (`1 km`, `3 km`, `5 km`, `All`); color-coded circular dispatch markers with dynamic proximity clustering (`[ 3 ]`); compact floating Assignment Info Card; collapsible legend; pan-detection recenter FAB; and driver operational command bottom sheet with prominent coral SOS button wired to the emergency distress workflow. All 996 Vitest tests passing.
 
 **Mobile Home UI update (2026-09-09):** See [Mobile Home Claymorphism Implementation Plan and outcome](Capstone/01%20-%20System/Mobile%20Home%20Claymorphism%20Implementation%20Plan.md). Implemented image-backed summary, grouped shortcuts, and distinct Current/Next cards while preserving the warm ivory theme and driver workflows. Mobile utility tests, targeted lint, and Android export passed; native device smoke testing remains pending.
 
@@ -381,7 +384,9 @@ The external **Booking** subsystem owns guest data + approval. Fleet:
   in production); 90-day `pruneAppErrors` runs inside the CRON_SECRET
   `/api/cron/sync` flow in an isolated step with an `errors_pruned` count —
   **deploy check:** an external scheduler must actually hit that route or
-  neither the status sync nor pruning runs.
+  neither the status sync, nor pruning, nor the trip start-window
+  notification scan (added 2026-09-09, ~once-per-minute target cadence)
+  runs.
 - **System Health (2026-09-06):** detection + remediation routing, no auto-fix.
   Pure evaluator `src/lib/system-health.js` (locked per-subsystem thresholds:
   app 0/1–4/5+ per 15m, db <300/300–1000/>1000ms with probe-failure = degraded,
@@ -924,7 +929,7 @@ is the only reservation concept, and `integration/` is its only door.
 - `documents/expiring` (GET) ★ — Document Expiration Center: aggregates `vehicles.*_expiry` + `vehicledocuments.expiry_date` + `drivers.license_expiry` with days-left/expired flags (admin, system_admin, fleet_manager).
 - `ai/recommendations`, `ai/predictive-maintenance`, `ai/insights[/[id]/dismiss]`, `ai/driver-insights`, `ai/providers[/[id]]`, `ai/providers/fetch-models`, `ai/scan-document`, `ai/logs`, `ai/instructions`.
 - `ai/report-narrative` (POST) ★ — LLM report narration over a client-computed payload: 24 h sticky cache, ≤3 forced regenerations per tab/day, deterministic rules fallback (`lib/ai/report-narrative.js`, `ai_report_narratives` table).
-- `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 037).
+- `notifications/` (GET/POST) — **self-scoped** GET (ops roles may pass `?employee_id=`); POST admin-directed. `notifications/[id]/read`, `notifications/read-all` (self-scoped), `notifications/[id]` (DELETE, self- or ops-scoped), `notifications/preferences` (GET/PUT) ★ — per-user event × channel toggle matrix (migration 037); PUT also accepts a `bulk` body (`{ channel, enabled, bulk: true }`) used by the mobile Push master toggle — OFF writes one explicit false row per event for the channel, ON deletes the channel's rows to restore `NOTIFICATION_EVENTS` defaults.
 - `search` (GET) ★ — global command-palette search across reservations, dispatches, drivers, vehicles (min 2 chars, LIMIT 5 per entity; any role).
 - `tomtom/route` (GET) ★ — server-keyed routing proxy (`origin`/`destination` as `lng,lat`, optional `departAt` + `alternatives=0-2`): decoded polyline, turn-by-turn instructions, distanceKm, travelTimeMin, trafficDelayMin, alternative summaries, `provenance: "live"`; all roles incl. driver.
 - `audit/` (GET) ★ — system audit log (system_admin only).
@@ -1107,7 +1112,7 @@ app/(app)/profile/*.js    personal (phone edit + hub rows to license/vehicle), l
 - `tripRef.js` — cached `GET /api/mobile/driver/ref`: status buckets, `getNextStatus()`, tones (server owns the machine).
 - `trips-queue.js` + `trip-detail.js` — pure, vitest-runnable decision helpers: queue bucketing (incl. READY · SCHEDULE UNCONFIRMED for unknown start windows) and detail actions/readiness/display facts (`end_time` completion, no default departure, supplied-only passenger data).
 - `notifications/` — `tiers.js` (+test) classifier, `notify.js` emitter, `presentation.js` labels, `navigation.js` deep-link table, `push.js` expo-notifications wrapper (channels `default`/`heads-up`, token minting), `device-token.js` registration.
-- `settings-context.js` (persisted prefs), `theme.js`+`theme-context.js` (FleetOps Tactical tokens, light/dark MD3), `scaling.js`, `clay.js` (import-free claymorphism material constants), `receipt-crop.js`, `permissions.js` registry, `launch.js`, `consent.js`, `storage.js`, `rbac.js`.
+- `settings-context.js` (persisted prefs), `theme.js`+`theme-context.js` (FleetOps Tactical tokens, light/dark MD3; dark stage `#0D1713`, dark primaryContainer `#245F50`), `scaling.js`, `clay.js` (import-free claymorphism material constants; `clayMaterials(isDark)` returns the scheme-appropriate set — consumers pass `scheme === "dark"`), `receipt-crop.js`, `permissions.js` registry, `launch.js`, `consent.js`, `storage.js`, `rbac.js`.
 - `components/` — `ui.js` (MD3 primitives), `ClayScreenHeader` (raised clay back-control header), `ClayMenuRow` (shared clay menu row), `TomTomMap` (static images, pan/zoom, live overlay, Google Maps deep link), `RouteTimeline` (shared pickup→drop-off timeline), `NotificationHost` (banners/toasts/push taps), `DriverSos`, `plate.js`, `logo.js`, `error-boundary.js`.
 
 ### Backend integration / auth
@@ -1165,7 +1170,45 @@ right surface**, and turns the mobile app into a **5-tab driver workspace**.
   `getRequiredRolesForPath` so a tap never loops through a redirect.
 - Per-user toggles persist in `notification_preferences` (migration 037) and drive
   the `/notifications/preferences` grid (event × channel, in-app non-disableable);
-  email/push channels are accepted but delivery ships later.
+  the mobile Push toggle bulk-syncs the push channel
+  (`PUT /api/notifications/preferences` `{ channel, enabled, bulk }` — OFF writes
+  one false row per event, ON deletes the channel's rows to restore defaults).
+- **Preferences are honored by producers since 2026-09-09:**
+  `src/lib/notifications/preferences.js` (`channelEnabled` — row overrides,
+  absent row inherits the `NOTIFICATION_EVENTS` default) is read by the
+  start-window producer; a disabled `in_app` suppresses the notifications row,
+  a disabled `push` suppresses the push_outbox row.
+- **Time-driven trip start-window notifications (2026-09-09):** the first JS
+  time-driven producer. `syncStartWindowNotifications()`
+  (`src/services/start-window-notifications.service.js`) runs inside the
+  CRON_SECRET `/api/cron/sync` flow as an isolated best-effort step (~once-per-minute
+  target cadence — the endpoint is not a scheduler; an external caller must be
+  configured, same deploy check as the rest of the sync) and notifies **Driver
+  Accepted** trips at each departure-window threshold:
+  `earliest_start` → "Trip Start Window Open" (quiet heads-up channel),
+  `recommended_departure` → "Time to Head to Pickup" (loud Alert),
+  `latest_start`/scheduled pickup passed → "Trip Has Not Started" (driver) +
+  "Scheduled Trip Has Not Started" (dispatchers via `dispatch.update_all`;
+  management/system_admin never). Catch-up rule: only the most advanced crossed
+  threshold fires per trip per run. Dedupe is per (employee, stable title,
+  trip reference) under a per-trip `pg_advisory_xact_lock` inside a
+  transaction — no global unique constraint. The window math is the shared
+  `src/lib/scheduling/start-window.js` resolver (TomTom → haversine → stored
+  estimate ladder), consumed identically by the start gate
+  (`PUT /api/trips/[id]/start`), the driver trips feed, and this producer —
+  no third implementation. Copy never mentions the pre-trip inspection and
+  never claims the trip can start (the start endpoint's gates are untouched);
+  pickup times render in Asia/Manila explicitly. Deep-links use
+  `reference_type='trip'`. After inserts the outbox is drained **targeted**
+  (`flushOutbox({ employeeIds })`, which now also sends heads-up-channel rows
+  without sound). Response counters: `start_window_notifications_created` /
+  `start_window_pushes_attempted` / `start_window_skipped` /
+  `start_window_stale_locations` (eligible trips whose driver position fed
+  the ETA but is >10 min old or of unknown age — acceptance-testing signal,
+  not an error; NULL positions aren't counted). Operational acceptance
+  (external scheduler, CRON_SECRET in production, live device tests) is
+  pending — checklist in the plan note; as of 2026-09-09 no external
+  scheduler is active and `cron_sync_last_ok` has been stale since 2026-09-06.
 - **Role-aware routing (2026-09-07):** inbox stays per-user (own `employee_id`
   rows), but producers resolve recipients through
   `src/lib/notifications/recipients.js` — `notificationRolesFor()` (authority

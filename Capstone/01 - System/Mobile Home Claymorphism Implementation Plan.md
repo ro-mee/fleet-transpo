@@ -7,6 +7,8 @@ Status: Implemented; automated checks and isolated component review completed. N
 
 ### Real route preview — 2026-09-09
 
+Current-trip fix (owner report: "dapat kita pa din yung route preview kahit naka current trip na sya"): routeless booking dispatches (trips created by `ensureTripForDispatch` where `dispatch.route_id` is null) return null endpoint coordinates, so the CURRENT TRIP card fell to "Route preview unavailable" mid-trip. Fixed server-side in `GET /api/mobile/driver/trips` with the shared gazetteer fallback (canonical → gazetteer → none, same chain as the geofence service); unknown endpoint text stays null. No mobile changes — both Home and Trip Details already render the preview whenever coordinates exist. Details in `Capstone/02 - Features/Trips.md`.
+
 Raised route/pin follow-up: the shared preview now layers an offset soft shadow, forest base, green body and narrow highlight over the same real road geometry. Pins use radial shading, curved rim lighting and recessed white-center treatment. Trip Details now consumes this same TripMapPreview; its separate interactive full-map modal remains unchanged. Targeted ESLint and eight preview/detail tests passed; on-device appearance remains pending. No commit.
 
 Map clarity/depth follow-up: screenshot showed faint right-hand map detail, not evidence of a fully missing tile. Removed the blanket generic-fill override so provider airport/land-use distinctions survive; kept targeted muted water/park/building treatment. Added container resize handling and height-aware bounds padding. Increased wrapper curvature, rim thickness and soft outer elevation without putting an overlay on the map. Native tile/network failure has not been reproduced; on-device confirmation remains needed.
@@ -105,3 +107,43 @@ The Home screen read like a mockup: header, hero KPI card, quick actions and sec
 - **Trip cards** (Current/Next/Then): padding 20 → 14, internal gap 18 → 12, status/tag pills 14/9 → 10/6 (radius 16), timeline nodes 24 → 20 (border 3 → 2.5, track 26 → 22) with stop padding-bottom 18 → 12, CTA 58 → 48 minHeight (padding 14 → 10, radius 18), empty state 110 → 84. `TripMapPreview` aspect ratio 1.65:1 → 1.9:1 (radius 28/22 → 22/17) — the single biggest per-card saving, shared with Trip Details.
 
 Net effect: ~100px more content above the fold on a typical phone — header through quick actions plus the assignments heading visible without scrolling. Verified: targeted ESLint clean on all touched files, mobile Vitest 14 files / 102 tests, `expo export --platform android` passed. On-device visual acceptance still pending. No commit created.
+
+## Dark-mode clay depth pass — 2026-09-09
+
+Owner critique: dark mode read as "dark neumorphism / flat dark cards" — background, cards and containers too close in tone, a harsh straight gray highlight line on card tops, invisible shadows. Root causes were systemic, not per-screen:
+
+1. **The clay edge material was hardcoded light values.** `clay.js` (and local copies in trips.js, trip/[id].js, DriverHomeCards.jsx) baked `#FFFFFF70`-family 2px top strips and `#00000016`-family bottoms. On a near-black card the white strip is a harsh line; the black bottom strip and 0.22-opacity black shadows are invisible.
+2. **Dark palette tonal compression.** `background #111816` sat ~3% from `surfaceContainerLow #151D1A` — nothing to lift against.
+
+### What changed
+
+- **`mobile/lib/clay.js` → `clayMaterials(isDark)`** (light named exports unchanged for reference; all consumers now call the function with `scheme === "dark"`). Dark recipe: overall soft border `rgba(255,255,255,0.05–0.06)` 1px + top `rgba(255,255,255,0.09–0.12)` 1.5px (diffused, no visible straight line) + bottom `rgba(0,0,0,0.32–0.45)` + stronger/wider shadows (opacity 0.3–0.5, radius 12–18) so depth survives the dark stage. Converted consumers: Profile tab, Settings, Devices & Sessions, DriverSos, ClayMenuRow, ClayScreenHeader, profile/{vehicle, privacy, personal, permissions, license, help, about}, plus the local recipes in Trips list, Trip Details, and Home's DriverHomeCards (hero/quick-actions/trip cards → `mats.clayShade`; accent tag / CTA / status pill get scheme-aware raised/pill edges — the fixed-forest hero tiles keep the light recipe, which is correct on that constant surface in both schemes).
+- **Dark palette (dark-only, light + high-contrast untouched):** `background` & `surfaceDim` `#111816` → `#0D1713`; `primaryContainer` `#285448` → `#245F50` (muted emerald tiles; `onPrimaryContainer #DDEBE5` on it ≈ 5.7:1, WCAG AA). Both documented inline in `theme.js`.
+- **Screen-level fixes:** Profile inline `#FFFFFFxx` strips → material values; Settings text-size modal Cancel `borderWidth 2 outline` → `clayCta` + `surfaceContainerHigh` (matching the logout-modal Cancel); Devices revoke button 2px error outline → soft-destructive `errorContainer` clay (Profile Sign Out pattern); SOS FAB/chip/emboss edges scheme-aware (dark `error` is light salmon — moderated white edge + deeper shadow); Work Schedule hero literal-white text/chip → `onPrimary`-alpha (dark primary is pale sage, white washed out); DriverHomeHeader avatar sheen scheme-aware; AppAlert foreign Tailwind palette (rose/emerald/amber/sky) → theme `danger/success/warning/info` tone tokens with derived alphas, top gleam diffused in dark; Vehicle tab's foreign blue `rgba(37,99,235,0.12)` → `colors.info + "1F"`; license scan-box/source-button strips dark-aware; `trip/complete.js` top/cta gleams + KM badge dark-aware.
+- **Bug found en route:** `trip/complete.js` destructured `isDark` from `useTheme()` — the context never exposed that key (it exposes `scheme`), so it was silently always-undefined. Replaced with `scheme === "dark"`.
+- **Intentionally untouched:** camera viewfinders (`fuel-report.js`, license capture `#000/#fff`), map overlay controls (`components/map.js` — white over map imagery), `_layout.js` scan FAB, `SwipeButton.js` (parallel WIP), high-contrast overrides (legibility first; HC-dark keeps the subtle dark materials, its palette already forces white borders).
+
+### Verification
+
+Targeted ESLint clean on all 24 touched files; mobile Vitest 15 files / 106 tests passed; `expo export --platform android` passed (5.06 MB bundle). Re-grep confirms no remaining `#FFFFFF`-family strips outside deliberate light branches/static baselines that carry inline dark overrides, and no foreign Tailwind colors outside map.js/SwipeButton.js (out of scope). Native-device visual acceptance in light + dark + high contrast remains pending — that is where the diffused-highlight tuning should be confirmed. No commit created.
+
+## Dark→Light theme-switch regression fix — 2026-09-09
+
+Owner report: light correct on first load, dark correct, but toggling back Dark→Light broke clay cards — rectangular shadow/backing artifacts behind rounded cards, stale dark layers, cards no longer matching their initial light appearance.
+
+### Root cause — style-key asymmetry, not animation
+
+Swept every focus area first: **no** theme-interpolated Animated/reanimated values exist (all animations are modal/entrance/gesture), **no** memoized theme styles, **no** static StyleSheet entries that vary by theme. The regression was in the style payloads themselves: React Native does not reliably reset a style prop that merely *vanishes* from a style object — so a key that exists only in the dark materials survives the switch back to light as stale native state. The dark clay depth pass had introduced exactly that: dark `clayShade`/`compactShade` added `borderWidth: 1, borderColor: "rgba(...)"` keys with **no counterpart in the light materials**. The stale 1px border survived Dark→Light; on Android `borderWidth` + `elevation` forces a rectangular shadow outline around the rounded card, invisible in dark (black-on-near-black) but glaring on the ivory light stage — precisely the Profile section cards (`compactShade`) and larger cards (`clayShade`).
+
+### What changed (state cleanup only — no visual redesign of either theme)
+
+- **`mobile/lib/clay.js`:** light `clayShade`/`compactShade` now declare `borderWidth: 0, borderColor: "transparent"` — the same keys the dark variants override, explicitly restored instead of omitted. All six material pairs now have identical key sets (dark overrides values; light restores defaults). Visually a no-op: a 0-width transparent border renders as nothing.
+- **`mobile/app/(app)/(tabs)/trips.js`:** `styles.pill` gained `borderBottomWidth: 0, borderBottomColor: "transparent"` — the dark-only inline override above it sets `borderBottomWidth: 1.5`, which light never reset (same latent class, on the status pill).
+- **`mobile/app/(app)/settings.js`:** the theme segment control's `active && mats.clayPill` pattern left stale border/shadow/background state on a pill losing selection (same screen the theme is toggled on). `styles.segmentOption` now carries the full key set as neutral defaults (0-width transparent borders, transparent background, zeroed shadow/elevation) so deselection restores explicitly.
+- **`mobile/lib/clay.test.js` (new):** regression guard — asserts every material in `clayMaterials(true)` declares the same keys as its `clayMaterials(false)` counterpart, and that the light borders are restored as invisible defaults rather than omitted.
+
+Verified safe by audit (key parity already held): DriverSos `sosEdges`/`chipEdges` (both branches same keys, widths supplied by statics), DriverHomeCards `raisedControl`/`raisedControlDark` and `pillEdgesLight`/`pillEdgesDark` pairs, all `dark && {...}` inline overrides (statics beneath supply every key), AppAlert, trip/complete gleams.
+
+### Verification
+
+Targeted ESLint clean on the four touched files; mobile Vitest 16 files / 113 tests passed (new key-parity suite included); `expo export --platform android` passed (5.06 MB). No layout, spacing, content, navigation, or business-logic changes; light and dark visual recipes byte-identical to before wherever keys already matched. **The repeated Light → Dark → Light → Dark → Light cycle on the Profile tab (header, Account / Privacy & Security / General cards, Sign Out, icon tiles) requires a native device and remains pending this session.** No commit created.

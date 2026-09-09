@@ -120,7 +120,11 @@ const light = {
 const dark = {
   primary: "#A6C7B8",
   onPrimary: "#103A30",
-  primaryContainer: "#285448",
+  // Dark clay depth audit 2026-09-09: raised icon tiles / pills / secondary
+  // CTAs moved #285448 → #245F50 (muted emerald). The old value read muddy
+  // gray on the dark stage. onPrimaryContainer #DDEBE5 on #245F50 ≈ 5.7:1
+  // (WCAG AA). Dark-mode-only change.
+  primaryContainer: "#245F50",
   onPrimaryContainer: "#DDEBE5",
 
   secondary: "#D2A765",
@@ -138,13 +142,17 @@ const dark = {
   errorContainer: "#7A2828",
   onErrorContainer: "#FFDAD7",
 
-  background: "#111816",
+  // Dark clay depth audit 2026-09-09: the stage must be a very dark
+  // green-black (#111816 → #0D1713) so the lighter container ladder has
+  // something to lift against — the old value sat ~3% from the cards and
+  // dark mode read as flat. Dark-mode-only change; light/HC palettes untouched.
+  background: "#0D1713",
   onBackground: "#F5F1E9",
 
   surface: "#19211E",
   onSurface: "#F5F1E9",
   surfaceBright: "#2A3530",
-  surfaceDim: "#111816",
+  surfaceDim: "#0D1713",
 
   surfaceVariant: "#35423B",
   onSurfaceVariant: "#C2CBC4",

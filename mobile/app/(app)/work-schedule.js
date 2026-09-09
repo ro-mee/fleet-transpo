@@ -227,11 +227,13 @@ export default function WorkScheduleScreen() {
         ) : view === "schedule" ? (
           <View style={styles.contentGap}>
             <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-              <View style={[styles.heroIcon, { backgroundColor: "rgba(255,255,255,0.16)" }]}><Ionicons name="time-outline" size={23} color={colors.onPrimary} /></View>
+              {/* onPrimary-alpha overlays (not literal white): dark mode's
+                  primary is pale sage, where white text/chips wash out. */}
+              <View style={[styles.heroIcon, { backgroundColor: colors.onPrimary + "29" }]}><Ionicons name="time-outline" size={23} color={colors.onPrimary} /></View>
               <View style={styles.heroText}>
                 <Text style={[styles.heroLabel, { color: colors.onPrimary }]}>WEEKLY RHYTHM</Text>
                 <Text style={[styles.heroTitle, { color: colors.onPrimary }]}>Know your next shift.</Text>
-                <Text style={[styles.heroBody, { color: "rgba(255,255,255,0.76)" }]}>Your schedule is managed by the fleet team and syncs with the website.</Text>
+                <Text style={[styles.heroBody, { color: colors.onPrimary + "C2" }]}>Your schedule is managed by the fleet team and syncs with the website.</Text>
               </View>
             </View>
             {offline && scheduleSyncedAt == null ? (

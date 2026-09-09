@@ -8,7 +8,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from "../../../components/ClayScreenHeader";
 import { Logo } from "../../../components/logo";
-import { clayShade, clayTile } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 
 // Currently configured support contacts — reused from the Help Center.
 // TODO(production): verify these are the real hotline/email before release.
@@ -27,11 +27,12 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function AboutFleetOps() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   const sectionCard = [
     styles.sectionCard,
-    clayShade,
+    mats.clayShade,
     { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
   ];
 
@@ -61,7 +62,7 @@ export default function AboutFleetOps() {
             onPress={() => Linking.openURL('tel:18001234567')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
               </View>
               <View>
@@ -79,7 +80,7 @@ export default function AboutFleetOps() {
             onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
+              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                 <Ionicons name="mail" size={18} color={colors.onPrimaryContainer} />
               </View>
               <View>

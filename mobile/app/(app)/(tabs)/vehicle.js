@@ -211,7 +211,7 @@ export default function FullMapTab() {
 
           {/* Destination & Route Header */}
           <View style={styles.routeHeader}>
-            <View style={styles.routeIconBox}>
+            <View style={[styles.routeIconBox, { backgroundColor: colors.info + "1F" }]}>
               <Text style={styles.routeIcon}>📍</Text>
             </View>
             <View style={styles.routeDetails}>
@@ -418,7 +418,7 @@ const styles = StyleSheet.create({
     width: moderateScale(42),
     height: moderateScale(42),
     borderRadius: moderateScale(21),
-    backgroundColor: "rgba(37, 99, 235, 0.12)",
+    // Tint applied inline from colors.info — no literal palette here.
     alignItems: "center",
     justifyContent: "center",
   },

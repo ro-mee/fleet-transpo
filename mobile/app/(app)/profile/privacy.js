@@ -8,7 +8,7 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayShade, clayPill } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -46,7 +46,8 @@ function PolicySection({ heading, body, colors, type, isLast }) {
 export default function PrivacyConsent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   // Cached /api/driver/me read — the policy text arrives with the consent
   // payload, so it is readable offline after one prior sync. Offline falls
@@ -72,7 +73,7 @@ export default function PrivacyConsent() {
       <ClayScreenHeader title="Privacy & Consent" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
 
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>
@@ -81,7 +82,7 @@ export default function PrivacyConsent() {
             <View
               style={[
                 styles.consentBadge,
-                clayPill,
+                mats.clayPill,
                 {
                   backgroundColor: consent?.accepted ? colors.primaryContainer : colors.errorContainer,
                   shadowColor: colors.shadow,
@@ -120,7 +121,7 @@ export default function PrivacyConsent() {
             <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>
               PRIVACY POLICY & USER AGREEMENT
             </Text>
-            <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
               <View style={styles.policyMeta}>
                 <Text style={[styles.policyTitle, { color: colors.onSurface }]}>{policy.title}</Text>
                 <Text style={[styles.policyCaption, { color: colors.onSurfaceVariant }]}>
@@ -143,7 +144,7 @@ export default function PrivacyConsent() {
             </Text>
           </>
         ) : (
-          <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20 }]}>
+          <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20 }]}>
             <Text style={[styles.policyTitle, { color: colors.onSurface }]}>Privacy policy not saved on this device</Text>
             <Text style={[styles.noteText, { color: colors.onSurfaceVariant, textAlign: "left", marginTop: 6 }]}>
               The policy is saved for offline reading after your profile syncs once. Connect to the internet and open your profile, then come back.

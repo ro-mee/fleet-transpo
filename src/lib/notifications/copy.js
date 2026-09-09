@@ -51,6 +51,19 @@ function dateWords(value) {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" });
 }
 
+/**
+ * "3:45 PM" — a clock time in Asia/Manila, the fleet's operating timezone
+ * (NOT the server's). Times in trip copy must read the same regardless of
+ * where the API pod runs. Falls back to "the scheduled time" when the value
+ * is missing/unparseable, so a sentence never degrades into "at ." or "()".
+ */
+function manilaTime(value) {
+  if (value == null || value === "") return "the scheduled time";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "the scheduled time";
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
+}
+
 // ---- Incident report lifecycle (reporter loop-closure) ----------------------
 
 export function incidentUnderReview({ incidentTypeLabel }) {
@@ -206,5 +219,59 @@ export function driverReinstatedStaff({ name }) {
     title: "Driver Reinstated",
     message: `${who}'s license was renewed — compliance suspension lifted and driver is Available again.`,
     pushBody: `${who === "The driver" ? "Driver" : name}'s license renewal lifted the suspension — driver is Available.`,
+  };
+}
+
+// ---- Trip start-window (time-driven, /api/cron/sync producer) ---------------
+// Three thresholds of one window (earliest_start / recommended_departure /
+// latest_start = scheduled pickup). Copy rules specific to this group:
+//   - NEVER mentions the pre-trip inspection — but never says "you can start
+//     your trip" either, because the start endpoint still gates on
+//     inspection, vehicle/driver status and work schedule. The window being
+//     open is the honest claim.
+//   - Pickup times render in Asia/Manila (the fleet's operating timezone),
+//     never the server's local zone.
+//   - ETA text only when the ETA actually resolved (fail-open ladder).
+
+/** earliest_start crossed — quiet heads-up tier. */
+export function tripStartWindowOpen({ pickup, etaMinutes }) {
+  const when = manilaTime(pickup);
+  const eta = minutesOut(etaMinutes);
+  return {
+    title: "Trip Start Window Open",
+    message: `Your trip start window is open — pickup is at ${when}.${eta} Head over when you're ready.`,
+    pushBody: `Your trip start window is open — pickup at ${when}.`,
+  };
+}
+
+/** recommended_departure crossed — loud Alert tier. */
+export function timeToHeadToPickup({ pickup, etaMinutes }) {
+  const when = manilaTime(pickup);
+  const eta = minutesShort(etaMinutes);
+  return {
+    title: "Time to Head to Pickup",
+    message: `Leave now to make your ${when} pickup${eta}.`,
+    pushBody: `Time to head to the pickup — your pickup is at ${when}.`,
+  };
+}
+
+/** latest_start (scheduled pickup) crossed, trip still not started — driver. */
+export function tripNotStartedDriver({ pickup }) {
+  const when = manilaTime(pickup);
+  return {
+    title: "Trip Has Not Started",
+    message: `Your pickup time (${when}) has passed and the trip hasn't started yet. Start the trip from the app, or contact the fleet team if something is wrong.`,
+    pushBody: `Your pickup time (${when}) has passed — start the trip or contact the fleet team.`,
+  };
+}
+
+/** latest_start crossed, trip still not started — dispatcher/staff (operational). */
+export function tripNotStartedStaff({ driverName, pickup }) {
+  const who = driverName || "A driver";
+  const when = manilaTime(pickup);
+  return {
+    title: "Scheduled Trip Has Not Started",
+    message: `${who}'s trip hasn't started — the scheduled pickup (${when}) has passed while the trip is still awaiting start.`,
+    pushBody: `${who}'s trip hasn't started — ${when} pickup has passed.`,
   };
 }

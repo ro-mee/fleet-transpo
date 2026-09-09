@@ -242,6 +242,21 @@ export const NOTIFICATION_EVENTS = {
     label: "Urgent Incident",
     defaults: { in_app: true, email: true, push: true },
   },
+  // Time-driven trip start-window producer (start-window-notifications.service,
+  // driven by /api/cron/sync). Driver-audience events; the overdue event also
+  // pages dispatchers but under the same key.
+  trip_start_window: {
+    label: "Trip Start Window Open",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  trip_departure_due: {
+    label: "Time to Head to Pickup",
+    defaults: { in_app: true, email: false, push: true },
+  },
+  trip_start_overdue: {
+    label: "Trip Has Not Started",
+    defaults: { in_app: true, email: false, push: true },
+  },
 };
 
 export const SERVICE_TYPES = {

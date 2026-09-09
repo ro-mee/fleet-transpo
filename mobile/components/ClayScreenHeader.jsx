@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
-import { clayShade } from "../lib/clay";
+import { clayMaterials } from "../lib/clay";
 
 /**
  * Clay sub-screen header: raised 48dp circular back control + centered title,
@@ -14,7 +14,8 @@ import { clayShade } from "../lib/clay";
  */
 export default function ClayScreenHeader({ title, onBack }) {
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   return (
     <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
@@ -24,7 +25,7 @@ export default function ClayScreenHeader({ title, onBack }) {
         accessibilityLabel="Go back"
         style={({ pressed }) => [
           styles.backBtn,
-          clayShade,
+          mats.clayShade,
           { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 },
         ]}
       >

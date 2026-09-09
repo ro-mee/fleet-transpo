@@ -30,40 +30,31 @@ const AppAlertEmitter = {
   },
 };
 
-// ─── Preset icon maps (Luxury Tone Profiles & Vector SVGs) ─────────────────
+// ─── Preset icon maps ──────────────────────────────────────────────────────
+// Tones map to theme tokens (colors[tone]); the chip/border/aura alphas are
+// derived at render time so dark mode gets the palette's own hues instead of
+// a foreign pasted-in palette.
 const ICON_MAP = {
   error: {
-    color: '#F43F5E',
-    bg: 'rgba(244, 63, 94, 0.12)',
-    border: 'rgba(244, 63, 94, 0.28)',
-    outerGlow: 'rgba(244, 63, 94, 0.08)',
+    tone: 'danger',
     render: (color) => (
       <Ionicons name="close-circle" size={32} color={color} />
     ),
   },
   success: {
-    color: '#10B981',
-    bg: 'rgba(16, 185, 129, 0.12)',
-    border: 'rgba(16, 185, 129, 0.28)',
-    outerGlow: 'rgba(16, 185, 129, 0.08)',
+    tone: 'success',
     render: (color) => (
       <Ionicons name="checkmark-circle" size={32} color={color} />
     ),
   },
   warning: {
-    color: '#F59E0B',
-    bg: 'rgba(245, 158, 11, 0.12)',
-    border: 'rgba(245, 158, 11, 0.28)',
-    outerGlow: 'rgba(245, 158, 11, 0.08)',
+    tone: 'warning',
     render: (color) => (
       <Ionicons name="alert-circle" size={32} color={color} />
     ),
   },
   info: {
-    color: '#0EA5E9',
-    bg: 'rgba(14, 165, 233, 0.12)',
-    border: 'rgba(14, 165, 233, 0.28)',
-    outerGlow: 'rgba(14, 165, 233, 0.08)',
+    tone: 'info',
     render: (color) => (
       <Ionicons name="information-circle" size={32} color={color} />
     ),
@@ -141,6 +132,11 @@ export function AppAlertHost() {
     : [{ text: 'OK' }];
 
   const icon = deriveIcon(config.title, config.options);
+  // Icon chip colors derived from the live theme tone — one hex + alpha
+  // triple replaces the old foreign literal palette, so dark alerts carry
+  // the palette's own muted hues.
+  const toneColor = colors[icon.tone] || colors.info;
+  const iconColor = { color: toneColor, bg: toneColor + '1F', border: toneColor + '47', outerGlow: toneColor + '14' };
 
   return (
     <Modal
@@ -166,17 +162,18 @@ export function AppAlertHost() {
             },
           ]}
         >
-          {/* Specular hairline top gleam */}
-          <View style={styles.insetHighlight} />
+          {/* Specular hairline top gleam — diffused in dark so it is a
+              whisper, not a bright strip on the near-black shell */}
+          <View style={[styles.insetHighlight, isDark && { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]} />
 
           {/* ── Inner Core ────────────────────────────────────────── */}
           <View style={[styles.inner, { backgroundColor: colors.surfaceContainerLow }]}>
 
             {/* Glowing Icon Double-Bezel Badge */}
-            <View style={[styles.iconOuterAura, { backgroundColor: icon.outerGlow }]}>
-              <View style={[styles.iconShell, { borderColor: icon.border, backgroundColor: isDark ? colors.surfaceContainerLowest : '#FFFFFF' }]}>
-                <View style={[styles.iconCore, { backgroundColor: icon.bg }]}>
-                  {icon.render(icon.color)}
+            <View style={[styles.iconOuterAura, { backgroundColor: iconColor.outerGlow }]}>
+              <View style={[styles.iconShell, { borderColor: iconColor.border, backgroundColor: isDark ? colors.surfaceContainerLowest : '#FFFFFF' }]}>
+                <View style={[styles.iconCore, { backgroundColor: iconColor.bg }]}>
+                  {icon.render(iconColor.color)}
                 </View>
               </View>
             </View>

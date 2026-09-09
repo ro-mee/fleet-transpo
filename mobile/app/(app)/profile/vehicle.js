@@ -8,7 +8,7 @@ import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayShade } from "../../../lib/clay";
+import { clayMaterials } from "../../../lib/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -22,7 +22,8 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function VehicleInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const mats = clayMaterials(scheme === "dark");
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently (the global offline banner is enough on Profile screens).
@@ -47,7 +48,7 @@ export default function VehicleInformation() {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         {vehicle ? (
-          <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             {vehicle.imageUrl ? (
               <Image
                 source={{ uri: vehicle.imageUrl }}
@@ -74,7 +75,7 @@ export default function VehicleInformation() {
             </View>
           </View>
         ) : (
-          <View style={[styles.emptyBox, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <View style={[styles.emptyBox, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
               <Ionicons name="car-outline" size={24} color={statusColorForTone(colors, "neutral").fg} />
             </View>
