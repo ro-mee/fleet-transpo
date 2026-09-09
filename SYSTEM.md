@@ -6,6 +6,10 @@ Comprehensive system overview for AI assistants and new developers. Covers archi
 
 **Mobile Profile & Settings UI update (2026-09-09, implemented):** [Profile & Settings claymorphism plan + outcome](Capstone/01%20-%20System/Mobile%20Profile%20%20%26%20Settings%20Claymorphism%20Implementation%20Plan.md) extends the Home/Trips clay language to the Profile tab and everything reachable from it — Settings, personal/license/vehicle/safety/help, Logged-in Devices. Styling-only: new shared `mobile/lib/clay.js` (pure material constants) + `ClayScreenHeader` (raised back control); `components/ui.js` untouched. All permission/upload/session/phone-edit/sign-out logic unchanged. Mobile suite 102 tests, targeted lint, and Android export passed; native device acceptance pending.
 
+**Mobile Profile IA restructure (2026-09-09, implemented):** Profile menu regrouped into Account (Personal Information hub, which now contains License & Compliance and Assigned Vehicle rows), Privacy & Security (Privacy & Consent — read-only consent status + policy rendered from the cached `/api/driver/me` `consent` payload, no mobile policy copy; App Permissions — management screen moved out of Settings; Devices & Sessions — retitled former Logged-in Devices), and General (Help Center, new About FleetOps, Settings). `settings.js` lost its permission management and later its push/location toggles too (see the next note); the first-run consent gate's summary wording was reconciled with `src/lib/consent/policies.js` (flow untouched); `profile/safety.js` was superseded by `profile/privacy.js`. New shared `ClayMenuRow`. Mobile suite 102 tests, targeted lint, and Android export passed; native device acceptance pending.
+
+**Mobile App Permissions hybrid + Settings trim (2026-09-09, implemented):** App Permissions is now a hybrid screen — APP CONTROLS holds the app-level Location Tracking and Push Notifications toggles (Location ON requests the OS permission first; OFF stops FleetOps use only and the always-visible "Device permission: …" line keeps the OS state honest — the app never implies it can revoke an OS permission), and DEVICE ACCESS holds the remaining OS-permission rows (Background Location, Camera, Photo Library) as status/manage, never switches. Settings lost the push/location toggles and is display-only (theme/text-size/high-contrast). Profile's Sign Out became a soft destructive clay button (errorContainer surface, clay edge strips, error-tinted icon tile), and the logout confirm modal is now a raised clay card — destructive medallion, clay Cancel (raised surface) and clay Confirm (solid error red, the actual destructive action). Mobile suite 102 tests, targeted lint, and Android export passed; native device acceptance pending.
+
 ## 1. System Overview
 
 **Shared clay route preview (2026-09-09):** Home and Trip Details share TripMapPreview with raised route shading and rounded clay pins. Detail full-map navigation remains unchanged. See Home/Trips notes for verification.
@@ -1059,7 +1063,9 @@ app/(app)/(tabs)/         bottom tab bar:
                           ready·schedule-unconfirmed → upcoming → completed → cancelled);
                           whole-card tap → details; open-assignment summary
                           (queue logic in lib/trips-queue.js)
-  profile.js              ★ driver profile hub — menu into profile/* subpages, settings, Sign out
+  profile.js              ★ driver profile hub — Account (Personal Information), Privacy & Security
+                          (Privacy & Consent, App Permissions, Devices & Sessions), General (Help,
+                          About, Settings), Sign out
     …history.js           hidden from bar (header access): completed/cancelled trips
     …notifications.js     hidden from bar: alerts inbox w/ tiered banners (push/heads-up/silent)
     …vehicle.js           hidden from bar: assigned-vehicle detail
@@ -1069,12 +1075,16 @@ app/(app)/incidents.js    report incident (typed categories, assistance chips, c
 app/(app)/inspection.js   pre-shift 7-point pass/fail checklist tied to a trip (POSTs trip_id)
 app/(app)/work-schedule.js weekly schedule editor + leave requests (Vacation/Personal/Medical)
 app/(app)/submissions.js  activity logs: fuel/inspection/incident submissions + offline dead-letter retry
-app/(app)/settings.js     push/tracking/high-contrast/text-size/theme toggles, permission management
+app/(app)/settings.js     display preferences only: theme/text-size/high-contrast
+app/(app)/devices.js      Devices & Sessions — current/other session cards, revoke (other + self)
 app/(app)/trip/[id].js    trip detail + accept & START ROUTE gate (30 s refresh); active trips
                           get navigate-only CONTINUE TO MAP; terminal trips read-only; honest
                           notFound/error/never-synced states (decisions in lib/trip-detail.js)
 app/(app)/trip/complete.js animated completion summary (Lottie) w/ note & issue modals
-app/(app)/profile/*.js    personal (phone edit), license (capture→scan), vehicle, safety, help
+app/(app)/profile/*.js    personal (phone edit + hub rows to license/vehicle), license (capture→scan),
+                          vehicle, privacy (read-only consent status + server policy from
+                          /api/driver/me), permissions (hybrid: app-level tracking/push toggles +
+                          device-access status rows), help, about
 ```
 
 ### lib/
@@ -1086,7 +1096,7 @@ app/(app)/profile/*.js    personal (phone edit), license (capture→scan), vehic
 - `trips-queue.js` + `trip-detail.js` — pure, vitest-runnable decision helpers: queue bucketing (incl. READY · SCHEDULE UNCONFIRMED for unknown start windows) and detail actions/readiness/display facts (`end_time` completion, no default departure, supplied-only passenger data).
 - `notifications/` — `tiers.js` (+test) classifier, `notify.js` emitter, `presentation.js` labels, `navigation.js` deep-link table, `push.js` expo-notifications wrapper (channels `default`/`heads-up`, token minting), `device-token.js` registration.
 - `settings-context.js` (persisted prefs), `theme.js`+`theme-context.js` (FleetOps Tactical tokens, light/dark MD3), `scaling.js`, `clay.js` (import-free claymorphism material constants), `receipt-crop.js`, `permissions.js` registry, `launch.js`, `consent.js`, `storage.js`, `rbac.js`.
-- `components/` — `ui.js` (MD3 primitives), `ClayScreenHeader` (raised clay back-control header), `TomTomMap` (static images, pan/zoom, live overlay, Google Maps deep link), `RouteTimeline` (shared pickup→drop-off timeline), `NotificationHost` (banners/toasts/push taps), `DriverSos`, `plate.js`, `logo.js`, `error-boundary.js`.
+- `components/` — `ui.js` (MD3 primitives), `ClayScreenHeader` (raised clay back-control header), `ClayMenuRow` (shared clay menu row), `TomTomMap` (static images, pan/zoom, live overlay, Google Maps deep link), `RouteTimeline` (shared pickup→drop-off timeline), `NotificationHost` (banners/toasts/push taps), `DriverSos`, `plate.js`, `logo.js`, `error-boundary.js`.
 
 ### Backend integration / auth
 - Talks to the Next API over plain JSON fetch; `EXPO_PUBLIC_API_URL` → LAN IP of the dev server. Referer-free, cookie-less: auth is `Authorization: Bearer` (the same `mobile_refresh_tokens` flow as §7).
