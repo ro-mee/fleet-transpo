@@ -30,8 +30,8 @@ export default function TripMapPreview({ trip, offline, airport = false }) {
   </View>;
 }
 const s = StyleSheet.create({
-  shell: { width: '100%', aspectRatio: 1.65, borderRadius: 28, padding: 5, borderTopWidth: 2, borderBottomWidth: 3, shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.24, shadowRadius: 12, elevation: 7 },
-  clip: { flex: 1, borderRadius: 22, overflow: 'hidden', backgroundColor: palettes.light.background },
+  shell: { width: '100%', aspectRatio: 1.9, borderRadius: 22, padding: 5, borderTopWidth: 2, borderBottomWidth: 3, shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.24, shadowRadius: 12, elevation: 7 },
+  clip: { flex: 1, borderRadius: 17, overflow: 'hidden', backgroundColor: palettes.light.background },
   map: { flex: 1, backgroundColor: palettes.light.background },
   message: { backgroundColor: palettes.light.background, justifyContent: 'center', alignItems: 'center', padding: 10, gap: 6 },
 });

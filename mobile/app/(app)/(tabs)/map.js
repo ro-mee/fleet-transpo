@@ -81,8 +81,8 @@ function haversineKm(latA, lonA, latB, lonB) {
   return R * c;
 }
 
-// Max km a single GPS segment (â‰¤3s apart) can plausibly be before we treat it
-// as a jump/glitch and drop it. ~400m/3s â‰ˆ 480 km/h, far above any vehicle.
+// Max km a single GPS segment (≤3s apart) can plausibly be before we treat it
+// as a jump/glitch and drop it. ~400m/3s ≈ 480 km/h, far above any vehicle.
 const MAX_SEGMENT_KM = 0.4;
 // Segments shorter than this while effectively stationary are GPS jitter and
 // would inflate km while parked; only counted when the vehicle is actually
@@ -208,8 +208,8 @@ export default function MapTab() {
 
   // Background tracking, driven by AppState so there is never overlap with the
   // foreground watcher (no double-counted km, no duplicate GPS posts):
-  //   background + active trip â†’ start the headless task
-  //   foreground              â†’ stop it and merge the km it accumulated
+  //   background + active trip → start the headless task
+  //   foreground              → stop it and merge the km it accumulated
   const appState = useRef(AppState.currentState);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
@@ -418,7 +418,7 @@ export default function MapTab() {
     return () => clearInterval(t);
   }, [activeTripStatus]);
 
-  // Permission denied â€” an honest dead-end with a way out, not a loader that
+  // Permission denied — an honest dead-end with a way out, not a loader that
   // never resolves.
   if (permissionDenied) {
     return (
@@ -496,7 +496,7 @@ export default function MapTab() {
                 Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Driver'}
               </Text>
               <Text style={[styles.idleSubtext, { color: colors.onSurfaceVariant }]}>
-                You are on duty â€¢ Waiting for assignments
+                You are on duty • Waiting for assignments
               </Text>
             </View>
           </View>
@@ -519,7 +519,7 @@ export default function MapTab() {
 
 
   // Departure-window gate for the START ROUTE button. When earliest_start is
-  // null (no scheduled departure / no ETA) the window is open â€” fail-open.
+  // null (no scheduled departure / no ETA) the window is open — fail-open.
   const earliestStart = activeTrip?.earliest_start
     ? new Date(activeTrip.earliest_start).getTime()
     : null;
@@ -568,7 +568,7 @@ export default function MapTab() {
         </View>
       )}
 
-      {/* Floating restore pill â€” appears when bottom sheet is hidden */}
+      {/* Floating restore pill — appears when bottom sheet is hidden */}
       {activeTrip && isMinimized && (
         <Pressable
           onPress={() => snapToMinimized(false)}
@@ -641,7 +641,7 @@ export default function MapTab() {
                 </View>
                 <View style={styles.locationTextWrapper}>
                   <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
-                    {preDeparture && `NEXT TRIP Â· ${pickupAt || "TBD"}`}
+                    {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
                     {!preDeparture && isPending && "PICK UP LOCATION"}
                     {(isDriverAccepted && !preDeparture) && "EN ROUTE TO PICKUP"}
                     {isState1 && "EN ROUTE TO PICKUP"}
@@ -651,7 +651,7 @@ export default function MapTab() {
                   </Text>
                   <Text style={[styles.locationName, { color: colors.onSurface }]} numberOfLines={1}>
                     {preDeparture
-                      ? `${activeTrip.origin || "Pickup"} â†’ ${activeTrip.destination || "Destination"}`
+                      ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
                       : destName}
                   </Text>
                 </View>
@@ -701,7 +701,7 @@ export default function MapTab() {
             </Pressable>
           </View>
 
-          {/* Action Button â€” outside panResponder zone so SwipeButton doesn't conflict */}
+          {/* Action Button — outside panResponder zone so SwipeButton doesn't conflict */}
           {/* PR #3 arrival suggestion: server says inside the geofence — the
               swipe below still performs the human-confirmed transition. */}
           {(nearPickupHint || nearDestHint) && (

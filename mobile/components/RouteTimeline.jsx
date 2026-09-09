@@ -33,9 +33,9 @@ export default function RouteTimeline({ stops, accent }) {
 
 const s = StyleSheet.create({
   wrap: { gap: 0 },
-  stop: { flexDirection: 'row', gap: 12 },
-  track: { width: 26, alignItems: 'center', paddingTop: 4 },
-  node: { width: 24, height: 24, borderRadius: 12, borderWidth: 3, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
+  stop: { flexDirection: 'row', gap: 10 },
+  track: { width: 22, alignItems: 'center', paddingTop: 4 },
+  node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
   rail: { width: 2, flex: 1, marginBottom: -4 },
-  stopText: { flex: 1, minWidth: 0, paddingBottom: 18, gap: 3 },
+  stopText: { flex: 1, minWidth: 0, paddingBottom: 12, gap: 2 },
 });

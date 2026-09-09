@@ -24,14 +24,16 @@ export default function WeatherChip({ value, compact = false }) {
 
   return (
     <View
-      style={[styles.chip, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, width: compact ? 112 : 158 }]}
+      style={[styles.chip, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, width: compact ? 128 : 148 }]}
       accessibilityRole="text"
       accessibilityLabel={`${value.temperature} Celsius, ${value.label}, ${value.condition || value.icon.replaceAll('-', ' ')}`}
     >
-      <Ionicons name={value.condition === 'night' ? 'moon' : value.icon} size={compact ? 24 : 30} color={value.condition === 'night' || value.icon === 'moon' ? colors.info : ['sunny', 'partly-sunny', 'thunderstorm'].includes(value.icon) ? colors.secondary : colors.info} />
+      <Ionicons name={value.condition === 'night' ? 'moon' : value.icon} size={compact ? 20 : 24} color={value.condition === 'night' || value.icon === 'moon' ? colors.info : ['sunny', 'partly-sunny', 'thunderstorm'].includes(value.icon) ? colors.secondary : colors.info} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Text style={[styles.temperature, { color: colors.onSurface }]}>{value.temperature}C</Text>
-        <Text style={[styles.label, { color: colors.onSurfaceVariant }]}>
+        {/* Location/condition stays on one line — long place names ellipsize
+            rather than wrapping and growing the header row. */}
+        <Text style={[styles.label, { color: colors.onSurfaceVariant }]} numberOfLines={1} ellipsizeMode="tail">
           {value.label}
         </Text>
       </View>
@@ -47,15 +49,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     alignSelf: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    minHeight: 52,
-    borderRadius: 28,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    minHeight: 44,
+    borderRadius: 22,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 5 },
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.17,
-    shadowRadius: 9,
-    elevation: 4,
+    shadowRadius: 8,
+    elevation: 3,
   },
   temperature: {
     fontFamily: fonts.displayBold,
@@ -66,6 +68,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     fontSize: 11,
     lineHeight: 13,
-    maxWidth: 110,
+    maxWidth: 100,
   },
 });

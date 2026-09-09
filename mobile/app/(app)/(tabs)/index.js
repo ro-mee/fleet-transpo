@@ -322,15 +322,9 @@ export default function Home() {
   const completed = driverProfile?.performance?.total_trips;
   const shortcuts = [
     { label: 'My Schedule', icon: 'calendar', action: () => router.push('/work-schedule') },
-    { label: 'Live Map', icon: 'map', action: () => router.push('/map') },
-    { label: 'Forms', icon: 'document-text', action: () => router.push('/submissions') },
+    { label: 'Activity Log', icon: 'pulse', action: () => router.push('/submissions') },
     { label: 'Report Incident', icon: 'shield-checkmark', action: () => router.push('/incidents') },
-    ...(canReportFuel ? [{ label: 'Fuel', icon: 'water', action: () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }) }] : []),
-    ...(canManageTrip ? [{ label: 'Vehicle Check', icon: 'construct', action: () => {
-      const target = activeTrip || upcomingTrip;
-      if (target) router.push({ pathname: '/inspection', params: { tripId: String(target.trip_id) } });
-      else router.push('/trips');
-    } }] : []),
+    ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }) }] : []),
   ];
 
   return (
@@ -572,8 +566,8 @@ avatarText: { letterSpacing: 0.5 },
 pressed: { opacity: 0.75 },
 scroll: {
     paddingHorizontal: moderateScale(16),
-    paddingTop: moderateScale(14),
-    gap: moderateScale(18),
+    paddingTop: moderateScale(10),
+    gap: moderateScale(12),
   },
 syncNoteWrap: { paddingHorizontal: moderateScale(4) },
 ctaPressed: { transform: [{ scale: 0.98 }], opacity: 0.94 },
