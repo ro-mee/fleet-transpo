@@ -3,8 +3,7 @@ import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils"
 import { assertTripOwnership } from "@/lib/api/ownership";
 import { LIVE_TRIP_STATUSES } from "@/lib/constants";
 import { isValidCoordinate } from "@/lib/gps";
-import { evaluatePingGeofence } from "@/services/trip-geofence.service";
-import { evaluatePingMonitor } from "@/services/live-trip-monitor.service";
+import { buildPingAdvisories } from "@/services/ping-advisories.service";
 
 /**
  * POST /api/mobile/driver/trips/[id]/gps
@@ -16,6 +15,10 @@ import { evaluatePingMonitor } from "@/services/live-trip-monitor.service";
  * Identical behavior: vehicle_id is taken from the trip row, never from the
  * request body. driver_id was dropped in migration 019 (never read; derivable
  * from the trip).
+ *
+ * The post-write advisory block (geofence / monitor / weather) is shared with
+ * the general locations route via ping-advisories.service.js; auth stays
+ * route-specific (driver-only here, permission-checked there).
  */
 export async function POST(req, { params }) {
   try {
@@ -69,27 +72,15 @@ export async function POST(req, { params }) {
       [latitude, longitude, trip.driver_id]
     );
 
-    // PR #3 arrival intelligence: describe this ping against the trip's
-    // pickup/destination geofences. Advisory only — the client turns near_*
-    // into a human-confirmed suggestion; nothing here transitions status.
-    const geofence = await evaluatePingGeofence({ query }, trip, {
+    // Shared advisory enrichment (geofence / monitor / weather) — best-effort;
+    // a failure in any of it never fails the GPS write it describes.
+    const { geofence, monitor, weather } = await buildPingAdvisories(trip, {
       latitude,
       longitude,
       accuracy: toNumberOrNull(body.accuracy),
-    });
+    }, query);
 
-    // PR #4 ingest-side monitor: lightweight contextual evaluation for the
-    // driver's banner (off-route, traffic delay when already cached). Also
-    // advisory-only, and best-effort — a banner failure must never fail the
-    // GPS write it describes.
-    let monitor = null;
-    try {
-      monitor = await evaluatePingMonitor({ query }, { tripId: trip.trip_id });
-    } catch {
-      monitor = null;
-    }
-
-    return ok({ ...rows[0], geofence, monitor }, 201);
+    return ok({ ...rows[0], geofence, monitor, weather }, 201);
   } catch (e) {
     return handleError(e);
   }
