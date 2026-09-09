@@ -79,3 +79,8 @@ Read [[Why RLS Is Not A Boundary]] before touching anything security-related.
 ## Related
 
 [[Architecture]] · [[Technology Stack]] · [[System Boundaries]] · [[Data Flow]] · [[Feature Index]] · [[Home]]
+
+## Changelog
+
+- 2026-09-09: mobile live map Drop-off infinite-loading fix (escaped WebView popup labels, MAP_READY-before-theme, 20 s overlay / 15 s GPS fail-opens) → [[Tracking]]
+- 2026-09-09: arrival gates — At Pickup / Passenger Onboard (pickup geofence) and Drop-off (destination geofence) enforced in `setTripStatus` with override-with-reason; swipe in-flight lock; new pickup-check endpoint + trip/override screen → [[Tracking]]

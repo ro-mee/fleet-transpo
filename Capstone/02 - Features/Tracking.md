@@ -118,6 +118,51 @@ Ambient current-conditions pill on the driver map screen, fed through the GPS in
 - **No-trip weather (2026-09-09, same day revision):** the chip must be visible whenever there is a truthful payload, not only en route. New `GET /api/mobile/driver/weather` (driver-authenticated) resolves position from `latitude`/`longitude` query params (the app's one-shot fix, only read when foreground permission is already granted — the endpoint never triggers a prompt) → falling back to the driver's last-known position (`drivers.current_*`) → `weather: null`. `mobile/lib/ambient-weather.js` (`useAmbientWeather`) fetches it on a 10-min cadence (aligned with the server cache TTL — one Open-Meteo call per cell per TTL across BOTH the GPS ingest path and this endpoint, they share the cache) and feeds the Home chip when the poster has no trip payload. Trip weather still wins while a trip is live (freshest, same rail as geofence/monitor); the ambient fetch covers idle/between-trips; no truthful payload → no chip. One-shot fetch, never a position watcher — a decorative chip does not justify continuous location.
 - **Route line persists on stale GPS (2026-09-08):** the live map's trip route line no longer vanishes when the driver's GPS is delayed/offline. The origin is now the LAST KNOWN position (any valid fix), and staleness is communicated rather than hidden: a dashed/dimmer polyline (`routeStale` prop on `LiveLocationsMap`), a "· last known position" suffix on the origin pin label, and "Route drawn from last known position" / "· from last known position" in the selected-mission drawer. The **rescue route keeps its strict freshness rule** — its ETA ladder is a live-response tool, not corridor context, so a stale responder fix still shows "Waiting for a fresh responder GPS fix" instead of drawing.
 
+## Live map Drop-off infinite-loading fix — 2026-09-09
+
+Driver report: with the active trip at `Drop-off`, opening the live map (`mobile/app/(app)/(tabs)/map.js`) spun on `globe.json` forever. Three parallel diagnoses agreed the `Drop-off` status strings themselves were consistent everywhere (`Drop-off` canonical in `src/lib/constants.js`, DB CHECK, `GPS_TRACKING_STATUSES`, `isState4`) — the sheet state machine was fine. The stuck loader was the `!mapReady` overlay whose only writer is the WebView's `MAP_READY` post:
+
+- **Root cause (most likely):** `pickupLabel`/`dropoffLabel` were interpolated raw into single-quoted JS inside the WebView HTML (`TomTomMap.js`). The Drop-off leg is the first time the *destination* name is injected (`Drop-off: ${destination}`), so a destination with an apostrophe (e.g. `Queen's…`) broke the whole `<script>` block — `initMap()` never ran, `MAP_READY` never fired, overlay never lifted. Fixed with `escapeJsSingle` (backslash → single-quote → newline) for both labels.
+- **Hardening:** `MAP_READY` is now posted *before* `applyFleetMapTheme()` (which runs in try/catch), so a theme failure can't strand the overlay. `map.js` fail-opens both remaining infinite paths: overlay auto-lifts 20 s after mount if `MAP_READY` never arrives, and the fullscreen GPS loader falls through after 15 s to render from the trip's stored coords (idle map falls back to Manila 14.6, 121.0). Also fixed the idle-branch overlay condition (`(!activeTrip || !mapReady)` was always true inside the `!activeTrip` branch → now `!mapReady`).
+- Null `destination_latitude/longitude` (request-dispatched trips with no `route_id` + gazetteer miss) was ruled out as the loader cause — it only suppresses the dest pin/route/ETA, and `MAP_READY` fires before those guards.
+
+## Arrival gates — 2026-09-09 (spam-proof proximity enforcement)
+
+Driver report: the live map let a trip advance from pickup to Drop-off by
+spamming the swipe — the "far away" warning could be retried through.
+Investigation (3 parallel agents) found the real shape of the hole:
+
+- `at-pickup`, `onboard`, `dropoff` had **zero** proximity enforcement, client
+  or server — only `complete` was gated (PR #3). There was nothing to bypass;
+  the warning the driver saw was the completion pre-check only.
+- `SwipeButton` had no in-flight lock (`busy` prop existed but was never
+  passed/checked on the gesture path), so a second swipe could double-fire a
+  transition while the first PUT was still pending.
+- The check verdict itself is non-deterministic across retries (new ping
+  lands, 10-min freshness decay flips outside→unknown), so retry-until-green
+  could land on a favorable read.
+
+Fix — gates at the choke point, override-with-reason (same pattern as the
+completion gate, never a hard block that could strand a driver):
+
+- `setTripStatus` (`src/services/transition.service.js`) now enforces:
+  `At Pickup` / `Passenger Onboard` must sit inside the **pickup** geofence,
+  `Drop-off` inside the **destination** geofence, evaluated from the server's
+  own latest GPS ping. `outside` → 409 (`GEOFENCE_OUTSIDE`) unless the call
+  carries `{ geofence_override: true, geofence_reason }` (reason required,
+  400 without it, written to audit). `unknown` stays fail-open. `En Route` is
+  deliberately ungated (mid-leg consequence of onboard — gating it on the
+  pickup would 409 legitimate retries filed after leaving the pickup area).
+- New `checkPickupProximity` (`trip-geofence.service.js`, shared core with the
+  destination check) + `GET /api/trips/[id]/pickup-check` advisory endpoint.
+- Mobile: `map.js` pre-checks pickup/destination before the PUTs — outside
+  offers Go Back / Proceed Anyway, and Proceed Anyway goes to the new generic
+  `trip/override` screen (typed reason → PUTs with override). A 409 race
+  between check and PUT surfaces the same offer. Swipe carries `busy`
+  (in-flight lock in `SwipeButton` gesture path + dimmed track).
+- Verified: eslint clean, `trip-geofence` + `geofence` + `trip-state` 31/31
+  green (3 new pickup tests), route-auth audit 259/259.
+
 ## Related
 
 [[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]] · [[ADR-011 Background GPS Tracking]]
