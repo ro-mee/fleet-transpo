@@ -18,6 +18,7 @@ const TomTomMap = forwardRef(({
   radarMode = false,
   radarRadiusKm = 3,
   radarMarkers = [],
+  showVehicleMarker = true,
   onMarkerPress,
   onMapDragged,
   onRouteData,
@@ -31,6 +32,7 @@ const TomTomMap = forwardRef(({
     overview: () => webViewRef.current?.injectJavaScript(`if(window.showOverview) window.showOverview(); true;`),
     setRadarRadius: (km) => webViewRef.current?.injectJavaScript(`if(window.updateRadarCoverage) window.updateRadarCoverage(${km}); true;`),
     setRadarMarkers: (markers) => webViewRef.current?.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(markers)}, ${radarRadiusKm}); true;`),
+    setVehicleVisible: (visible) => webViewRef.current?.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${visible}); true;`),
   }));
 
   useEffect(() => {
@@ -44,6 +46,12 @@ const TomTomMap = forwardRef(({
       webViewRef.current.injectJavaScript(`if(window.renderRadarMarkers) window.renderRadarMarkers(${JSON.stringify(radarMarkers)}, ${radarRadiusKm}); true;`);
     }
   }, [radarMode, radarMarkers, radarRadiusKm]);
+
+  useEffect(() => {
+    if (webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.setVehicleVisible) window.setVehicleVisible(${showVehicleMarker}); true;`);
+    }
+  }, [showVehicleMarker]);
 
   useEffect(() => {
     if (webViewRef.current) {
@@ -747,6 +755,13 @@ const TomTomMap = forwardRef(({
                           pitch: 0,
                           bearing: 0
                       });
+                  }
+              };
+
+              window.setVehicleVisible = function(visible) {
+                  if (window.originMarker) {
+                      const el = window.originMarker.getElement();
+                      if (el) el.style.display = visible ? 'flex' : 'none';
                   }
               };
 
@@ -1522,6 +1537,10 @@ const TomTomMap = forwardRef(({
                             .setLngLat([originLng, originLat])
                             ${!showCarIcon && !radarMode ? '.setPopup(originPopup)' : ''}
                             .addTo(map);
+
+                        if (!${showVehicleMarker}) {
+                            originEl.style.display = 'none';
+                        }
 
                       // Destination Marker
                       const hasValidDest = hasDestination && (originLat !== destLat || originLng !== destLng);

@@ -38,10 +38,11 @@ Home verification follow-up: the final header revision also passes Android expor
 - Removed hardcoded random establishments (`defaultHubs`).
 - Radar entities strictly restricted to nearest partner gas stations (Petron, Shell, Caltex, Cleanfuel with fuel brands), nearest active fleet drivers, and official dispatcher-assigned trip requests from `/api/mobile/driver/trips`.
 - Dispatcher-only booking acceptance: drivers can only accept trips with a valid `tripId` assigned by dispatcher/admin; gas stations offer a Fuel Report shortcut and drivers display availability status with no accept action.
+- Interactive Coverage Legend toggling: drivers can tap any category in the Coverage Legend to toggle its visibility on/off (e.g. hiding gas stations, fleet drivers, dispatch requests, or driver vehicle puck/pulse) with real-time marker cluster updates, eye/eye-off indicators, strikethrough styling, active layer counter badge, and a "Show all layers" button.
 - Radar pulse scaling: dynamic bloom expansion up to 5 km when zoomed out to envelope the full coverage scope.
 - Removed redundant SOS button in idle dashboard sheet (standard header distress flow handles emergencies).
 - Full Map View: idle bottom sheet supports swipe-down gesture via `PanResponder` to collapse into a minimal ~44px peek bar.
-- Touched-file lint and 996 Vitest tests passed.
+- Touched-file lint and 1,098 Vitest tests passed.
 
 **Home clay consistency (2026-09-09):** Home now matches the stronger Trips card curvature, depth, edge highlights, raised controls and route nodes. KPI artwork, warm palette and business behavior preserved. See the Mobile Home implementation note; physical-device visual checks remain pending.
 

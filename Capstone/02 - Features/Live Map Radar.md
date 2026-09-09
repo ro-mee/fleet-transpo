@@ -61,8 +61,19 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
    - When set to 5 km or when zoomed out, the pulse expands dynamically (`baseScale` up to `2.55x`–`3.15x`) via `window.updateRadarBloomScale()`.
    - Listens to map `zoom` events so the multi-layered pulse wave envelope smoothly covers the entire 5 km coverage perimeter.
 
-6. **Collapsible Radar Legend & Dynamic Recenter FAB**:
+6. **Interactive Radar Legend & Coverage Toggling**:
    - Interactive badge at top-left: `● Your Vehicle`, `⛽ Nearest Gas Station`, `🚗 Fleet Drivers`, `📄 Dispatch Requests`.
+   - **Specific Coverage Toggling**: Drivers can tap any legend category to toggle its visibility on/off:
+     - Tapping **Nearest Gas Station** toggles all partner fuel station markers on the map/radar.
+     - Tapping **Fleet Drivers** toggles all active nearby fleet vehicle markers.
+     - Tapping **Dispatch Requests** toggles pending/scheduled dispatch assignment markers.
+     - Tapping **Your Vehicle** toggles the driver center vehicle puck and radar wave pulse bloom.
+   - **Visual Feedback & Controls**:
+     - Active layers render with full-color indicators and `eye-outline` icons.
+     - Inactive (hidden) layers dim (45% opacity) with strikethrough typography and `eye-off-outline` icons.
+     - Active layer counter badge in header (`3/4`, `2/4`) appears when any layer is hidden.
+     - Quick **"Show all layers"** button restores all categories with a single tap.
+     - Auto-dismisses `selectedMarker` if the currently inspected entity's category is toggled off.
    - Floating recenter FAB with locate icon appears upon map drag and returns camera focus to the vehicle, dynamically lowering its position when the bottom sheet is collapsed.
 
 7. **Full View Map (Swipe-Down Gestures)**:
@@ -79,17 +90,22 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
   - `window.updateRadarBloomScale()`: Dynamically calculates scale based on range and map zoom level, expanding the bloom container up to 5 km.
   - `window.updateCarRotation(heading)`: Rotates the forward-pointing center puck to match vehicle heading.
   - `window.renderRadarMarkers(markers, selectedKm)`: Groups markers into Euclidean clusters, styles `.priority-station` and `.priority-vehicle`, and binds tap events.
+  - `window.setVehicleVisible(visible)`: Toggles DOM visibility of the center vehicle marker and radar bloom container.
   - `window.recenterRadar()`: Eases camera to driver location with north-up bearing.
   - `window.applyFleetMapTheme(isDark)`: Switches body class and map layer styles.
+- Supported props:
+  - `showVehicleMarker`: controls visibility of the driver origin puck / radar bloom via `useEffect` injection.
 
 ### 2. Standby Radar Interface in `map.js`
-- Manages `radarRadiusKm`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, and `isIdleCollapsed`.
+- Manages `radarRadiusKm`, `coverageVisibility`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, `filteredRadarMarkers`, and `isIdleCollapsed`.
+- `coverageVisibility`: tracks active state for `vehicle`, `gas_station`, `driver`, `assignment`.
+- `filteredRadarMarkers`: dynamically filters `radarMarkers` before feeding into `TomTomMap`, triggering instant map marker cluster updates.
 - Reads real active and pending driver trips from `/api/mobile/driver/trips`.
 - Restricts marker generation strictly to Gas Stations, Fleet Drivers, and Dispatch Requests.
 - Renders `selectedMarkerCard` with dispatcher-only accept actions and Fuel Report shortcuts.
 - Manages the swipe-down collapse mechanism for Full Map View.
 
 ## Verification
-- Unit test suite: all 996 Vitest tests passing (`npm run test:run`).
+- Unit test suite: all 96 test files (1,098 tests) passing (`npm run test:run`).
 - ESLint: zero errors, zero warnings across `mobile/app/(app)/(tabs)/map.js` and `mobile/components/TomTomMap.js`.
 - Verified native dev client running without errors.
