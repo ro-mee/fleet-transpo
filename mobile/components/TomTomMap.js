@@ -194,14 +194,14 @@ const TomTomMap = forwardRef(({
                   z-index: 1;
               }
 
-              /* Winky-Style Organic Animated Bloom Radar */
-              .radar-winky-container {
+              /* Radar Pulse Container */
+              .radar-pulse-container, .radar-winky-container {
                   position: absolute;
                   top: 50%;
                   left: 50%;
                   transform: translate(-50%, -50%);
-                  width: 420px;
-                  height: 420px;
+                  width: 380px;
+                  height: 380px;
                   display: flex;
                   align-items: center;
                   justify-content: center;
@@ -210,140 +210,250 @@ const TomTomMap = forwardRef(({
                   transition: transform 0.5s cubic-bezier(0.2, 0, 0, 1);
               }
 
-              /* Concentric Expanding Ripple Waves */
-              .radar-bloom-ripple {
+              /* Central Vehicle Ambient Glow Core (Infographic Layer 1: #A8FFE1, 70-90% Opacity) */
+              .radar-core-glow {
                   position: absolute;
-                  width: 110px;
-                  height: 110px;
+                  width: 88px;
+                  height: 88px;
                   border-radius: 50%;
+                  pointer-events: none;
+                  z-index: 1;
+                  animation: radarCoreBreathe 2.4s cubic-bezier(0.24, 0, 0.38, 1) infinite alternate;
+              }
+              .scheme-dark .radar-core-glow {
+                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.85) 0%, rgba(92, 255, 220, 0.50) 45%, rgba(0, 255, 179, 0.18) 70%, transparent 100%);
+                  box-shadow: 0 0 22px rgba(92, 255, 220, 0.60);
+              }
+              .scheme-light .radar-core-glow {
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.75) 0%, rgba(40, 107, 84, 0.45) 45%, rgba(169, 200, 185, 0.18) 70%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.35);
+              }
+              @keyframes radarCoreBreathe {
+                  0% { transform: scale(0.94); opacity: 0.85; }
+                  100% { transform: scale(1.06); opacity: 1; }
+              }
+
+              /* Multi-Layered Concentric Proximity Depth Zones (Infographic Base Terrain) */
+              .radar-zone-layer {
+                  position: absolute;
+                  border-radius: 50%;
+                  border: none !important;
+                  outline: none !important;
                   pointer-events: none;
                   z-index: 0;
               }
-              .scheme-dark .radar-bloom-ripple {
-                  border: 1.5px solid rgba(166, 199, 184, 0.45);
-                  background: radial-gradient(circle, rgba(166, 199, 184, 0.22) 0%, rgba(40, 84, 72, 0.1) 50%, transparent 75%);
-                  animation: winkyRipple 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-              }
-              .scheme-light .radar-bloom-ripple {
-                  border: 1.5px solid rgba(40, 84, 72, 0.4);
-                  background: radial-gradient(circle, rgba(169, 200, 185, 0.30) 0%, rgba(220, 233, 227, 0.12) 50%, transparent 75%);
-                  animation: winkyRipple 4.2s cubic-bezier(0.16, 1, 0.3, 1) infinite;
-              }
-              .ripple-1 { animation-delay: 0s !important; }
-              .ripple-2 { animation-delay: 1.4s !important; }
-              .ripple-3 { animation-delay: 2.8s !important; }
 
-              @keyframes winkyRipple {
+              /* Dark Mode Concentric Depth Zones */
+              .scheme-dark .radar-zone-layer.zone-4 {
+                  width: 370px;
+                  height: 370px;
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.08) 0%, rgba(0, 229, 168, 0.02) 75%, transparent 100%);
+                  filter: blur(1px);
+                  animation: zoneBreathe4 7.8s ease-in-out infinite alternate;
+              }
+              .scheme-dark .radar-zone-layer.zone-3 {
+                  width: 290px;
+                  height: 290px;
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.14) 0%, rgba(0, 229, 168, 0.06) 80%, transparent 100%);
+                  box-shadow: 0 0 24px rgba(0, 229, 168, 0.10);
+                  animation: zoneBreathe3 6.0s ease-in-out infinite alternate;
+              }
+              .scheme-dark .radar-zone-layer.zone-2 {
+                  width: 210px;
+                  height: 210px;
+                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.18) 0%, rgba(0, 255, 179, 0.10) 75%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(0, 255, 179, 0.14);
+                  animation: zoneBreathe2 4.6s ease-in-out infinite alternate;
+              }
+              .scheme-dark .radar-zone-layer.zone-1 {
+                  width: 130px;
+                  height: 130px;
+                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.26) 0%, rgba(92, 255, 220, 0.16) 70%, transparent 100%);
+                  box-shadow: 0 0 18px rgba(92, 255, 220, 0.20);
+                  animation: zoneBreathe1 3.4s ease-in-out infinite alternate;
+              }
+
+              /* Light Mode Concentric Depth Zones */
+              .scheme-light .radar-zone-layer.zone-4 {
+                  width: 370px;
+                  height: 370px;
+                  background: radial-gradient(circle at 50% 50%, rgba(120, 168, 149, 0.10) 0%, rgba(220, 233, 227, 0.03) 75%, transparent 100%);
+                  filter: blur(1px);
+                  animation: zoneBreathe4 7.8s ease-in-out infinite alternate;
+              }
+              .scheme-light .radar-zone-layer.zone-3 {
+                  width: 290px;
+                  height: 290px;
+                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.14) 0%, rgba(120, 168, 149, 0.06) 80%, transparent 100%);
+                  box-shadow: 0 0 24px rgba(40, 84, 72, 0.08);
+                  animation: zoneBreathe3 6.0s ease-in-out infinite alternate;
+              }
+              .scheme-light .radar-zone-layer.zone-2 {
+                  width: 210px;
+                  height: 210px;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.18) 0%, rgba(64, 132, 114, 0.10) 75%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.12);
+                  animation: zoneBreathe2 4.6s ease-in-out infinite alternate;
+              }
+              .scheme-light .radar-zone-layer.zone-1 {
+                  width: 130px;
+                  height: 130px;
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.24) 0%, rgba(40, 107, 84, 0.14) 70%, transparent 100%);
+                  box-shadow: 0 0 18px rgba(40, 84, 72, 0.16);
+                  animation: zoneBreathe1 3.4s ease-in-out infinite alternate;
+              }
+
+              /* Zone Breathing Animations */
+              @keyframes zoneBreathe1 {
+                  0% { transform: scale(0.97); }
+                  100% { transform: scale(1.03); }
+              }
+              @keyframes zoneBreathe2 {
+                  0% { transform: scale(0.97); }
+                  100% { transform: scale(1.03); }
+              }
+              @keyframes zoneBreathe3 {
+                  0% { transform: scale(0.96); }
+                  100% { transform: scale(1.04); }
+              }
+              @keyframes zoneBreathe4 {
+                  0% { transform: scale(0.95); }
+                  100% { transform: scale(1.05); }
+              }
+
+              /* Distinct, Visible Radar Wave Pulse Layers (Infographic Specs) */
+              .radar-pulse-ring, .radar-pulse-disc, .radar-bloom-ripple {
+                  position: absolute;
+                  border-radius: 50%;
+                  pointer-events: none;
+                  z-index: 2;
+              }
+
+              /* Dark Mode Wave Pulse Layers */
+              /* Layer 2 – Inner Pulse: #5CFFDC, Higher Opacity (45-70%), Sharper Edge */
+              .scheme-dark .radar-pulse-ring.layer-inner {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(92, 255, 220, 0.70);
+                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.24) 0%, rgba(92, 255, 220, 0.08) 55%, transparent 85%);
+                  box-shadow: 0 0 14px rgba(92, 255, 220, 0.50), inset 0 0 10px rgba(92, 255, 220, 0.25);
+                  animation: pulseInnerWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0s;
+              }
+
+              /* Layer 3 – Middle Pulse: #00FFB3, Medium Opacity (25-45%), Stronger Glow */
+              .scheme-dark .radar-pulse-ring.layer-middle {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(0, 255, 179, 0.50);
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.18) 0%, rgba(0, 255, 179, 0.05) 60%, transparent 90%);
+                  box-shadow: 0 0 18px rgba(0, 255, 179, 0.40), inset 0 0 12px rgba(0, 255, 179, 0.16);
+                  animation: pulseMiddleWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0.35s;
+              }
+
+              /* Layer 4 – Outer Pulse: #00E5A8, Low Opacity (15-25%), Soft Gradient */
+              .scheme-dark .radar-pulse-ring.layer-outer {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(0, 229, 168, 0.32);
+                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.12) 0%, rgba(0, 229, 168, 0.03) 70%, transparent 100%);
+                  box-shadow: 0 0 22px rgba(0, 229, 168, 0.28);
+                  animation: pulseOuterWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0.70s;
+              }
+
+              /* Light Mode Wave Pulse Layers */
+              .scheme-light .radar-pulse-ring.layer-inner {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(40, 107, 84, 0.65);
+                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.20) 0%, rgba(40, 107, 84, 0.06) 55%, transparent 85%);
+                  box-shadow: 0 0 12px rgba(40, 107, 84, 0.35), inset 0 0 8px rgba(40, 107, 84, 0.18);
+                  animation: pulseInnerWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0s;
+              }
+              .scheme-light .radar-pulse-ring.layer-middle {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(40, 107, 84, 0.45);
+                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.15) 0%, rgba(64, 132, 114, 0.04) 60%, transparent 90%);
+                  box-shadow: 0 0 16px rgba(40, 107, 84, 0.25), inset 0 0 10px rgba(64, 132, 114, 0.12);
+                  animation: pulseMiddleWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0.35s;
+              }
+              .scheme-light .radar-pulse-ring.layer-outer {
+                  width: 110px;
+                  height: 110px;
+                  border: 1.5px solid rgba(120, 168, 149, 0.30);
+                  background: radial-gradient(circle at 50% 50%, rgba(169, 200, 185, 0.10) 0%, rgba(169, 200, 185, 0.02) 70%, transparent 100%);
+                  box-shadow: 0 0 20px rgba(120, 168, 149, 0.18);
+                  animation: pulseOuterWave 2.4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+                  animation-delay: 0.70s;
+              }
+
+              /* Keyframes with Defined Layer Visibility */
+              @keyframes pulseInnerWave {
                   0% {
                       transform: scale(0.35);
-                      opacity: 0.85;
+                      opacity: 0.75;
                   }
-                  40% {
-                      opacity: 0.5;
+                  60% {
+                      transform: scale(1.35);
+                      opacity: 0;
                   }
                   100% {
-                      transform: scale(3.4);
+                      transform: scale(1.35);
+                      opacity: 0;
+                  }
+              }
+              @keyframes pulseMiddleWave {
+                  0% {
+                      transform: scale(0.42);
+                      opacity: 0.55;
+                  }
+                  65% {
+                      transform: scale(2.20);
+                      opacity: 0;
+                  }
+                  100% {
+                      transform: scale(2.20);
+                      opacity: 0;
+                  }
+              }
+              @keyframes pulseOuterWave {
+                  0% {
+                      transform: scale(0.50);
+                      opacity: 0.35;
+                  }
+                  70% {
+                      transform: scale(3.10);
+                      opacity: 0;
+                  }
+                  100% {
+                      transform: scale(3.10);
                       opacity: 0;
                   }
               }
 
-              /* Multi-layered Organic Undulating Petal Blooms */
-              .radar-bloom-layer {
+              /* Incident / Emergency Marker Pulse (1:1 Web .fleet-marker-pulse Parity) */
+              .fleet-marker-pulse {
                   position: absolute;
+                  top: -3px;
+                  left: -3px;
+                  width: 34px;
+                  height: 34px;
+                  border-radius: 50%;
+                  background-color: #ef4444;
+                  border: none !important;
+                  animation: fleet-pulse-ring 1.8s cubic-bezier(0.24, 0, 0.38, 1) infinite;
                   pointer-events: none;
                   z-index: 0;
               }
-
-              /* Dark Mode Bloom Layers */
-              .scheme-dark .radar-bloom-layer.layer-4 {
-                  width: 380px;
-                  height: 380px;
-                  border-radius: 48% 52% 51% 49% / 52% 47% 53% 48%;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.16) 0%, rgba(30, 68, 58, 0.08) 60%, rgba(20, 50, 42, 0.03) 85%, transparent 100%);
-                  box-shadow: 0 0 40px rgba(40, 84, 72, 0.12);
-                  animation: winkyBreathe4 7.6s ease-in-out infinite alternate;
-              }
-
-              .scheme-dark .radar-bloom-layer.layer-3 {
-                  width: 290px;
-                  height: 290px;
-                  border-radius: 53% 47% 48% 52% / 48% 53% 47% 52%;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.28) 0%, rgba(40, 84, 72, 0.18) 65%, rgba(25, 55, 46, 0.08) 90%, transparent 100%);
-                  box-shadow: 0 0 32px rgba(77, 227, 193, 0.16);
-                  animation: winkyBreathe3 5.8s ease-in-out infinite alternate;
-              }
-
-              .scheme-dark .radar-bloom-layer.layer-2 {
-                  width: 205px;
-                  height: 205px;
-                  border-radius: 46% 54% 53% 47% / 52% 48% 52% 48%;
-                  background: radial-gradient(circle at 50% 50%, rgba(77, 227, 193, 0.42) 0%, rgba(40, 107, 84, 0.30) 68%, rgba(40, 84, 72, 0.18) 90%, transparent 100%);
-                  box-shadow: 0 0 28px rgba(77, 227, 193, 0.25);
-                  animation: winkyBreathe2 4.4s ease-in-out infinite alternate;
-              }
-
-              .scheme-dark .radar-bloom-layer.layer-1 {
-                  width: 125px;
-                  height: 125px;
-                  border-radius: 50%;
-                  background: radial-gradient(circle at 50% 50%, rgba(166, 199, 184, 0.65) 0%, rgba(77, 227, 193, 0.48) 65%, rgba(40, 84, 72, 0.32) 90%, transparent 100%);
-                  box-shadow: 0 0 35px rgba(166, 199, 184, 0.45), inset 0 0 16px rgba(255, 255, 255, 0.25);
-                  animation: winkyBreathe1 3.2s ease-in-out infinite alternate;
-              }
-
-              /* Light Mode Bloom Layers */
-              .scheme-light .radar-bloom-layer.layer-4 {
-                  width: 380px;
-                  height: 380px;
-                  border-radius: 48% 52% 51% 49% / 52% 47% 53% 48%;
-                  background: radial-gradient(circle at 50% 50%, rgba(220, 233, 227, 0.26) 0%, rgba(244, 240, 233, 0.15) 60%, rgba(244, 240, 233, 0.05) 85%, transparent 100%);
-                  box-shadow: 0 0 40px rgba(40, 84, 72, 0.10);
-                  animation: winkyBreathe4 7.6s ease-in-out infinite alternate;
-              }
-
-              .scheme-light .radar-bloom-layer.layer-3 {
-                  width: 290px;
-                  height: 290px;
-                  border-radius: 53% 47% 48% 52% / 48% 53% 47% 52%;
-                  background: radial-gradient(circle at 50% 50%, rgba(169, 200, 185, 0.38) 0%, rgba(220, 233, 227, 0.24) 65%, rgba(244, 240, 233, 0.12) 90%, transparent 100%);
-                  box-shadow: 0 0 32px rgba(40, 84, 72, 0.15);
-                  animation: winkyBreathe3 5.8s ease-in-out infinite alternate;
-              }
-
-              .scheme-light .radar-bloom-layer.layer-2 {
-                  width: 205px;
-                  height: 205px;
-                  border-radius: 46% 54% 53% 47% / 52% 48% 52% 48%;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.42) 0%, rgba(169, 200, 185, 0.32) 68%, rgba(220, 233, 227, 0.20) 90%, transparent 100%);
-                  box-shadow: 0 0 28px rgba(40, 84, 72, 0.22);
-                  animation: winkyBreathe2 4.4s ease-in-out infinite alternate;
-              }
-
-              .scheme-light .radar-bloom-layer.layer-1 {
-                  width: 125px;
-                  height: 125px;
-                  border-radius: 50%;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.58) 0%, rgba(40, 107, 84, 0.45) 65%, rgba(169, 200, 185, 0.30) 90%, transparent 100%);
-                  box-shadow: 0 0 35px rgba(40, 84, 72, 0.35), inset 0 0 16px rgba(255, 255, 255, 0.4);
-                  animation: winkyBreathe1 3.2s ease-in-out infinite alternate;
-              }
-
-              /* Keyframe Breathing Animations with Organic Asymmetric Harmonic Movement */
-              @keyframes winkyBreathe1 {
-                  0% { transform: scale(0.96); }
-                  100% { transform: scale(1.04); }
-              }
-              @keyframes winkyBreathe2 {
-                  0% { transform: scale(0.95) rotate(0deg); }
-                  100% { transform: scale(1.05) rotate(5deg); }
-              }
-              @keyframes winkyBreathe3 {
-                  0% { transform: scale(0.94) rotate(0deg); }
-                  100% { transform: scale(1.06) rotate(-5deg); }
-              }
-              @keyframes winkyBreathe4 {
-                  0% { transform: scale(0.93) rotate(0deg); }
-                  100% { transform: scale(1.07) rotate(4deg); }
+              @keyframes fleet-pulse-ring {
+                  0% { transform: scale(0.9); opacity: 0.85; }
+                  60% { transform: scale(1.85); opacity: 0; }
+                  100% { transform: scale(1.85); opacity: 0; }
               }
 
               /* Interactive Radar Markers & Clusters */
@@ -390,6 +500,11 @@ const TomTomMap = forwardRef(({
                   background: #286B54;
                   color: #FFFFFF;
                   box-shadow: 0 0 12px rgba(40, 107, 84, 0.5);
+              }
+              .priority-station .radar-marker-icon-box {
+                  background: #0284c7;
+                  color: #FFFFFF;
+                  box-shadow: 0 0 12px rgba(2, 132, 199, 0.55);
               }
               .priority-vehicle-busy .radar-marker-icon-box {
                   background: ${colors.outline};
@@ -559,6 +674,35 @@ const TomTomMap = forwardRef(({
                   outerSrc.setData(window.createGeoJsonCircle(carLng, carLat, outerRadius));
               };
 
+              window.updateRadarBloomScale = function() {
+                  const bloom = document.getElementById('radarBloomContainer');
+                  if (!bloom || !window.ttMap) return;
+                  const km = window.currentRadarKm || 3;
+                  const zoom = window.ttMap.getZoom();
+
+                  // Base scale per km range:
+                  // 1 km: ~0.95x
+                  // 3 km: ~1.40x
+                  // 5 km: ~2.55x (scaling up to 5 km boundary at maxed)
+                  // >5 km / All: ~3.15x
+                  let baseScale = 1.0;
+                  if (km <= 1) baseScale = 0.95;
+                  else if (km <= 3) baseScale = 1.40;
+                  else if (km <= 5) baseScale = 2.55;
+                  else baseScale = 3.15;
+
+                  // Scale up dynamically as user zooms out so the 5 km perimeter remains visually covered
+                  if (zoom < 14.2) {
+                      const zoomDiff = 14.2 - zoom;
+                      baseScale = baseScale * (1 + zoomDiff * 0.45);
+                  } else if (zoom > 15.0 && km > 1) {
+                      const zoomInDiff = zoom - 15.0;
+                      baseScale = Math.max(0.85, baseScale / (1 + zoomInDiff * 0.35));
+                  }
+
+                  bloom.style.transform = 'translate(-50%, -50%) scale(' + baseScale.toFixed(2) + ')';
+              };
+
               window.updateRadarCoverage = function(km, carLng, carLat) {
                   if (!window.ttMap) return;
                   window.currentRadarKm = km;
@@ -583,11 +727,7 @@ const TomTomMap = forwardRef(({
                       }
                   }
 
-                  const bloom = document.getElementById('radarBloomContainer');
-                  if (bloom) {
-                      const scale = km <= 1 ? 0.95 : km <= 3 ? 1.05 : km <= 5 ? 1.15 : 1.25;
-                      bloom.style.transform = 'translate(-50%, -50%) scale(' + scale + ')';
-                  }
+                  window.updateRadarBloomScale();
 
                   if (window.currentMarkersData && window.renderRadarMarkers) {
                       window.renderRadarMarkers(window.currentMarkersData, km);
@@ -611,7 +751,10 @@ const TomTomMap = forwardRef(({
               };
 
               function getMarkerIconSymbol(marker) {
-                  if (marker.type === 'vehicle') {
+                  if (marker.type === 'gas_station') {
+                      return '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19.77 7.23l.01-.01-3.72-3.72L15 4.56l2.11 2.11c-.94.36-1.61 1.26-1.61 2.33 0 1.38 1.12 2.5 2.5 2.5.36 0 .69-.08 1-.21v7.21c0 .55-.45 1-1 1s-1-.45-1-1V14c0-1.1-.9-2-2-2h-1V5c0-1.1-.9-2-2-2H6c-1.1 0-2 .9-2 2v16h10v-7.5h1.5v5c0 1.38 1.12 2.5 2.5 2.5s2.5-1.12 2.5-2.5V9c0-.69-.28-1.32-.73-1.77zM12 10H6V5h6v5zm6 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>';
+                  }
+                  if (marker.type === 'vehicle' || marker.type === 'driver') {
                       return '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11c-.66 0-1.21.42-1.42 1.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.85 7h10.29l1.04 3H5.81l1.04-3zM19 17H5v-4.66l.12-.34h13.77l.11.34V17z"/><circle cx="7.5" cy="14.5" r="1.5"/><circle cx="16.5" cy="14.5" r="1.5"/></svg>';
                   }
                   if (marker.priority === 'emergency') {
@@ -698,19 +841,37 @@ const TomTomMap = forwardRef(({
                               ? 'priority-emergency' 
                               : m.priority === 'priority' 
                                   ? 'priority-priority' 
-                                  : m.type === 'vehicle'
-                                      ? (m.status === 'busy' ? 'priority-vehicle-busy' : 'priority-vehicle')
-                                      : m.type === 'alert'
-                                          ? 'priority-alert'
-                                          : 'priority-normal';
+                                  : m.type === 'gas_station'
+                                      ? 'priority-station'
+                                      : (m.type === 'vehicle' || m.type === 'driver')
+                                          ? (m.status === 'busy' ? 'priority-vehicle-busy' : 'priority-vehicle')
+                                          : m.type === 'alert'
+                                              ? 'priority-alert'
+                                              : 'priority-normal';
 
                           const markerEl = document.createElement('div');
                           markerEl.className = 'radar-marker-item ' + priorityClass;
                           
+                          const iconWrap = document.createElement('div');
+                          iconWrap.className = 'radar-marker-icon-wrap';
+                          iconWrap.style.position = 'relative';
+                          iconWrap.style.display = 'flex';
+                          iconWrap.style.alignItems = 'center';
+                          iconWrap.style.justifyContent = 'center';
+
+                          if (m.priority === 'emergency') {
+                              const pulseEl = document.createElement('span');
+                              pulseEl.className = 'fleet-marker-pulse';
+                              iconWrap.appendChild(pulseEl);
+                          }
+
                           const iconBox = document.createElement('div');
                           iconBox.className = 'radar-marker-icon-box';
+                          iconBox.style.position = 'relative';
+                          iconBox.style.zIndex = '1';
                           iconBox.innerHTML = getMarkerIconSymbol(m);
-                          markerEl.appendChild(iconBox);
+                          iconWrap.appendChild(iconBox);
+                          markerEl.appendChild(iconWrap);
 
                           const labelEl = document.createElement('div');
                           labelEl.className = 'radar-marker-label';
@@ -1268,6 +1429,9 @@ const TomTomMap = forwardRef(({
                     map.on('rotate', () => {
                         if (window.updateCarRotation) window.updateCarRotation();
                     });
+                    map.on('zoom', () => {
+                        if (window.updateRadarBloomScale) window.updateRadarBloomScale();
+                    });
 
                     if (${showCarIcon}) {
                         map.setBearing(${origin?.heading ?? 0});
@@ -1315,15 +1479,16 @@ const TomTomMap = forwardRef(({
 
                             if (${radarMode}) {
                                 const bloomWrap = document.createElement('div');
-                                bloomWrap.className = 'radar-winky-container';
+                                bloomWrap.className = 'radar-pulse-container';
                                 bloomWrap.id = 'radarBloomContainer';
-                                bloomWrap.innerHTML = '<div class="radar-bloom-ripple ripple-1"></div>' +
-                                    '<div class="radar-bloom-ripple ripple-2"></div>' +
-                                    '<div class="radar-bloom-ripple ripple-3"></div>' +
-                                    '<div class="radar-bloom-layer layer-4"></div>' +
-                                    '<div class="radar-bloom-layer layer-3"></div>' +
-                                    '<div class="radar-bloom-layer layer-2"></div>' +
-                                    '<div class="radar-bloom-layer layer-1"></div>';
+                                bloomWrap.innerHTML = '<div class="radar-zone-layer zone-4"></div>' +
+                                    '<div class="radar-zone-layer zone-3"></div>' +
+                                    '<div class="radar-zone-layer zone-2"></div>' +
+                                    '<div class="radar-zone-layer zone-1"></div>' +
+                                    '<div class="radar-core-glow"></div>' +
+                                    '<div class="radar-pulse-ring layer-outer"></div>' +
+                                    '<div class="radar-pulse-ring layer-middle"></div>' +
+                                    '<div class="radar-pulse-ring layer-inner"></div>';
                                 originEl.appendChild(bloomWrap);
                             }
 

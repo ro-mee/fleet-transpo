@@ -19,75 +19,77 @@ related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]"]
 
 When a driver opens the Live Map tab without an active trip assignment, the app operates in **Interactive Proximity + Dispatch Coverage Radar Mode**:
 
-1. **Winky-Style Organic Animated Bloom Radar in FleetOps Color Schema**:
-   - Replaced mechanical sweeps with **organic, layered undulating petal bloom waves** radiating from beneath the vehicle marker directly on the TomTom map canvas, styled completely in the FleetOps brand palette (Mint `#A6C7B8` & Emerald `#4DE3C1` in dark mode, Forest Green `#285448` & Sage `#A9C8B9` in light mode).
-   - **4-Layer Harmonic Breathing Undulation**:
-     - `layer-1` (Inner Core Bloom, ~125px): Concentric luminous gradient fill (`winkyBreathe1` 3.2s period).
-     - `layer-2` (Mid Petal Bloom, ~205px): Asymmetric contour (`border-radius: 46% 54% 53% 47% / 52% 48% 52% 48%`, `winkyBreathe2` 4.4s period with 5° subtle undulation).
-     - `layer-3` (Outer Petal Bloom, ~290px): Fluid counter-undulating contour (`border-radius: 53% 47% 48% 52% / 48% 53% 47% 52%`, `winkyBreathe3` 5.8s period with -5° oscillation).
-     - `layer-4` (Ambient Dispersion Bloom, ~380px): Outermost gradient contour (`winkyBreathe4` 7.6s period).
-   - **3 Staggered Concentric Expanding Ripples**:
-     - `.radar-bloom-ripple` (`ripple-1`, `ripple-2`, `ripple-3`) emit every 1.4s, expanding outward from scale `0.35` to `3.4` with cubic-bezier easing (`cubic-bezier(0.16, 1, 0.3, 1)`).
+1. **Multi-Layered Concentric Depth Radar with High-Visibility Wave Pulse Layers**:
+   - Inspired directly by the "Radar Wave Pulse – Visibility Layers" design specification ([`media_1788952463286.jpg`](file:///C:/Users/Joseph%20T%20Lopez/.gemini/antigravity-ide/brain/36335d0f-ca22-46a1-afe9-48cdff1fd179/.user_uploaded/media_1788952463286.jpg)):
+   - **4 Visible Proximity Depth Tiers**:
+     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.4s breathe.
+     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 4.6s breathe.
+     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.0s breathe.
+     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 7.8s breathe.
+   - **Central Vehicle Ambient Core (`.radar-core-glow`, 88px)**:
+     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 22px glow (`rgba(92, 255, 220, 0.60)`).
+   - **3 Distinct, Defined Wave Pulse Rings (Layer-by-Layer Visibility)**:
+     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–70%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
+     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–45%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.35s.
+     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–25%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 0.70s.
+     - Full loop duration: 2.4s sequence (0ms -> 350ms -> 700ms -> 1200ms full pulse).
    - **Vehicle Marker (Fleet Car)**:
      - Top-down fleet vehicle marker with headlights glow (`car-headlights-glow`), customizable color swatch palette (`carCustomizer` modal on vehicle tap), and heading rotation (`updateCarRotation`).
      - Pinned precisely to driver GPS coordinates; dynamically rotates to match vehicle heading and map bearing.
-     - Sits directly above the organic radar bloom waves.
+     - Sits directly above the multi-layered radar field.
+   - **Emergency Incident Marker Parity on Mobile**:
+     - Standby emergency dispatch markers (`priority === 'emergency'`) render the exact web `.fleet-marker-pulse` element with `#ef4444` behind the emergency icon box for 1:1 parity with web incident markers.
 
 2. **Top HUD Status Pill & Range Selector**:
-   - Clean top pill: `● RADAR | LIVE TRACKING`. Manual theme toggle removed to eliminate visual clutter; theme adapts automatically to app and system appearance settings (`dark` / `light`).
-   - Range Selector: `[ 1 km ] [ 3 km ] [ 5 km ] [ All ]` easing camera zoom (`15.5`, `14.2`, `13.0`, `11.8`) and adjusting bloom scale.
+   - Clean top pill: `● RADAR | LIVE TRACKING`. Adapts automatically to app appearance settings (`dark` / `light`).
+   - Range Selector: `[ 1 km ] [ 3 km ] [ 5 km ] [ All ]` easing camera zoom (`15.5`, `14.2`, `13.0`, `11.8`) and dynamically scaling the radar pulse bloom up to 5 km.
 
-3. **Interactive Markers & Dynamic Proximity Clustering**:
-   - Circular nodes positioned on the map around the bloom layers:
-     - **Normal Assignments**: Forest/Mint badge (`colors.primary`)
-     - **Priority Dispatches**: Amber/Brass badge (`colors.secondary`) with glowing halo
-     - **Emergency Requests**: Coral/Red badge (`colors.error`) with urgency glow
-     - **Fleet Vehicles / Alert Areas**: Emerald badge (`#286B54`) and warning markers
-   - Close markers group into high-visibility cluster badges (e.g. `[ 3 ]`).
+3. **Strict Entity Visibility (Fleet Documentation Alignment)**:
+   - Eliminates arbitrary commercial establishments.
+   - Restricts visible map entities strictly to:
+     - **Nearest Gas Stations** (`type: 'gas_station'`): Partner fuel stations (Petron, Shell, Caltex, Cleanfuel) displaying fuel grades, distance, and ETA.
+     - **Nearest Fleet Drivers** (`type: 'driver'`): Active fleet vehicles with driver name, plate/model, and operational status (Available / En Route).
+     - **Official Dispatch Requests** (`type: 'assignment'`): Real pending trip requests assigned by dispatcher/admin from `/api/mobile/driver/trips`.
 
-4. **Compact Assignment Information Card**:
-   - Tapping any dispatch node or cluster displays a floating details card over the lower map area.
-   - Displays: Priority type, Assignment Title, Organization / Subtitle, Distance in km, Estimated Arrival (ETA min), `[ VIEW DETAILS ]`, `[ ACCEPT ]`, and close `✕`.
-   - Allows previewing assignment details before accepting.
+4. **Dispatcher-Only Acceptance Logic**:
+   - The driver can **only** accept bookings explicitly assigned by the dispatcher or admin (`selectedMarker.tripId`).
+   - Tapping Gas Stations shows station details with a `[ REPORT FUEL ]` shortcut (navigating to `/fuel-report?station=...`) and `[ DISMISS ]` — **no accept action**.
+   - Tapping Fleet Drivers shows driver/vehicle details with `[ DISMISS ]` — **no accept action**.
+   - Tapping an official dispatch request shows `[ VIEW DETAILS ]` and `[ ACCEPT ]`.
 
-5. **FleetOps Map View & Theme Architecture**:
-   - **Dark Mode**: Deep forest charcoal map (`#111816`), muted surfaces (`#1C2521`), roads (`#2A3530`), luminous mint bloom waves (`#A6C7B8` / `#4DE3C1`), top-down fleet car, and dark tactical cards (`#19211E`).
-   - **Light Mode**: Warm ivory map (`#F5F2EC`), pastel surfaces (`#EDEAE3`), roads (`#FFFFFF`), forest green bloom waves (`#285448` / `#A9C8B9`), top-down fleet car, and crisp ivory cards (`#FFFDFC`).
+5. **Radar Pulse 5 km Maxed Scaling**:
+   - When set to 5 km or when zoomed out, the pulse expands dynamically (`baseScale` up to `2.55x`–`3.15x`) via `window.updateRadarBloomScale()`.
+   - Listens to map `zoom` events so the multi-layered pulse wave envelope smoothly covers the entire 5 km coverage perimeter.
 
-6. **Collapsible Radar Legend & Recenter FAB**:
-   - Interactive badge at top-left: `● Your Vehicle`, `◉ Safe Zone (1 km)`, `◌ Extended Range (3 km)`, `● High Alert Area`.
-   - Floating recenter FAB with locate icon appears upon map drag and returns camera focus to the vehicle.
+6. **Collapsible Radar Legend & Dynamic Recenter FAB**:
+   - Interactive badge at top-left: `● Your Vehicle`, `⛽ Nearest Gas Station`, `🚗 Fleet Drivers`, `📄 Dispatch Requests`.
+   - Floating recenter FAB with locate icon appears upon map drag and returns camera focus to the vehicle, dynamically lowering its position when the bottom sheet is collapsed.
 
-7. **Driver Operational Command Bottom Sheet**:
-   - Driver profile avatar, personalized greeting ("Good day, [Name]"), on-duty badge ("✔ On Duty • Ready for assignments").
-   - 15-second background auto-polling heartbeat badge displaying live coverage scope.
-   - Standby quick-action buttons: `Schedule`, `Inspection`, `Vehicle`.
-   - Completed trips counter row (`COMPLETED TRIPS TODAY`).
-   - Prominent coral `[ 🛡 SOS ]` button wired directly to the emergency distress modal via `triggerDriverSos()`.
+7. **Full View Map (Swipe-Down Gestures)**:
+   - The Idle Dashboard Bottom Sheet supports swipe-down gestures via `PanResponder` and spring animation (`idlePanY`).
+   - **Collapsed Peek State**: Swiping down smoothly collapses the dashboard into a minimal ~44px bottom bar (`FULL MAP VIEW · SWIPE UP FOR DASHBOARD`), granting unobstructed full-screen view of the map and radar.
+   - **Expanded State**: Swiping up or tapping the peek bar smoothly springs the sheet back to normal view.
+   - **Redundant SOS Button Removed**: The extra coral SOS button in the bottom sheet was removed; the existing app header distress action and modal handle all emergency distress requests.
 
 ## Architecture & Implementation
 
 ### 1. Web-to-Native GPU-Accelerated Animation in `TomTomMap.js`
-- The entire organic bloom radar and concentric ripples are rendered via CSS3 hardware-accelerated animations (`transform`, `opacity`, `filter`, `box-shadow`) inside the driver marker's DOM container (`originEl`).
-- Zero React Native bridge overhead; 60-120 FPS GPU rendering.
-- Stays 100% geographically pinned to driver GPS coordinates during map panning, rotation, and zooming.
-- Functions exposed:
-  - `window.updateRadarCoverage(km)`: Eases camera zoom and scales bloom container.
+- Exposed functions:
+  - `window.updateRadarCoverage(km)`: Eases camera zoom and triggers `window.updateRadarBloomScale()`.
+  - `window.updateRadarBloomScale()`: Dynamically calculates scale based on range and map zoom level, expanding the bloom container up to 5 km.
   - `window.updateCarRotation(heading)`: Rotates the forward-pointing center puck to match vehicle heading.
-  - `window.renderRadarMarkers(markers, selectedKm)`: Calculates marker Euclidean clusters and binds tap events.
+  - `window.renderRadarMarkers(markers, selectedKm)`: Groups markers into Euclidean clusters, styles `.priority-station` and `.priority-vehicle`, and binds tap events.
   - `window.recenterRadar()`: Eases camera to driver location with north-up bearing.
-  - `window.applyFleetMapTheme(isDark)`: Switches body class (`scheme-dark` / `scheme-light`) and map layer styles.
+  - `window.applyFleetMapTheme(isDark)`: Switches body class and map layer styles.
 
 ### 2. Standby Radar Interface in `map.js`
-- Manages `radarRadiusKm`, `selectedMarker`, `isPannedAway`, `legendExpanded`, and `radarMarkers`.
-- Reads real active and pending driver trips from `/api/driver/me` and generates anchored dispatch nodes.
-- Shows real-time toast banner notification upon polling new dispatches.
-- Wires the coral SOS button to `triggerDriverSos()` in `DriverSos.js`.
-
-### 3. Emergency SOS Distress Integration in `DriverSos.js`
-- Exported `triggerDriverSos()` and `registerSosHandler()` to connect the bottom sheet's coral SOS button to the existing distress modal workflow.
+- Manages `radarRadiusKm`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, and `isIdleCollapsed`.
+- Reads real active and pending driver trips from `/api/mobile/driver/trips`.
+- Restricts marker generation strictly to Gas Stations, Fleet Drivers, and Dispatch Requests.
+- Renders `selectedMarkerCard` with dispatcher-only accept actions and Fuel Report shortcuts.
+- Manages the swipe-down collapse mechanism for Full Map View.
 
 ## Verification
 - Unit test suite: all 996 Vitest tests passing (`npm run test:run`).
-- ESLint: zero errors, zero warnings across `map.js`, `TomTomMap.js`, and `DriverSos.js`.
-- Android Expo dev client running cleanly.
+- ESLint: zero errors, zero warnings across `mobile/app/(app)/(tabs)/map.js` and `mobile/components/TomTomMap.js`.
+- Verified native dev client running without errors.

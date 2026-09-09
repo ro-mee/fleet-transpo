@@ -13,7 +13,6 @@ import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
-import { triggerDriverSos } from "../../../components/DriverSos";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -209,96 +208,120 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
     });
   }
 
-  // 2. High-value dispatch facilities & alert areas matching the reference operational map
-  const defaultHubs = [
+  // 2. Nearest partner and major gas stations (strictly aligned with fleet fuel documentation)
+  const nearbyGasStations = [
     {
-      id: 'hub-medical',
-      type: 'assignment',
-      title: 'Divine Heart Medical Service and Cooperative',
-      subtitle: 'Emergency Transport Assistance',
-      priority: 'emergency',
-      offsetLat: 0.0078,
-      offsetLng: -0.0035,
-      etaMinutes: 5,
+      id: 'gas-petron',
+      type: 'gas_station',
+      title: 'Petron Service Station',
+      subtitle: 'Diesel · Unleaded · AutoLPG',
+      priority: 'station',
+      offsetLat: 0.0095,
+      offsetLng: 0.0072,
+      fuelBrands: 'Diesel, Unleaded, Premium',
     },
     {
-      id: 'hub-kalbiga',
-      type: 'assignment',
-      title: 'Kalbiga Deparo Dispatch Station',
-      subtitle: 'Hotel Guest Pickup Hub',
-      priority: 'priority',
-      offsetLat: 0.0135,
-      offsetLng: -0.0085,
-      etaMinutes: 8,
+      id: 'gas-shell',
+      type: 'gas_station',
+      title: 'Shell Mobility Hub',
+      subtitle: 'FuelSave Diesel · V-Power · Air & Water',
+      priority: 'station',
+      offsetLat: -0.0118,
+      offsetLng: 0.0094,
+      fuelBrands: 'FuelSave Diesel, V-Power Gas',
     },
     {
-      id: 'hub-ncm',
-      type: 'assignment',
-      title: 'NCM Fabrictech Terminal',
-      subtitle: 'Luggage / Crew Shuttling',
-      priority: 'normal',
-      offsetLat: 0.0125,
-      offsetLng: 0.0042,
-      etaMinutes: 6,
+      id: 'gas-caltex',
+      type: 'gas_station',
+      title: 'Caltex Fleet Station',
+      subtitle: 'Techron Diesel · Silver · Havoline Lube',
+      priority: 'station',
+      offsetLat: 0.0175,
+      offsetLng: -0.0135,
+      fuelBrands: 'Diesel with Techron, Unleaded',
     },
     {
-      id: 'hub-brgy',
-      type: 'alert',
-      title: 'Barangay 169 Area Advisory',
-      subtitle: 'Road repair on Jasmin Street · Expect minor delay',
-      priority: 'alert',
-      offsetLat: 0.0042,
-      offsetLng: -0.0145,
-      etaMinutes: 4,
-    },
-    {
-      id: 'hub-bartolome',
-      type: 'assignment',
-      title: 'FC Bartolome Ville HOA Incorporated CMP',
-      subtitle: 'Corporate Event Transport',
-      priority: 'normal',
-      offsetLat: -0.0082,
-      offsetLng: 0.0018,
-      etaMinutes: 5,
-    },
-    {
-      id: 'hub-jbc',
-      type: 'assignment',
-      title: 'JBC Food Hub Caloocan',
-      subtitle: 'Staff Catering Transport',
-      priority: 'normal',
-      offsetLat: -0.0142,
-      offsetLng: -0.0115,
-      etaMinutes: 9,
-    },
-    {
-      id: 'hub-trading',
-      type: 'vehicle',
-      title: 'Fleet Van #04 (Toyota HiAce)',
-      subtitle: 'Available for relay pickup',
-      priority: 'vehicle',
-      offsetLat: 0.0068,
-      offsetLng: 0.0138,
-      etaMinutes: 7,
-      status: 'available',
+      id: 'gas-cleanfuel',
+      type: 'gas_station',
+      title: 'Cleanfuel Commercial Station',
+      subtitle: 'Fleet Commercial Diesel · AutoLPG',
+      priority: 'station',
+      offsetLat: -0.0195,
+      offsetLng: -0.0165,
+      fuelBrands: 'Diesel, Clean 91',
     },
   ];
 
-  defaultHubs.forEach((h) => {
-    const hLat = lat + h.offsetLat;
-    const hLng = lng + h.offsetLng;
-    const d = haversineKm(lat, lng, hLat, hLng);
+  nearbyGasStations.forEach((g) => {
+    const gLat = lat + g.offsetLat;
+    const gLng = lng + g.offsetLng;
+    const d = haversineKm(lat, lng, gLat, gLng);
     list.push({
-      id: h.id,
-      type: h.type,
-      title: h.title,
-      subtitle: h.subtitle,
-      priority: h.priority,
-      lat: hLat,
-      lng: hLng,
+      id: g.id,
+      type: 'gas_station',
+      title: g.title,
+      subtitle: g.subtitle,
+      priority: 'station',
+      lat: gLat,
+      lng: gLng,
       distanceKm: Number(d.toFixed(1)),
-      etaMinutes: h.etaMinutes || Math.max(3, Math.round(d * 3.5)),
-      status: h.status || 'Active',
+      etaMinutes: Math.max(3, Math.round(d * 3.2)),
+      status: 'Open 24/7',
+      fuelBrands: g.fuelBrands,
+      tripId: null, // Gas stations have NO tripId and cannot be accepted
+    });
+  });
+
+  // 3. Nearest active fleet vehicles / drivers
+  const nearbyDrivers = [
+    {
+      id: 'driver-hiace',
+      type: 'driver',
+      title: 'Fleet Van #02 · Alex R.',
+      subtitle: 'Toyota HiAce (TST-8485) · Available',
+      priority: 'vehicle',
+      offsetLat: 0.0068,
+      offsetLng: 0.0142,
+      status: 'Available',
+    },
+    {
+      id: 'driver-innova',
+      type: 'driver',
+      title: 'Fleet SUV #05 · Marco S.',
+      subtitle: 'Toyota Innova (TSG-5030) · On Duty',
+      priority: 'vehicle',
+      offsetLat: -0.0138,
+      offsetLng: 0.0125,
+      status: 'En Route',
+    },
+    {
+      id: 'driver-vios',
+      type: 'driver',
+      title: 'Fleet Sedan #08 · Eduardo R.',
+      subtitle: 'Toyota Vios (ANA-8589) · Available',
+      priority: 'vehicle',
+      offsetLat: 0.0162,
+      offsetLng: -0.0185,
+      status: 'Available',
+    },
+  ];
+
+  nearbyDrivers.forEach((dv) => {
+    const dvLat = lat + dv.offsetLat;
+    const dvLng = lng + dv.offsetLng;
+    const d = haversineKm(lat, lng, dvLat, dvLng);
+    list.push({
+      id: dv.id,
+      type: 'driver',
+      title: dv.title,
+      subtitle: dv.subtitle,
+      priority: 'vehicle',
+      lat: dvLat,
+      lng: dvLng,
+      distanceKm: Number(d.toFixed(1)),
+      etaMinutes: Math.max(3, Math.round(d * 3.5)),
+      status: dv.status,
+      tripId: null, // Other drivers have NO tripId and cannot be accepted
     });
   });
 
@@ -344,6 +367,40 @@ export default function MapTab() {
   const [isMinimized, setIsMinimized] = useState(false);
 
   const isExpandedRef = useRef(false);
+
+  // Idle Bottom Sheet Animation State (Supports swipe-down for Full Map View)
+  const IDLE_SHEET_COLLAPSED_OFFSET = 188; // leaves a sleek ~44px peek bar
+  const [idlePanY] = useState(() => new Animated.Value(0));
+  const [isIdleCollapsed, setIsIdleCollapsed] = useState(false);
+  const isIdleCollapsedRef = useRef(false);
+
+  const snapIdleSheet = useCallback((collapsed) => {
+    isIdleCollapsedRef.current = collapsed;
+    setIsIdleCollapsed(collapsed);
+    Animated.spring(idlePanY, {
+      toValue: collapsed ? IDLE_SHEET_COLLAPSED_OFFSET : 0,
+      tension: 50,
+      friction: 8,
+      useNativeDriver: true,
+    }).start();
+  }, [idlePanY]);
+
+  const idlePanResponder = useRef(
+    // eslint-disable-next-line react-hooks/refs -- RN gesture responder reads live drag refs
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dy) > 5,
+      onPanResponderRelease: (evt, gestureState) => {
+        if (gestureState.dy > 30 || gestureState.vy > 0.4) {
+          snapIdleSheet(true);
+        } else if (gestureState.dy < -30 || gestureState.vy < -0.4) {
+          snapIdleSheet(false);
+        } else {
+          snapIdleSheet(isIdleCollapsedRef.current);
+        }
+      },
+    })
+  ).current;
 
   const snapTo = useCallback((expanded) => {
     isExpandedRef.current = expanded;
@@ -513,11 +570,7 @@ export default function MapTab() {
   }, [driverLocation, nearbyTrips]);
 
   const handleAcceptAssignment = async (tripId) => {
-    if (!tripId) {
-      AppAlert.alert("Assignment Accepted", "Assistance confirmed. Dispatcher has been notified.");
-      setSelectedMarker(null);
-      return;
-    }
+    if (!tripId) return;
     try {
       setAcceptingTripId(tripId);
       const res = await api.put(`/api/mobile/driver/trips/${tripId}/accept`, { accept: true });
@@ -908,16 +961,16 @@ export default function MapTab() {
                 <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Your Vehicle</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendRingSolid, { borderColor: rTheme.primary, backgroundColor: rTheme.primary + '20' }]} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Safe Zone (1 km)</Text>
+                <Ionicons name="water" size={13} color="#0284c7" />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Nearest Gas Station</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendRingDashed, { borderColor: rTheme.primary }]} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Extended Range (3 km)</Text>
+                <Ionicons name="car" size={13} color="#286B54" />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Fleet Drivers</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: rTheme.emergency }]} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>High Alert Area</Text>
+                <Ionicons name="document-text" size={13} color={rTheme.warning} />
+                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Dispatch Requests</Text>
               </View>
             </View>
           )}
@@ -936,6 +989,7 @@ export default function MapTab() {
             {
               backgroundColor: rTheme.fabBg,
               borderColor: rTheme.fabBorder,
+              bottom: isIdleCollapsed ? 80 : 330,
               opacity: pressed ? 0.85 : 1,
               transform: [{ scale: pressed ? 0.95 : 1 }],
             },
@@ -944,38 +998,52 @@ export default function MapTab() {
           <Ionicons name="locate" size={22} color={rTheme.fabIcon} />
         </Pressable>
 
-        {/* Compact Interactive Assignment / Alert Card */}
+        {/* Compact Interactive Assignment / Station / Driver Card */}
         {selectedMarker && (
-          <View style={[styles.selectedMarkerCard, { backgroundColor: rTheme.cardBg, borderColor: rTheme.cardBorder }]}>
+          <View style={[
+            styles.selectedMarkerCard, 
+            { 
+              backgroundColor: rTheme.cardBg, 
+              borderColor: rTheme.cardBorder,
+              bottom: isIdleCollapsed ? 76 : 300,
+            }
+          ]}>
             <View style={styles.markerCardTopRow}>
-              <View style={[
-                styles.markerPriorityBadge,
-                {
-                  backgroundColor: selectedMarker.priority === 'emergency' 
-                    ? rTheme.emergency + '22' 
-                    : selectedMarker.priority === 'priority' 
-                      ? rTheme.warning + '25' 
-                      : rTheme.primary + '22',
-                  borderColor: selectedMarker.priority === 'emergency' 
-                    ? rTheme.emergency 
-                    : selectedMarker.priority === 'priority' 
-                      ? rTheme.warning 
-                      : rTheme.primary,
-                }
-              ]}>
-                <Text style={[
-                  styles.markerPriorityText,
-                  {
-                    color: selectedMarker.priority === 'emergency' 
-                      ? rTheme.emergency 
-                      : selectedMarker.priority === 'priority' 
-                        ? rTheme.warning 
-                        : rTheme.primary,
-                  }
-                ]}>
-                  {selectedMarker.priority === 'emergency' ? 'EMERGENCY TRANSPORT' : selectedMarker.priority === 'priority' ? 'PRIORITY DISPATCH' : selectedMarker.type === 'alert' ? 'INCIDENT ALERT' : 'FLEET DISPATCH'}
-                </Text>
-              </View>
+              {(() => {
+                const isStation = selectedMarker.type === 'gas_station';
+                const isDriver = selectedMarker.type === 'driver' || selectedMarker.type === 'vehicle';
+                const badgeColor = isStation 
+                  ? '#0284c7' 
+                  : isDriver 
+                    ? '#286B54' 
+                    : selectedMarker.priority === 'emergency'
+                      ? rTheme.emergency
+                      : selectedMarker.priority === 'priority'
+                        ? rTheme.warning
+                        : rTheme.primary;
+                const badgeText = isStation 
+                  ? 'NEAREST GAS STATION'
+                  : isDriver
+                    ? 'FLEET DRIVER'
+                    : selectedMarker.priority === 'emergency'
+                      ? 'EMERGENCY DISPATCH'
+                      : selectedMarker.priority === 'priority'
+                        ? 'PRIORITY DISPATCH'
+                        : 'DISPATCH REQUEST';
+                return (
+                  <View style={[
+                    styles.markerPriorityBadge,
+                    {
+                      backgroundColor: badgeColor + '22',
+                      borderColor: badgeColor,
+                    }
+                  ]}>
+                    <Text style={[styles.markerPriorityText, { color: badgeColor }]}>
+                      {badgeText}
+                    </Text>
+                  </View>
+                );
+              })()}
               <Pressable 
                 onPress={() => setSelectedMarker(null)} 
                 hitSlop={12}
@@ -1011,41 +1079,103 @@ export default function MapTab() {
               </View>
             </View>
 
+            {/* Actions Row: Strictly enforce that only dispatcher/admin trips can be accepted */}
             <View style={styles.markerCardActionsRow}>
-              <Pressable
-                onPress={() => {
-                  if (selectedMarker.tripId) {
-                    router.push(`/trip/${selectedMarker.tripId}`);
-                  } else {
-                    AppAlert.alert(selectedMarker.title, selectedMarker.subtitle || "Operational dispatch point.");
-                  }
-                }}
-                style={[styles.markerCardSecBtn, { borderColor: rTheme.cardBorder, backgroundColor: rTheme.pollingBg }]}
-                accessibilityRole="button"
-                accessibilityLabel="View details"
-              >
-                <Text style={[styles.markerCardSecBtnText, { color: rTheme.textPrimary }]}>VIEW DETAILS</Text>
-              </Pressable>
+              {selectedMarker.tripId ? (
+                <>
+                  <Pressable
+                    onPress={() => router.push(`/trip/${selectedMarker.tripId}`)}
+                    style={[styles.markerCardSecBtn, { borderColor: rTheme.cardBorder, backgroundColor: rTheme.pollingBg }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="View trip details"
+                  >
+                    <Text style={[styles.markerCardSecBtnText, { color: rTheme.textPrimary }]}>VIEW DETAILS</Text>
+                  </Pressable>
 
-              <Pressable
-                onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
-                style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary }]}
-                accessibilityRole="button"
-                accessibilityLabel="Accept assignment"
-              >
-                <Text style={[styles.markerCardPriBtnText, { color: scheme === 'dark' ? '#103A30' : '#FFFFFF' }]}>
-                  {acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
-                </Text>
-              </Pressable>
+                  <Pressable
+                    onPress={() => handleAcceptAssignment(selectedMarker.tripId)}
+                    style={[styles.markerCardPriBtn, { backgroundColor: rTheme.primary }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Accept assignment"
+                  >
+                    <Text style={[styles.markerCardPriBtnText, { color: scheme === 'dark' ? '#103A30' : '#FFFFFF' }]}>
+                      {acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
+                    </Text>
+                  </Pressable>
+                </>
+              ) : selectedMarker.type === 'gas_station' ? (
+                <>
+                  <Pressable
+                    onPress={() => setSelectedMarker(null)}
+                    style={[styles.markerCardSecBtn, { borderColor: rTheme.cardBorder, backgroundColor: rTheme.pollingBg }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Dismiss station card"
+                  >
+                    <Text style={[styles.markerCardSecBtnText, { color: rTheme.textPrimary }]}>DISMISS</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => {
+                      setSelectedMarker(null);
+                      router.push({
+                        pathname: '/(app)/fuel-report',
+                        params: { station: selectedMarker.title },
+                      });
+                    }}
+                    style={[styles.markerCardPriBtn, { backgroundColor: '#0284c7' }]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Report fuel purchase"
+                  >
+                    <Text style={[styles.markerCardPriBtnText, { color: '#FFFFFF' }]}>REPORT FUEL</Text>
+                  </Pressable>
+                </>
+              ) : (
+                <Pressable
+                  onPress={() => setSelectedMarker(null)}
+                  style={[styles.markerCardSecBtn, { borderColor: rTheme.cardBorder, backgroundColor: rTheme.pollingBg, flex: 1 }]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss card"
+                >
+                  <Text style={[styles.markerCardSecBtnText, { color: rTheme.textPrimary }]}>DISMISS</Text>
+                </Pressable>
+              )}
             </View>
           </View>
         )}
 
-        {/* Idle Dashboard Bottom Sheet (Driver Operational Command Panel) */}
-        <View style={[styles.idleSheet, { backgroundColor: rTheme.sheetBg, borderColor: rTheme.sheetBorder }]}>
-          <View style={[styles.dragHandle, { backgroundColor: rTheme.sheetHandle }]} />
+        {/* Idle Dashboard Bottom Sheet (Swipe down for Full Map View) */}
+        <Animated.View 
+          style={[
+            styles.idleSheet, 
+            { 
+              backgroundColor: rTheme.sheetBg, 
+              borderColor: rTheme.sheetBorder,
+              transform: [{ translateY: idlePanY }],
+            }
+          ]}
+        >
+          {/* Touch and drag zone for collapsing / expanding the sheet */}
+          {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
+          <View {...idlePanResponder.panHandlers}>
+            <Pressable 
+              onPress={() => snapIdleSheet(!isIdleCollapsedRef.current)}
+              accessibilityRole="button"
+              accessibilityLabel={isIdleCollapsed ? "Expand dashboard" : "Collapse for full map view"}
+              hitSlop={12}
+            >
+              <View style={[styles.dragHandle, { backgroundColor: rTheme.sheetHandle }]} />
+              {isIdleCollapsed && (
+                <View style={styles.collapsedPeekRow}>
+                  <Ionicons name="chevron-up" size={16} color={rTheme.primary} />
+                  <Text style={[styles.collapsedPeekText, { color: rTheme.textSecondary }]}>
+                    FULL MAP VIEW · SWIPE UP FOR DASHBOARD
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+          </View>
           
-          <View style={styles.idleHeaderRow}>
+          <View style={[styles.idleHeaderRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
             <View style={[styles.idleAvatar, { backgroundColor: rTheme.avatarBg }]}>
               <Ionicons name="person" size={22} color={rTheme.avatarIcon} />
             </View>
@@ -1065,7 +1195,7 @@ export default function MapTab() {
           {/* Polling Heartbeat Badge */}
           <Pressable 
             onPress={() => loadTrip()}
-            style={[styles.heartbeatRow, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder }]}
+            style={[styles.heartbeatRow, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder, opacity: isIdleCollapsed ? 0 : 1 }]}
             accessibilityRole="button"
             accessibilityLabel="Refresh dispatch queue"
           >
@@ -1076,7 +1206,7 @@ export default function MapTab() {
           </Pressable>
 
           {/* Standby Fast Actions */}
-          <View style={styles.idleActionsRow}>
+          <View style={[styles.idleActionsRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
             <Pressable
               onPress={() => router.push('/trips')}
               accessibilityRole="button"
@@ -1117,11 +1247,11 @@ export default function MapTab() {
             </Pressable>
           </View>
           
-          {/* Bottom Row: Completed Trips + prominent Coral SOS button */}
-          <View style={styles.bottomSheetActionsRow}>
+          {/* Bottom Row: Completed Trips Today (full width, redundant SOS removed) */}
+          <View style={[styles.bottomSheetActionsRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
             <Pressable
               onPress={() => router.push('/trips')}
-              style={[styles.completedTripsRow, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder }]}
+              style={[styles.completedTripsRow, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder, flex: 1 }]}
               accessibilityRole="button"
               accessibilityLabel="View completed trips today"
             >
@@ -1134,21 +1264,8 @@ export default function MapTab() {
                 <Ionicons name="chevron-forward" size={16} color={rTheme.textSecondary} />
               </View>
             </Pressable>
-
-            <Pressable
-              onPress={() => triggerDriverSos()}
-              accessibilityRole="button"
-              accessibilityLabel="Trigger emergency SOS assistance"
-              style={({ pressed }) => [
-                styles.sosButtonRound,
-                { backgroundColor: rTheme.sosBtnBg, opacity: pressed ? 0.85 : 1 }
-              ]}
-            >
-              <Ionicons name="shield" size={18} color={rTheme.sosBtnText} />
-              <Text style={[styles.sosButtonText, { color: rTheme.sosBtnText }]}>SOS</Text>
-            </Pressable>
           </View>
-        </View>
+        </Animated.View>
 
       </View>
     );
@@ -2191,24 +2308,17 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
   },
-  sosButtonRound: {
-    height: 52,
-    paddingHorizontal: 18,
-    borderRadius: 14,
+  collapsedPeekRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 4,
+    gap: 8,
+    paddingTop: 4,
   },
-  sosButtonText: {
-    fontFamily: fonts.dataBold || fonts.bodySemiBold,
-    fontSize: 14,
-    letterSpacing: 1,
+  collapsedPeekText: {
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    fontSize: 10,
+    letterSpacing: 0.8,
   },
   bottomSheet: {
     position: "absolute",
