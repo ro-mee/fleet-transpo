@@ -23,7 +23,7 @@ import { useTheme } from "../../../lib/theme-context";
 import { useNotificationFeed } from "../../../context/notification-feed";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { SkeletonCard, ErrorNotice } from "../../../components/ui";
-import { selectHomeTrips } from "../../../lib/home-trips";
+import { selectHomeTrips, homeVehicleImage } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
 import {
@@ -318,7 +318,9 @@ export default function Home() {
 
   const vehicleContext = resolveVehicleContext({ trips, me: driverProfile, activeStatuses });
   const vehicleRow = activeTrip?.vehicle_id === vehicleContext?.vehicleId ? activeTrip : driverProfile?.assignedVehicle;
-  const vehicle = vehicleContext ? { plate: vehicleContext.plate, model: vehicleRow?.vehicle_model || vehicleRow?.model } : null;
+  const assignedVehicle = driverProfile?.assignedVehicle;
+  const matchingAssignment = vehicleContext && String(assignedVehicle?.vehicleId ?? assignedVehicle?.vehicle_id) === String(vehicleContext.vehicleId);
+  const vehicle = vehicleContext ? { plate: vehicleContext.plate, model: vehicleRow?.vehicle_model || vehicleRow?.model, imageUri: homeVehicleImage(vehicleRow) ?? (matchingAssignment ? homeVehicleImage(assignedVehicle) : null) } : null;
   const completed = driverProfile?.performance?.total_trips;
   const shortcuts = [
     { label: 'My Schedule', icon: 'calendar', action: () => router.push('/work-schedule') },

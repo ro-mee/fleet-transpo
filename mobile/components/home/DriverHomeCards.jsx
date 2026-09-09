@@ -1,19 +1,16 @@
 import { useState } from 'react';
-import { ActivityIndicator, ImageBackground, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
 import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone } from '../../lib/theme';
-import { clayMaterials } from '../../lib/clay';
+import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
 
-// Raised-control edges for surfaces whose color is FIXED across schemes
-// (the forest hero tiles) — the light recipe is correct in both modes.
-// Scheme-dependent surfaces (cards, pills, CTAs on theme accents) use
-// clayMaterials instead: white 33% strips wash out on dark's pale accents.
+// Assignment controls retain their scheme-specific clay edges.
 const raisedControl = { borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 };
 // Dark variant for raised controls on scheme-dependent accent surfaces.
 const raisedControlDark = { borderTopWidth: 1.5, borderTopColor: 'rgba(255,255,255,0.12)', borderBottomWidth: 1.5, borderBottomColor: 'rgba(0,0,0,0.40)', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 9, elevation: 5 };
@@ -26,31 +23,40 @@ export function DriverHeroCard({ upcoming, capped, completed, vehicle, confirmed
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === 'dark');
   const { settings } = useSettings();
-  const ink = settings.highContrast ? colors.onPrimary : '#FFFDFC';
-  const fill = settings.highContrast ? colors.primary : '#123E33';
-  const tile = settings.highContrast ? colors.primary : '#1D5145E8';
+  const [failedImage, setFailedImage] = useState(null);
+  const imageUri = vehicle?.imageUri;
   const date = new Date().toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
-  return <View style={[s.heroShell, mats.clayShade, { shadowColor: colors.shadow, backgroundColor: fill }]}>
-    <ImageBackground source={require('../../assets/images/kpi bg.png')} imageStyle={{ opacity: settings.highContrast ? 0 : 1 }} style={s.hero} accessible={false}>
-      <LinearGradient pointerEvents="none" colors={settings.highContrast ? [fill, fill] : ['#103B32F5', '#103B32AA', '#103B3210']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
-      <Text style={[type.titleLg, { color: ink }]}>{date}</Text>
-      <Text style={[type.supporting, { color: ink, marginTop: 2 }]}>{offline ? 'Your saved dashboard' : 'Ready for what’s next.'}</Text>
+  return <View style={[s.heroShell, { ...mats.clayShade, shadowColor: colors.shadow, backgroundColor: colors.surfaceContainerLow }]}>
+    <View style={s.hero}>
+      <Text style={[type.caption, { color: colors.primary, letterSpacing: 1.2 }]}>{date.toLocaleUpperCase()}</Text>
+      <Text style={[type.titleLg, { marginTop: 5 }]}>{offline ? 'Your saved dashboard' : 'Ready for what’s next?'}</Text>
       <View style={s.metrics}>
         {[
           { label: 'Upcoming trips', value: confirmed ? `${upcoming}${capped ? '+' : ''}` : '—', caption: confirmed ? 'View assignments' : 'Not yet confirmed', icon: 'calendar', action: onTrips },
           { label: 'Trips completed', value: completed ?? '—', caption: 'All time', icon: 'checkmark-circle', action: onHistory },
-        ].map(m => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, { backgroundColor: tile, borderColor: ink + '35', opacity: pressed ? 0.8 : 1 }]}>
-          <View style={s.row}><Ionicons name={m.icon} size={20} color={ink} /><Text style={[type.headlineMd, { color: ink }]}>{m.value}</Text></View>
-          <Text style={[type.labelLg, { color: ink }]}>{m.label}</Text>
-          <Text style={[type.caption, { color: ink }]}>{m.caption}</Text>
+        ].map(m => <Pressable key={m.label} onPress={m.action} accessibilityRole="button" accessibilityLabel={`${m.label}: ${m.value}. ${m.caption}`} style={({ pressed }) => [s.metric, { ...mats.compactShade, backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
+          {!settings.highContrast && <LinearGradient pointerEvents="none" colors={[colors.surfaceContainerLow + '88', colors.primaryContainer]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[StyleSheet.absoluteFill, { borderRadius: 19 }]} />}
+          <View style={s.row}><HomeClayIcon name={m.icon} small /><Text style={[type.headlineMd, { color: colors.onPrimaryContainer }]}>{m.value}</Text></View>
+          <Text style={[type.labelLg, { color: colors.onPrimaryContainer }]}>{m.label}</Text>
+          <View style={s.row}><Text style={[type.caption, s.flex, { color: colors.onPrimaryContainer }]}>{m.caption}</Text><Ionicons name="chevron-forward" size={14} color={colors.onPrimaryContainer} /></View>
         </Pressable>)}
       </View>
-      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { backgroundColor: tile, opacity: pressed ? 0.8 : 1 }]}>
-        <Ionicons name="car-sport" size={20} color={ink} />
-        <View style={s.flex}><Text style={[type.caption, { color: ink }]}>Assigned vehicle</Text><Text style={[type.labelLg, { color: ink }]}>{vehicle?.model || (vehicle ? 'Assigned vehicle' : profileConfirmed ? 'No assigned vehicle' : 'Not yet confirmed')}</Text>{vehicle?.plate ? <Text style={[type.caption, { color: ink }]}>{vehicle.plate}</Text> : null}</View>
-        <Ionicons name="chevron-forward" size={18} color={ink} />
+      <Pressable onPress={onVehicle} accessibilityRole="button" accessibilityLabel="View assigned vehicle" style={({ pressed }) => [s.vehicle, { ...mats.compactShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }, pressed && s.ctaPressed]}>
+        <HomeClayIcon name="car-sport" small />
+        <View style={s.flex}><Text style={type.caption}>Assigned vehicle</Text><Text style={type.labelLg}>{vehicle?.model || (vehicle ? 'Assigned vehicle' : profileConfirmed ? 'No assigned vehicle' : 'Not yet confirmed')}</Text>{vehicle?.plate ? <Text style={type.caption}>{vehicle.plate}</Text> : null}</View>
+        {imageUri && failedImage !== imageUri ? <Image key={imageUri} source={{ uri: imageUri }} resizeMode="contain" style={s.vehicleImage} onError={() => setFailedImage(imageUri)} accessible={false} /> : null}
+        <Ionicons name="chevron-forward" size={18} color={colors.primary} />
       </Pressable>
-    </ImageBackground>
+    </View>
+  </View>;
+}
+
+// One molded icon treatment for the Home metrics, vehicle and shortcuts.
+function HomeClayIcon({ name, small = false }) {
+  const { colors, scheme } = useTheme();
+  const mats = clayMaterials(scheme === 'dark');
+  return <View style={[s.actionIcon, small && s.smallIcon, { ...mats.clayTile, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+    <Ionicons name={name} size={small ? 21 : 25} color={colors.primary} />
   </View>;
 }
 
@@ -63,9 +69,9 @@ export function HomeQuickActions({ actions }) {
   const largeText = fontScale > 1.3 || settings.textSize === 'large';
   const wide = width >= 700 && fontScale <= 1.15 && !largeText;
   const visible = wide || expanded ? actions : actions.slice(0, 4);
-  return <View style={[s.actions, mats.clayShade, { backgroundColor: colors.surfaceContainer, shadowColor: colors.shadow }]}>
+  return <View style={[s.actions, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: () => setExpanded(!expanded), toggle: true }] : [])].map(a => <Pressable key={a.label} onPress={a.action} disabled={a.disabled} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }} style={({ pressed }) => [s.shortcut, { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%', opacity: a.disabled ? 0.5 : pressed ? 0.7 : 1 }]}>
-      <View style={[s.actionIcon, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}><Ionicons name={a.icon} size={22} color={colors.primary} /></View>
+      <HomeClayIcon name={a.icon} />
       <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
     </Pressable>)}
   </View>;
@@ -103,7 +109,7 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
   // Live trip status — the real trip_status, never a hardcoded label.
   const sc = statusColorForTone(colors, tripStatusTone(trip?.trip_status));
   const horizontal = width >= 420 && fontScale < 1.2 && settings.textSize !== 'large';
-  return <View style={[s.trip, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+  return <View style={[s.trip, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
     {/* Inner top highlight — clay's "light from above". Skipped in
         high-contrast mode where decoration must not soften legibility. */}
     {!settings.highContrast ? <LinearGradient pointerEvents="none" colors={scheme === 'dark' ? ['rgba(255,253,252,0.07)', 'rgba(255,253,252,0)'] : ['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={s.tripSheen} /> : null}
@@ -121,8 +127,8 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
         <RadarPulse size={38} color={accent} icon="radio" />
       ) : null}
       <View style={s.flex}>
-        <Text style={type.cardTitle}>{!confirmed ? offline ? 'No saved trips yet' : 'Assignments not confirmed' : isCurrent ? 'Active Radar • On Standby' : 'No upcoming trip.'}</Text>
-        <Text style={type.supporting}>{!confirmed ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.' : offline ? 'Based on your last synced assignments.' : isCurrent ? 'Vehicle ready for dispatch. Check Live Map to view your active radar zone.' : 'You’re all caught up for now.'}</Text>
+        <Text style={type.cardTitle}>{!confirmed ? offline ? 'No saved trips yet' : 'Assignments not confirmed' : isCurrent ? 'No active trip right now.' : 'No upcoming trip.'}</Text>
+        <Text style={type.supporting}>{!confirmed ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.' : offline ? 'Based on your last synced assignments.' : isCurrent ? 'Your active assignment will appear here when the trip begins.' : 'You’re all caught up for now.'}</Text>
       </View>
     </View> : <>
       <Text style={type.labelLg}>{validDate ? `${depDate} · ${depTime}` : 'Departure time not provided'}</Text>
@@ -171,11 +177,12 @@ export function AssignmentsHeading({ onPress }) {
 
 const s = StyleSheet.create({
   flex: { flex: 1, minWidth: 0 }, row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  heroShell: { borderRadius: 24 }, hero: { overflow: 'hidden', borderRadius: 22, padding: 14, paddingBottom: 14 },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }, metric: { ...raisedControl, flex: 1, minWidth: 120, padding: 9, gap: 3, borderRadius: 18 },
-  vehicle: { ...raisedControl, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8, borderRadius: 18, padding: 10, minHeight: 56, maxWidth: 310 },
+  heroShell: { borderRadius: 28 }, hero: { overflow: 'hidden', borderRadius: 26, padding: 14 },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }, metric: { flex: 1, minWidth: 120, padding: 10, gap: 4, borderRadius: 20 },
+  vehicle: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12, borderRadius: 20, padding: 10, minHeight: 64 },
+  vehicleImage: { width: 64, height: 48, borderRadius: 10 }, smallIcon: { width: 38, height: 38, borderRadius: 15 },
   actions: { padding: 10, borderRadius: 24, flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 6 },
-  shortcut: { alignItems: 'center', gap: 6, paddingVertical: 4, minWidth: 48 }, actionIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
+  shortcut: { alignItems: 'center', gap: 6, paddingVertical: 4, minWidth: 48 }, actionIcon: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 18 },
   trip: { borderRadius: 24, padding: 14, gap: 12 }, status: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: '100%', flexDirection: 'row', alignItems: 'center', gap: 6 },
   tripSheen: { position: 'absolute', top: 0, left: 0, right: 0, height: 30, borderTopLeftRadius: 22, borderTopRightRadius: 22 },
   cardTag: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, justifyContent: 'center' },

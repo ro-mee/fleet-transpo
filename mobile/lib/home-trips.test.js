@@ -1,7 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { selectHomeTrips, homeTripAction } from './home-trips';
+import { selectHomeTrips, homeTripAction, homeVehicleImage } from './home-trips';
 
 describe('Home assignment presentation', () => {
+  it('accepts real optional vehicle photo fields and picks up a later refreshed photo', () => {
+    const vehicle = { model: 'Hiace' };
+    expect(homeVehicleImage(vehicle)).toBeNull();
+    expect(homeVehicleImage(null)).toBeNull();
+    for (const field of ['vehicle_image_url', 'vehicle_photo_url', 'image_url', 'photo_url', 'image', 'imageUrl']) {
+      expect(homeVehicleImage({ ...vehicle, [field]: ' https://example.com/vehicle.jpg ' })).toBe('https://example.com/vehicle.jpg');
+    }
+    expect(homeVehicleImage({ image: {}, photo_url: 'javascript:bad', receipt_url: 'https://example.com/receipt.jpg' })).toBeNull();
+    expect(homeVehicleImage({ image_url: '', photo_url: 'https://example.com/new.jpg' })).toBe('https://example.com/new.jpg');
+  });
   it('keeps current and next distinct, preserves server order, and excludes terminal rows', () => {
     const active = { trip_id: 2, trip_status: 'En Route' };
     const next = { trip_id: 3, trip_status: 'Assigned' };

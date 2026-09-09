@@ -1,4 +1,10 @@
 // Presentation only: the server's status groups still own lifecycle eligibility.
+export function homeVehicleImage(vehicle) {
+  // Only vehicle-photo fields, never a trip's receipt or other evidence image.
+  return [vehicle?.vehicle_image_url, vehicle?.vehicle_photo_url, vehicle?.image_url, vehicle?.photo_url, vehicle?.image, vehicle?.imageUrl]
+    .find(uri => typeof uri === 'string' && /^https?:\/\/\S+$/i.test(uri.trim()))?.trim() ?? null;
+}
+
 export function selectHomeTrips(trips, activeStatuses) {
   const open = trips.filter(t => !['Completed', 'Cancelled'].includes(t.trip_status));
   const current = open.find(t => activeStatuses.includes(t.trip_status)) ?? null;

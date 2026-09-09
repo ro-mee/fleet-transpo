@@ -127,6 +127,21 @@ Owner critique: dark mode read as "dark neumorphism / flat dark cards" — backg
 
 Targeted ESLint clean on all 24 touched files; mobile Vitest 15 files / 106 tests passed; `expo export --platform android` passed (5.06 MB bundle). Re-grep confirms no remaining `#FFFFFF`-family strips outside deliberate light branches/static baselines that carry inline dark overrides, and no foreign Tailwind colors outside map.js/SwipeButton.js (out of scope). Native-device visual acceptance in light + dark + high contrast remains pending — that is where the diffused-highlight tuning should be confirmed. No commit created.
 
+## Ivory Home reference refinement — 2026-09-09
+
+The new owner-supplied reference supersedes the scenic dark-green hero treatment above. Home now has a compact ivory hero, sage KPI panels, molded icon tiles, a raised vehicle strip, and a circular green avatar in an ivory rim. Existing compact density, actual counts, weather/unread payloads, shortcuts, trip handlers and navigation are preserved. The earlier removed header subtitle was not reintroduced. No fabricated vehicle/scenery image was added.
+
+- `components/home/materials.js` reuses the existing clay materials, adding Home-only layered outer and inset shadows on web or Fabric with Android 10+ (and iOS). Older Android/legacy renderers retain existing elevation. Light and dark replace identical keys; no global palette/material consumers change. Shared bottom-shadow tint comes from the existing material, not a new global color.
+- `DriverHomeCards.jsx` shares a molded icon tile across metrics, vehicle and quick actions. Empty-current wording no longer claims vehicle readiness merely because no active trip exists; the radar indicator remains. Loading/offline/unconfirmed distinctions remain intact.
+- `homeVehicleImage` recognizes optional vehicle-photo URL fields, rejects non-string/non-HTTP(S) values, and is evaluated each render. Home preserves the selected vehicle identity. A standing-assignment image is used as fallback only when its vehicle ID matches the selected vehicle. Image errors remove the image area; a changed URL is retried. Original evidence and API contracts are unchanged. The real `/api/driver/me` response already provides assignedVehicle.imageUrl; no backend change was needed.
+- No new dependencies, native build configuration, auth, environment or database changes. The provided image informed materials/proportions through Image-to-Code; Taste's preservation/spacing guidance was applied without importing its web-only layout patterns into native UI.
+
+Verification: touched-file ESLint passed; 14 mobile utility test files / 103 tests passed (including photo field cases, renderer fallback and light-dark-light material-key restoration); Android export passed (1,356 modules). `git diff --check` passed. The utility tests emit their existing missing EXPO_PUBLIC_API_URL warning in the isolated test environment; no environment values were changed. No dedicated mobile type-check script exists.
+
+Local React Native Web component QA covered 390px light/no photo, 320px dark/photo fixture, and 430px light after a dark-to-light cycle with a broken photo. The fixture is QA-only, not production vehicle data. Layouts wrap without an empty image frame; inset/outer depth is visible. Preview uses browser gradient/icon adapters, not an authenticated native app. Android/iOS visual acceptance, enlarged native text, actual remote-photo delivery and authenticated navigation remain device smoke checks. No native device/emulator was available. No commit created.
+
+Final-header follow-up audit: Android export re-run after the last header style composition edit passed (1,356 modules; bundle `entry-baa3826c65bb0c8d3f689fb6aa3eecec.hbc`). No adb command, emulator process, or SDK in the configured/common local SDK locations was found. Final native visual acceptance therefore still requires a connected device or owner-provided Home screenshots; do not treat browser QA as native acceptance.
+
 ## Dark→Light theme-switch regression fix — 2026-09-09
 
 Owner report: light correct on first load, dark correct, but toggling back Dark→Light broke clay cards — rectangular shadow/backing artifacts behind rounded cards, stale dark layers, cards no longer matching their initial light appearance.
