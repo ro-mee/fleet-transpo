@@ -2,7 +2,35 @@
 
 Comprehensive system overview for AI assistants and new developers. Covers architecture, tech stack, directory layout, database schema, API surface, auth/RBAC, the mobile companion app, and the business logic domains.
 
+**Mobile Home UI update (2026-09-09):** See [Mobile Home Claymorphism Implementation Plan and outcome](Capstone/01%20-%20System/Mobile%20Home%20Claymorphism%20Implementation%20Plan.md). Implemented image-backed summary, grouped shortcuts, and distinct Current/Next cards while preserving the warm ivory theme and driver workflows. Mobile utility tests, targeted lint, and Android export passed; native device smoke testing remains pending.
+
+**Mobile Profile & Settings UI update (2026-09-09, implemented):** [Profile & Settings claymorphism plan + outcome](Capstone/01%20-%20System/Mobile%20Profile%20%20%26%20Settings%20Claymorphism%20Implementation%20Plan.md) extends the Home/Trips clay language to the Profile tab and everything reachable from it — Settings, personal/license/vehicle/safety/help, Logged-in Devices. Styling-only: new shared `mobile/lib/clay.js` (pure material constants) + `ClayScreenHeader` (raised back control); `components/ui.js` untouched. All permission/upload/session/phone-edit/sign-out logic unchanged. Mobile suite 102 tests, targeted lint, and Android export passed; native device acceptance pending.
+
 ## 1. System Overview
+
+**Shared clay route preview (2026-09-09):** Home and Trip Details share TripMapPreview with raised route shading and rounded clay pins. Detail full-map navigation remains unchanged. See Home/Trips notes for verification.
+
+**Map preview clarity (2026-09-09):** Preserved provider land-use detail instead of flattening every fill, added responsive map resizing, and strengthened the clay frame. No route geometry or navigation changes; reported partial-render symptom still requires device confirmation.
+
+**Home map labels (2026-09-09):** Added Pickup/Drop-off pin labels and restored forest Details buttons on Home. Road route remains solid; trip behavior unchanged.
+
+**Home real route preview (2026-09-09):** Shared TomTom WebView preview replaces endpoint-only static images in Home cards. Muted basemap, real calculated forest route, custom pins, consistent clay frame and aligned map/CTA stack. No trip/navigation changes. See Home implementation note for checks and pending on-device visual acceptance.
+
+**Reference Home header (2026-09-09):** DriverHomeHeader now groups a green avatar, real greeting, reusable weather pill and separate unread bell with soft clay elevation. Compact layout reflows for narrow/large-text screens; profile/weather/notification data flows preserved. See the Mobile Home note for verification and night-data limitations.
+
+**Forest action accents (2026-09-09):** Home/Trips Details controls and Trips Completed badges now share primary/onPrimary coloring, retaining theme adaptation and existing behavior.
+
+**Home clay consistency (2026-09-09):** Home now matches the stronger Trips card curvature, depth, edge highlights, raised controls and route nodes. KPI artwork, warm palette and business behavior preserved. See the Mobile Home implementation note; physical-device visual checks remain pending.
+
+**Trips clay depth refinement (2026-09-09):** Increased card curvature, soft elevation, edge highlights and raised controls in Trips/Trip Details and their route timeline. Warm theme and trip behavior preserved; see the Trips implementation note. Native visual acceptance remains pending.
+
+**Trips Android export unblocked (2026-09-09):** Restored the temporary web-only VisualReview configuration to FleetOps' existing configuration. Android Expo export now passes (1,346 modules); no app.json diff remains. Physical-device acceptance remains pending. No commit or deployment made.
+
+**Trips follow-up verification (2026-09-09):** Existing clay Trips/detail implementation retained; readiness copy and banner styling corrected, invalid start dates regression-covered. Targeted lint and 92 mobile tests passed. Fresh Android export is blocked by the current web-only VisualReview configuration; no configuration override or commit was made. See the Trips claymorphism implementation note for details.
+
+**Mobile Trips UI update (2026-09-09, implemented):** [Trips and Trip Details claymorphism plan + outcome](Capstone/01%20-%20System/Mobile%20Trips%20Claymorphism%20Implementation%20Plan.md) extends the Home visual direction to the Trips list and Trip Details. Includes the six truthfulness/action corrections: whole-card Details navigation (no unscoped "START TRIP"), active-trip Continue is navigate-only (never re-issues accept/start), no fabricated Completed/VIP/`10:00 AM`/passenger-count defaults, completion time from `end_time` (never `updated_at`), honest notFound/error fetch states, and a READY · SCHEDULE UNCONFIRMED queue bucket for unknown start windows. Pure helpers `mobile/lib/trips-queue.js` + `trip-detail.js` (13 new tests), shared `RouteTimeline` component. Mobile suite 97 tests, touched-file lint, and Android export passed; native device acceptance pending.
+
+**Map weather chip (2026-09-09, implemented):** [Mobile Map Weather Chip plan](Capstone/01%20-%20System/Mobile%20Map%20Weather%20Chip%20Implementation%20Plan.md) added a compact ambient weather pill fed from the GPS ingest response (Open-Meteo, coarse-grid cache, fail-open ~2 s timeout) via a new shared post-write advisory helper (`src/services/ping-advisories.service.js`) used by both GPS POST routes, plus a `GET /api/mobile/driver/weather` endpoint and `useAmbientWeather` hook so the chip is visible even without an active trip (one-shot/last-known position, never a watcher). The chip label is a reverse-geocoded place name (TomTom, existing server key, `src/lib/geo/reverse-geocode.js`) with the condition carried by a dual-tone Ionicon. Weather is never a banner/notification — permanently chip-only; placed in the **Home header beside the notification bell** (map has no weather surface). Vitest (994 tests) and lint passed; native device acceptance pending.
 
 **FleetOps** is a hotel-affiliated fleet & logistics management platform (guest transport for a hotel, e.g. "CoCo Star Hotel"). It runs the full lifecycle of guest transportation requests — from an external **Booking** subsystem through intake, review, approval, dispatch scheduling, trip execution, GPS tracking, fuel reporting, and maintenance — plus fleet/driver/vehicle management, analytics, reports, and a driver-facing mobile app.
 
@@ -1027,7 +1055,10 @@ app/(app)/(tabs)/         bottom tab bar:
                           odometer modal, GPS toggle, tools; SOS button mounted beside the Tabs
   map.js                  Live Map — full-screen trip map + bottom-sheet nav card; START ROUTE time-gate
   fuel_action.js          dummy anchor for the center scan FAB → /fuel-report?scan=1
-  trips.js                Trips list (active/history buckets)
+  trips.js                Trips list — time-aware queue (in-progress → overdue → ready →
+                          ready·schedule-unconfirmed → upcoming → completed → cancelled);
+                          whole-card tap → details; open-assignment summary
+                          (queue logic in lib/trips-queue.js)
   profile.js              ★ driver profile hub — menu into profile/* subpages, settings, Sign out
     …history.js           hidden from bar (header access): completed/cancelled trips
     …notifications.js     hidden from bar: alerts inbox w/ tiered banners (push/heads-up/silent)
@@ -1039,7 +1070,9 @@ app/(app)/inspection.js   pre-shift 7-point pass/fail checklist tied to a trip (
 app/(app)/work-schedule.js weekly schedule editor + leave requests (Vacation/Personal/Medical)
 app/(app)/submissions.js  activity logs: fuel/inspection/incident submissions + offline dead-letter retry
 app/(app)/settings.js     push/tracking/high-contrast/text-size/theme toggles, permission management
-app/(app)/trip/[id].js    trip detail + accept + START ROUTE gate (30 s refresh)
+app/(app)/trip/[id].js    trip detail + accept & START ROUTE gate (30 s refresh); active trips
+                          get navigate-only CONTINUE TO MAP; terminal trips read-only; honest
+                          notFound/error/never-synced states (decisions in lib/trip-detail.js)
 app/(app)/trip/complete.js animated completion summary (Lottie) w/ note & issue modals
 app/(app)/profile/*.js    personal (phone edit), license (capture→scan), vehicle, safety, help
 ```
@@ -1050,9 +1083,10 @@ app/(app)/profile/*.js    personal (phone edit), license (capture→scan), vehic
 - `sync.js` — AsyncStorage offline queue replayed on foreground; incident dead-letter store surfaced in Submissions.
 - `tracking.js` — `useTripTracking`: foreground GPS every 30 s to `/api/mobile/driver/trips/{id}/gps`; `background-tracking.js` TaskManager task exists but needs a dev build (not yet installed).
 - `tripRef.js` — cached `GET /api/mobile/driver/ref`: status buckets, `getNextStatus()`, tones (server owns the machine).
+- `trips-queue.js` + `trip-detail.js` — pure, vitest-runnable decision helpers: queue bucketing (incl. READY · SCHEDULE UNCONFIRMED for unknown start windows) and detail actions/readiness/display facts (`end_time` completion, no default departure, supplied-only passenger data).
 - `notifications/` — `tiers.js` (+test) classifier, `notify.js` emitter, `presentation.js` labels, `navigation.js` deep-link table, `push.js` expo-notifications wrapper (channels `default`/`heads-up`, token minting), `device-token.js` registration.
-- `settings-context.js` (persisted prefs), `theme.js`+`theme-context.js` (FleetOps Tactical tokens, light/dark MD3), `scaling.js`, `receipt-crop.js`, `permissions.js` registry, `launch.js`, `consent.js`, `storage.js`, `rbac.js`.
-- `components/` — `ui.js` (MD3 primitives), `TomTomMap` (static images, pan/zoom, live overlay, Google Maps deep link), `NotificationHost` (banners/toasts/push taps), `DriverSos`, `plate.js`, `logo.js`, `error-boundary.js`.
+- `settings-context.js` (persisted prefs), `theme.js`+`theme-context.js` (FleetOps Tactical tokens, light/dark MD3), `scaling.js`, `clay.js` (import-free claymorphism material constants), `receipt-crop.js`, `permissions.js` registry, `launch.js`, `consent.js`, `storage.js`, `rbac.js`.
+- `components/` — `ui.js` (MD3 primitives), `ClayScreenHeader` (raised clay back-control header), `TomTomMap` (static images, pan/zoom, live overlay, Google Maps deep link), `RouteTimeline` (shared pickup→drop-off timeline), `NotificationHost` (banners/toasts/push taps), `DriverSos`, `plate.js`, `logo.js`, `error-boundary.js`.
 
 ### Backend integration / auth
 - Talks to the Next API over plain JSON fetch; `EXPO_PUBLIC_API_URL` → LAN IP of the dev server. Referer-free, cookie-less: auth is `Authorization: Bearer` (the same `mobile_refresh_tokens` flow as §7).
