@@ -29,6 +29,20 @@ const TomTomMap = forwardRef(({
   const safeOriginAddr = (originAddress || "").replace(/'/g, "\\'");
   const safeDestAddr = (destAddress || "").replace(/'/g, "\\'");
 
+  // Popup labels are interpolated raw into single-quoted JS strings inside the
+  // WebView HTML. A destination like "Queen's Park" would break the whole
+  // <script> block so initMap() never runs and MAP_READY never fires — the
+  // native globe.json overlay then spins forever. Escape the same way as the
+  // addresses. This bites hardest on the Drop-off leg, when map.js injects
+  // `Drop-off: ${destination}` for the first time.
+  const escapeJsSingle = (s) =>
+    String(s ?? "")
+      .replace(/\\/g, "\\\\")
+      .replace(/'/g, "\\'")
+      .replace(/\r?\n/g, " ");
+  const safePickupLabel = escapeJsSingle(pickupLabel);
+  const safeDropoffLabel = escapeJsSingle(dropoffLabel);
+
   const htmlContent = useMemo(() => {
     return `
       <!DOCTYPE html>
@@ -745,10 +759,14 @@ const TomTomMap = forwardRef(({
                   }
 
                   map.on('load', () => {
-                      window.applyFleetMapTheme();
+                      // MAP_READY first: a theme failure must never strand the
+                      // native loading overlay on globe.json forever.
                       if (window.ReactNativeWebView) {
                           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_READY' }));
                       }
+                      try {
+                          window.applyFleetMapTheme();
+                      } catch (e) {}
 
                       // Do not invent a driver marker when the trip has no
                       // valid origin/GPS coordinate.
@@ -784,7 +802,7 @@ const TomTomMap = forwardRef(({
                           originEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.primary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                       }
 
-                      const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${pickupLabel}</h4>');
+                      const originPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${safePickupLabel}</h4>');
                       window.originMarker = new tt.Marker({ element: originEl, anchor: ${showCarIcon ? "'center'" : "'bottom'"} })
                           .setLngLat([originLng, originLat])
                           ${!showCarIcon ? '.setPopup(originPopup)' : ''}
@@ -804,7 +822,7 @@ const TomTomMap = forwardRef(({
                       destEl.style.cursor = 'pointer';
                       destEl.innerHTML = '<svg width="28" height="34" viewBox="0 0 24 30" fill="none"><path d="M12 0C5.373 0 0 5.373 0 12c0 8.5 12 18 12 18s12-9.5 12-18c0-6.627-5.373-12-12-12z" fill="${colors.secondary}"/><circle cx="12" cy="11" r="4.5" fill="${colors.surface}"/></svg>';
                       
-                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${dropoffLabel}</h4>');
+                      const destPopup = new tt.Popup({ offset: [0, -32], closeButton: false }).setHTML('<h4 class="popup-title">${safeDropoffLabel}</h4>');
                       window.destMarker = new tt.Marker({ element: destEl, anchor: 'bottom' })
                           .setLngLat([destLng, destLat])
                           .setPopup(destPopup)
