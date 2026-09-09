@@ -195,7 +195,7 @@ export default function TripsTab() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 16, paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 32 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
         }
@@ -262,21 +262,21 @@ export default function TripsTab() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 18, gap: 22 },
-  summary: { borderRadius: 30, padding: 20, gap: 18 },
+  scroll: { paddingHorizontal: 16, gap: 12 },
+  summary: { borderRadius: 24, padding: 14, gap: 10 },
   summaryText: { flexShrink: 1, gap: 2 },
-  summaryCount: { borderTopWidth: 1, paddingTop: 12, flexDirection: "row", alignItems: "center", gap: 12 },
-  sectionLabel: { fontSize: 12, fontFamily: fonts.dataSemiBold, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 6, marginBottom: 10 },
+  summaryCount: { borderTopWidth: 1, paddingTop: 8, flexDirection: "row", alignItems: "center", gap: 10 },
+  sectionLabel: { fontSize: 12, fontFamily: fonts.dataSemiBold, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 2, marginBottom: 8 },
   card: {
-    borderRadius: 30,
-    padding: 20,
-    gap: 18,
-    marginBottom: 22,
+    borderRadius: 24,
+    padding: 14,
+    gap: 12,
+    marginBottom: 12,
   },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  pill: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, maxWidth: "100%", borderTopWidth: 1, borderTopColor: '#FFFFFF80', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 },
-  metaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderTopWidth: 1, paddingTop: 12 },
+  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: "100%", borderTopWidth: 1, borderTopColor: '#FFFFFF80', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 },
+  metaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderTopWidth: 1, paddingTop: 8 },
   metaLeft: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
   plateChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
-  detailsRow: { minHeight: 48, borderRadius: 18, padding: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2 },
+  detailsRow: { minHeight: 48, borderRadius: 16, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2 },
 });

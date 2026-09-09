@@ -85,3 +85,15 @@ Inspected Trips source, detail loading/action/rendering, tab layout, Home implem
 - Preserved: 30s queue/readiness tick (detail skips it once Trip Started), pull-to-refresh, TRIPS_ALL cache read/write, offlineViewState 4-state handling, transport-failure dedup, offlineRef pattern, empty/never-synced/confirmed-empty distinctions, tab routes, fuel scan, global SOS, safe areas.
 - Verification: full mobile Vitest suite 13 files / 97 tests passed (includes 13 new tests across trips-queue + trip-detail); touched-file ESLint clean (2 apostrophe warnings fixed); Android Expo export passed. No mobile type-check command exists. No auth/backend/API/cache/GPS/state-machine changes; no new dependencies; Home files untouched; no commit created.
 - Native device checks (real navigation, live maps, on-device start flow, visual widths) remain pending — no device/emulator was available in this session.
+
+## Compact density pass — 2026-09-09 (owner request)
+
+Same-day sizing/spacing refinement matching the Home compact pass — the screen read mockup-tall on a 360–430dp phone. No queue logic, ordering, offline handling, or content changes; clay material and forest accents preserved; card radii 30 → 24 matching the compact clay radius used on Profile and Home.
+
+- **Summary card**: padding 20 → 14, gap 18 → 10, radius 30 → 24, divider padding-top 12 → 8; the open-assignment KPI row keeps headlineMd count + full honest caption.
+- **Section rhythm**: scroll gap 22 → 12, horizontal padding 18 → 16, top padding inset+16 → +10, section labels marginTop 6 → 2 / marginBottom 10 → 8.
+- **Trip cards**: padding 20 → 14, gap 18 → 12, marginBottom 22 → 12, radius 30 → 24; status pills 14/9 → 10/6 (radius 16); meta row padding-top 12 → 8; Details row keeps its 48dp minimum with padding 12 → 9 and radius 18 → 16.
+- **RouteTimeline** (shared with Trip Details): nodes 24 → 20 (border 3 → 2.5, track 26 → 22), stop padding-bottom 18 → 12 — kept numerically identical to Home's local copy.
+- `TripMapPreview` (Trip Details) widened to 1.9:1, as documented in the Home note.
+
+Net effect: the summary card plus the first full trip card are visible without scrolling on a typical phone. Verified: targeted ESLint clean, mobile Vitest 14 files / 102 tests, `expo export --platform android` passed. On-device acceptance still pending. No commit created.
