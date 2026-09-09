@@ -23,9 +23,20 @@ import { useTheme } from "../lib/theme-context";
 import { TOUCH_TARGET } from "../lib/theme";
 import { clayMaterials } from "../lib/clay";
 import { AppAlert } from "./AppAlert";
+import RadarPulse from "./RadarPulse";
 
 const STORAGE_KEY = "driver-sos-offset";
 const SOS_SIZE = moderateScale(68);
+
+let openSosHandler = null;
+export function registerSosHandler(fn) {
+  openSosHandler = fn;
+}
+export function triggerDriverSos() {
+  if (openSosHandler) {
+    openSosHandler();
+  }
+}
 
 export function DriverSos() {
   const insets = useSafeAreaInsets();
@@ -43,6 +54,11 @@ export function DriverSos() {
     ? { borderTopColor: "rgba(255,255,255,0.35)", borderBottomColor: "rgba(0,0,0,0.14)" }
     : { borderTopColor: "rgba(255,255,255,0.45)", borderBottomColor: "rgba(0,0,0,0.10)" };
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    registerSosHandler(() => setOpen(true));
+    return () => registerSosHandler(null);
+  }, []);
   const [sending, setSending] = useState(false);
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [position] = useState(() => new Animated.ValueXY({ x: 0, y: 0 }));
@@ -223,7 +239,11 @@ export function DriverSos() {
         <View style={styles.backdrop}>
           <View style={[styles.sheet, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
             <View style={[styles.icon, mats.clayTile, { backgroundColor: colors.errorContainer, shadowColor: colors.shadow }]}>
-              <Ionicons name="shield" size={26} color={colors.error} />
+              {sending ? (
+                <RadarPulse size={38} color={colors.error} icon="warning" />
+              ) : (
+                <Ionicons name="shield" size={26} color={colors.error} />
+              )}
             </View>
             <Text style={[type.titleLg, { color: colors.onSurface }]}>Emergency assistance</Text>
             <Text style={[type.bodyMd, styles.body, { color: colors.onSurfaceVariant }]}>
@@ -368,3 +388,5 @@ const styles = StyleSheet.create({
   pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.6 },
 });
+
+export default DriverSos;

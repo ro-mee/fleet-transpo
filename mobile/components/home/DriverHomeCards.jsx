@@ -8,6 +8,7 @@ import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone } from '../../lib/theme';
 import { clayMaterials } from '../../lib/clay';
 import TripMapPreview from '../TripMapPreview';
+import RadarPulse from '../RadarPulse';
 
 // Raised-control edges for surfaces whose color is FIXED across schemes
 // (the forest hero tiles) — the light recipe is correct in both modes.
@@ -115,9 +116,14 @@ export function DriverTripCard({ trip, current, confirmed, offline, nowMs, canMa
         <Text style={[type.caption, { color: sc.fg }]}>{trip.trip_status}</Text>
       </View> : null}
     </View>
-    {!trip ? <View style={s.empty}>
-      <Text style={type.cardTitle}>{!confirmed ? offline ? 'No saved trips yet' : 'Assignments not confirmed' : isCurrent ? 'No active trip right now.' : 'No upcoming trip.'}</Text>
-      <Text style={type.supporting}>{!confirmed ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.' : offline ? 'Based on your last synced assignments.' : isCurrent ? 'Your active assignment will appear here when the trip begins.' : 'You’re all caught up for now.'}</Text>
+    {!trip ? <View style={[s.empty, isCurrent && { flexDirection: 'row', alignItems: 'center', gap: 14, minHeight: 90 }]}>
+      {isCurrent && confirmed && !offline ? (
+        <RadarPulse size={38} color={accent} icon="radio" />
+      ) : null}
+      <View style={s.flex}>
+        <Text style={type.cardTitle}>{!confirmed ? offline ? 'No saved trips yet' : 'Assignments not confirmed' : isCurrent ? 'Active Radar • On Standby' : 'No upcoming trip.'}</Text>
+        <Text style={type.supporting}>{!confirmed ? offline ? 'Connect once to save your assignments.' : 'Pull to refresh or try again.' : offline ? 'Based on your last synced assignments.' : isCurrent ? 'Vehicle ready for dispatch. Check Live Map to view your active radar zone.' : 'You’re all caught up for now.'}</Text>
+      </View>
     </View> : <>
       <Text style={type.labelLg}>{validDate ? `${depDate} · ${depTime}` : 'Departure time not provided'}</Text>
       <View style={[s.tripBody, horizontal && { flexDirection: 'row' }]}>

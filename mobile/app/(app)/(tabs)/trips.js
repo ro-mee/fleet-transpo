@@ -23,6 +23,7 @@ import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-s
 import { groupTrips, bucketTone, OPEN_BUCKETS } from "../../../lib/trips-queue";
 import RouteTimeline from "../../../components/RouteTimeline";
 import { clayMaterials } from "../../../lib/clay";
+import RadarPulse from "../../../components/RadarPulse";
 
 function formatWhen(value) {
   if (!value) return null;
@@ -227,19 +228,28 @@ export default function TripsTab() {
           view.state === "never-synced" ? (
             <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
           ) : (
-            <View style={{ alignItems: "center", marginTop: 60, gap: 10 }}>
-              <Ionicons
-                name={view.state === "empty-unconfirmed" ? "alert-circle-outline" : "checkmark-circle-outline"}
-                size={48}
-                color={colors.onSurface}
-              />
-              <Text style={{ color: colors.onSurface, marginTop: 8, textAlign: "center" }}>
-                {view.state === "empty-confirmed"
-                  ? // Offline confirmed-empty is still a snapshot — "when last
-                    // synced", not a current-truth claim.
-                    (offline ? "No trips were assigned when last synced." : "No trips assigned right now.")
-                  : "Trips couldn't be confirmed right now. Pull to refresh or try again."}
-              </Text>
+            <View style={{ alignItems: "center", marginTop: 44, gap: 14 }}>
+              {view.state === "empty-confirmed" && !offline ? (
+                <RadarPulse size={64} color={colors.primary} icon="radio-outline" />
+              ) : (
+                <Ionicons
+                  name={view.state === "empty-unconfirmed" ? "alert-circle-outline" : "checkmark-circle-outline"}
+                  size={48}
+                  color={colors.onSurface}
+                />
+              )}
+              <View style={{ alignItems: "center", gap: 4, paddingHorizontal: 20 }}>
+                <Text style={{ color: colors.onSurface, fontFamily: fonts.bodySemiBold, fontSize: 16, textAlign: "center" }}>
+                  {view.state === "empty-confirmed"
+                    ? (offline ? "No trips were assigned when last synced." : "No trips assigned right now")
+                    : "Trips couldn't be confirmed right now"}
+                </Text>
+                <Text style={{ color: colors.onSurfaceVariant, fontFamily: fonts.body, fontSize: 13, textAlign: "center", maxWidth: 280 }}>
+                  {view.state === "empty-confirmed"
+                    ? (offline ? "Your offline queue is clear." : "Your vehicle is active on standby. New dispatch assignments will appear here automatically.")
+                    : "Pull to refresh or try again."}
+                </Text>
+              </View>
               {view.state === "empty-confirmed" && offline ? <SavedChip syncedAt={lastSynced} /> : null}
             </View>
           )
