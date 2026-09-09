@@ -66,15 +66,15 @@ export default function RadarPulse({
       accessibilityRole="image"
       accessibilityLabel="Radar scanning animation"
     >
-      {/* Concentric radiating wave rings */}
+      {/* Concentric radiating pulse discs (web incident pulse physics) */}
       {anims.map((anim, i) => {
         const scale = anim.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.35, 2.2],
+          inputRange: [0, 0.6, 1],
+          outputRange: [0.65, 2.4, 2.4],
         });
         const opacity = anim.interpolate({
-          inputRange: [0, 0.25, 0.8, 1],
-          outputRange: [0, 0.7, 0.25, 0],
+          inputRange: [0, 0.6, 1],
+          outputRange: [0.8, 0, 0],
         });
 
         return (
@@ -86,8 +86,7 @@ export default function RadarPulse({
                 width: size,
                 height: size,
                 borderRadius: size / 2,
-                borderColor: color,
-                backgroundColor: color + '15',
+                backgroundColor: color + '33',
                 transform: [{ scale }],
                 opacity,
               },
@@ -140,7 +139,6 @@ const styles = StyleSheet.create({
   },
   ring: {
     position: 'absolute',
-    borderWidth: 2,
   },
   core: {
     alignItems: 'center',
