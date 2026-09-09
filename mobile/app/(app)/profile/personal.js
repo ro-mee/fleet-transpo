@@ -5,16 +5,18 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { moderateScale } from "../../../lib/scaling";
 import { apiFetch } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayShade } from "../../../lib/clay";
+import ClayMenuRow from '../../../components/ClayMenuRow';
+import { clayShade, compactShade } from "../../../lib/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "40" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -83,7 +85,7 @@ export default function PersonalInformation() {
       <ClayScreenHeader title="Personal Information" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
           <InfoRow label="Full Name" value={driverName} colors={colors} />
           <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} />
           <InfoRow label="Email" value={profile?.email} colors={colors} />
@@ -141,6 +143,21 @@ export default function PersonalInformation() {
             )}
           </View>
         </View>
+
+        {/* Hub: related compliance screens live inside Personal Information */}
+        <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayMenuRow
+            title="License & Compliance"
+            icon="card-outline"
+            onPress={() => router.push("/profile/license")}
+          />
+          <ClayMenuRow
+            title="Assigned Vehicle"
+            icon="car-outline"
+            onPress={() => router.push("/profile/vehicle")}
+            isLast
+          />
+        </View>
       </ScrollView>
     </View>
   );
@@ -149,18 +166,20 @@ export default function PersonalInformation() {
 const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
+  scroll: { paddingHorizontal: 16, paddingTop: 12, gap: 14 },
 
   sectionCard: {
-    borderRadius: 30,
+    borderRadius: 24,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
     overflow: "hidden",
   },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: 12,
+    paddingVertical: moderateScale(9),
     borderBottomWidth: 1,
     minHeight: TOUCH_TARGET,
   },

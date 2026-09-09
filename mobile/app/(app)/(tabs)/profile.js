@@ -14,50 +14,44 @@ import { useRouter } from "expo-router";
 import { useAuth } from "../../../lib/auth";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
-import { clayShade, clayCard, clayPill, clayCta, clayTile } from "../../../lib/clay";
-
-function MenuRow({ title, icon, isNew = false, onPress, colors, type, isLast = false }) {
-  return (
-    <Pressable
-      style={({ hovered, pressed }) => [
-        styles.menuRow,
-        !isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" },
-        (hovered || pressed) && { backgroundColor: colors.surfaceContainerHigh, borderRadius: 18 },
-      ]}
-      onPress={onPress}
-      accessibilityRole="button"
-      accessibilityLabel={title}
-    >
-      <View style={styles.menuRowLeft}>
-        <View style={[styles.menuIconTile, clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-          <Ionicons name={icon} size={18} color={colors.onPrimaryContainer} />
-        </View>
-        <Text style={[type.bodyLg, styles.menuTitle, { color: colors.onSurface }]}>{title}</Text>
-      </View>
-      <View style={styles.menuRowRight}>
-        {isNew && (
-          <View style={[styles.newBadge, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
-            <Text style={[type.caption, styles.newBadgeText, { color: colors.onPrimaryContainer }]}>New</Text>
-          </View>
-        )}
-        <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
-      </View>
-    </Pressable>
-  );
-}
+import { fonts } from "../../../lib/theme";
+import { clayShade, clayPill, clayCta, compactShade } from "../../../lib/clay";
+import ClayMenuRow from "../../../components/ClayMenuRow";
 
 const ACCOUNT_ROWS = [
   { title: "Personal Information", icon: "person-outline", route: "/profile/personal" },
-  { title: "License & Compliance", icon: "card-outline", route: "/profile/license" },
-  { title: "Assigned Vehicle", icon: "car-outline", route: "/profile/vehicle" },
-  { title: "Safety Settings", icon: "shield-checkmark-outline", route: "/profile/safety", isNew: true },
+];
+
+const PRIVACY_SECURITY_ROWS = [
+  { title: "Privacy & Consent", icon: "lock-closed-outline", route: "/profile/privacy" },
+  { title: "App Permissions", icon: "shield-checkmark-outline", route: "/profile/permissions" },
+  { title: "Devices & Sessions", icon: "phone-portrait-outline", route: "/devices" },
 ];
 
 const GENERAL_ROWS = [
   { title: "Help Center", icon: "help-circle-outline", route: "/profile/help" },
+  { title: "About FleetOps", icon: "information-circle-outline", route: "/profile/about" },
   { title: "Settings", icon: "settings-outline", route: "/settings" },
 ];
+
+function Section({ title, rows, colors, type, onNavigate }) {
+  return (
+    <View style={styles.section}>
+      <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>{title}</Text>
+      <View style={[styles.sectionCard, compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        {rows.map((row, i) => (
+          <ClayMenuRow
+            key={row.route}
+            title={row.title}
+            icon={row.icon}
+            isLast={i === rows.length - 1}
+            onPress={() => onNavigate(row.route)}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
 
 export default function Profile() {
   const insets = useSafeAreaInsets();
@@ -88,15 +82,14 @@ export default function Profile() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 20, paddingBottom: insets.bottom + 40 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Identity — raised clay card */}
+        {/* Identity — compact horizontal clay card */}
         <View
           style={[
             styles.identityCard,
-            clayShade,
-            clayCard,
+            compactShade,
             { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
           ]}
         >
@@ -109,8 +102,24 @@ export default function Profile() {
             >
               <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
             </View>
-            <View style={[styles.editBadge, clayShade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
-              <Ionicons name="pencil" size={13} color={colors.onSurfaceVariant} />
+            <View
+              style={[
+                styles.editBadge,
+                {
+                  backgroundColor: colors.surfaceContainerHigh,
+                  borderTopWidth: 1,
+                  borderTopColor: "#FFFFFF70",
+                  borderBottomWidth: 1.5,
+                  borderBottomColor: "#00000012",
+                  shadowColor: colors.shadow,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 4,
+                  elevation: 2,
+                },
+              ]}
+            >
+              <Ionicons name="pencil" size={12} color={colors.onSurfaceVariant} />
             </View>
           </View>
           <View style={styles.identityText}>
@@ -125,74 +134,90 @@ export default function Profile() {
           </View>
         </View>
 
-        {/* My Account Section */}
-        <View style={styles.section}>
-          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>Account</Text>
-          <View style={[styles.sectionCard, clayShade, clayCard, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, paddingVertical: 8 }]}>
-            {ACCOUNT_ROWS.map((row, i) => (
-              <MenuRow
-                key={row.route}
-                title={row.title}
-                icon={row.icon}
-                isNew={row.isNew}
-                colors={colors}
-                type={type}
-                isLast={i === ACCOUNT_ROWS.length - 1}
-                onPress={() => router.push(row.route)}
-              />
-            ))}
-          </View>
-        </View>
+        <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
 
-        {/* General Section */}
-        <View style={styles.section}>
-          <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>General</Text>
-          <View style={[styles.sectionCard, clayShade, clayCard, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, paddingVertical: 8 }]}>
-            {GENERAL_ROWS.map((row, i) => (
-              <MenuRow
-                key={row.route}
-                title={row.title}
-                icon={row.icon}
-                colors={colors}
-                type={type}
-                isLast={i === GENERAL_ROWS.length - 1}
-                onPress={() => router.push(row.route)}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* Sign Out */}
+        {/* Sign Out — soft destructive clay: important, but not the same
+            danger level as a destructive confirm, so no harsh red outline.
+            Puffy clay edges (white top-light, shaded bottom) keep it in the
+            clay language; the modal's confirm carries the strong error red. */}
         <Pressable
           onPress={() => setLogoutModal(true)}
           accessibilityRole="button"
           style={({ pressed }) => [
             styles.logoutBtn,
-            clayCta,
-            { borderColor: colors.error, shadowColor: colors.shadow, opacity: pressed ? 0.7 : 1 },
+            {
+              backgroundColor: colors.errorContainer,
+              borderColor: colors.error + "24",
+              borderTopColor: "#FFFFFF66",
+              borderBottomColor: "#00000016",
+              shadowColor: colors.shadow,
+              opacity: pressed ? 0.92 : 1,
+              transform: [{ scale: pressed ? 0.985 : 1 }],
+            },
           ]}
         >
-          <Ionicons name="log-out-outline" size={20} color={colors.error} />
-          <Text style={[type.labelLg, styles.logoutText, { color: colors.error }]}>Sign Out</Text>
+          <View
+            style={[
+              styles.logoutIconTile,
+              {
+                backgroundColor: colors.error + "14",
+                borderTopColor: "#FFFFFF70",
+                borderBottomColor: "#00000010",
+                shadowColor: colors.shadow,
+              },
+            ]}
+          >
+            <Ionicons name="log-out-outline" size={20} color={colors.onErrorContainer} />
+          </View>
+          <Text style={[type.labelLg, styles.logoutText, { color: colors.onErrorContainer }]}>Sign Out</Text>
         </Pressable>
       </ScrollView>
 
-      {/* Logout Confirm Modal */}
+      {/* Logout Confirm Modal — a raised clay card: soft-destructive
+          medallion, centered copy, clay Cancel (raised surface) and clay
+          Confirm (solid error, the actual destructive action). */}
       <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant }]}>
-            <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
-            <Text
-              style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}
+          <View style={[styles.modalCard, clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <View
+              style={[
+                styles.modalIconWrap,
+                {
+                  backgroundColor: colors.errorContainer,
+                  borderTopColor: "#FFFFFF60",
+                  borderBottomColor: "#00000014",
+                  shadowColor: colors.shadow,
+                },
+              ]}
             >
+              <Ionicons name="log-out-outline" size={26} color={colors.onErrorContainer} />
+            </View>
+            <Text style={[type.titleLg, styles.modalTitle, { color: colors.onSurface }]}>Sign Out?</Text>
+            <Text style={[type.bodyMd, styles.modalBody, { color: colors.onSurfaceVariant }]}>
               You will be returned to the login screen.
             </Text>
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setLogoutModal(false)} style={[styles.modalCancelBtn, { borderColor: colors.outline }]}>
-                <Text style={[type.labelLg, styles.modalCancelText, { color: colors.onSurface }]}>Cancel</Text>
+              <Pressable
+                onPress={() => setLogoutModal(false)}
+                style={({ pressed }) => [
+                  styles.modalCancelBtn,
+                  clayCta,
+                  { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={[type.labelLg, { color: colors.onSurface }]}>Cancel</Text>
               </Pressable>
-              <Pressable onPress={signOut} style={[styles.modalConfirmBtn, { backgroundColor: colors.error }]}>
-                <Text style={[type.labelLg, styles.modalConfirmText, { color: colors.onError }]}>Sign Out</Text>
+              <Pressable
+                onPress={signOut}
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  clayCta,
+                  { backgroundColor: colors.error, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <Text style={[type.labelLg, { color: colors.onError }]}>Sign Out</Text>
               </Pressable>
             </View>
           </View>
@@ -204,9 +229,16 @@ export default function Profile() {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  scroll: { paddingHorizontal: 18, gap: 22 },
+  scroll: { paddingHorizontal: 16, gap: 14 },
 
-  identityCard: { flexDirection: "row", alignItems: "center", gap: 16 },
+  identityCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
   avatarContainer: {
     position: "relative",
   },
@@ -224,19 +256,19 @@ const styles = StyleSheet.create({
     position: "absolute",
     bottom: -2,
     right: -4,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     alignItems: "center",
     justifyContent: "center",
   },
-  identityText: { flexShrink: 1, gap: 8 },
+  identityText: { flexShrink: 1, gap: 6 },
   profileName: {
   },
   statusPill: { alignSelf: "flex-start" },
 
   section: {
-    gap: 10,
+    gap: 6,
   },
   sectionTitle: {
     marginLeft: 8,
@@ -245,75 +277,71 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-
-  menuRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: moderateScale(12),
-    paddingHorizontal: 8,
-    minHeight: TOUCH_TARGET,
-  },
-  menuRowLeft: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 14,
-  },
-  menuIconTile: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  menuTitle: {
-  },
-  menuRowRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: moderateScale(8),
-  },
-  newBadge: {
-    paddingHorizontal: moderateScale(10),
-    paddingVertical: moderateScale(3),
-    borderRadius: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#FFFFFF60",
-    borderBottomWidth: 1,
-    borderBottomColor: "#00000010",
-  },
-  newBadgeText: {
+  sectionCard: {
+    borderRadius: 24,
+    paddingVertical: 4,
+    paddingHorizontal: 4,
   },
 
   logoutBtn: {
-    borderWidth: 2,
+    minHeight: moderateScale(52),
+    borderRadius: moderateScale(18),
+    borderWidth: 1,
+    borderTopWidth: 2,
+    borderBottomWidth: 2.5,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(8),
-    marginTop: moderateScale(4),
+    gap: moderateScale(10),
+    marginTop: moderateScale(12),
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
+  },
+  logoutIconTile: {
+    width: moderateScale(34),
+    height: moderateScale(34),
+    borderRadius: moderateScale(12),
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopWidth: 1.5,
+    borderBottomWidth: 2,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.12,
+    shadowRadius: 5,
+    elevation: 2,
   },
   logoutText: {
+    fontFamily: fonts.bodySemiBold,
   },
 
   modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: moderateScale(24) },
   modalCard: {
     width: "100%",
-    borderRadius: 24,
-    borderWidth: 1,
+    borderRadius: 30,
     padding: moderateScale(24),
-    gap: moderateScale(12),
-    shadowColor: "#000",
-    shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 8,
+    gap: moderateScale(10),
+    alignItems: "center",
+  },
+  modalIconWrap: {
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(32),
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: moderateScale(4),
+    marginBottom: moderateScale(4),
+    borderTopWidth: 2,
+    borderBottomWidth: 3,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.14,
+    shadowRadius: 7,
+    elevation: 3,
   },
   modalTitle: { },
-  modalBody: { },
-  modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(4) },
-  modalCancelBtn: { flex: 1, minHeight: 48, borderRadius: 18, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  modalCancelText: { },
-  modalConfirmBtn: { flex: 1, minHeight: 48, borderRadius: 18, alignItems: "center", justifyContent: "center" },
-  modalConfirmText: { },
+  modalBody: { textAlign: "center", paddingHorizontal: moderateScale(8) },
+  modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(8), alignSelf: "stretch" },
+  modalCancelBtn: { flex: 1, alignItems: "center", justifyContent: "center" },
+  modalConfirmBtn: { flex: 1, alignItems: "center", justifyContent: "center" },
 });

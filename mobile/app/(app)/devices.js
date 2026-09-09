@@ -98,7 +98,7 @@ export default function LoggedInDevicesScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      <ClayScreenHeader title="Logged-in Devices" onBack={() => router.back()} />
+      <ClayScreenHeader title="Devices & Sessions" onBack={() => router.back()} />
 
       {loading ? (
         <View style={styles.centerContainer}>

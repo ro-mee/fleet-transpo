@@ -50,6 +50,21 @@ export const clayCta = {
   borderBottomColor: "#00000012",
 };
 
+/** Compact clay depth — the same edge-highlight language as clayShade,
+ * scaled down for dense menu cards (Profile tab, Settings, hubs) so the
+ * tighter rhythm reads subtle instead of bulky. Overlays (modals) keep
+ * the full clayShade: as overlays they earn more lift. */
+export const compactShade = {
+  shadowOffset: { width: 0, height: 5 },
+  shadowOpacity: 0.15,
+  shadowRadius: 10,
+  elevation: 4,
+  borderTopWidth: 2,
+  borderTopColor: "#FFFFFF70",
+  borderBottomWidth: 2,
+  borderBottomColor: "#00000012",
+};
+
 /** Raised clay icon tile: puffy depth with its own edge highlights,
  * sized to sit inside a clay card without competing with it. */
 export const clayTile = {

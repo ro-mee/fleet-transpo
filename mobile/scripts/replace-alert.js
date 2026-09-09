@@ -10,7 +10,7 @@ const files = [
   'app/(app)/(tabs)/history.js',
   'app/(app)/trip/[id].js',
   'app/(app)/profile/vehicle.js',
-  'app/(app)/profile/safety.js',
+  'app/(app)/profile/privacy.js',
   'app/(app)/profile/personal.js',
   'app/(app)/profile/license.js',
 ];

@@ -91,17 +91,17 @@ export default function ConsentScreen() {
           <ConsentCard
             icon="location-on"
             title="Location Tracking"
-            description="GPS is tracked while you are signed in and on duty, including periodic location checks between trips."
+            description="Your live location is tracked while you are on duty, so dispatch can route trips and keep them safe."
           />
           <ConsentCard
             icon="directions-car"
             title="Telematics & Vehicle Data"
-            description="We monitor vehicle health and trip telemetry for safety."
+            description="We collect fuel and vehicle activity associated with your trips, plus your license details and attendance records."
           />
           <ConsentCard
             icon="update"
             title="Data Retention"
-            description="Your tracking records are kept for 90 days for compliance."
+            description="Records are kept for as long as you remain a driver and as required to meet legal and operational compliance obligations."
           />
         </View>
 
