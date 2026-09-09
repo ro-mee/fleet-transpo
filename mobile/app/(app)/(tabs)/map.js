@@ -607,7 +607,7 @@ export default function MapTab() {
         >
           {/* Floating Map Controls (Sticks to top of sheet) */}
           <View style={styles.floatingControlsContainer}>
-            <Pressable 
+            <Pressable
               style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
               onPress={() => mapRef.current?.recenter()}
               accessibilityRole="button"
@@ -615,7 +615,7 @@ export default function MapTab() {
             >
               <Ionicons name="navigate" size={20} color={colors.primary} />
             </Pressable>
-            <Pressable 
+            <Pressable
               style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
               onPress={() => {
                 mapRef.current?.overview();

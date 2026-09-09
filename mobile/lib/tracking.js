@@ -6,10 +6,13 @@ import { api } from "./api";
 import { useSettings } from "./settings-context";
 import { getActiveStatuses } from "./tripRef";
 import { monitorBannerFor } from "./monitor-banner";
+import { weatherChipFor } from "./weather-chip";
 
 // Re-exported for screens: the pure PR #4 banner derivation (implemented in
 // its own RN-import-free module so the vitest suite can exercise it).
 export { monitorBannerFor };
+// Same for the weather chip derivation (2026-09-09).
+export { weatherChipFor };
 
 const POST_INTERVAL_MS = 30 * 1000;
 // How often the poster re-checks which trip is active, so a trip accepted or
@@ -26,6 +29,8 @@ let posterStatus = {
   geofenceTripId: null,
   monitor: null,
   monitorTripId: null,
+  weather: null,
+  weatherTripId: null,
   activeTripId: null,
 };
 const statusListeners = new Set();
@@ -96,11 +101,21 @@ export function useActiveTripGpsPoster(enabled) {
           );
           // A completed/cancelled trip is left in place: the server drops
           // posts to non-live trips, and the next refresh replaces it.
+          const oldTripId = tripId;
           tripId = active?.trip_id ?? null;
           // PR #3.1: publish which trip the poster is feeding so the
           // connectivity layer can say "GPS still recording" only when
           // tracking is genuinely active for the current trip.
-          publishStatus({ activeTripId: tripId });
+          //
+          // Trip change clears the weather chip payload immediately — the
+          // next successful post would replace it, but a gap between trips
+          // must not show Trip A's weather while Trip B (or no trip) is
+          // active. Geofence/monitor keep their existing behavior: they rely
+          // on the screens' trip-id staleness guards, unchanged here.
+          publishStatus({
+            activeTripId: tripId,
+            ...(oldTripId !== tripId ? { weather: null, weatherTripId: null } : {}),
+          });
         } catch {
           // Keep the previous tripId; the next tick retries.
         }
@@ -156,6 +171,11 @@ export function useActiveTripGpsPoster(enabled) {
             // PR #4: the same response carries the ingest-side monitor
             // verdict (off-route / traffic / GPS) for the map screen's
             // contextual banner — same trip-id tagging, same staleness rule.
+            //
+            // Weather chip (2026-09-09): the same response also carries the
+            // current-conditions payload for the map screen's compact ambient
+            // chip — same trip-id tagging, same staleness rule, null (chip
+            // simply not rendered) when the provider call failed.
             if (!cancelled) {
               publishStatus({
                 lastSentAt: new Date().toISOString(),
@@ -164,6 +184,8 @@ export function useActiveTripGpsPoster(enabled) {
                 geofenceTripId: tripId,
                 monitor: res?.monitor ?? null,
                 monitorTripId: tripId,
+                weather: res?.weather ?? null,
+                weatherTripId: tripId,
               });
             }
           } else {
