@@ -197,15 +197,12 @@ export async function evaluatePingGeofence(db, trip, { latitude, longitude, accu
 }
 
 /**
- * Destination proximity for the completion gate, from the trip's latest GPS
- * ping (not the client-supplied position — the server checks its own trail).
- *
- * Fail-open: no ping, a stale ping (> GEOFENCE_FIX_FRESH_MS), or an
- * unresolvable destination all yield `unknown`, which never blocks.
- *
- * @returns {Promise<{ state, distanceM, radiusM, label, source, reason, recordedAt }>}
+ * Shared core for the arrival gates: latest server-side GPS ping vs one trip
+ * end. `end` is "pickup" or "destination".
  */
-export async function checkDestinationProximity(db, tripId, now = new Date()) {
+async function checkEndProximity(db, tripId, now, end) {
+  const isPickup = end === "pickup";
+  const pointNoun = isPickup ? "pickup point" : "destination";
   const unknown = (reason) => ({
     state: "unknown", distanceM: null, radiusM: null,
     label: null, source: null, reason, recordedAt: null,
@@ -225,23 +222,53 @@ export async function checkDestinationProximity(db, tripId, now = new Date()) {
     if (!ping) return unknown("No GPS fixes recorded for this trip.");
     const ageMs = new Date(now).getTime() - new Date(ping.recorded_at).getTime();
     if (!Number.isFinite(ageMs) || ageMs > GEOFENCE_FIX_FRESH_MS) {
-      return unknown("Latest GPS fix is stale; position cannot be trusted for the completion check.");
+      return unknown("Latest GPS fix is stale; position cannot be trusted for the arrival check.");
     }
     const targets = await cachedTargets(db, { trip_id: id });
-    if (!targets.destination) return unknown("Destination is not resolved to coordinates.");
+    const target = isPickup ? targets.pickup : targets.destination;
+    if (!target) return unknown(isPickup
+      ? "Pickup point is not resolved to coordinates."
+      : "Destination is not resolved to coordinates.");
     const verdict = evaluateGeofence({
       position: { lat: ping.latitude, lng: ping.longitude },
-      target: targets.destination,
-      radiusM: targets.destination.radiusM,
+      target,
+      radiusM: target.radiusM,
       accuracyM: ping.accuracy,
     });
     return {
       ...verdict,
-      label: targets.destination.label,
-      source: targets.destination.source,
+      label: target.label,
+      source: target.source,
       recordedAt: ping.recorded_at instanceof Date ? ping.recorded_at.toISOString() : ping.recorded_at,
     };
   } catch {
-    return unknown("Destination proximity check failed.");
+    return unknown(isPickup
+      ? "Pickup proximity check failed."
+      : "Destination proximity check failed.");
   }
+}
+
+/**
+ * Destination proximity for the completion gate, from the trip's latest GPS
+ * ping (not the client-supplied position — the server checks its own trail).
+ *
+ * Fail-open: no ping, a stale ping (> GEOFENCE_FIX_FRESH_MS), or an
+ * unresolvable destination all yield `unknown`, which never blocks.
+ *
+ * @returns {Promise<{ state, distanceM, radiusM, label, source, reason, recordedAt }>}
+ */
+export async function checkDestinationProximity(db, tripId, now = new Date()) {
+  return checkEndProximity(db, tripId, now, "destination");
+}
+
+/**
+ * Pickup proximity for the arrival gates (At Pickup / Passenger Onboard),
+ * from the trip's latest GPS ping. Same fail-open contract as the
+ * destination check: `unknown` never blocks — only a fresh, accurate fix
+ * proving the driver is outside the pickup geofence does.
+ *
+ * @returns {Promise<{ state, distanceM, radiusM, label, source, reason, recordedAt }>}
+ */
+export async function checkPickupProximity(db, tripId, now = new Date()) {
+  return checkEndProximity(db, tripId, now, "pickup");
 }

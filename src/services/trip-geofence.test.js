@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTripGeofenceTargets, checkDestinationProximity, clearTripGeofenceCache } from "@/services/trip-geofence.service";
+import { getTripGeofenceTargets, checkDestinationProximity, checkPickupProximity, clearTripGeofenceCache } from "@/services/trip-geofence.service";
 
 function stubDb(handlers) {
   return {
@@ -148,6 +148,60 @@ describe("checkDestinationProximity", () => {
     expect((await checkDestinationProximity(dbWithPing(null), 5, NOW)).state).toBe("unknown");
     clearTripGeofenceCache();
     const stale = await checkDestinationProximity(
+      dbWithPing({ latitude: "14.52", longitude: "121.01", accuracy: "12", recorded_at: "2026-09-07T08:00:00+08:00" }),
+      5, NOW
+    );
+    expect(stale.state).toBe("unknown");
+    expect(stale.reason).toMatch(/stale/i);
+  });
+});
+
+describe("checkPickupProximity", () => {
+  const NOW = new Date("2026-09-07T10:00:00+08:00");
+  const routeRows = [{
+    route_id: 12,
+    o_id: 1, o_name: "CoCo Star Hotel", o_lat: "14.5159034", o_lng: "120.9953405", o_radius: 60,
+    d_id: 10, d_name: "NAIA Terminal 3 - Arrivals (Bay 9)", d_lat: "14.5204800", d_lng: "121.0144500", d_radius: 150,
+  }];
+
+  function dbWithPing(ping) {
+    return {
+      query: async (sql, params) => {
+        if (sql.includes("FROM gpstracking")) return { rows: ping ? [ping] : [] };
+        if (sql.includes("FROM trips")) {
+          return { rows: [{ trip_id: params[0], origin: "CoCo Star Hotel", destination: "NAIA T3", dispatch_id: 9, route_id: 12 }] };
+        }
+        if (sql.includes("FROM routes r")) return { rows: routeRows };
+        return { rows: [] };
+      },
+    };
+  }
+
+  it("reports inside at the pickup point", async () => {
+    clearTripGeofenceCache();
+    const out = await checkPickupProximity(
+      dbWithPing({ latitude: "14.5159034", longitude: "120.9953405", accuracy: "12", recorded_at: "2026-09-07T09:59:00+08:00" }),
+      5, NOW
+    );
+    expect(out.state).toBe("inside");
+    expect(out.label).toBe("CoCo Star Hotel");
+  });
+
+  it("reports outside far from the pickup point", async () => {
+    clearTripGeofenceCache();
+    const out = await checkPickupProximity(
+      dbWithPing({ latitude: "14.52048", longitude: "121.01445", accuracy: "12", recorded_at: "2026-09-07T09:59:00+08:00" }),
+      5, NOW
+    );
+    expect(out.state).toBe("outside");
+    expect(out.distanceM).toBeGreaterThan(1000);
+  });
+
+  it("fails open on missing or stale fixes", async () => {
+    clearTripGeofenceCache();
+    expect((await checkPickupProximity(dbWithPing(null), 5, NOW)).state).toBe("unknown");
+    clearTripGeofenceCache();
+    const stale = await checkPickupProximity(
       dbWithPing({ latitude: "14.52", longitude: "121.01", accuracy: "12", recorded_at: "2026-09-07T08:00:00+08:00" }),
       5, NOW
     );

@@ -36,11 +36,16 @@ export default function SwipeButton({
   // ─── Refs — panResponder reads these fresh on every event ────────────────
   const swipedRef     = useRef(false);
   const disabledRef   = useRef(disabled);
+  const busyRef       = useRef(busy);
   const onSuccessRef  = useRef(onSwipeSuccess);
   const maxXRef       = useRef(260);
   const playSuccessRef = useRef(null);
 
   useEffect(() => { disabledRef.current = disabled;       }, [disabled]);
+  // In-flight lock: the gesture path must not fire a second transition while
+  // the first PUT is still pending (e.g. spamming ARRIVED AT PICKUP on slow
+  // network). The caller drives `busy` around its async handler.
+  useEffect(() => { busyRef.current = busy;               }, [busy]);
   useEffect(() => { onSuccessRef.current = onSwipeSuccess; }, [onSwipeSuccess]);
   useEffect(() => {
     if (containerWidth > 0)
@@ -105,10 +110,10 @@ export default function SwipeButton({
   const panResponder = useRef(
     // eslint-disable-next-line react-hooks/refs -- RN gesture responder closes over live refs; created once via lazy state
     PanResponder.create({
-      onStartShouldSetPanResponder:         () => !disabledRef.current && !swipedRef.current,
-      onStartShouldSetPanResponderCapture:  () => !disabledRef.current && !swipedRef.current,
-      onMoveShouldSetPanResponder:          () => !disabledRef.current && !swipedRef.current,
-      onMoveShouldSetPanResponderCapture:   () => !disabledRef.current && !swipedRef.current,
+      onStartShouldSetPanResponder:         () => !disabledRef.current && !busyRef.current && !swipedRef.current,
+      onStartShouldSetPanResponderCapture:  () => !disabledRef.current && !busyRef.current && !swipedRef.current,
+      onMoveShouldSetPanResponder:          () => !disabledRef.current && !busyRef.current && !swipedRef.current,
+      onMoveShouldSetPanResponderCapture:   () => !disabledRef.current && !busyRef.current && !swipedRef.current,
 
       onPanResponderGrant: () => {
         // Micro-scale press feedback — GPU-only
@@ -116,7 +121,7 @@ export default function SwipeButton({
       },
 
       onPanResponderMove: (_, g) => {
-        if (swipedRef.current) return;
+        if (swipedRef.current || busyRef.current) return;
         const clamped = Math.max(0, Math.min(g.dx, maxXRef.current));
         thumbX.setValue(clamped);
         // Release press scale as thumb moves
@@ -124,7 +129,7 @@ export default function SwipeButton({
       },
 
       onPanResponderRelease: (_, g) => {
-        if (swipedRef.current) return;
+        if (swipedRef.current || busyRef.current || disabledRef.current) return;
         thumbScale.setValue(1);
         const max = maxXRef.current;
 
@@ -189,7 +194,7 @@ export default function SwipeButton({
 
       {/* ── Inner Track: machined primary pill ────────────────────────────── */}
       <View
-        style={[styles.track, { backgroundColor: disabled ? colors.surfaceContainerHighest : bg, opacity: disabled ? 0.55 : 1 }]}
+        style={[styles.track, { backgroundColor: (disabled || busy) ? colors.surfaceContainerHighest : bg, opacity: (disabled || busy) ? 0.55 : 1 }]}
         onLayout={(e) => setContainerWidth(e.nativeEvent.layout.width)}
       >
 

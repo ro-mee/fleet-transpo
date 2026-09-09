@@ -2,8 +2,29 @@ import { query, withTransaction } from "@/lib/db";
 import { AuthError } from "@/lib/api/utils";
 import { canTransitionTrip, isValidTripStatus } from "@/lib/scheduling/trip-state";
 import { canTransitionDispatch, isValidDispatchStatus } from "@/lib/scheduling/dispatch-state";
+import { TRIP_STATUS } from "@/lib/constants";
+import { checkPickupProximity, checkDestinationProximity } from "@/services/trip-geofence.service";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
 import { writeAudit } from "@/lib/audit";
+
+// Arrival gates — a driver cannot claim to be somewhere the server's own GPS
+// trail proves they are not. AT_PICKUP / PASSENGER_ONBOARD must sit inside the
+// pickup geofence, DROP_OFF inside the destination geofence, evaluated from
+// the trip's latest stored ping (never a client-supplied position).
+// EN_ROUTE is deliberately ungated: it is the mid-leg consequence of onboard,
+// and gating it on the pickup would 409 legitimate retries filed after the
+// driver has already left the pickup area.
+// Fail-open like the completion gate: `unknown` (no/stale/inaccurate fix,
+// unresolvable point) never blocks. `outside` blocks with 409 unless the
+// caller sends an explicit override WITH a reason, which is written to audit.
+const PICKUP_GATED = new Set([TRIP_STATUS.AT_PICKUP, TRIP_STATUS.PASSENGER_ONBOARD]);
+
+function formatGateDistance(meters) {
+  const m = Number(meters);
+  if (!Number.isFinite(m)) return "an unknown distance";
+  if (m < 1000) return `${Math.round(m)} m`;
+  return `${(m / 1000).toFixed(1)} km`;
+}
 
 // Centralized state-transition layer for trips and dispatches.
 //
@@ -31,9 +52,11 @@ import { writeAudit } from "@/lib/audit";
  * @param {string}   [params.reason]
  * @param {object}   [params.extra]         additional columns to set on the trips row
  * @param {boolean}  [params.busy]          run the In-Progress dispatch/request sync
+ * @param {boolean}  [params.geofenceOverride]  arrival far from the geofenced point
+ * @param {string}   [params.geofenceReason]    required when geofenceOverride is true
  * @returns {Promise<object>} updated trip row
  */
-export async function setTripStatus({ tripId, to, session, reason = null, extra = {}, busy = false }) {
+export async function setTripStatus({ tripId, to, session, reason = null, extra = {}, busy = false, geofenceOverride = false, geofenceReason = "" }) {
   if (!isValidTripStatus(to)) {
     throw new AuthError(`"${to}" is not a valid trip status.`, 400);
   }
@@ -45,6 +68,34 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
 
   const check = canTransitionTrip(before[0].trip_status, to);
   if (!check.ok) throw new AuthError(check.reason, 409);
+
+  // Arrival-gate enforcement (see PICKUP_GATED above). Runs after adjacency
+  // so an illegal hop still reports the state-machine reason, not geofence.
+  let auditReason = reason;
+  const gatedPickup = PICKUP_GATED.has(to);
+  const gatedDropoff = to === TRIP_STATUS.DROP_OFF;
+  if (gatedPickup || gatedDropoff) {
+    const override = geofenceOverride === true;
+    const cleanReason = typeof geofenceReason === "string" ? geofenceReason.trim().slice(0, 500) : "";
+    if (override && !cleanReason) {
+      throw new AuthError("A reason is required when arriving away from the geofenced point.", 400);
+    }
+    const proximity = gatedDropoff
+      ? await checkDestinationProximity({ query }, tripId)
+      : await checkPickupProximity({ query }, tripId);
+    if (proximity.state === "outside" && !override) {
+      const point = gatedDropoff ? "destination" : "pickup point";
+      throw new AuthError(
+        `You appear to be ${formatGateDistance(proximity.distanceM)} from ${proximity.label || `the ${point}`}. Return to the ${point}, or resend with { geofence_override: true, geofence_reason } to proceed anyway.`,
+        409,
+        "GEOFENCE_OUTSIDE"
+      );
+    }
+    if (override) {
+      const point = gatedDropoff ? "destination" : "pickup";
+      auditReason = `Geofence override (${proximity.state}, ${formatGateDistance(proximity.distanceM)} from ${proximity.label || `the ${point}`})${reason ? ` — ${reason}` : ""}: ${cleanReason}`;
+    }
+  }
 
   const sets = ["trip_status = $1", "updated_at = NOW()"];
   const values = [to];
@@ -82,7 +133,7 @@ export async function setTripStatus({ tripId, to, session, reason = null, extra 
     action: "update",
     resource: "trips",
     resourceId: tripId,
-    oldValues: { trip_status: before[0].trip_status, reason },
+    oldValues: { trip_status: before[0].trip_status, reason: auditReason },
     newValues: { trip_status: to },
   });
 
