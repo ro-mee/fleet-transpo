@@ -28,6 +28,7 @@ import { selectHomeTrips, homeVehicleImage } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
 import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
+import { shouldRevalidateHome } from "../../../lib/home-revalidate"; // extensionless, matches file convention
 import {
   getIncidentDeadLetters,
   retryIncidentDeadLetters,
@@ -176,9 +177,14 @@ export default function Home() {
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      if (!shouldRevalidateHome(tripsSyncedAt)) {
+        getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
+        return;
+      }
+      const task = InteractionManager.runAfterInteractions(() => { load(); });
       getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
-    }, [load])
+      return () => task?.cancel?.();
+    }, [load, tripsSyncedAt])
   );
 
   const onRetryDeadLetters = async () => {
