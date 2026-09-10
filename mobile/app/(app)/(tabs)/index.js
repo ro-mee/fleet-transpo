@@ -1,6 +1,7 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator } from 'react-native';
+import { InteractionManager } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,7 @@ import { SkeletonCard, ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
+import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
 import {
   getIncidentDeadLetters,
   retryIncidentDeadLetters,
@@ -328,6 +330,12 @@ export default function Home() {
     { label: 'Report Incident', icon: 'shield-checkmark', action: () => router.push('/incidents') },
     ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }) }] : []),
   ];
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      QUICK_ACTION_ROUTES.forEach((r) => { try { router.prefetch?.(r); } catch {} });
+    });
+    return () => task?.cancel?.();
+  }, [router]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
