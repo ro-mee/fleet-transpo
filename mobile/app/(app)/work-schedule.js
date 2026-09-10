@@ -11,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { InteractionManager } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -151,7 +152,10 @@ export default function WorkScheduleScreen() {
     setRefreshing(false);
   }, [driverId]);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    const task = InteractionManager.runAfterInteractions(() => { load(); });
+    return () => task?.cancel?.();
+  }, [load]));
 
   const submitLeave = async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
