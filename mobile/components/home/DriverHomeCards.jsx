@@ -6,6 +6,7 @@ import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
 import { homeTripAction } from '../../lib/home-trips';
 import { statusColorForTone, tripStatusTone } from '../../lib/theme';
+import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
 import { homeMaterials as clayMaterials } from './materials';
 import TripMapPreview from '../TripMapPreview';
 import RadarPulse from '../RadarPulse';
@@ -70,7 +71,7 @@ export function HomeQuickActions({ actions }) {
   const wide = width >= 700 && fontScale <= 1.15 && !largeText;
   const visible = wide || expanded ? actions : actions.slice(0, 4);
   return <View style={[s.actions, { ...mats.clayShade, backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-    {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: () => setExpanded(!expanded), toggle: true }] : [])].map(a => <Pressable key={a.label} onPress={a.action} disabled={a.disabled} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }} style={({ pressed }) => [s.shortcut, { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%', opacity: a.disabled ? 0.5 : pressed ? 0.7 : 1 }]}>
+    {[...visible, ...(!wide ? [{ label: expanded ? 'Less' : 'More', icon: expanded ? 'chevron-up' : 'ellipsis-horizontal', action: () => setExpanded(!expanded), toggle: true }] : [])].map(a => <Pressable key={a.label} onPress={a.action} disabled={a.disabled} accessibilityRole="button" accessibilityLabel={a.label} accessibilityState={{ disabled: !!a.disabled, ...(a.toggle ? { expanded } : {}) }} style={({ pressed }) => [s.shortcut, { flexBasis: wide ? '13%' : largeText || width < 350 ? '30%' : '18%', opacity: a.disabled ? 0.5 : pressed ? QUICK_ACTION_PRESS.pressedOpacity : 1, transform: pressed ? [{ scale: QUICK_ACTION_PRESS.scale }] : undefined }]}>
       <HomeClayIcon name={a.icon} />
       <Text style={[type.caption, { color: colors.onSurface, textAlign: 'center' }]}>{a.label}</Text>
     </Pressable>)}
