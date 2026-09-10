@@ -1,6 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
 import { useState, useEffect, useCallback, useRef } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, ActivityIndicator, InteractionManager } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +12,6 @@ import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache"
 import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 
@@ -63,7 +62,8 @@ export default function FuelReport() {
   const autoScanStarted = useRef(false);
 
   useEffect(() => {
-    (async () => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      (async () => {
       // Offline driver context: cached-first via the shared resolver chain
       // (explicit trip → active trip → standing assignment → none), so the
       // vehicle card survives offline; the live fetches below revalidate.
@@ -109,7 +109,9 @@ export default function FuelReport() {
       } finally {
         setLoadingTrip(false);
       }
-    })();
+      })();
+    });
+    return () => task?.cancel?.();
   }, [paramTripId, driverId]);
 
   const activeTripId = paramTripId || (assignedTrip?.trip_id ? String(assignedTrip.trip_id) : null);
@@ -148,12 +150,9 @@ export default function FuelReport() {
   }, [activeTripId, activeVehicleId, hasAssignedVehicle, id]);
 
   useEffect(() => {
-    const initial = setTimeout(loadFuelRequests, 0);
+    const task = InteractionManager.runAfterInteractions(() => { loadFuelRequests(); });
     const poll = setInterval(loadFuelRequests, 15_000);
-    return () => {
-      clearTimeout(initial);
-      clearInterval(poll);
-    };
+    return () => { task?.cancel?.(); clearInterval(poll); };
   }, [loadFuelRequests]);
 
   const requestFuel = async () => {
@@ -368,6 +367,7 @@ export default function FuelReport() {
     if (!cameraRef.current || !cameraReady || capturing) return;
     try {
       setCapturing(true);
+      const { ImageManipulator, SaveFormat } = await import("expo-image-manipulator");
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.65 });
       if (photo?.uri) {
         if (cameraPurpose === "gauge") {
