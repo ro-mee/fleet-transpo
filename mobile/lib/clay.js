@@ -82,16 +82,19 @@ export const compactShade = {
 };
 
 /** Raised clay icon tile: puffy depth with its own edge highlights,
- * sized to sit inside a clay card without competing with it. */
+ * sized to sit inside a clay card without competing with it.
+ * Tiles carry NO shadow (flat for GPU smoothness) — the molded read comes
+ * from the edge strips alone. Keep key parity with the dark override below
+ * so Light→Dark→Light restores exactly. */
 export const clayTile = {
   borderTopWidth: 1.5,
   borderTopColor: "#FFFFFF75",
   borderBottomWidth: 2,
   borderBottomColor: "#00000012",
-  shadowOffset: { width: 0, height: 3 },
-  shadowOpacity: 0.16,
-  shadowRadius: 5,
-  elevation: 2,
+  shadowOffset: { width: 0, height: 0 },
+  shadowOpacity: 0,
+  shadowRadius: 0,
+  elevation: 0,
 };
 
 const lightMaterials = { clayShade, clayCard, clayPill, clayCta, compactShade, clayTile };
@@ -146,11 +149,64 @@ const darkMaterials = {
     borderTopColor: "rgba(255,255,255,0.10)",
     borderBottomWidth: 1.5,
     borderBottomColor: "rgba(0,0,0,0.32)",
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
 };
+
+export const raisedControlLight = {
+  borderWidth: 0,
+  borderColor: "transparent",
+  borderTopWidth: 2,
+  borderTopColor: "#FFFFFF55",
+  borderBottomWidth: 3,
+  borderBottomColor: "#00000028",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.22,
+  shadowRadius: 7,
+  elevation: 5,
+};
+
+export const raisedControlDark = {
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.06)",
+  borderTopWidth: 1.5,
+  borderTopColor: "rgba(255,255,255,0.12)",
+  borderBottomWidth: 1.5,
+  borderBottomColor: "rgba(0,0,0,0.40)",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.4,
+  shadowRadius: 9,
+  elevation: 5,
+};
+
+export const pillEdgesLight = {
+  borderWidth: 0,
+  borderColor: "transparent",
+  borderTopWidth: 2,
+  borderTopColor: "#FFFFFF60",
+  borderBottomWidth: 2,
+  borderBottomColor: "#00000012",
+};
+
+export const pillEdgesDark = {
+  borderWidth: 1,
+  borderColor: "rgba(255,255,255,0.06)",
+  borderTopWidth: 1,
+  borderTopColor: "rgba(255,255,255,0.10)",
+  borderBottomWidth: 1.5,
+  borderBottomColor: "rgba(0,0,0,0.35)",
+};
+
+export function raisedControl(isDark) {
+  return isDark ? raisedControlDark : raisedControlLight;
+}
+
+export function pillEdges(isDark) {
+  return isDark ? pillEdgesDark : pillEdgesLight;
+}
 
 /** Scheme-aware clay materials. Pass `scheme === "dark"` (not just
  * high-contrast — the materials are subtle enough to keep in HC dark, where
@@ -158,3 +214,4 @@ const darkMaterials = {
 export function clayMaterials(isDark) {
   return isDark ? darkMaterials : lightMaterials;
 }
+

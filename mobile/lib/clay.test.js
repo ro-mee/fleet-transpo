@@ -16,10 +16,22 @@ describe('clay material scheme key parity', () => {
     expect(Object.keys(dark[key]).sort()).toEqual(Object.keys(light[key]).sort());
   });
 
-  it('restores the light clay borders as invisible defaults, not by omitting them', () => {
-    for (const key of ['clayShade', 'compactShade']) {
-      expect(light[key].borderWidth).toBe(0);
-      expect(light[key].borderColor).toBe('transparent');
-    }
+  it('raisedControl(true) and raisedControl(false) declare the same keys and light resets borders', () => {
+    const { raisedControl } = require('./clay');
+    const lightRc = raisedControl(false);
+    const darkRc = raisedControl(true);
+    expect(Object.keys(darkRc).sort()).toEqual(Object.keys(lightRc).sort());
+    expect(lightRc.borderWidth).toBe(0);
+    expect(lightRc.borderColor).toBe('transparent');
+  });
+
+  it('pillEdges(true) and pillEdges(false) declare the same keys and light resets borders', () => {
+    const { pillEdges } = require('./clay');
+    const lightPe = pillEdges(false);
+    const darkPe = pillEdges(true);
+    expect(Object.keys(darkPe).sort()).toEqual(Object.keys(lightPe).sort());
+    expect(lightPe.borderWidth).toBe(0);
+    expect(lightPe.borderColor).toBe('transparent');
   });
 });
+
