@@ -5,9 +5,11 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
-import { fonts, space, radius, TOUCH_TARGET } from "../../lib/theme";
+import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
+import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
+import { raisedControl } from '../../lib/clay';
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -23,7 +25,9 @@ export default function PreShiftInspection() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
-  const { colors, type } = useTheme();
+  const { colors, type, scheme } = useTheme();
+  const isDark = scheme === "dark";
+  const raised = raisedControl(isDark);
 
   const [statuses, setStatuses] = useState(
     CHECKLIST.reduce((acc, item) => ({ ...acc, [item.id]: null }), {})
@@ -151,27 +155,20 @@ export default function PreShiftInspection() {
         </View>
 
         {/* Vehicle Info Card */}
-        <View
-          style={[
-            styles.vehicleCard,
-            { backgroundColor: colors.surfaceContainerHighest },
-          ]}
-        >
-          <View style={[styles.vehicleImgPlaceholder, { backgroundColor: colors.surfaceVariant }]}>
-            <Ionicons name="car" size={36} color={colors.onSurfaceVariant} />
-          </View>
-          <View>
-            <Text style={[type.labelLg, styles.vehicleCardLabel, { color: colors.onSurfaceVariant }]}>
-              Vehicle & Trip
+        <ClayCard style={styles.vehicleCard}>
+          <ClayTile icon="car" size={56} />
+          <View style={{ flex: 1 }}>
+            <Text style={[type.caption, { color: colors.primary, letterSpacing: 0.5 }]}>
+              VEHICLE & TRIP
             </Text>
-            <Text style={[type.titleLg, styles.vehicleCardName, { color: colors.onSurface }]}>
+            <Text style={[type.headlineMd, { color: colors.onSurface }]}>
               {tripContext?.plate_number || (tripId ? `Trip #${tripId}` : "Assigned Trip")}
             </Text>
-            <Text style={[type.bodyLg, styles.vehicleCardDriver, { color: colors.onSurface }]}>
+            <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
               {tripContext?.model ? `${tripContext.model} - Trip #${tripId}` : `Trip #${tripId}`}
             </Text>
           </View>
-        </View>
+        </ClayCard>
 
         {/* Checklist */}
         <View style={styles.checklist}>
@@ -181,12 +178,10 @@ export default function PreShiftInspection() {
             const isFail = status === "FAIL";
 
             return (
-              <View
+              <ClayCard
                 key={item.id}
-                style={[
-                  styles.checkItem,
-                  { backgroundColor: colors.surfaceContainer },
-                ]}
+                variant="compact"
+                style={styles.checkItem}
               >
                 <Text style={[type.labelLg, styles.checkItemLabel, { color: colors.onSurface }]}>
                   {idx + 1}. {item.label}
@@ -197,11 +192,12 @@ export default function PreShiftInspection() {
                     onPress={() => setStatus(item.id, "PASS")}
                     style={({ pressed }) => [
                       styles.checkBtn,
+                      raised,
                       {
                         backgroundColor: isPass
                           ? colors.secondaryContainer
                           : colors.surfaceContainerHigh,
-                        borderColor: isPass ? colors.secondary : colors.outlineVariant + '40',
+                        borderColor: isPass ? colors.secondary : 'transparent',
                         transform: [{ scale: pressed ? 0.97 : 1 }],
                         opacity: pressed ? 0.9 : 1,
                       },
@@ -227,11 +223,12 @@ export default function PreShiftInspection() {
                     onPress={() => setStatus(item.id, "FAIL")}
                     style={({ pressed }) => [
                       styles.checkBtn,
+                      raised,
                       {
                         backgroundColor: isFail
                           ? colors.errorContainer
                           : colors.surfaceContainerHigh,
-                        borderColor: isFail ? colors.error : colors.outlineVariant + '40',
+                        borderColor: isFail ? colors.error : 'transparent',
                         transform: [{ scale: pressed ? 0.97 : 1 }],
                         opacity: pressed ? 0.9 : 1,
                       },
@@ -274,7 +271,7 @@ export default function PreShiftInspection() {
                     multiline
                   />
                 )}
-              </View>
+              </ClayCard>
             );
           })}
         </View>
@@ -291,37 +288,16 @@ export default function PreShiftInspection() {
           },
         ]}
       >
-        <Pressable
-          onPress={handleSubmit}
+        <ClayButton
+          label={submitting ? "SUBMITTING..." : allAnswered ? "COMPLETE INSPECTION" : `COMPLETE ALL ITEMS (${answeredCount}/${CHECKLIST.length})`}
+          variant="primary"
+          size="lg"
+          icon={allAnswered ? "checkmark-circle-outline" : "lock-closed-outline"}
+          iconPosition="right"
           disabled={!allAnswered || submitting}
-          style={({ pressed }) => [
-            styles.startBtn,
-            {
-              backgroundColor:
-                allAnswered && !submitting
-                  ? colors.primary
-                  : colors.surfaceContainerHigh,
-              transform: [{ scale: pressed ? 0.97 : 1 }],
-              opacity: pressed ? 0.9 : 1,
-            },
-          ]}
-        >
-          <Text
-            style={[
-              styles.startBtnText,
-              { color: allAnswered ? colors.onPrimary : colors.onSurfaceVariant },
-            ]}
-          >
-            {submitting ? "SUBMITTING..." : allAnswered ? "COMPLETE INSPECTION" : `COMPLETE ALL ITEMS (${Object.values(statuses).filter(Boolean).length}/${CHECKLIST.length})`}
-          </Text>
-          <View style={[styles.btnIconCapsule, { backgroundColor: allAnswered && !submitting ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.06)' }]}>
-            <Ionicons
-              name={allAnswered ? "checkmark-circle-outline" : "lock-closed-outline"}
-              size={17}
-              color={allAnswered ? colors.onPrimary : colors.onSurfaceVariant}
-            />
-          </View>
-        </Pressable>
+          loading={submitting}
+          onPress={handleSubmit}
+        />
       </View>
     </View>
   );
@@ -343,8 +319,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: TOUCH_TARGET / 2,
-  },
-  topBarTitle: {
   },
   topAvatar: {
     width: moderateScale(40),
@@ -374,17 +348,6 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
   },
-  vehicleImgPlaceholder: {
-    width: moderateScale(64),
-    height: moderateScale(64),
-    borderRadius: moderateScale(8),
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
-  vehicleCardLabel: { },
-  vehicleCardName: { },
-  vehicleCardDriver: { },
   checklist: { gap: moderateScale(12), width: "100%" },
   checkItem: {
     borderRadius: moderateScale(12),
@@ -416,31 +379,6 @@ const styles = StyleSheet.create({
     padding: moderateScale(10),
     minHeight: moderateScale(60),
     textAlignVertical: "top",
-  },
-  startBtn: {
-    height: 52,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  startBtnText: {
-    fontSize: 15,
-    fontFamily: fonts.bodySemiBold,
-    letterSpacing: 0.3,
-  },
-  btnIconCapsule: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   footer: {
     paddingHorizontal: moderateScale(16),

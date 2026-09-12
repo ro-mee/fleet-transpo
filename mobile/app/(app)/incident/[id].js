@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View, RefreshControl } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,6 +8,7 @@ import { api } from "../../../lib/api";
 import { fonts } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from "../../../components/AppAlert";
+import { ClayCard, ClayButton, ClayTile, ClayBadge } from "../../../components/clay";
 
 // Driver-facing live status of one incident report. The driver files a report
 // (or an SOS) and then waits — this screen is where the wait ends: it shows
@@ -331,11 +332,9 @@ export default function IncidentStatusScreen() {
               </Text>
             </View>
 
-            <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.primary + "66" }]}>
+            <ClayCard style={styles.card}>
               <View style={styles.summaryRow}>
-                <View style={[styles.typeIcon, { backgroundColor: colors.errorContainer }]}>
-                  <Ionicons name="warning-outline" size={20} color={colors.error} />
-                </View>
+                <ClayTile icon="warning-outline" size={38} style={{ backgroundColor: colors.errorContainer }} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.incidentType, { color: colors.onSurface }]}>
                     {(responderMission.incident_type || "Incident").replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())}
@@ -358,15 +357,13 @@ export default function IncidentStatusScreen() {
               {Array.isArray(responderMission.assistance_needed) && responderMission.assistance_needed.length > 0 ? (
                 <View style={styles.chipWrap}>
                   {responderMission.assistance_needed.map((need) => (
-                    <View key={need} style={[styles.chip, { backgroundColor: colors.errorContainer }]}>
-                      <Text style={[styles.chipText, { color: colors.onErrorContainer }]}>{need}</Text>
-                    </View>
+                    <ClayBadge key={need} text={need} tone="danger" />
                   ))}
                 </View>
               ) : null}
-            </View>
+            </ClayCard>
 
-            <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + "40" }]}>
+            <ClayCard style={styles.card}>
               <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>{"Driver's position"}</Text>
               {responderMission.driver_latitude != null && responderMission.driver_longitude != null ? (
                 <Text style={[styles.detailLine, { color: colors.onSurfaceVariant }]}>
@@ -379,76 +376,48 @@ export default function IncidentStatusScreen() {
                   {"  "}{"Using the report-time location (driver's phone is quiet)"}
                 </Text>
               )}
-              <Pressable
+              <ClayButton
+                label="Navigate to driver"
+                variant="primary"
+                icon="navigate"
                 onPress={openNavigation}
-                accessibilityRole="button"
-                accessibilityLabel="Open navigation to the driver"
-                style={({ pressed }) => [
-                  styles.confirmBtn,
-                  { backgroundColor: colors.primary },
-                  pressed && styles.actionPressed,
-                ]}
-              >
-                <Ionicons name="navigate" size={20} color={colors.onPrimary} />
-                <Text style={[styles.confirmBtnText, { color: colors.onPrimary }]}>Navigate to driver</Text>
-              </Pressable>
-            </View>
+                style={{ alignSelf: 'stretch', marginTop: 8 }}
+              />
+            </ClayCard>
 
             {responderMission.response_status === "Arrived" ? (
               // On scene — the responder can close the whole incident from the
               // field; the fleet team and the driver are notified, and the
               // driver still gets their confirm-or-dispute prompt.
-              <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + "40" }]}>
+              <ClayCard style={styles.card}>
                 <Text style={[styles.confirmPrompt, { color: colors.onSurface }]}>
                   All handled? You can close this incident yourself — the fleet team and the driver will be notified.
                 </Text>
-                <Pressable
-                  onPress={() => confirmFieldResolve("responder")}
+                <ClayButton
+                  label={resolving ? "Resolving…" : "Mission complete — resolved"}
+                  variant="primary"
+                  icon="checkmark-done"
+                  loading={resolving}
                   disabled={resolving}
-                  accessibilityRole="button"
-                  accessibilityLabel="Confirm the incident is resolved"
-                  style={({ pressed }) => [
-                    styles.confirmBtn,
-                    { backgroundColor: colors.primary },
-                    (pressed || resolving) && styles.actionPressed,
-                  ]}
-                >
-                  {resolving ? (
-                    <ActivityIndicator size="small" color={colors.onPrimary} />
-                  ) : (
-                    <Ionicons name="checkmark-done" size={20} color={colors.onPrimary} />
-                  )}
-                  <Text style={[styles.confirmBtnText, { color: colors.onPrimary }]}>
-                    {resolving ? "Resolving…" : "Mission complete — resolved"}
-                  </Text>
-                </Pressable>
-              </View>
+                  onPress={() => confirmFieldResolve("responder")}
+                  style={{ alignSelf: 'stretch', marginTop: 8 }}
+                />
+              </ClayCard>
             ) : (
-              <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + "40" }]}>
+              <ClayCard style={styles.card}>
                 <Text style={[styles.confirmPrompt, { color: colors.onSurface }]}>
                   Arrived? GPS marks it automatically — use this if your signal is weak.
                 </Text>
-                <Pressable
-                  onPress={markArrived}
+                <ClayButton
+                  label={arriving ? "Updating…" : "I've arrived"}
+                  variant="secondary"
+                  icon="checkmark-circle"
+                  loading={arriving}
                   disabled={arriving}
-                  accessibilityRole="button"
-                  accessibilityLabel="Confirm you have arrived"
-                  style={({ pressed }) => [
-                    styles.confirmBtn,
-                    { backgroundColor: colors.secondary },
-                    (pressed || arriving) && styles.actionPressed,
-                  ]}
-                >
-                  {arriving ? (
-                    <ActivityIndicator size="small" color={colors.onSecondary} />
-                  ) : (
-                    <Ionicons name="checkmark-circle" size={20} color={colors.onSecondary} />
-                  )}
-                  <Text style={[styles.confirmBtnText, { color: colors.onSecondary }]}>
-                    {arriving ? "Updating…" : "I've arrived"}
-                  </Text>
-                </Pressable>
-              </View>
+                  onPress={markArrived}
+                  style={{ alignSelf: 'stretch', marginTop: 8 }}
+                />
+              </ClayCard>
             )}
           </>
         ) : (
@@ -490,11 +459,9 @@ export default function IncidentStatusScreen() {
 
             {/* Physical rescue card — what was sent, who, and when it lands */}
             {responseStatus ? (
-              <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.primary + "66" }]}>
+              <ClayCard style={styles.card}>
                 <View style={styles.summaryRow}>
-                  <View style={[styles.typeIcon, { backgroundColor: colors.primaryContainer }]}>
-                    <Ionicons name="medkit-outline" size={20} color={colors.primary} />
-                  </View>
+                  <ClayTile icon="medkit-outline" size={38} style={{ backgroundColor: colors.primaryContainer }} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.incidentType, { color: colors.onSurface }]}>
                       {responseStatus === "Arrived" ? "Help has arrived" : responseStatus === "En Route" ? "En route to you" : "Help dispatched"}
@@ -515,7 +482,7 @@ export default function IncidentStatusScreen() {
                     {`${incident.responder_first_name} ${incident.responder_last_name || ""}`.trim()} is GPS-tracked — this card updates automatically as they drive.
                   </Text>
                 ) : null}
-              </View>
+              </ClayCard>
             ) : null}
 
             {/* Field resolution — the driver knows when the situation is
@@ -523,39 +490,26 @@ export default function IncidentStatusScreen() {
                 they can close it themselves once the fleet team has
                 acknowledged. The fleet team is notified automatically. */}
             {!resolved && acknowledged ? (
-              <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+              <ClayCard style={styles.card}>
                 <Text style={[styles.confirmPrompt, { color: colors.onSurface }]}>
                   All good? You can close this incident yourself once it is fully handled — the fleet team will be notified.
                 </Text>
-                <Pressable
-                  onPress={() => confirmFieldResolve("driver")}
+                <ClayButton
+                  label={resolving ? "Resolving…" : "I'm safe — resolved"}
+                  variant="primary"
+                  icon="checkmark-done"
+                  loading={resolving}
                   disabled={resolving}
-                  accessibilityRole="button"
-                  accessibilityLabel="Confirm the incident is resolved"
-                  style={({ pressed }) => [
-                    styles.confirmBtn,
-                    { backgroundColor: colors.primary },
-                    (pressed || resolving) && styles.actionPressed,
-                  ]}
-                >
-                  {resolving ? (
-                    <ActivityIndicator size="small" color={colors.onPrimary} />
-                  ) : (
-                    <Ionicons name="checkmark-done" size={20} color={colors.onPrimary} />
-                  )}
-                  <Text style={[styles.confirmBtnText, { color: colors.onPrimary }]}>
-                    {resolving ? "Resolving…" : "I'm safe — resolved"}
-                  </Text>
-                </Pressable>
-              </View>
+                  onPress={() => confirmFieldResolve("driver")}
+                  style={{ alignSelf: 'stretch', marginTop: 8 }}
+                />
+              </ClayCard>
             ) : null}
 
             {/* Summary card */}
-            <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+            <ClayCard style={styles.card}>
               <View style={styles.summaryRow}>
-                <View style={[styles.typeIcon, { backgroundColor: colors.errorContainer }]}>
-                  <Ionicons name="warning-outline" size={20} color={colors.error} />
-                </View>
+                <ClayTile icon="warning-outline" size={38} style={{ backgroundColor: colors.errorContainer }} />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.incidentType, { color: colors.onSurface }]}>
                     {(incident.incident_type || "Incident").replace(/\b\w+/g, (w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())}
@@ -579,56 +533,37 @@ export default function IncidentStatusScreen() {
               {Array.isArray(incident.assistance_needed) && incident.assistance_needed.length > 0 ? (
                 <View style={styles.chipWrap}>
                   {incident.assistance_needed.map((need) => (
-                    <View key={need} style={[styles.chip, { backgroundColor: colors.errorContainer }]}>
-                      <Text style={[styles.chipText, { color: colors.onErrorContainer }]}>{need}</Text>
-                    </View>
+                    <ClayBadge key={need} text={need} tone="danger" />
                   ))}
                 </View>
               ) : null}
-            </View>
+            </ClayCard>
 
             {/* Soft confirmation loop — the resolution only truly closes when the
                 driver says they are safe. Dispute reopens the incident. */}
             {awaitingConfirmation ? (
-              <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+              <ClayCard style={styles.card}>
                 <Text style={[styles.confirmPrompt, { color: colors.onSurface }]}>
                   Are you safe now? Confirm this resolution, or tell us if you still need help.
                 </Text>
-                <Pressable
-                  onPress={confirmResolution}
+                <ClayButton
+                  label={confirming ? "Confirming…" : "I'm safe — confirm"}
+                  variant="primary"
+                  icon="checkmark-circle"
+                  loading={confirming}
                   disabled={confirming}
-                  accessibilityRole="button"
-                  accessibilityLabel="Confirm you are safe"
-                  style={({ pressed }) => [
-                    styles.confirmBtn,
-                    { backgroundColor: colors.primary },
-                    (pressed || confirming) && styles.actionPressed,
-                  ]}
-                >
-                  {confirming ? (
-                    <ActivityIndicator size="small" color={colors.onPrimary} />
-                  ) : (
-                    <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
-                  )}
-                  <Text style={[styles.confirmBtnText, { color: colors.onPrimary }]}>
-                    {confirming ? "Confirming…" : "I'm safe — confirm"}
-                  </Text>
-                </Pressable>
-                <Pressable
+                  onPress={confirmResolution}
+                  style={{ alignSelf: 'stretch' }}
+                />
+                <ClayButton
+                  label="Still need help"
+                  variant="outline"
+                  icon="alert-circle-outline"
                   onPress={() => setDisputeOpen((v) => !v)}
-                  accessibilityRole="button"
-                  accessibilityLabel="Still need help"
-                  style={({ pressed }) => [
-                    styles.disputeBtn,
-                    { borderColor: colors.error },
-                    pressed && styles.actionPressed,
-                  ]}
-                >
-                  <Ionicons name="alert-circle-outline" size={20} color={colors.error} />
-                  <Text style={[styles.disputeBtnText, { color: colors.error }]}>Still need help</Text>
-                </Pressable>
+                  style={{ alignSelf: 'stretch', marginTop: 8 }}
+                />
                 {disputeOpen ? (
-                  <View style={{ gap: 8 }}>
+                  <View style={{ gap: 8, marginTop: 8 }}>
                     <TextInput
                       value={disputeReason}
                       onChangeText={setDisputeReason}
@@ -644,34 +579,23 @@ export default function IncidentStatusScreen() {
                         },
                       ]}
                     />
-                    <Pressable
-                      onPress={submitReopen}
+                    <ClayButton
+                      label={disputeSubmitting ? "Sending…" : "Reopen this incident"}
+                      variant="danger"
+                      icon="refresh"
+                      loading={disputeSubmitting}
                       disabled={disputeSubmitting}
-                      accessibilityRole="button"
-                      accessibilityLabel="Send dispute and reopen incident"
-                      style={({ pressed }) => [
-                        styles.reopenBtn,
-                        { backgroundColor: colors.error },
-                        (pressed || disputeSubmitting) && styles.actionPressed,
-                      ]}
-                    >
-                      {disputeSubmitting ? (
-                        <ActivityIndicator size="small" color={colors.onError} />
-                      ) : (
-                        <Ionicons name="refresh" size={20} color={colors.onError} />
-                      )}
-                      <Text style={[styles.confirmBtnText, { color: colors.onError }]}>
-                        {disputeSubmitting ? "Sending…" : "Reopen this incident"}
-                      </Text>
-                    </Pressable>
+                      onPress={submitReopen}
+                      style={{ alignSelf: 'stretch' }}
+                    />
                   </View>
                 ) : null}
-              </View>
+              </ClayCard>
             ) : null}
 
             {/* Timeline */}
             <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>Response Timeline</Text>
-            <View style={[styles.card, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' }]}>
+            <ClayCard style={styles.card}>
               <TimelineStep
                 icon="flag-outline"
                 iconBg={colors.primaryContainer}
@@ -711,22 +635,34 @@ export default function IncidentStatusScreen() {
                   colors={colors}
                 />
               ) : null}
-              <TimelineStep
-                icon={resolved ? "checkmark-done-circle" : "ellipse-outline"}
-                iconBg={resolved ? colors.secondaryContainer : colors.surfaceContainerHighest}
-                iconColor={resolved ? colors.secondary : colors.onSurfaceVariant}
-                title={resolved ? "Resolved" : "Resolution pending"}
-                subtitle={resolved ? formatWhen(incident.resolved_at) : "We will notify you when this is closed out"}
-                body={resolved && incident.actions_taken ? `Actions taken: ${incident.actions_taken}` : null}
-                colors={colors}
-                last={!(incident.reopened_at || (resolved && incident.driver_confirmed_at))}
-              />
-              {incident.reopened_at ? (
+              {incident.dispute_reason ? (
                 <TimelineStep
                   icon="refresh"
                   iconBg={colors.errorContainer}
                   iconColor={colors.error}
-                  title="You disputed the resolution"
+                  title="Driver requested more help"
+                  subtitle={formatWhen(incident.reopened_at)}
+                  body={incident.dispute_reason}
+                  colors={colors}
+                />
+              ) : null}
+              {resolved && !incident.driver_confirmed_at ? (
+                <TimelineStep
+                  icon="checkmark"
+                  iconBg={colors.secondaryContainer}
+                  iconColor={colors.secondary}
+                  title="Marked resolved by fleet team"
+                  subtitle={formatWhen(incident.resolved_at)}
+                  body="Pending your confirmation that you are safe."
+                  colors={colors}
+                  last
+                />
+              ) : resolved && incident.reopened_at ? (
+                <TimelineStep
+                  icon="warning-outline"
+                  iconBg={colors.errorContainer}
+                  iconColor={colors.error}
+                  title="Reopened"
                   subtitle={formatWhen(incident.reopened_at)}
                   body="This incident was reopened and is back with the fleet team."
                   colors={colors}
@@ -743,7 +679,7 @@ export default function IncidentStatusScreen() {
                   last
                 />
               ) : null}
-            </View>
+            </ClayCard>
           </>
         )}
       </ScrollView>
@@ -790,20 +726,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   summaryRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  typeIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   incidentType: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
   incidentMeta: { fontSize: 12, fontFamily: fonts.body, marginTop: 2 },
   detailLine: { fontSize: 13, fontFamily: fonts.body, lineHeight: 18 },
   detailBody: { fontSize: 13, fontFamily: fonts.body, lineHeight: 19 },
   chipWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  chip: { borderRadius: 12, paddingHorizontal: 10, paddingVertical: 5 },
-  chipText: { fontSize: 11, fontFamily: fonts.bodySemiBold },
   sectionTitle: { fontSize: 14, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
   stepRow: { flexDirection: "row", gap: 12 },
   stepRail: { alignItems: "center", width: 28 },
@@ -826,25 +753,6 @@ const styles = StyleSheet.create({
   },
   noteText: { fontSize: 13, fontFamily: fonts.body, lineHeight: 19 },
   confirmPrompt: { fontSize: 13, fontFamily: fonts.body, lineHeight: 19 },
-  confirmBtn: {
-    minHeight: 46,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  confirmBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold },
-  disputeBtn: {
-    minHeight: 46,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  disputeBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold },
   disputeInput: {
     borderRadius: 12,
     borderWidth: 1,
@@ -856,13 +764,4 @@ const styles = StyleSheet.create({
     minHeight: 84,
     textAlignVertical: "top",
   },
-  reopenBtn: {
-    minHeight: 46,
-    borderRadius: 14,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionPressed: { opacity: 0.86 },
 });

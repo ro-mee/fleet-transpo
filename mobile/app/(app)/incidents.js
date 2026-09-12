@@ -1,6 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState, useEffect as _unused } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image,  } from 'react-native';
+import { useState } from "react";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, InteractionManager } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,6 +14,8 @@ import { useAuth } from "../../lib/auth";
 import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache";
 import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import { AppAlert } from '../../components/AppAlert';
+import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
+import { raisedControl } from '../../lib/clay';
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -39,7 +41,9 @@ export default function IncidentsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { tripId } = useLocalSearchParams();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
+  const raised = raisedControl(isDark);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
 
@@ -74,19 +78,21 @@ export default function IncidentsScreen() {
       if (driverId) {
         apply(resolveVehicleContext(await getCachedVehicleContext(driverId)));
       }
-      try {
-        const [trips, me] = await Promise.all([
-          api.get("/api/mobile/driver/trips?status=all").catch(() => null),
-          api.get("/api/mobile/driver/me").catch(() => null),
-        ]);
-        const list = Array.isArray(trips) ? trips : null;
-        // Keep the shared trips cache warm for the next offline report.
-        if (list && driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
-        apply(resolveVehicleContext({ trips: list, me }));
-      } catch (e) {
-        // Cache already applied above; offline the vehicle simply stays as
-        // the saved one (or none) — the submit still queues via apiFetch.
-      }
+      InteractionManager.runAfterInteractions(async () => {
+        try {
+          const [trips, me] = await Promise.all([
+            api.get("/api/mobile/driver/trips?status=all").catch(() => null),
+            api.get("/api/mobile/driver/me").catch(() => null),
+          ]);
+          const list = Array.isArray(trips) ? trips : null;
+          // Keep the shared trips cache warm for the next offline report.
+          if (list && driverId) await setCached(driverId, CACHE_KEYS.TRIPS_ALL, list);
+          apply(resolveVehicleContext({ trips: list, me }));
+        } catch (e) {
+          // Cache already applied above; offline the vehicle simply stays as
+          // the saved one (or none) — the submit still queues via apiFetch.
+        }
+      });
     }
     if (!tripId) {
       loadData();
@@ -293,10 +299,10 @@ export default function IncidentsScreen() {
             <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
               You are reporting this incident for this vehicle.
             </Text>
-            <View style={{ backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40', borderWidth: 1, borderRadius: 12, padding: 16, flexDirection: 'row', alignItems: 'center' }}>
-              <Ionicons name="car-outline" size={24} color={colors.primary} style={{ marginRight: 12 }} />
+            <ClayCard style={{ padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <ClayTile icon="car-outline" size={38} />
               <Text style={{ flex: 1, color: colors.onSurface, fontSize: 16, fontWeight: 'bold' }}>{vehiclePlate}</Text>
-            </View>
+            </ClayCard>
           </View>
         )}
 
@@ -312,28 +318,19 @@ export default function IncidentsScreen() {
             {INCIDENT_TYPES.map((t) => {
               const selected = type === t.id;
               return (
-                <Pressable
+                <ClayCard
                   key={t.id}
                   onPress={() => setType(t.id)}
-                  style={({ pressed }) => [
+                  style={[
                     styles.typeCard,
-                    {
-                      backgroundColor: selected
-                        ? colors.errorContainer
-                        : colors.surfaceContainerLow,
-                      borderColor: selected ? colors.error : colors.outlineVariant + '40',
-                      transform: [{ scale: pressed ? 0.97 : 1 }],
-                      opacity: pressed ? 0.9 : 1,
-                    },
+                    selected && { backgroundColor: colors.errorContainer, borderColor: colors.error },
                   ]}
                 >
-                  <View style={[styles.typeIconWrap, { backgroundColor: selected ? colors.error + '20' : colors.surfaceContainerHighest }]}>
-                    <Ionicons
-                      name={t.icon}
-                      size={20}
-                      color={selected ? colors.onErrorContainer : colors.onSurfaceVariant}
-                    />
-                  </View>
+                  <ClayTile
+                    icon={t.icon}
+                    size={38}
+                    style={{ backgroundColor: selected ? colors.error + '20' : undefined }}
+                  />
                   <Text
                     style={[
                       styles.typeCardText,
@@ -342,7 +339,7 @@ export default function IncidentsScreen() {
                   >
                     {t.label}
                   </Text>
-                </Pressable>
+                </ClayCard>
               );
             })}
           </View>
@@ -366,28 +363,29 @@ export default function IncidentsScreen() {
                   onPress={() => setSeverity(s)}
                   style={({ pressed }) => [
                     styles.severityBtn,
+                    raised,
                     {
                       backgroundColor: selected ? c : colors.surfaceContainerLow,
-                      borderColor: selected ? c : colors.outlineVariant + '40',
+                      borderColor: selected ? c : 'transparent',
                       transform: [{ scale: pressed ? 0.97 : 1 }],
                       opacity: pressed ? 0.9 : 1,
                     },
                   ]}
                 >
-              <Text
-                style={[
-                  styles.severityText,
-                  {
-                    color: selected
-                      ? "#FFFFFF"
-                      : colors.onSurface,
-                  },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {s.toUpperCase()}
-              </Text>
+                  <Text
+                    style={[
+                      styles.severityText,
+                      {
+                        color: selected
+                          ? "#FFFFFF"
+                          : colors.onSurface,
+                      },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {s.toUpperCase()}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -399,14 +397,12 @@ export default function IncidentsScreen() {
           <Text style={[styles.sectionTitle, { color: colors.onSurface }]}>
             Live Location
           </Text>
-          <View style={[styles.locationCard, { borderColor: colors.outlineVariant + '40', backgroundColor: colors.surfaceContainerLow }]}>
-            <View style={[styles.locIconWrap, { backgroundColor: colors.primaryContainer }]}>
-              <Ionicons name="location" size={18} color={colors.onPrimaryContainer} />
-            </View>
+          <ClayCard style={[styles.locationCard, { padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 }]}>
+            <ClayTile icon="location" size={38} />
             <Text style={{ flex: 1, color: colors.onSurfaceVariant, fontSize: 13, fontFamily: fonts.body, lineHeight: 18 }}>
               Your exact GPS coordinates are automatically tagged to this report for rapid response.
             </Text>
-          </View>
+          </ClayCard>
         </View>
 
         {/* Description */}
@@ -448,9 +444,10 @@ export default function IncidentsScreen() {
                   accessibilityLabel={`${option} assistance${selected ? ", selected" : ""}`}
                   style={({ pressed }) => [
                     styles.assistChip,
+                    raised,
                     {
                       backgroundColor: selected ? colors.primary : colors.surfaceContainerLow,
-                      borderColor: selected ? colors.primary : colors.outlineVariant + '40',
+                      borderColor: selected ? colors.primary : 'transparent',
                       opacity: pressed ? 0.85 : 1,
                       transform: [{ scale: pressed ? 0.97 : 1 }],
                     },
@@ -543,49 +540,43 @@ export default function IncidentsScreen() {
           },
         ]}
       >
-        <Pressable
-          onPress={handleSubmit}
+        <ClayButton
+          label={uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
+          variant="danger"
+          size="lg"
+          icon="radio"
+          iconPosition="right"
           disabled={submitting}
-          style={({ pressed }) => [
-            styles.submitBtn,
-            {
-              backgroundColor: colors.error,
-              transform: [{ scale: pressed ? 0.97 : 1 }],
-              opacity: pressed ? 0.9 : 1,
-            },
-          ]}
-        >
-          <Text style={[styles.submitBtnText, { color: colors.onError }]}>
-            {uploadingPhotos ? "Uploading Photos..." : submitting ? "Sending Alert..." : "Send Emergency Report"}
-          </Text>
-          <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-            <Ionicons name="radio" size={17} color={colors.onError} />
-          </View>
-        </Pressable>
+          loading={submitting || uploadingPhotos}
+          onPress={handleSubmit}
+        />
       </View>
 
       {/* Success Overlay */}
       {showSuccess && (
         <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.background, justifyContent: 'center', alignItems: 'center', zIndex: 100, padding: 24 }]}>
-          <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 24 }}>
-            <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
-              <Ionicons name="shield-checkmark" size={32} color={colors.onErrorContainer} />
+          <ClayCard style={{ width: '100%', maxWidth: 400, padding: 28, alignItems: 'center' }}>
+            <View style={{ width: 80, height: 80, borderRadius: 40, backgroundColor: colors.errorContainer + '40', justifyContent: 'center', alignItems: 'center', marginBottom: 20 }}>
+              <View style={{ width: 60, height: 60, borderRadius: 30, backgroundColor: colors.errorContainer, justifyContent: 'center', alignItems: 'center' }}>
+                <Ionicons name="shield-checkmark" size={32} color={colors.onErrorContainer} />
+              </View>
             </View>
-          </View>
-          <Text style={{ fontFamily: fonts.displayBold, fontSize: 24, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 12, textAlign: 'center' }}>
-            {queuedOffline ? "Report saved offline" : "Report received"}
-          </Text>
-          <Text style={{ fontFamily: fonts.body, fontSize: 15, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 32, lineHeight: 22 }}>
-            {queuedOffline
-              ? "You appear to be offline. Your report is saved on this device and will be sent automatically when you're back online — dispatch has NOT received it yet. Please prioritize safety and call for immediate help if needed."
-              : "Dispatch has received your incident report. Please prioritize safety and await instructions."}
-          </Text>
-          <Pressable
-            onPress={() => router.back()}
-            style={({pressed}) => [{ backgroundColor: colors.primary, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16, width: '100%', alignItems: 'center', opacity: pressed ? 0.9 : 1 }]}
-          >
-            <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 15, color: colors.onPrimary }}>Return to Dashboard</Text>
-          </Pressable>
+            <Text style={{ fontFamily: fonts.displayBold, fontSize: 22, color: colors.onSurface, letterSpacing: -0.4, marginBottom: 8, textAlign: 'center' }}>
+              {queuedOffline ? "Report saved offline" : "Report received"}
+            </Text>
+            <Text style={{ fontFamily: fonts.body, fontSize: 14, color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: 24, lineHeight: 20 }}>
+              {queuedOffline
+                ? "You appear to be offline. Your report is saved on this device and will be sent automatically when you're back online — dispatch has NOT received it yet. Please prioritize safety and call for immediate help if needed."
+                : "Dispatch has received your incident report. Please prioritize safety and await instructions."}
+            </Text>
+            <ClayButton
+              label="Return to Dashboard"
+              variant="primary"
+              size="lg"
+              onPress={() => router.back()}
+              style={{ width: '100%' }}
+            />
+          </ClayCard>
         </View>
       )}
     </KeyboardAvoidingView>
@@ -630,13 +621,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-  typeIconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   typeCardText: { fontSize: 13, fontFamily: fonts.bodySemiBold, textAlign: "center" },
   severityRow: { flexDirection: "row", gap: 10 },
   severityBtn: {
@@ -655,13 +639,6 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
-  },
-  locIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
   },
   textarea: {
     borderWidth: 1,
@@ -702,30 +679,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
     borderTopWidth: 1,
-  },
-  submitBtn: {
-    height: 52,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  submitBtnText: {
-    fontSize: 15,
-    fontFamily: fonts.bodySemiBold,
-    letterSpacing: 0.3,
-  },
-  btnIconCapsule: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

@@ -9,6 +9,8 @@ import { api } from "../../../lib/api";
 import { fonts } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from "../../../components/AppAlert";
+import { ClayBadge, ClayButton, ClayCard, ClayTile } from "../../../components/clay";
+import { clayMaterials } from "../../../lib/clay";
 
 // In-app rescue navigation for the assigned fleet responder — the counterpart
 // of the guest-trip Map tab. "Navigate to driver" on the mission screen
@@ -46,7 +48,8 @@ export default function RescueNavigationScreen() {
   const { id } = useLocalSearchParams();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   const [mission, setMission] = useState(null);
   const [missionMissing, setMissionMissing] = useState(false);
@@ -58,6 +61,9 @@ export default function RescueNavigationScreen() {
   const [arriving, setArriving] = useState(false);
   const [bakedDest, setBakedDest] = useState(null);
   const bakedDestRef = useRef(null);
+  // Compass updates fire at very high frequency; the 5° gate below drops the
+  // noise before it can re-render the screen and spam the WebView bridge.
+  const lastCompassHeading = useRef(null);
 
   // Mission + destination refresh. The stranded driver's live position is the
   // navigation target; falls back to the report-time coordinates if their
@@ -129,9 +135,23 @@ export default function RescueNavigationScreen() {
             if (newLoc.coords.speed > 2 && newLoc.coords.heading >= 0) {
               heading = newLoc.coords.heading;
             }
+            const lat = newLoc.coords.latitude;
+            const lng = newLoc.coords.longitude;
+            // Same parked bail-out as the live map: skip the re-render (and
+            // the camera easeTo cascade) when the fix barely moved.
+            if (prev?.lat != null) {
+              const moved = Math.abs(lat - prev.lat) + Math.abs(lng - prev.lng);
+              const hNew = heading ?? -1;
+              const hPrev = prev.heading ?? -1;
+              let hDelta = Math.abs(hNew - hPrev) % 360;
+              if (hDelta > 180) hDelta = 360 - hDelta;
+              if (moved < 0.00007 && hDelta < 5 && (newLoc.coords.speed ?? 0) < 1) {
+                return prev;
+              }
+            }
             return {
-              lat: newLoc.coords.latitude,
-              lng: newLoc.coords.longitude,
+              lat,
+              lng,
               heading,
               speed: newLoc.coords.speed,
             };
@@ -143,6 +163,13 @@ export default function RescueNavigationScreen() {
         headingSubscription = await Location.watchHeadingAsync((headingObj) => {
           const compass = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
           if (compass == null || compass < 0) return;
+          // Meaningful changes only (>= 5 degrees) — the magnetometer fires
+          // far more often than the map can usefully consume.
+          const last = lastCompassHeading.current;
+          let delta = last == null ? 999 : Math.abs(compass - last) % 360;
+          if (delta > 180) delta = 360 - delta;
+          if (delta < 5) return;
+          lastCompassHeading.current = compass;
           setOwnLocation((prev) => {
             if (!prev) return prev;
             if (prev.speed === undefined || prev.speed < 2) {
@@ -207,36 +234,40 @@ export default function RescueNavigationScreen() {
 
       {permissionDenied ? (
         <View style={styles.centerBox}>
-          <View style={[styles.permIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
-            <Ionicons name="location-outline" size={32} color={colors.onSurfaceVariant} />
-          </View>
+          <ClayTile icon="location-outline" size={56} variant="surface" style={{ marginBottom: 8 }} />
           <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Location Permission Required</Text>
           <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
             Location permission is required to navigate to the stranded driver.
           </Text>
-          <Pressable
-            onPress={() => Linking.openSettings()}
-            style={[styles.secondaryBtn, { borderColor: colors.outlineVariant }]}
-          >
-            <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Open Settings</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => {
-              setPermissionDenied(false);
-              setPermRetry((c) => c + 1);
-            }}
-            style={[styles.secondaryBtn, { borderColor: colors.outlineVariant }]}
-          >
-            <Text style={[styles.secondaryBtnText, { color: colors.primary }]}>Try Again</Text>
-          </Pressable>
+          <View style={{ gap: 10, alignSelf: "stretch", maxWidth: 280, marginTop: 12 }}>
+            <ClayButton
+              label="Open Settings"
+              variant="tonal"
+              onPress={() => Linking.openSettings()}
+            />
+            <ClayButton
+              label="Try Again"
+              variant="primary"
+              onPress={() => {
+                setPermissionDenied(false);
+                setPermRetry((c) => c + 1);
+              }}
+            />
+          </View>
         </View>
       ) : missionMissing ? (
         <View style={styles.centerBox}>
-          <Ionicons name="checkmark-circle" size={36} color={colors.secondary} />
+          <ClayTile icon="checkmark-circle" size={56} variant="secondary" style={{ marginBottom: 8 }} />
           <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No active mission</Text>
           <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
             You are not currently assigned as a responder to this report — it may have been resolved or reassigned.
           </Text>
+          <ClayButton
+            label="Back to Incidents"
+            variant="tonal"
+            onPress={() => router.back()}
+            style={{ minWidth: 200, marginTop: 12 }}
+          />
         </View>
       ) : !mission ? (
         <View style={styles.centerBox}>
@@ -276,7 +307,11 @@ export default function RescueNavigationScreen() {
           <View
             style={[
               styles.bottomCard,
-              { backgroundColor: colors.surface, borderColor: colors.outlineVariant + "40", paddingBottom: insets.bottom + 16 },
+              {
+                backgroundColor: clayMaterials(isDark).cardSurface,
+                borderTopColor: isDark ? colors.outlineVariant + "40" : "transparent",
+                paddingBottom: insets.bottom + 16,
+              },
             ]}
           >
             <View style={styles.cardHeaderRow}>
@@ -289,15 +324,16 @@ export default function RescueNavigationScreen() {
                   {mission.plate_number ? ` • ${mission.plate_number}` : ""}
                 </Text>
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: colors.primaryContainer }]}>
-                <Text style={[styles.statusText, { color: colors.onPrimaryContainer }]}>
-                  {arrived
+              <ClayBadge
+                label={
+                  arrived
                     ? "On scene"
                     : status === "En Route"
                     ? `En route${mission.response_eta ? ` · ETA ${formatEta(mission.response_eta)}` : ""}`
-                    : "Dispatched"}
-                </Text>
-              </View>
+                    : "Dispatched"
+                }
+                variant={arrived ? "secondary" : "primary"}
+              />
             </View>
 
             <View style={styles.etaRow}>
@@ -314,60 +350,42 @@ export default function RescueNavigationScreen() {
                 <Text style={[styles.etaUnit, { color: colors.onSurfaceVariant }]}>km</Text>
               </View>
               {routeData?.trafficDelayInSeconds > 0 ? (
-                <View style={[styles.delayBadge, { backgroundColor: colors.errorContainer }]}>
-                  <Ionicons name="warning" size={12} color={colors.error} />
-                  <Text style={[styles.delayText, { color: colors.onErrorContainer }]}>
-                    +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min traffic
-                  </Text>
-                </View>
+                <ClayBadge
+                  label={`+${Math.ceil(routeData.trafficDelayInSeconds / 60)} min traffic`}
+                  variant="danger"
+                  dot
+                />
               ) : null}
             </View>
 
             {arrived ? (
-              <Text style={[styles.arrivedNote, { color: colors.onSurfaceVariant }]}>
-                You are on scene — the driver and fleet team have been notified. The incident stays
-                open until it is resolved — confirm it from your mission screen when the situation
-                is handled.
-              </Text>
-            ) : (
-              <Pressable
-                onPress={markArrived}
-                disabled={arriving}
-                accessibilityRole="button"
-                accessibilityLabel="Confirm you have arrived"
-                style={({ pressed }) => [
-                  styles.actionBtn,
-                  { backgroundColor: colors.primary },
-                  (pressed || arriving) && styles.actionPressed,
-                ]}
-              >
-                {arriving ? (
-                  <ActivityIndicator size="small" color={colors.onPrimary} />
-                ) : (
-                  <Ionicons name="checkmark-circle" size={20} color={colors.onPrimary} />
-                )}
-                <Text style={[styles.actionBtnText, { color: colors.onPrimary }]}>
-                  {arriving ? "Updating…" : "I've arrived"}
+              <ClayCard variant="compact" style={{ marginVertical: 4 }}>
+                <Text style={[styles.arrivedNote, { color: colors.onSurfaceVariant }]}>
+                  You are on scene — the driver and fleet team have been notified. The incident stays
+                  open until it is resolved — confirm it from your mission screen when the situation
+                  is handled.
                 </Text>
-              </Pressable>
+              </ClayCard>
+            ) : (
+              <ClayButton
+                label={arriving ? "Updating…" : "I've arrived"}
+                icon="checkmark-circle"
+                variant="primary"
+                loading={arriving}
+                disabled={arriving}
+                onPress={markArrived}
+                accessibilityLabel="Confirm you have arrived"
+              />
             )}
 
-            <Pressable
-              onPress={openGoogleMaps}
+            <ClayButton
+              label="Prefer another app? Open in Google Maps"
+              variant="outline"
+              icon="open-outline"
               disabled={!bakedDest}
-              accessibilityRole="button"
+              onPress={openGoogleMaps}
               accessibilityLabel="Open navigation in Google Maps"
-              hitSlop={6}
-            >
-              <Text
-                style={[
-                  styles.fallbackLink,
-                  { color: bakedDest ? colors.primary : colors.outline },
-                ]}
-              >
-                Prefer another app? Open in Google Maps
-              </Text>
-            </Pressable>
+            />
           </View>
         </>
       )}
@@ -394,27 +412,8 @@ const styles = StyleSheet.create({
   topBarTitle: { fontSize: 17, fontFamily: fonts.displayBold },
   topBarSub: { fontSize: 12, fontFamily: fonts.body, marginTop: 1 },
   centerBox: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 10 },
-  permIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 4,
-  },
   emptyTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold, textAlign: "center" },
   emptySub: { fontSize: 13, fontFamily: fonts.body, textAlign: "center", lineHeight: 19 },
-  secondaryBtn: {
-    minHeight: 44,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    alignSelf: "stretch",
-    maxWidth: 280,
-  },
-  secondaryBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold },
   mapWrap: { flex: 1, overflow: "hidden" },
   mapLoadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -424,8 +423,8 @@ const styles = StyleSheet.create({
   bottomCard: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderWidth: 1,
-    borderBottomWidth: 0,
+    borderWidth: 0,
+    borderTopWidth: 1,
     paddingHorizontal: 20,
     paddingTop: 18,
     gap: 14,
@@ -433,35 +432,9 @@ const styles = StyleSheet.create({
   cardHeaderRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   cardTitle: { fontSize: 17, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
   cardSub: { fontSize: 13, fontFamily: fonts.body, marginTop: 2 },
-  statusBadge: {
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  statusText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
   etaRow: { flexDirection: "row", alignItems: "center", gap: 24 },
   etaBox: { flexDirection: "row", alignItems: "baseline", gap: 3 },
   etaValue: { fontSize: 26, fontFamily: fonts.displayBold },
   etaUnit: { fontSize: 13, fontFamily: fonts.bodySemiBold },
-  delayBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  delayText: { fontSize: 11, fontFamily: fonts.bodySemiBold },
   arrivedNote: { fontSize: 13, fontFamily: fonts.body, lineHeight: 19 },
-  actionBtn: {
-    minHeight: 50,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  actionPressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
-  actionBtnText: { fontSize: 15, fontFamily: fonts.bodySemiBold },
-  fallbackLink: { fontSize: 12, fontFamily: fonts.body, textAlign: "center", paddingVertical: 2 },
 });

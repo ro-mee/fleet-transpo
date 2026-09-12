@@ -6,14 +6,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth";
-import { fonts, radius, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
+import { fonts, statusColorForTone } from "../../lib/theme";
 import { api } from "../../lib/api";
 import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache";
 import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
+import { ClayCard, ClayButton, ClayTile, ClayBadge } from '../../components/clay';
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
@@ -23,7 +25,6 @@ export default function FuelReport() {
   const { colors } = useTheme();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
-  const [loadingTrip, setLoadingTrip] = useState(true);
   const driverId = resolveDriverId(user);
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
@@ -62,8 +63,7 @@ export default function FuelReport() {
   const autoScanStarted = useRef(false);
 
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => {
-      (async () => {
+    (async () => {
       // Offline driver context: cached-first via the shared resolver chain
       // (explicit trip → active trip → standing assignment → none), so the
       // vehicle card survives offline; the live fetches below revalidate.
@@ -80,38 +80,38 @@ export default function FuelReport() {
           || list.find((t) => t && !["Completed", "Cancelled"].includes(t.trip_status) && t.vehicle_id != null)
           || null;
         const v = resolveVehicleContext({ trip: cachedActive, ...ctx });
-        if (v) setAssignedTrip({ trip_id: cachedActive?.trip_id ?? null, vehicle_id: v.vehicleId, vehicle_plate: v.plate });
+        if (v) {
+          setAssignedTrip({ trip_id: cachedActive?.trip_id ?? null, vehicle_id: v.vehicleId, vehicle_plate: v.plate });
+        }
       }
-      try {
-        const data = await api.get("/api/mobile/driver/trips?status=all");
-        let selected = null;
-        if (Array.isArray(data) && data.length > 0) {
-          if (paramTripId) {
-            selected = data.find((t) => String(t.trip_id) === String(paramTripId)) || null;
+      InteractionManager.runAfterInteractions(async () => {
+        try {
+          const data = await api.get("/api/mobile/driver/trips?status=all");
+          let selected = null;
+          if (Array.isArray(data) && data.length > 0) {
+            if (paramTripId) {
+              selected = data.find((t) => String(t.trip_id) === String(paramTripId)) || null;
+            }
+            selected ||= data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || null;
           }
-          selected ||= data.find((t) => !["Completed", "Cancelled"].includes(t.trip_status)) || null;
+          if (Array.isArray(data) && driverId) {
+            // Keep the shared trips cache warm for the next offline visit.
+            await setCached(driverId, CACHE_KEYS.TRIPS_ALL, data);
+          }
+          if (!selected) {
+            // DRIVER_ME holds the /driver/me profile shape (camelCase
+            // assignedVehicle) — resolves through the same shared chain.
+            const me = await api.get("/api/driver/me").catch(() => null);
+            if (me && driverId) await setCached(driverId, CACHE_KEYS.DRIVER_ME, me);
+            const v = me ? resolveVehicleContext({ me }) : null;
+            if (v) selected = { vehicle_id: v.vehicleId, vehicle_plate: v.plate, trip_id: null };
+          }
+          if (selected) setAssignedTrip(selected);
+        } catch (e) {
+          // Cached vehicle (if any) already applied above — offline keeps it.
         }
-        if (Array.isArray(data) && driverId) {
-          // Keep the shared trips cache warm for the next offline visit.
-          await setCached(driverId, CACHE_KEYS.TRIPS_ALL, data);
-        }
-        if (!selected) {
-          // DRIVER_ME holds the /driver/me profile shape (camelCase
-          // assignedVehicle) — resolves through the same shared chain.
-          const me = await api.get("/api/driver/me").catch(() => null);
-          if (me && driverId) await setCached(driverId, CACHE_KEYS.DRIVER_ME, me);
-          const v = me ? resolveVehicleContext({ me }) : null;
-          if (v) selected = { vehicle_id: v.vehicleId, vehicle_plate: v.plate, trip_id: null };
-        }
-        if (selected) setAssignedTrip(selected);
-      } catch (e) {
-        // Cached vehicle (if any) already applied above — offline keeps it.
-      } finally {
-        setLoadingTrip(false);
-      }
-      })();
-    });
-    return () => task?.cancel?.();
+      });
+    })();
   }, [paramTripId, driverId]);
 
   const activeTripId = paramTripId || (assignedTrip?.trip_id ? String(assignedTrip.trip_id) : null);
@@ -150,9 +150,12 @@ export default function FuelReport() {
   }, [activeTripId, activeVehicleId, hasAssignedVehicle, id]);
 
   useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => { loadFuelRequests(); });
+    const initial = setTimeout(loadFuelRequests, 0);
     const poll = setInterval(loadFuelRequests, 15_000);
-    return () => { task?.cancel?.(); clearInterval(poll); };
+    return () => {
+      clearTimeout(initial);
+      clearInterval(poll);
+    };
   }, [loadFuelRequests]);
 
   const requestFuel = async () => {
@@ -367,7 +370,6 @@ export default function FuelReport() {
     if (!cameraRef.current || !cameraReady || capturing) return;
     try {
       setCapturing(true);
-      const { ImageManipulator, SaveFormat } = await import("expo-image-manipulator");
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.65 });
       if (photo?.uri) {
         if (cameraPurpose === "gauge") {
@@ -658,52 +660,52 @@ export default function FuelReport() {
   if (submittedRecord) {
     return (
       <View style={[styles.root, { backgroundColor: colors.background, padding: moderateScale(24), justifyContent: 'center', alignItems: 'center' }]}>
-        <View style={{ width: '100%', maxWidth: moderateScale(400), backgroundColor: colors.surfaceContainerLowest, borderRadius: moderateScale(24), padding: moderateScale(32), alignItems: 'center', borderWidth: 1, borderColor: colors.outlineVariant, shadowColor: "#000", shadowOffset: { width: 0, height: moderateScale(4) }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 8 }}>
-          
-          <View style={{ width: moderateScale(120), height: moderateScale(120), borderRadius: moderateScale(60), backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: moderateScale(24) }}>
-            <Ionicons name="checkmark" size={64} color={colors.primary} />
+        <ClayCard style={{ width: '100%', maxWidth: moderateScale(400), padding: moderateScale(28), alignItems: 'center' }}>
+          <View style={{ width: moderateScale(96), height: moderateScale(96), borderRadius: moderateScale(48), backgroundColor: colors.primaryContainer, justifyContent: 'center', alignItems: 'center', marginBottom: moderateScale(20) }}>
+            <Ionicons name="checkmark" size={52} color={colors.primary} />
           </View>
 
-          <Text style={{ fontSize: moderateScale(24), fontWeight: '700', color: colors.onSurface, marginBottom: moderateScale(12), textAlign: 'center' }}>
+          <Text style={{ fontSize: moderateScale(22), fontWeight: '700', color: colors.onSurface, marginBottom: moderateScale(8), textAlign: 'center' }}>
             {submittedRecord.queued ? "Fuel Report Queued" : "Fuel Report Submitted"}
           </Text>
-          <Text style={{ fontSize: moderateScale(16), color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: moderateScale(32), lineHeight: moderateScale(24) }}>
+          <Text style={{ fontSize: moderateScale(15), color: colors.onSurfaceVariant, textAlign: 'center', marginBottom: moderateScale(24), lineHeight: moderateScale(22) }}>
             {submittedRecord.queued
               ? "Your report is saved on this device and will sync when the connection returns."
               : "Your fuel expense report has been successfully recorded."}
           </Text>
 
-          <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: moderateScale(16), padding: moderateScale(20), gap: moderateScale(16) }}>
+          <View style={{ width: '100%', backgroundColor: colors.surfaceContainerLow, borderRadius: moderateScale(18), padding: moderateScale(18), gap: moderateScale(14) }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Report ID</Text>
-              <Text style={{ fontSize: moderateScale(18), fontWeight: '700', color: colors.onSurface }}>
+              <Text style={{ fontSize: moderateScale(14), fontWeight: '600', color: colors.onSurfaceVariant }}>Report ID</Text>
+              <Text style={{ fontSize: moderateScale(16), fontWeight: '700', color: colors.onSurface }}>
                 {submittedRecord.queued ? "Waiting for sync" : `FR-${String(submittedRecord.fuel_record_id || submittedRecord.id || "0000").padStart(5, '0')}`}
               </Text>
             </View>
-            <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.5 }} />
+            <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.3 }} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Amount</Text>
-              <Text style={{ fontSize: moderateScale(18), fontWeight: '700', color: colors.onSurface }}>
+              <Text style={{ fontSize: moderateScale(14), fontWeight: '600', color: colors.onSurfaceVariant }}>Amount</Text>
+              <Text style={{ fontSize: moderateScale(16), fontWeight: '700', color: colors.onSurface }}>
                 ₱{parseFloat(submittedRecord.amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </Text>
             </View>
-            <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.5 }} />
+            <View style={{ height: 1, backgroundColor: colors.outlineVariant, opacity: 0.3 }} />
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: moderateScale(15), fontWeight: '600', color: colors.onSurfaceVariant }}>Status</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: statusColorForTone(colors, "success").bg, paddingHorizontal: moderateScale(12), paddingVertical: moderateScale(6), borderRadius: moderateScale(8), gap: moderateScale(6) }}>
-                <Ionicons name="time-outline" size={16} color={statusColorForTone(colors, "success").fg} />
-                <Text style={{ fontSize: moderateScale(14), fontWeight: '700', color: statusColorForTone(colors, "success").fg }}>{submittedRecord.queued ? "Waiting for Sync" : "Pending Review"}</Text>
-              </View>
+              <Text style={{ fontSize: moderateScale(14), fontWeight: '600', color: colors.onSurfaceVariant }}>Status</Text>
+              <ClayBadge
+                text={submittedRecord.queued ? "Waiting for Sync" : "Pending Review"}
+                tone="success"
+              />
             </View>
           </View>
 
-          <Pressable
+          <ClayButton
+            label="Done"
+            variant="primary"
+            size="lg"
             onPress={() => router.back()}
-            style={{ width: '100%', backgroundColor: colors.primary, paddingVertical: moderateScale(16), borderRadius: moderateScale(100), alignItems: 'center', marginTop: moderateScale(40) }}
-          >
-            <Text style={{ fontSize: moderateScale(16), fontWeight: '700', color: colors.onPrimary }}>Done</Text>
-          </Pressable>
-        </View>
+            style={{ width: '100%', marginTop: moderateScale(24) }}
+          />
+        </ClayCard>
       </View>
     );
   }
@@ -749,44 +751,33 @@ export default function FuelReport() {
 
         {/* Assigned vehicle */}
         <View style={styles.infoGrid}>
-          <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
-            <View style={styles.topGleam} />
-            <View style={[styles.cardInnerCore, { backgroundColor: colors.surfaceContainerLow }]}>
-              <View style={styles.cardHeaderRow}>
-                <View style={[styles.microBadge, { backgroundColor: colors.primaryContainer + '60', borderColor: colors.primary + '30' }]}>
-                  <View style={[styles.microDot, { backgroundColor: colors.primary }]} />
-                  <Text style={[styles.microBadgeText, { color: colors.primary }]}>ASSIGNED VEHICLE</Text>
-                </View>
-                <View style={[styles.iconPill, { backgroundColor: colors.primaryContainer }]}>
-                  <Ionicons name="car" size={16} color={colors.primary} />
-                </View>
-              </View>
+          <ClayCard style={styles.cardOuterShell}>
+            <View style={styles.cardHeaderRow}>
+              <ClayBadge label="ASSIGNED VEHICLE" tone="info" statusDot />
+            </View>
 
-              <Text style={[styles.vehicleModelTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                {assignedTrip?.vehicle_model || assignedTrip?.model || (assignedTrip?.vehicle_plate || assignedTrip?.plate_number ? `Plate ${assignedTrip?.vehicle_plate || assignedTrip?.plate_number}` : "Assigned Fleet Vehicle")}
-              </Text>
-              
-              <View style={styles.vehicleMetaRow}>
-                <View style={[styles.platePill, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant + '40' }]}>
-                  <Ionicons name="barcode-outline" size={12} color={colors.onSurfaceVariant} />
-                  <Text style={[styles.plateText, { color: colors.onSurface }]}>
-                    {assignedTrip?.vehicle_plate || assignedTrip?.plate_number || "Active Vehicle"}
-                  </Text>
-                </View>
-                <Text style={[styles.driverTagText, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
-                  {user?.name ? `Driver: ${user.name}` : "Assigned to You"}
+            <Text style={[styles.vehicleModelTitle, { color: colors.onSurface }]} numberOfLines={1}>
+              {assignedTrip?.vehicle_model || assignedTrip?.model || (assignedTrip?.vehicle_plate || assignedTrip?.plate_number ? `Plate ${assignedTrip?.vehicle_plate || assignedTrip?.plate_number}` : "Assigned Fleet Vehicle")}
+            </Text>
+            
+            <View style={styles.vehicleMetaRow}>
+              <View style={[styles.platePill, { backgroundColor: colors.surfaceContainerHigh, borderColor: colors.outlineVariant + '40' }]}>
+                <Ionicons name="barcode-outline" size={12} color={colors.onSurfaceVariant} />
+                <Text style={[styles.plateText, { color: colors.onSurface }]}>
+                  {assignedTrip?.vehicle_plate || assignedTrip?.plate_number || "Active Vehicle"}
                 </Text>
               </View>
+              <Text style={[styles.driverTagText, { color: colors.onSurfaceVariant }]} numberOfLines={1}>
+                {user?.name ? `Driver: ${user.name}` : "Assigned to You"}
+              </Text>
             </View>
-          </View>
+          </ClayCard>
         </View>
 
         {!id ? (
-          <View style={[styles.requestCard, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant }]}>
+          <ClayCard style={styles.requestCard}>
             <View style={styles.requestHeader}>
-              <View style={[styles.methodIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="water-outline" size={24} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="water-outline" size={48} />
               <View style={styles.methodCopy}>
                 <Text style={[styles.methodCardTitle, { color: colors.onSurface }]}>Vehicle fuel check</Text>
                 <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Report the dashboard level. FleetOps forecasts the next 24 hours and recommends one refill.</Text>
@@ -856,26 +847,14 @@ export default function FuelReport() {
                       </View>
                     </View>
                   ) : (
-                    <Pressable
-                      onPress={openGaugeCamera}
+                    <ClayButton
+                      label="Capture gauge with camera"
+                      variant="tonal"
+                      icon="camera-outline"
                       disabled={gaugeBusy}
-                      accessibilityRole="button"
-                      accessibilityLabel="Open the camera to capture the fuel gauge"
-                      style={({ pressed }) => [
-                        styles.requestButton,
-                        {
-                          minHeight: TOUCH_TARGET,
-                          paddingVertical: 12,
-                          backgroundColor: colors.surfaceContainerLowest,
-                          borderWidth: 1,
-                          borderColor: colors.outline,
-                          opacity: pressed || gaugeBusy ? 0.55 : 1,
-                        },
-                      ]}
-                    >
-                      <Ionicons name="camera-outline" size={18} color={colors.onSurface} />
-                      <Text style={[styles.submitBtnText, { color: colors.onSurface }]}>Capture gauge with camera</Text>
-                    </Pressable>
+                      onPress={openGaugeCamera}
+                      style={{ alignSelf: 'stretch' }}
+                    />
                   )}
                   {gaugeBusy ? <ActivityIndicator size="small" style={{ marginTop: 8 }} /> : null}
                 </View>
@@ -891,72 +870,51 @@ export default function FuelReport() {
                     onChangeText={setRequestPurpose}
                   />
                 </View>
-                <Pressable
-                  onPress={requestFuel}
+                <ClayButton
+                  label={requestingFuel ? "Submitting…" : "Request fuel"}
+                  variant="primary"
+                  icon="send-outline"
+                  loading={requestingFuel}
                   disabled={requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy}
-                  style={({ pressed }) => [
-                    styles.requestButton,
-                    { backgroundColor: colors.primary, opacity: pressed || requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy ? 0.55 : 1 },
-                  ]}
-                  accessibilityRole="button"
-                  accessibilityState={{ disabled: requestingFuel || !hasAssignedVehicle || !gaugePhotoUrl || gaugeBusy }}
-                >
-                  {requestingFuel ? <ActivityIndicator size="small" color={colors.onPrimary} /> : <Ionicons name="send-outline" size={18} color={colors.onPrimary} />}
-                  <Text style={[styles.submitBtnText, { color: colors.onPrimary }]}>{requestingFuel ? "Submitting…" : "Request fuel"}</Text>
-                </Pressable>
+                  onPress={requestFuel}
+                  style={{ alignSelf: 'stretch', marginTop: 8 }}
+                />
               </>
             )}
-          </View>
+          </ClayCard>
         ) : null}
 
         {mode === "overview" && canLogFuel ? (
           <View style={styles.methodSection}>
             <Text style={[styles.methodTitle, { color: colors.onBackground }]}>How do you want to log fuel?</Text>
-            <Pressable
+            <ClayCard
               onPress={() => openReceiptCamera("scan")}
               disabled={scanning}
-              style={({ pressed }) => [
-                styles.methodCard,
-                { backgroundColor: colors.primary, opacity: pressed || scanning ? 0.85 : 1 },
-              ]}
+              style={[styles.methodCard, { backgroundColor: colors.primaryContainer, borderWidth: 1.5, borderColor: colors.primary }]}
             >
-              <View style={[styles.methodIcon, { backgroundColor: 'rgba(255,255,255,0.18)' }]}>
-                <Ionicons name="scan-outline" size={26} color={colors.onPrimary} />
-              </View>
               <View style={styles.methodCopy}>
-                <Text style={[styles.methodCardTitle, { color: colors.onPrimary }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
-                <Text style={[styles.methodCardText, { color: colors.onPrimary }]}>Crop the receipt and automatically fill the details.</Text>
+                <Text style={[styles.methodCardTitle, { color: colors.onPrimaryContainer }]}>{scanning ? "Scanning receipt..." : "Scan receipt"}</Text>
               </View>
-              <Ionicons name="chevron-forward" size={21} color={colors.onPrimary} />
-            </Pressable>
+              <Ionicons name="chevron-forward" size={21} color={colors.primary} />
+            </ClayCard>
 
-            <Pressable
+            <ClayCard
               onPress={startManualEntry}
               disabled={scanning}
-              style={({ pressed }) => [
-                styles.methodCard,
-                { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, opacity: pressed ? 0.8 : 1 },
-              ]}
+              style={styles.methodCard}
             >
-              <View style={[styles.methodIcon, { backgroundColor: colors.primaryContainer }]}>
-                <Ionicons name="create-outline" size={24} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="create-outline" size={48} />
               <View style={styles.methodCopy}>
                 <Text style={[styles.methodCardTitle, { color: colors.onSurface }]}>Enter details manually</Text>
                 <Text style={[styles.methodCardText, { color: colors.onSurfaceVariant }]}>Type the values yourself and attach the original receipt photo.</Text>
               </View>
               <Ionicons name="chevron-forward" size={21} color={colors.onSurfaceVariant} />
-            </Pressable>
+            </ClayCard>
           </View>
         ) : null}
 
         {mode === "details" ? (
-          <View
-            style={[
-              styles.formCard,
-              { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant },
-            ]}
-          >
+          <ClayCard style={styles.formCard}>
             <View style={styles.formHeading}>
               <View>
                 <Text style={[styles.formTitle, { color: colors.onSurface }]}>Refuel Details</Text>
@@ -1093,49 +1051,31 @@ export default function FuelReport() {
               ) : null}
             </View>
 
-            <Pressable
+            <ClayButton
+              label={submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
+              variant="primary"
+              size="lg"
+              icon="checkmark"
+              iconPosition="right"
+              disabled={!canSubmit || submitting || scanning}
+              loading={submitting || scanning}
               onPress={handleSubmit}
-              disabled={!canSubmit}
-              style={({ pressed }) => [
-                styles.submitBtn,
-                { 
-                  backgroundColor: colors.primary, 
-                  transform: [{ scale: pressed ? 0.97 : 1 }],
-                  opacity: !canSubmit ? 0.45 : pressed ? 0.9 : 1
-                },
-              ]}
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !canSubmit }}
-            >
-              <Text style={[styles.submitBtnText, { color: colors.onPrimary }]}>
-                {submitting ? "Saving Entry..." : scanning ? "Uploading Receipt..." : "Save Fuel Entry"}
-              </Text>
-              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                <Ionicons name="checkmark" size={17} color={colors.onPrimary} />
-              </View>
-            </Pressable>
-          </View>
+              style={{ marginTop: 16 }}
+            />
+          </ClayCard>
         ) : null}
 
-        {mode === "details" ? <View style={styles.receiptSection}>
-          <Pressable
-            onPress={returnToOptions}
-            style={({ pressed }) => [
-              styles.manualBtn,
-              {
-                borderColor: colors.primary,
-                backgroundColor: "transparent",
-                transform: [{ scale: pressed ? 0.97 : 1 }],
-                opacity: pressed ? 0.8 : 1,
-              },
-            ]}
-          >
-            <Ionicons name="swap-horizontal-outline" size={18} color={colors.primary} />
-            <Text style={[styles.manualBtnText, { color: colors.primary }]}>
-              Choose another method
-            </Text>
-          </Pressable>
-        </View> : null}
+        {mode === "details" ? (
+          <View style={styles.receiptSection}>
+            <ClayButton
+              label="Choose another method"
+              variant="outline"
+              icon="swap-horizontal-outline"
+              onPress={returnToOptions}
+              style={{ alignSelf: 'stretch' }}
+            />
+          </View>
+        ) : null}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -1266,52 +1206,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     overflow: 'hidden',
   },
-  topGleam: {
-    position: 'absolute',
-    top: 0,
-    left: 12,
-    right: 12,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.45)',
-    zIndex: 10,
-  },
-  cardInnerCore: {
-    borderRadius: 17,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    gap: 6,
-  },
   cardHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  microBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  microDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-  },
-  microBadgeText: {
-    fontSize: 9,
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-  },
-  iconPill: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   vehicleModelTitle: {
     fontSize: 14,
@@ -1349,7 +1247,6 @@ const styles = StyleSheet.create({
   requestStatusTitle: { fontSize: 14, fontFamily: fonts.bodySemiBold },
   requestStatusText: { fontSize: 13, fontFamily: fonts.body },
   requestRejected: { fontSize: 12, lineHeight: 17, fontFamily: fonts.bodySemiBold },
-  requestButton: { minHeight: 50, borderRadius: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 9 },
   formCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -1359,7 +1256,6 @@ const styles = StyleSheet.create({
   methodSection: { gap: 12 },
   methodTitle: { fontSize: 16, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
   methodCard: { minHeight: 94, borderRadius: 16, borderWidth: 1, borderColor: "transparent", padding: 16, flexDirection: "row", alignItems: "center", gap: 13 },
-  methodIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   methodCopy: { flex: 1, gap: 4 },
   methodCardTitle: { fontSize: 15, fontFamily: fonts.bodySemiBold },
   methodCardText: { fontSize: 12, lineHeight: 17, fontFamily: fonts.body },
@@ -1380,21 +1276,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
   },
   readOnlyInput: { justifyContent: "center" },
-  submitBtn: {
-    height: 52,
-    borderRadius: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-    marginTop: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  submitBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
   receiptSection: { gap: 12, marginTop: 4 },
   evidenceBlock: { gap: 10, marginTop: 2 },
   evidenceHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
@@ -1410,24 +1291,4 @@ const styles = StyleSheet.create({
   evidencePending: { fontSize: 12, fontFamily: fonts.bodyMedium || fonts.body },
   evidenceReady: { fontSize: 12, fontFamily: fonts.bodySemiBold },
   evidenceError: { fontSize: 12, fontFamily: fonts.bodySemiBold },
-  btnIconCapsule: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  orRow: { flexDirection: "row", alignItems: "center", gap: 14, marginVertical: 4 },
-  orLine: { flex: 1, height: 1 },
-  orText: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.8, textTransform: "uppercase" },
-  manualBtn: {
-    height: 50,
-    borderRadius: 14,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-  },
-  manualBtnText: { fontSize: 14, fontFamily: fonts.bodySemiBold, letterSpacing: 0.3 },
 });

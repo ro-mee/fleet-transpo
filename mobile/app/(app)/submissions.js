@@ -1,4 +1,3 @@
-import { moderateScale } from '../../lib/scaling';
 import { useState, useCallback, useEffect, useRef } from "react";
 import {
   ScrollView,
@@ -12,7 +11,9 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
-import { fonts, TOUCH_TARGET, statusColorForTone } from "../../lib/theme";
+import { fonts } from "../../lib/theme";
+import { ClayBadge, ClayButton, ClayCard, ClayTile } from "../../components/clay";
+import { raisedControl, pillEdges } from "../../lib/clay";
 import { api, isTransportFailure } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../lib/offline-cache";
@@ -34,41 +35,43 @@ function LogCard({ item, colors, onPress }) {
   const isRejected = isFuel && item.status?.toLowerCase() === "rejected";
 
   const icon = isFuel ? "water-outline" : item.recordType === "INSPECTION" ? "clipboard-outline" : "warning-outline";
-  const iconColor = isIncident ? colors.error : isFuel ? colors.secondary : colors.primary;
+  const tileVariant = isIncident ? "danger" : isFuel ? "secondary" : "primary";
 
-  const getStatusDisplay = () => {
-    const tone = (t) => statusColorForTone(colors, t);
+  const getBadge = () => {
     if (isIncident) {
-      // Real lifecycle status from the server — dispatch resolves reports and
-      // the driver now sees the outcome instead of a static ALERT label.
       const s = item.status?.toLowerCase();
-      if (s === "resolved") return { text: "RESOLVED", bg: tone("success").bg, textCol: tone("success").fg };
-      // Acknowledged = the fleet team has taken ownership; help is on the way.
-      if (item.acknowledged_at) return { text: "ACKNOWLEDGED", bg: tone("info").bg, textCol: tone("info").fg };
-      if (!s) return { text: "ALERT", bg: colors.errorContainer, textCol: colors.onErrorContainer };
-      return { text: "OPEN", bg: tone("warning").bg, textCol: tone("warning").fg };
+      if (s === "resolved") return { label: "RESOLVED", tone: "success", statusDot: true };
+      if (item.acknowledged_at) return { label: "ACKNOWLEDGED", tone: "primary", statusDot: true };
+      if (!s) return { label: "ALERT", tone: "danger", statusDot: true };
+      return { label: "OPEN", tone: "warning", statusDot: true };
     }
     if (isFuel) {
       const s = item.status?.toLowerCase();
-      if (s === "pending") return { text: "PENDING", bg: tone("warning").bg, textCol: tone("warning").fg };
-      if (s === "approved") return { text: "APPROVED", bg: tone("success").bg, textCol: tone("success").fg };
-      if (s === "rejected") return { text: "REJECTED", bg: tone("danger").bg, textCol: tone("danger").fg };
+      if (s === "pending") return { label: "PENDING", tone: "warning", statusDot: true };
+      if (s === "approved") return { label: "APPROVED", tone: "success", statusDot: true };
+      if (s === "rejected") return { label: "REJECTED", tone: "danger", statusDot: true };
     }
     if (item.recordType === "INSPECTION") {
       const s = item.status?.toLowerCase();
-      if (s === "passed") return { text: "PASSED", bg: tone("success").bg, textCol: tone("success").fg };
-      if (s === "failed") return { text: "FAILED", bg: tone("danger").bg, textCol: tone("danger").fg };
+      if (s === "passed") return { label: "PASSED", tone: "success", statusDot: true };
+      if (s === "failed") return { label: "FAILED", tone: "danger", statusDot: true };
     }
-    return { text: "LOGGED", bg: colors.secondaryContainer, textCol: colors.onSecondaryContainer };
+    return { label: "LOGGED", tone: "neutral", statusDot: false };
   };
 
-  const statusStyle = getStatusDisplay();
-  const content = (
-    <>
+  const badge = getBadge();
+
+  return (
+    <ClayCard
+      variant="compact"
+      onPress={onPress}
+      style={[
+        styles.logCard,
+        isRejected && { borderColor: colors.error, borderWidth: 1 },
+      ]}
+    >
       <View style={styles.logCardRow}>
-        <View style={[styles.logIcon, { backgroundColor: isIncident ? colors.errorContainer + '60' : isFuel ? colors.secondaryContainer + '60' : colors.primaryContainer + '60' }]}>
-          <Ionicons name={icon} size={20} color={iconColor} />
-        </View>
+        <ClayTile icon={icon} size={40} variant={tileVariant} />
         <View style={styles.logInfo}>
           <Text style={[styles.logType, { color: colors.onSurfaceVariant }]}>
             {item.recordType} {isRejected && " (Tap to Fix)"}
@@ -90,11 +93,7 @@ function LogCard({ item, colors, onPress }) {
             {item.date ? new Date(item.date).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "—"}
           </Text>
         </View>
-        <View style={[styles.logBadge, { backgroundColor: statusStyle.bg }]}>
-          <Text style={[styles.logBadgeText, { color: statusStyle.textCol }]}>
-            {statusStyle.text}
-          </Text>
-        </View>
+        <ClayBadge label={badge.label} tone={badge.tone} statusDot={badge.statusDot} />
       </View>
       {item.description ? (
         <Text style={[styles.logDesc, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
@@ -106,64 +105,15 @@ function LogCard({ item, colors, onPress }) {
           Resolution: {item.actions_taken}
         </Text>
       ) : null}
-    </>
-  );
-
-  if (isRejected) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.logCard,
-          {
-            backgroundColor: colors.surfaceContainerLow,
-            borderColor: colors.error,
-            transform: [{ scale: pressed ? 0.97 : 1 }],
-            opacity: pressed ? 0.9 : 1,
-          },
-        ]}
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  // Incident cards open the live status screen (timeline + fleet response).
-  if (isIncident) {
-    return (
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.logCard,
-          {
-            backgroundColor: colors.surfaceContainerLow,
-            borderColor: colors.outlineVariant + '40',
-            transform: [{ scale: pressed ? 0.98 : 1 }],
-            opacity: pressed ? 0.9 : 1,
-          },
-        ]}
-      >
-        {content}
-      </Pressable>
-    );
-  }
-
-  return (
-    <View
-      style={[
-        styles.logCard,
-        { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant + '40' },
-      ]}
-    >
-      {content}
-    </View>
+    </ClayCard>
   );
 }
 
 export default function SubmissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   const [filter, setFilter] = useState("ALL");
   const [submissionsData, setSubmissionsData] = useState([]);
@@ -266,10 +216,10 @@ export default function SubmissionsScreen() {
   }, [refreshDeadLetters, driverId]);
 
   useEffect(() => {
-  // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
-  const t = setTimeout(load, 0);
-  return () => clearTimeout(t);
-}, [load]);
+    // Deferred one tick: mount-fetch semantics without sync setState in the effect body.
+    const t = setTimeout(load, 0);
+    return () => clearTimeout(t);
+  }, [load]);
 
   const onRetryDeadLetters = async () => {
     setRetryingDead(true);
@@ -303,7 +253,7 @@ export default function SubmissionsScreen() {
     ...inspections.map((i) => ({
       ...i,
       recordType: "INSPECTION",
-      date: i.inspected_at || i.created_at
+      date: i.inspected_at || i.created_at,
     })),
   ].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
@@ -321,7 +271,11 @@ export default function SubmissionsScreen() {
       <View
         style={[
           styles.topBar,
-          { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant + '30', paddingTop: insets.top },
+          {
+            backgroundColor: colors.surface,
+            borderBottomColor: isDark ? colors.outlineVariant + "30" : "transparent",
+            paddingTop: insets.top,
+          },
         ]}
       >
         <Pressable onPress={() => router.back()} hitSlop={8} style={styles.backBtn}>
@@ -337,50 +291,55 @@ export default function SubmissionsScreen() {
 
       {/* Unsent incident reports — quarantined offline, never auto-deleted */}
       {deadLetterCount > 0 && (
-        <View style={[styles.deadBanner, { backgroundColor: colors.errorContainer }]}>
-          <Ionicons name="cloud-offline-outline" size={20} color={colors.error} />
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.deadTitle, { color: colors.onSurface }]}>
-              {deadLetterCount} unsent incident report{deadLetterCount > 1 ? "s" : ""}
-            </Text>
-            <Text style={[styles.deadSub, { color: colors.onSurfaceVariant }]}>
-              Dispatch has NOT received {deadLetterCount > 1 ? "them" : "it"} yet.
-            </Text>
-          </View>
-          <Pressable
-            onPress={onRetryDeadLetters}
-            disabled={retryingDead}
-            accessibilityRole="button"
-            accessibilityLabel="Retry sending unsent incident reports"
-            style={({ pressed }) => [
-              styles.deadBtn,
-              { backgroundColor: colors.primary, opacity: retryingDead ? 0.6 : pressed ? 0.9 : 1 },
-            ]}
+        <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+          <ClayCard
+            variant="standard"
+            style={[styles.deadBanner, { backgroundColor: colors.errorContainer, borderColor: colors.error + "40" }]}
           >
-            <Text style={[styles.deadBtnText, { color: colors.onPrimary }]}>
-              {retryingDead ? "SENDING" : "RETRY"}
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={onDiscardDeadLetters}
-            disabled={retryingDead}
-            accessibilityRole="button"
-            accessibilityLabel="Discard unsent incident reports"
-            style={({ pressed }) => [
-              styles.deadBtn,
-              {
-                backgroundColor: colors.surfaceContainerHighest,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
-          >
-            <Text style={[styles.deadBtnText, { color: colors.onSurface }]}>DISCARD</Text>
-          </Pressable>
+            <View style={styles.deadHeaderRow}>
+              <ClayTile icon="cloud-offline-outline" size={38} variant="danger" />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.deadTitle, { color: colors.onSurface }]}>
+                  {deadLetterCount} unsent incident report{deadLetterCount > 1 ? "s" : ""}
+                </Text>
+                <Text style={[styles.deadSub, { color: colors.onSurfaceVariant }]}>
+                  Dispatch has NOT received {deadLetterCount > 1 ? "them" : "it"} yet.
+                </Text>
+              </View>
+            </View>
+            <View style={styles.deadActionsRow}>
+              <ClayButton
+                label={retryingDead ? "SENDING..." : "RETRY"}
+                variant="primary"
+                size="sm"
+                loading={retryingDead}
+                disabled={retryingDead}
+                onPress={onRetryDeadLetters}
+                accessibilityLabel="Retry sending unsent incident reports"
+              />
+              <ClayButton
+                label="DISCARD"
+                variant="tonal"
+                size="sm"
+                disabled={retryingDead}
+                onPress={onDiscardDeadLetters}
+                accessibilityLabel="Discard unsent incident reports"
+              />
+            </View>
+          </ClayCard>
         </View>
       )}
 
       {/* Filter Tabs */}
-      <View style={[styles.filterBar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant + '30' }]}>
+      <View
+        style={[
+          styles.filterBar,
+          {
+            backgroundColor: colors.surface,
+            borderBottomColor: isDark ? colors.outlineVariant + "30" : "transparent",
+          },
+        ]}
+      >
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
           {FILTERS.map((f) => {
             const active = filter === f;
@@ -388,14 +347,12 @@ export default function SubmissionsScreen() {
               <Pressable
                 key={f}
                 onPress={() => setFilter(f)}
-                style={({ pressed }) => [
+                style={[
                   styles.filterTab,
-                  {
-                    backgroundColor: active ? colors.primary : colors.surfaceContainerLow,
-                    borderColor: active ? colors.primary : colors.outlineVariant + '40',
-                    transform: [{ scale: pressed ? 0.97 : 1 }],
-                    opacity: pressed ? 0.85 : 1,
-                  },
+                  pillEdges(isDark),
+                  active
+                    ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                    : raisedControl(isDark),
                 ]}
               >
                 <Text
@@ -432,6 +389,12 @@ export default function SubmissionsScreen() {
           <View style={styles.loadingBox}>
             <Text style={[styles.loadingText, { color: colors.onSurfaceVariant }]}>Loading records...</Text>
           </View>
+        ) : error ? (
+          <View style={styles.emptyBox}>
+            <ClayTile icon="alert-circle-outline" size={56} variant="danger" />
+            <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Could not load records</Text>
+            <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>{error}</Text>
+          </View>
         ) : filtered.length === 0 ? (
           view.state === "never-synced" ? (
             <NeverSyncedCard body="Connect once while online to save your logs for offline viewing." />
@@ -439,9 +402,7 @@ export default function SubmissionsScreen() {
             // Filter artifact: the sources HAVE records — this empty is the
             // filter's, not the sources'. Unchanged behavior, now explicit.
             <View style={styles.emptyBox}>
-              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
-                <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
-              </View>
+              <ClayTile icon="document-text-outline" size={56} variant="surface" />
               <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
               <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
                 Nothing filed under {filter === "ALL" ? "any category" : filter.toLowerCase()} yet.
@@ -451,9 +412,7 @@ export default function SubmissionsScreen() {
             // One source answered [], the other never answered — we cannot
             // claim the screen is empty, only that part is unavailable.
             <View style={styles.emptyBox}>
-              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
-                <Ionicons name="cloud-offline-outline" size={36} color={colors.onSurfaceVariant} />
-              </View>
+              <ClayTile icon="cloud-offline-outline" size={56} variant="surface" />
               <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Activity incomplete</Text>
               <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
                 Some offline activity may be unavailable. Reconnect to refresh all activity logs.
@@ -461,9 +420,7 @@ export default function SubmissionsScreen() {
             </View>
           ) : (
             <View style={styles.emptyBox}>
-              <View style={[styles.emptyIconCircle, { backgroundColor: colors.surfaceContainerHighest }]}>
-                <Ionicons name="document-text-outline" size={36} color={colors.onSurfaceVariant} />
-              </View>
+              <ClayTile icon="document-text-outline" size={56} variant="surface" />
               <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No records found</Text>
               <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
                 {view.state === "empty-confirmed"
@@ -475,31 +432,38 @@ export default function SubmissionsScreen() {
             </View>
           )
         ) : (
-          filtered.map((item, idx) => (
-            <LogCard
-              key={idx}
-              item={item}
-              colors={colors}
-              onPress={() => {
-                if (item.recordType === "FUEL") {
-                  router.push({
-                    pathname: "/fuel-report",
-                    params: {
-                      id: item.id,
-                      odometer: String(item.odometer || ""),
-                      liters: String(item.liters || ""),
-                      cost: String(item.amount || item.total_cost || ""),
-                      station: String(item.station_name || ""),
-                      fuelDate: String(item.date || ""),
-                    },
-                  });
-                } else if (item.recordType === "INCIDENT") {
-                  const incidentId = String(item.id).replace(/^inc_/, "");
-                  if (incidentId) router.push(`/incident/${incidentId}`);
+          filtered.map((item, idx) => {
+            const isClickable = (item.recordType === "FUEL" && item.status?.toLowerCase() === "rejected") || item.recordType === "INCIDENT";
+            return (
+              <LogCard
+                key={idx}
+                item={item}
+                colors={colors}
+                onPress={
+                  isClickable
+                    ? () => {
+                        if (item.recordType === "FUEL") {
+                          router.push({
+                            pathname: "/fuel-report",
+                            params: {
+                              id: item.id,
+                              odometer: String(item.odometer || ""),
+                              liters: String(item.liters || ""),
+                              cost: String(item.amount || item.total_cost || ""),
+                              station: String(item.station_name || ""),
+                              fuelDate: String(item.date || ""),
+                            },
+                          });
+                        } else if (item.recordType === "INCIDENT") {
+                          const incidentId = String(item.id).replace(/^inc_/, "");
+                          if (incidentId) router.push(`/incident/${incidentId}`);
+                        }
+                      }
+                    : undefined
                 }
-              }}
-            />
-          ))
+              />
+            );
+          })
         )}
       </ScrollView>
     </View>
@@ -527,22 +491,22 @@ const styles = StyleSheet.create({
   topBarSub: { fontSize: 12, fontFamily: fonts.body },
   filterBar: { borderBottomWidth: 1 },
   deadBanner: {
+    padding: 14,
+    gap: 10,
+  },
+  deadHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
   },
   deadTitle: { fontSize: 14, fontFamily: fonts.bodySemiBold },
   deadSub: { fontSize: 12, fontFamily: fonts.body },
-  deadBtn: {
-    minHeight: TOUCH_TARGET - 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
+  deadActionsRow: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "flex-end",
+    marginTop: 4,
   },
-  deadBtnText: { fontSize: 11, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6 },
   filterScroll: { paddingHorizontal: 16, paddingVertical: 10, gap: 8, flexDirection: "row" },
   filterTab: {
     paddingHorizontal: 14,
@@ -555,40 +519,15 @@ const styles = StyleSheet.create({
   loadingBox: { padding: 32, alignItems: "center" },
   loadingText: { fontSize: 14, fontFamily: fonts.body },
   emptyBox: { padding: 48, alignItems: "center", gap: 12 },
-  emptyIconCircle: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: { fontSize: 17, fontFamily: fonts.displaySemiBold || fonts.bodySemiBold },
   emptySub: { fontSize: 14, fontFamily: fonts.body, textAlign: "center" },
   logCard: {
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 16,
     gap: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 1,
   },
   logCardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
-  logIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-  },
   logInfo: { flex: 1, gap: 2 },
   logType: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.6, textTransform: "uppercase" },
   logMain: { fontSize: 15, fontFamily: fonts.bodySemiBold },
   logSub: { fontSize: 12, fontFamily: fonts.body },
-  logBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logBadgeText: { fontSize: 10, fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, letterSpacing: 0.5 },
   logDesc: { fontSize: 13, fontFamily: fonts.body, lineHeight: 18, paddingLeft: 52 },
 });
