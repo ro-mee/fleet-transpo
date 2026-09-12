@@ -1760,9 +1760,18 @@ const TomTomMap = forwardRef(({
   }, [colors, scheme, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
 
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
+  // Last camera center: the marker + rotation update on every fix (cheap),
+  // but the easeTo camera glide only re-fires after real movement (~16 m).
+  // Without this, heading-only compass ticks restart a 2800 ms easeTo every
+  // few seconds and the camera never settles (touch fighting + GPU churn).
+  const lastCamRef = useRef(null);
   useEffect(() => {
     // Only track movement if it's the live map (showCarIcon = true)
     if (showCarIcon && origin?.lat != null && origin?.lng != null && webViewRef.current) {
+      const lastCam = lastCamRef.current;
+      const camMoved = lastCam == null ||
+        (Math.abs(origin.lat - lastCam.lat) + Math.abs(origin.lng - lastCam.lng)) > 0.00015;
+      if (camMoved) lastCamRef.current = { lat: origin.lat, lng: origin.lng };
       const bearingScript = origin.heading !== undefined && origin.heading !== null && origin.heading >= 0 
           ? `, bearing: ${origin.heading}` 
           : '';
@@ -1795,7 +1804,7 @@ const TomTomMap = forwardRef(({
               window.updateRadarCirclePositions(finalLng, finalLat);
           }
           
-          if (window.ttMap && window.isFollowing) {
+          if (window.ttMap && window.isFollowing && ${camMoved}) {
               const routeBearing = window.getRouteBearing ? window.getRouteBearing(finalLng, finalLat) : (window.lastHeading || 0);
               // In radar mode, keep zoom comfortable and orientation north-up.
               // In navigation mode, zoom into street level and track route bearing.

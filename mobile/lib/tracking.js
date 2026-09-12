@@ -103,19 +103,17 @@ export function useActiveTripGpsPoster(enabled) {
           // posts to non-live trips, and the next refresh replaces it.
           const oldTripId = tripId;
           tripId = active?.trip_id ?? null;
-          // PR #3.1: publish which trip the poster is feeding so the
-          // connectivity layer can say "GPS still recording" only when
-          // tracking is genuinely active for the current trip.
-          //
-          // Trip change clears the weather chip payload immediately — the
-          // next successful post would replace it, but a gap between trips
-          // must not show Trip A's weather while Trip B (or no trip) is
-          // active. Geofence/monitor keep their existing behavior: they rely
-          // on the screens' trip-id staleness guards, unchanged here.
-          publishStatus({
-            activeTripId: tripId,
-            ...(oldTripId !== tripId ? { weather: null, weatherTripId: null } : {}),
-          });
+          // Publish-on-change: the 60 s refresh must not re-render every
+          // subscriber when nothing changed. On a trip change the weather
+          // payload is also cleared immediately, so Trip A's weather can
+          // never linger onto Trip B (or no trip) before the next post.
+          if (oldTripId !== tripId) {
+            publishStatus({
+              activeTripId: tripId,
+              weather: null,
+              weatherTripId: null,
+            });
+          }
         } catch {
           // Keep the previous tripId; the next tick retries.
         }
@@ -200,7 +198,10 @@ export function useActiveTripGpsPoster(enabled) {
               { queueOnFailure: false }
             );
           }
-          if (!cancelled) publishStatus({ lastSentAt: new Date().toISOString(), error: null });
+          // The trip branch already published the full payload above; this
+          // second publish is only for the responder path (which has none).
+          // Publishing twice per tick re-rendered every subscriber for free.
+          if (!cancelled && !tripId) publishStatus({ lastSentAt: new Date().toISOString(), error: null });
         } catch {
           // A dropped post is not worth interrupting the driver over; the next
           // tick retries. Only surface it so the chip can show it is stale.

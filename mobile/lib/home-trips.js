@@ -5,13 +5,17 @@ export function homeVehicleImage(vehicle) {
     .find(uri => typeof uri === 'string' && /^https?:\/\/\S+$/i.test(uri.trim()))?.trim() ?? null;
 }
 
+// Max upcoming trip cards rendered on Home before the "+N more" footer.
+// The API already returns trips in scheduled-departure order, so the first
+// N of `upcoming` are the nearest ones.
+export const HOME_UPCOMING_LIMIT = 3;
+
 export function selectHomeTrips(trips, activeStatuses) {
   const open = trips.filter(t => !['Completed', 'Cancelled'].includes(t.trip_status));
   const current = open.find(t => activeStatuses.includes(t.trip_status)) ?? null;
+  // Server (chronological) order is preserved; the current trip is excluded.
   const upcoming = open.filter(t => t.trip_id !== current?.trip_id);
-  // secondNext: only rendered when there is no current trip and 2+ scheduled
-  // remain — the spec's "first scheduled + one below it, none labeled Current".
-  return { current, next: upcoming[0] ?? null, secondNext: upcoming[1] ?? null, upcoming };
+  return { current, upcoming };
 }
 
 export function homeTripAction(trip, nowMs) {

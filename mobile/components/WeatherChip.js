@@ -3,12 +3,12 @@ import { StyleSheet, View, Text } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
+import { moldedMaterials } from "./clay/molded-materials";
 
 /**
- * Compact ambient weather chip for the Home header — informational context
- * only. Never a banner, toast, or notification: actionable driving issues
- * (off-route / traffic / GPS) own the ONE calm banner surface; weather stays
- * a small pill beside the notification bell (see the plan note, 2026-09-09).
+ * Compact ambient weather chip for the Home header — claymorphism edition.
+ * Features pill-shaped soft elevation, white top edge gleam, shaded bottom edge,
+ * and a tactile molded icon disc matching the Home header's clay avatar and bell.
  *
  * Passive by design: no press state, no badge, no animation, no skeleton —
  * and no chip at all when there is no truthful payload (offline, provider
@@ -19,21 +19,70 @@ import { fonts } from "../lib/theme";
  *   ({ icon, temperature, label }) — null renders nothing.
  */
 export default function WeatherChip({ value, compact = false }) {
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
   if (!value) return null;
+
+  const isDark = scheme === "dark";
+  const mats = moldedMaterials(isDark);
+
+  const iconColor =
+    value.condition === "night" || value.icon === "moon"
+      ? colors.info
+      : ["sunny", "partly-sunny", "thunderstorm"].includes(value.icon)
+        ? colors.secondary
+        : colors.info;
+
+  const shadow = {
+    shadowColor: colors.shadow,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.35 : 0.16,
+    shadowRadius: 8,
+    elevation: 4,
+  };
 
   return (
     <View
-      style={[styles.chip, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, width: compact ? 128 : 148 }]}
+      style={[
+        styles.chip,
+        shadow,
+        mats.clayPill,
+        {
+          backgroundColor: colors.surfaceContainerLow,
+          width: compact ? 128 : 148,
+        },
+      ]}
       accessibilityRole="text"
       accessibilityLabel={`${value.temperature} Celsius, ${value.label}, ${value.condition || value.icon.replaceAll('-', ' ')}`}
     >
-      <Ionicons name={value.condition === 'night' ? 'moon' : value.icon} size={compact ? 20 : 24} color={value.condition === 'night' || value.icon === 'moon' ? colors.info : ['sunny', 'partly-sunny', 'thunderstorm'].includes(value.icon) ? colors.secondary : colors.info} />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Text style={[styles.temperature, { color: colors.onSurface }]}>{value.temperature}C</Text>
+      <View
+        style={[
+          styles.iconDisc,
+          shadow,
+          mats.clayTile,
+          {
+            backgroundColor: isDark
+              ? "rgba(255,255,255,0.06)"
+              : "rgba(0,0,0,0.03)",
+          },
+        ]}
+      >
+        <Ionicons
+          name={value.condition === "night" ? "moon" : value.icon}
+          size={compact ? 18 : 20}
+          color={iconColor}
+        />
+      </View>
+      <View style={{ flex: 1, minWidth: 0, justifyContent: "center" }}>
+        <Text style={[styles.temperature, { color: colors.onSurface }]}>
+          {value.temperature}C
+        </Text>
         {/* Location/condition stays on one line — long place names ellipsize
             rather than wrapping and growing the header row. */}
-        <Text style={[styles.label, { color: colors.onSurfaceVariant }]} numberOfLines={1} ellipsizeMode="tail">
+        <Text
+          style={[styles.label, { color: colors.onSurfaceVariant }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {value.label}
         </Text>
       </View>
@@ -42,32 +91,33 @@ export default function WeatherChip({ value, compact = false }) {
 }
 
 const styles = StyleSheet.create({
-  // Same compact-surface idiom as the header's other cards (radius, border,
-  // subtle elevation) — content-fit, never full width.
   chip: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     alignSelf: "center",
-    paddingHorizontal: 9,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     minHeight: 44,
     borderRadius: 22,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.17,
-    shadowRadius: 8,
-    elevation: 3,
+  },
+  iconDisc: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
   },
   temperature: {
     fontFamily: fonts.displayBold,
-    fontSize: 15,
-    lineHeight: 18,
+    fontSize: 14,
+    lineHeight: 17,
   },
   label: {
     fontFamily: fonts.body,
-    fontSize: 11,
+    fontSize: 10.5,
     lineHeight: 13,
-    maxWidth: 100,
+    maxWidth: 96,
   },
 });
+

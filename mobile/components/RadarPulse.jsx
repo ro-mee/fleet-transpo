@@ -7,7 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
  * Provides concentric radiating wave rings around a central beacon.
  * Uses native driver for 60fps GPU-accelerated motion without JS thread overhead.
  */
-export default function RadarPulse({
+function RadarPulseInner({
   size = 64,
   color = '#285448',
   icon = 'radio-outline',
@@ -152,3 +152,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
 });
+
+// Memoized: empty-state mounts re-render on parent timers with identical
+// primitive props — skip the subtree (animations are native-driven).
+const RadarPulse = React.memo(RadarPulseInner);
+export default RadarPulse;

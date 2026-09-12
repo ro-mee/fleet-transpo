@@ -8,6 +8,7 @@ import { api, wasQueued } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
+import { clayMaterials } from "../../../lib/clay";
 import { Ionicons } from "@expo/vector-icons";
 import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
@@ -95,7 +96,7 @@ const NOW_AT_LOAD = Date.now();
 // Dedicated Light and Dark theme palettes for the Proximity & Coverage Radar
 const RADAR_THEME = {
   dark: {
-    background: '#111816',
+    background: '#0D1713',
     topBarBg: 'rgba(25, 33, 30, 0.94)',
     topBarBorder: 'rgba(166, 199, 184, 0.22)',
     pillText: '#F5F1E9',
@@ -330,7 +331,7 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
 
 export default function MapTab() {
   const router = useRouter();
-  const { colors, scheme } = useTheme();
+  const { colors, scheme, type } = useTheme();
   const { user } = useAuth();
   
   const [activeTrip, setActiveTrip] = useState(null);
@@ -349,16 +350,25 @@ export default function MapTab() {
 
   const [radarRadiusKm, setRadarRadiusKm] = useState(3);
   const [legendExpanded, setLegendExpanded] = useState(true);
-  const [isPannedAway, setIsPannedAway] = useState(false);
+  const [, setIsPannedAway] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [nearbyTrips, setNearbyTrips] = useState([]);
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
 
   const rTheme = RADAR_THEME[scheme === 'dark' ? 'dark' : 'light'];
+  // Home clay language for the map surfaces (same mats family as Home cards).
+  const mats = clayMaterials(scheme === 'dark');
 
   // Refs for background GPS sync loop
   const activeTripRef = useRef(null);
+
+  // Focus gate: tabs stay mounted after first visit, so without this the
+  // Highest-accuracy GPS watcher + heading stream keep re-rendering (and
+  // bridge-spamming) while the driver is on Home or another tab. Fixes
+  // still feed the odometer + lastFix below; only rendering pauses.
+  const focusedRef = useRef(false);
+  const lastFixRef = useRef(null);
 
 
   // Bottom Sheet Animation State
@@ -554,20 +564,36 @@ export default function MapTab() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { loadTrip(); }, [loadTrip]));
+  useFocusEffect(useCallback(() => {
+    focusedRef.current = true;
+    // Re-seed the map from fixes collected while unfocused.
+    if (lastFixRef.current) setDriverLocation({ ...lastFixRef.current });
+    loadTrip();
+    return () => { focusedRef.current = false; };
+  }, [loadTrip]));
 
-  // Auto-polling dispatch queue every 15 seconds
+  // Auto-polling dispatch queue every 15 seconds — foreground AND focused
+  // only. Tabs stay mounted when unfocused, so an ungated interval would
+  // poll (and re-render) while the driver looks at another tab or
+  // backgrounds the app.
   useEffect(() => {
     const timer = setInterval(() => {
+      if (AppState.currentState !== 'active' || !focusedRef.current) return;
       loadTrip();
     }, 15000);
     return () => clearInterval(timer);
   }, [loadTrip]);
 
+  // Radar markers rebuild on a ~11 m quantized grid, not on every GPS object
+  // identity: heading-only fixes must not re-stringify + re-render markers
+  // across the WebView bridge.
+  const radarGridLat = driverLocation?.lat != null ? Number(driverLocation.lat).toFixed(4) : null;
+  const radarGridLng = driverLocation?.lng != null ? Number(driverLocation.lng).toFixed(4) : null;
   const radarMarkers = useMemo(() => {
     if (!driverLocation) return [];
     return getOperationalRadarMarkers(driverLocation, nearbyTrips);
-  }, [driverLocation, nearbyTrips]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- quantized grid only; identity churns per fix
+  }, [radarGridLat, radarGridLng, nearbyTrips]);
 
   const handleAcceptAssignment = async (tripId) => {
     if (!tripId) return;
@@ -623,12 +649,34 @@ export default function MapTab() {
               updatedHeading = newLoc.coords.heading;
             }
 
-            return { 
-              lat: newLoc.coords.latitude, 
-              lng: newLoc.coords.longitude,
+            const lat = newLoc.coords.latitude;
+            const lng = newLoc.coords.longitude;
+            const next = {
+              lat,
+              lng,
               heading: updatedHeading,
-              speed: newLoc.coords.speed
+              speed: newLoc.coords.speed,
             };
+            // Remember every fix so refocusing re-seeds instantly; the
+            // odometer accumulator below also reads every raw fix.
+            lastFixRef.current = next;
+            // Unfocused (another tab): skip the render + bridge traffic.
+            if (!focusedRef.current) return prev;
+            // Parked/idle bail-out: the OS re-delivers near-identical fixes
+            // every ~3s. Returning prev skips the whole-screen re-render, the
+            // camera easeTo and the radar-marker rebuild.
+            if (prev?.lat != null) {
+              const movedKm = haversineKm(prev.lat, prev.lng, lat, lng);
+              const hNew = updatedHeading ?? -1;
+              const hPrev = prev.heading ?? -1;
+              let hDelta = Math.abs(hNew - hPrev) % 360;
+              if (hDelta > 180) hDelta = 360 - hDelta;
+              if (movedKm < 0.008 && hDelta < 5 && (newLoc.coords.speed ?? 0) < 1) {
+                return prev;
+              }
+            }
+
+            return next;
           });
 
           // 2. GPS Distance Accumulation (per leg)
@@ -677,7 +725,10 @@ export default function MapTab() {
                   // Only use the physical compass if the car is stopped or moving very slowly (< 2 m/s)
                   // If we are driving fast, we trust the GPS course-over-ground instead so the map doesn't spin if you grab your phone!
                   if (prev.speed === undefined || prev.speed < 2) {
-                      return { ...prev, heading: compassHeading };
+                      const next = { ...prev, heading: compassHeading };
+                      lastFixRef.current = next;
+                      if (!focusedRef.current) return prev;
+                      return next;
                   }
                   return prev;
               });
@@ -807,15 +858,41 @@ export default function MapTab() {
     return () => clearTimeout(t);
   }, [driverLocation]);
 
+  // Derived trip geometry + stable WebView prop identities. These MUST live
+  // above the early returns below (hooks cannot run conditionally) so every
+  // access is null-safe: the idle branch renders with fallbacks when there
+  // is no active trip. Stable identities keep TomTomMap's memo + the JS
+  // bridge quiet — without them every MapTab render mints fresh objects and
+  // spams injects on each GPS tick.
+  const destLat = activeTrip ? (isHeadingToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude) : null;
+  const destLng = activeTrip ? (isHeadingToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude) : null;
+  const destName = activeTrip ? (isHeadingToPickup ? activeTrip.origin : activeTrip.destination) : null;
+  // Use driver location as start, fallback to trip origin if GPS not ready
+  const startLat = driverLocation?.lat ?? activeTrip?.origin_latitude;
+  const startLng = driverLocation?.lng ?? activeTrip?.origin_longitude;
+  const originHeading = driverLocation?.heading;
+  const originProp = useMemo(() => (
+    driverLocation
+      ? { lat: startLat, lng: startLng, heading: originHeading }
+      : { lat: startLat, lng: startLng }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- primitives only; driverLocation identity churns per fix
+  ), [startLat, startLng, originHeading]);
+  const destinationProp = useMemo(() => (
+    isPending ? null : { lat: destLat, lng: destLng }
+  ), [isPending, destLat, destLng]);
+  const handleMapReady = useCallback(() => setMapReady(true), []);
+  const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
+  const handleMapDragged = useCallback(() => setIsPannedAway(true), []);
+
   // Permission denied — an honest dead-end with a way out, not a loader that
   // never resolves.
   if (permissionDenied) {
     return (
       <View style={[styles.center, { backgroundColor: colors.background }, styles.permState]}>
-        <View style={[styles.permIconWrap, { backgroundColor: colors.surfaceContainerHigh }]}>
+        <View style={[styles.permIconWrap, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
           <Ionicons name="location-outline" size={32} color={colors.onSurfaceVariant} />
         </View>
-        <Text style={[styles.permTitle, { color: colors.onSurface }]}>Location Permission Required</Text>
+        <Text style={[type.titleLg, { color: colors.onSurface, textAlign: 'center' }]}>Location Permission Required</Text>
         <Text style={[styles.permMessage, { color: colors.onSurfaceVariant }]}>
           Location permission is required to show your position and track trips.
         </Text>
@@ -870,9 +947,9 @@ export default function MapTab() {
           radarMode={true}
           radarRadiusKm={radarRadiusKm}
           radarMarkers={radarMarkers}
-          onMarkerPress={(marker) => setSelectedMarker(marker)}
-          onMapDragged={() => setIsPannedAway(true)}
-          onMapReady={() => setMapReady(true)}
+          onMarkerPress={handleMarkerPress}
+          onMapDragged={handleMapDragged}
+          onMapReady={handleMapReady}
         />
         {!mapReady && (
           <View style={[styles.mapLoadingOverlay, { backgroundColor: rTheme.background }]}>
@@ -895,14 +972,14 @@ export default function MapTab() {
         
         {/* Top HUD: Status Pill & Distance Filter */}
         <View style={styles.topHudContainer} pointerEvents="box-none">
-          <View style={[styles.radarStatusPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder }]}>
+          <View style={[styles.radarStatusPill, mats.clayPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder, shadowColor: colors.shadow }]}>
             <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
             <Text style={[styles.radarStatusText, { color: rTheme.pillText }]}>RADAR</Text>
             <View style={[styles.radarDivider, { backgroundColor: rTheme.topBarBorder }]} />
             <Text style={[styles.radarSubText, { color: rTheme.pillSubtext }]}>LIVE TRACKING</Text>
           </View>
 
-          <View style={[styles.rangeFilterContainer, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder }]}>
+          <View style={[styles.rangeFilterContainer, mats.clayPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder, shadowColor: colors.shadow }]}>
             {[
               { label: '1 km', value: 1 },
               { label: '3 km', value: 3 },
@@ -940,7 +1017,7 @@ export default function MapTab() {
         </View>
 
         {/* Collapsible Radar Legend */}
-        <View style={[styles.legendCard, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder }]}>
+        <View style={[styles.legendCard, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
           <Pressable 
             onPress={() => setLegendExpanded(!legendExpanded)} 
             style={styles.legendHeaderRow}
@@ -961,11 +1038,11 @@ export default function MapTab() {
                 <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Your Vehicle</Text>
               </View>
               <View style={styles.legendItem}>
-                <Ionicons name="water" size={13} color="#0284c7" />
+                <Ionicons name="water" size={13} color={colors.info} />
                 <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Nearest Gas Station</Text>
               </View>
               <View style={styles.legendItem}>
-                <Ionicons name="car" size={13} color="#286B54" />
+                <Ionicons name="car" size={13} color={colors.success} />
                 <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Fleet Drivers</Text>
               </View>
               <View style={styles.legendItem}>
@@ -986,25 +1063,29 @@ export default function MapTab() {
           accessibilityLabel="Recenter radar on vehicle"
           style={({ pressed }) => [
             styles.recenterRadarFab,
+            mats.clayTile,
             {
               backgroundColor: rTheme.fabBg,
               borderColor: rTheme.fabBorder,
+              shadowColor: colors.shadow,
               bottom: isIdleCollapsed ? 80 : 330,
               opacity: pressed ? 0.85 : 1,
               transform: [{ scale: pressed ? 0.95 : 1 }],
             },
           ]}
         >
-          <Ionicons name="locate" size={22} color={rTheme.fabIcon} />
+          <Ionicons name="locate" size={20} color={rTheme.fabIcon} />
         </Pressable>
 
         {/* Compact Interactive Assignment / Station / Driver Card */}
         {selectedMarker && (
           <View style={[
             styles.selectedMarkerCard, 
+            mats.clayShade,
             { 
               backgroundColor: rTheme.cardBg, 
               borderColor: rTheme.cardBorder,
+              shadowColor: colors.shadow,
               bottom: isIdleCollapsed ? 76 : 300,
             }
           ]}>
@@ -1013,9 +1094,9 @@ export default function MapTab() {
                 const isStation = selectedMarker.type === 'gas_station';
                 const isDriver = selectedMarker.type === 'driver' || selectedMarker.type === 'vehicle';
                 const badgeColor = isStation 
-                  ? '#0284c7' 
+                  ? colors.info 
                   : isDriver 
-                    ? '#286B54' 
+                    ? colors.success 
                     : selectedMarker.priority === 'emergency'
                       ? rTheme.emergency
                       : selectedMarker.priority === 'priority'
@@ -1055,11 +1136,11 @@ export default function MapTab() {
               </Pressable>
             </View>
 
-            <Text style={[styles.markerCardTitle, { color: rTheme.textPrimary }]}>
+            <Text style={[type.cardTitle, { color: rTheme.textPrimary }]}>
               {selectedMarker.title}
             </Text>
             {selectedMarker.subtitle ? (
-              <Text style={[styles.markerCardSubtitle, { color: rTheme.textSecondary }]}>
+              <Text style={[type.supporting, { color: rTheme.textSecondary }]}>
                 {selectedMarker.subtitle}
               </Text>
             ) : null}
@@ -1098,7 +1179,7 @@ export default function MapTab() {
                     accessibilityRole="button"
                     accessibilityLabel="Accept assignment"
                   >
-                    <Text style={[styles.markerCardPriBtnText, { color: scheme === 'dark' ? '#103A30' : '#FFFFFF' }]}>
+                    <Text style={[styles.markerCardPriBtnText, { color: colors.onPrimary }]}>
                       {acceptingTripId === selectedMarker.tripId ? "ACCEPTING..." : "ACCEPT"}
                     </Text>
                   </Pressable>
@@ -1122,11 +1203,11 @@ export default function MapTab() {
                         params: { station: selectedMarker.title },
                       });
                     }}
-                    style={[styles.markerCardPriBtn, { backgroundColor: '#0284c7' }]}
+                    style={[styles.markerCardPriBtn, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}
                     accessibilityRole="button"
                     accessibilityLabel="Report fuel purchase"
                   >
-                    <Text style={[styles.markerCardPriBtnText, { color: '#FFFFFF' }]}>REPORT FUEL</Text>
+                    <Text style={[styles.markerCardPriBtnText, { color: colors.onPrimary }]}>REPORT FUEL</Text>
                   </Pressable>
                 </>
               ) : (
@@ -1147,9 +1228,11 @@ export default function MapTab() {
         <Animated.View 
           style={[
             styles.idleSheet, 
+            mats.clayShade,
             { 
               backgroundColor: rTheme.sheetBg, 
               borderColor: rTheme.sheetBorder,
+              shadowColor: colors.shadow,
               transform: [{ translateY: idlePanY }],
             }
           ]}
@@ -1176,16 +1259,16 @@ export default function MapTab() {
           </View>
           
           <View style={[styles.idleHeaderRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
-            <View style={[styles.idleAvatar, { backgroundColor: rTheme.avatarBg }]}>
-              <Ionicons name="person" size={22} color={rTheme.avatarIcon} />
+            <View style={[styles.idleAvatar, mats.clayTile, { backgroundColor: colors.primary, borderColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+              <Ionicons name="person" size={22} color={colors.onPrimary} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.idleGreeting, { color: rTheme.textPrimary }]}>
+              <Text style={[type.cardTitle, { color: rTheme.textPrimary }]}>
                 Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Jack'}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
                 <Ionicons name="shield-checkmark" size={14} color={rTheme.primary} />
-                <Text style={[styles.idleSubtext, { color: rTheme.textSecondary }]}>
+                <Text style={[type.caption, { color: rTheme.textSecondary }]}>
                   On Duty • Ready for assignments
                 </Text>
               </View>
@@ -1195,12 +1278,12 @@ export default function MapTab() {
           {/* Polling Heartbeat Badge */}
           <Pressable 
             onPress={() => loadTrip()}
-            style={[styles.heartbeatRow, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder, opacity: isIdleCollapsed ? 0 : 1 }]}
+            style={[styles.heartbeatRow, mats.compactShade, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder, shadowColor: colors.shadow, opacity: isIdleCollapsed ? 0 : 1 }]}
             accessibilityRole="button"
             accessibilityLabel="Refresh dispatch queue"
           >
             <View style={[styles.pulseDotSmall, { backgroundColor: rTheme.warning }]} />
-            <Text style={[styles.heartbeatText, { color: rTheme.textSecondary }]}>
+            <Text style={[type.caption, { color: rTheme.textSecondary, flex: 1 }]}>
               Auto-polling dispatch queue • {rangeLabel}
             </Text>
           </Pressable>
@@ -1213,11 +1296,12 @@ export default function MapTab() {
               accessibilityLabel="View trip schedule"
               style={({ pressed }) => [
                 styles.idleActionBtn,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+                mats.clayCta,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
               ]}
             >
-              <Ionicons name="calendar-outline" size={17} color={rTheme.actionBtnIcon} />
-              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Schedule</Text>
+              <Ionicons name="calendar-outline" size={20} color={rTheme.actionBtnIcon} />
+              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Schedule</Text>
             </Pressable>
 
             <Pressable
@@ -1226,11 +1310,12 @@ export default function MapTab() {
               accessibilityLabel="Pre-trip inspection"
               style={({ pressed }) => [
                 styles.idleActionBtn,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+                mats.clayCta,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
               ]}
             >
-              <Ionicons name="clipboard-outline" size={17} color={rTheme.actionBtnIcon} />
-              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Inspection</Text>
+              <Ionicons name="clipboard-outline" size={20} color={rTheme.actionBtnIcon} />
+              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Inspection</Text>
             </Pressable>
 
             <Pressable
@@ -1239,11 +1324,12 @@ export default function MapTab() {
               accessibilityLabel="Assigned vehicle"
               style={({ pressed }) => [
                 styles.idleActionBtn,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, opacity: pressed ? 0.8 : 1 }
+                mats.clayCta,
+                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
               ]}
             >
-              <Ionicons name="car-outline" size={17} color={rTheme.actionBtnIcon} />
-              <Text style={[styles.idleActionText, { color: rTheme.actionBtnText }]}>Vehicle</Text>
+              <Ionicons name="car-outline" size={20} color={rTheme.actionBtnIcon} />
+              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Vehicle</Text>
             </Pressable>
           </View>
           
@@ -1251,7 +1337,7 @@ export default function MapTab() {
           <View style={[styles.bottomSheetActionsRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
             <Pressable
               onPress={() => router.push('/trips')}
-              style={[styles.completedTripsRow, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder, flex: 1 }]}
+              style={[styles.completedTripsRow, mats.compactShade, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder, shadowColor: colors.shadow, flex: 1 }]}
               accessibilityRole="button"
               accessibilityLabel="View completed trips today"
             >
@@ -1260,7 +1346,7 @@ export default function MapTab() {
                 <Text style={[styles.statLabel, { color: rTheme.textSecondary }]}>COMPLETED TRIPS TODAY</Text>
               </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[styles.statValue, { color: rTheme.textPrimary }]}>{todayStats.completed}</Text>
+                <Text style={[type.headlineMd, { color: rTheme.textPrimary }]}>{todayStats.completed}</Text>
                 <Ionicons name="chevron-forward" size={16} color={rTheme.textSecondary} />
               </View>
             </Pressable>
@@ -1286,22 +1372,12 @@ export default function MapTab() {
   const preStart = isPending || isDriverAccepted;
   const preDeparture = preStart && earliestStart != null && !windowOpen;
 
-  const destLat = isHeadingToPickup ? activeTrip.origin_latitude : activeTrip.destination_latitude;
-  const destLng = isHeadingToPickup ? activeTrip.origin_longitude : activeTrip.destination_longitude;
-
-
-  const destName = isHeadingToPickup ? activeTrip.origin : activeTrip.destination;
-
-  // Use driver location as start, fallback to trip origin if GPS not ready
-  const startLat = driverLocation?.lat ?? activeTrip.origin_latitude;
-  const startLng = driverLocation?.lng ?? activeTrip.origin_longitude;
-
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <TomTomMap 
         ref={mapRef}
-        origin={{ lat: startLat, lng: startLng, heading: driverLocation?.heading }}
-        destination={isPending ? null : { lat: destLat, lng: destLng }}
+        origin={originProp}
+        destination={destinationProp}
         originAddress={isHeadingToPickup ? "My Location" : activeTrip.origin}
         destAddress={destName}
         scrollEnabled={true}
@@ -1310,7 +1386,7 @@ export default function MapTab() {
         showCarIcon={true}
         autoSwoop={true}
         onRouteData={setRouteData}
-        onMapReady={() => setMapReady(true)}
+        onMapReady={handleMapReady}
       />
       {!mapReady && (
         <View style={[styles.mapLoadingOverlay, { backgroundColor: colors.background }]}>
@@ -1338,9 +1414,9 @@ export default function MapTab() {
             gap: 8,
             paddingHorizontal: 20,
             paddingVertical: 12,
-            borderRadius: 40,
+            borderRadius: 16,
             backgroundColor: colors.inverseSurface,
-            shadowColor: '#000',
+            shadowColor: colors.shadow,
             shadowOffset: { width: 0, height: 8 },
             shadowOpacity: 0.22,
             shadowRadius: 16,
@@ -1358,12 +1434,12 @@ export default function MapTab() {
       
       {activeTrip && (
         <Animated.View 
-          style={[styles.bottomSheet, { transform: [{ translateY: panY }], backgroundColor: colors.surface }]}
+          style={[styles.bottomSheet, mats.clayShade, { transform: [{ translateY: panY }], backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}
         >
           {/* Floating Map Controls (Sticks to top of sheet) */}
           <View style={styles.floatingControlsContainer}>
             <Pressable
-              style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
+              style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
               onPress={() => mapRef.current?.recenter()}
               accessibilityRole="button"
               accessibilityLabel="Recenter map on your location"
@@ -1371,7 +1447,7 @@ export default function MapTab() {
               <Ionicons name="navigate" size={20} color={colors.primary} />
             </Pressable>
             <Pressable
-              style={[styles.mapControlBtn, { backgroundColor: colors.surface, borderColor: colors.outlineVariant }]}
+              style={[styles.mapControlBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}
               onPress={() => {
                 mapRef.current?.overview();
                 snapToMinimized(true);
@@ -1391,8 +1467,8 @@ export default function MapTab() {
 
               {/* Location Header */}
               <View style={styles.sheetHeader}>
-                <View style={[styles.locationIconWrapper, { backgroundColor: colors.primary }]}>
-                  <Ionicons name="location-sharp" size={24} color={colors.onPrimary} />
+                <View style={[styles.locationIconWrapper, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
+                  <Ionicons name="location-sharp" size={20} color={colors.primary} />
                 </View>
                 <View style={styles.locationTextWrapper}>
                   <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
@@ -1404,7 +1480,7 @@ export default function MapTab() {
                     {isState3 && "EN ROUTE TO DESTINATION"}
                     {isState4 && "ARRIVED AT DESTINATION"}
                   </Text>
-                  <Text style={[styles.locationName, { color: colors.onSurface }]} numberOfLines={1}>
+                  <Text style={[type.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
                     {preDeparture
                       ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
                       : destName}
@@ -1416,7 +1492,7 @@ export default function MapTab() {
                   {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
                     <>
                       <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                        <Text style={[styles.headerEtaValue, { color: colors.primary }]}>
+                        <Text style={[type.headlineMd, { color: colors.primary }]}>
                           {routeData 
                             ? Math.ceil(routeData.travelTimeInSeconds / 60) 
                             : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
@@ -1425,7 +1501,7 @@ export default function MapTab() {
                       </View>
                       
                       {routeData?.trafficDelayInSeconds > 0 && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: 'rgba(248,113,113,0.15)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: colors.error + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
                           <Ionicons name="warning" size={10} color={colors.error} />
                           <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: colors.error }}>
                             +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
@@ -1441,7 +1517,7 @@ export default function MapTab() {
                     </>
                   ) : (
                     <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                      <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 16, color: colors.primary }}>
+                      <Text style={[type.cardTitle, { color: colors.primary }]}>
                         {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
                       </Text>
                       <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
@@ -1460,7 +1536,7 @@ export default function MapTab() {
           {/* PR #3 arrival suggestion: server says inside the geofence — the
               swipe below still performs the human-confirmed transition. */}
           {(nearPickupHint || nearDestHint) && (
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.secondaryContainer }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.secondaryContainer }}>
               <Ionicons name="navigate-circle" size={20} color={colors.onSecondaryContainer} />
               <Text style={{ flex: 1, fontFamily: fonts.bodySemiBold, fontSize: 13, color: colors.onSecondaryContainer }}>
                 {nearPickupHint
@@ -1477,7 +1553,7 @@ export default function MapTab() {
             <View
               accessibilityRole="alert"
               accessibilityLabel={`${monitorBanner.title}. ${monitorBanner.subtitle}`}
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 14, backgroundColor: colors.warning + '1A' }}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 16, marginBottom: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, backgroundColor: colors.warning + '1A' }}
             >
               <Ionicons
                 name={monitorBanner.key === 'off_route' ? 'map-outline' : monitorBanner.key === 'traffic' ? 'time-outline' : 'location-outline'}
@@ -1498,8 +1574,10 @@ export default function MapTab() {
             <Pressable 
               style={({ pressed }) => [
                 styles.actionBtn, 
+                mats.clayCta,
                 { 
                   backgroundColor: colors.secondaryContainer,
+                  shadowColor: colors.shadow,
                   transform: [{ scale: pressed ? 0.97 : 1 }],
                   opacity: pressed ? 0.9 : 1,
                 }
@@ -1507,7 +1585,7 @@ export default function MapTab() {
               onPress={() => router.push(`/trip/${activeTrip.trip_id}`)}
             >
               <Text style={[styles.actionBtnText, { color: colors.onSecondaryContainer }]}>VIEW DETAILS</Text>
-              <View style={[styles.btnIconCapsule, { backgroundColor: 'rgba(4,107,94,0.15)' }]}>
+              <View style={[styles.btnIconCapsule, { backgroundColor: colors.primary + '1A' }]}>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSecondaryContainer} />
               </View>
             </Pressable>
@@ -1797,13 +1875,13 @@ export default function MapTab() {
             contentContainerStyle={{ paddingBottom: 24, gap: 16 }}
           >
             {/* Passenger Card */}
-            <View style={[styles.detailCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
-              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '40' }]}>
+            <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
+              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant }]}>
                 <Ionicons name="person" size={16} color={colors.onSurfaceVariant} />
                 <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>Passenger Info</Text>
               </View>
               <View style={styles.cardBody}>
-                <View style={[styles.avatar, { backgroundColor: colors.surfaceContainerHigh }]}>
+                <View style={[styles.avatar, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
                   <Text style={[styles.avatarText, { color: colors.onSurface }]}>
                     {(activeTrip.passenger_name || 'G')[0].toUpperCase()}
                   </Text>
@@ -1815,15 +1893,15 @@ export default function MapTab() {
                     <Text style={[styles.detailSub, { color: colors.outline }]}>{activeTrip.passenger_count || 1} Pax</Text>
                   </View>
                 </View>
-                <Pressable style={[styles.iconButton, { backgroundColor: colors.primaryContainer }]}>
+                <Pressable style={[styles.iconButton, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
                   <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
                 </Pressable>
               </View>
             </View>
 
             {/* Trip Details Card */}
-            <View style={[styles.detailCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
-              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant + '40' }]}>
+            <View style={[styles.detailCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
+              <View style={[styles.cardHeader, { borderBottomColor: colors.outlineVariant }]}>
                 <Ionicons name="document-text" size={16} color={colors.onSurfaceVariant} />
                 <Text style={[styles.cardHeaderTitle, { color: colors.onSurfaceVariant }]}>Trip Details</Text>
               </View>
@@ -1995,9 +2073,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 330,
     right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
@@ -2031,9 +2109,9 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   idleAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2052,7 +2130,7 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     marginBottom: 12,
   },
@@ -2078,7 +2156,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 6,
     paddingVertical: 9,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
   },
   idleActionText: {
@@ -2145,7 +2223,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 104,
     left: 16,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -2209,7 +2287,7 @@ const styles = StyleSheet.create({
     bottom: 300,
     left: 16,
     right: 16,
-    borderRadius: 18,
+    borderRadius: 24,
     borderWidth: 1,
     padding: 16,
     shadowColor: "#000",
@@ -2228,7 +2306,7 @@ const styles = StyleSheet.create({
   markerPriorityBadge: {
     paddingHorizontal: 8,
     paddingVertical: 3,
-    borderRadius: 6,
+    borderRadius: 16,
     borderWidth: 1,
   },
   markerPriorityText: {
@@ -2270,8 +2348,8 @@ const styles = StyleSheet.create({
   },
   markerCardSecBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 18,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2283,8 +2361,8 @@ const styles = StyleSheet.create({
   },
   markerCardPriBtn: {
     flex: 1,
-    height: 44,
-    borderRadius: 12,
+    height: 48,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2305,7 +2383,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 14,
     height: 52,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
   },
   collapsedPeekRow: {
@@ -2347,7 +2425,7 @@ const styles = StyleSheet.create({
   mapControlBtn: {
     width: TOUCH_TARGET,
     height: TOUCH_TARGET,
-    borderRadius: 24,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: "#000",
@@ -2373,9 +2451,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   locationIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2385,9 +2463,9 @@ const styles = StyleSheet.create({
   },
   locationIndicator: {
     fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 11,
+    fontSize: 12,
     marginBottom: 3,
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   locationName: {
     fontFamily: fonts.displaySemiBold || fonts.bodySemiBold,
@@ -2421,7 +2499,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    height: 54,
+    height: 48,
     borderRadius: 18,
     paddingHorizontal: 20,
     shadowColor: "#000",
@@ -2444,7 +2522,7 @@ const styles = StyleSheet.create({
   },
   detailCard: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: 24,
     overflow: 'hidden',
   },
   cardHeader: {
@@ -2457,8 +2535,8 @@ const styles = StyleSheet.create({
   },
   cardHeaderTitle: {
     fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 11,
-    letterSpacing: 0.6,
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
   cardBody: {
     padding: 16,
@@ -2467,9 +2545,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2486,9 +2564,9 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 48,
+    height: 48,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2509,7 +2587,7 @@ const styles = StyleSheet.create({
   statusBadge: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 8,
+    borderRadius: 16,
   },
   statusBadgeText: {
     fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,

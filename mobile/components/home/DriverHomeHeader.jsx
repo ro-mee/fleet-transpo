@@ -1,4 +1,5 @@
-import { Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { memo } from 'react';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
@@ -6,7 +7,9 @@ import { useSettings } from '../../lib/settings-context';
 import WeatherChip from '../WeatherChip';
 import { homeMaterials as clayMaterials } from './materials';
 
-export default function DriverHomeHeader({ driverName, initial, weather, unreadCount, topInset, onProfile, onNotifications }) {
+// Memoized with the cards: stable weather object + callbacks from the
+// parent let the header skip poster/notification/clock ticks.
+export default memo(function DriverHomeHeader({ driverName, initial, weather, unreadCount, topInset, onProfile, onNotifications }) {
   const { colors, type, scheme } = useTheme();
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
@@ -21,7 +24,7 @@ export default function DriverHomeHeader({ driverName, initial, weather, unreadC
   return <View style={[s.header, { paddingTop: topInset + 4, backgroundColor: colors.background }]}>
     <View style={[s.identity, stacked && { flexBasis: '100%' }]}>
       <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-        {!settings.highContrast && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
+        {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
         <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24 }]}>{initial || 'D'}</Text>
       </Pressable>
       <View style={s.copy}>
@@ -36,7 +39,7 @@ export default function DriverHomeHeader({ driverName, initial, weather, unreadC
       </Pressable>
     </View>
   </View>;
-}
+});
 
 const s = StyleSheet.create({
   header: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 8, gap: 8 },

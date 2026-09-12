@@ -1,7 +1,6 @@
 import { moderateScale } from '../../../lib/scaling';
-import { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator } from 'react-native';
-import { InteractionManager } from "react-native";
+import { useCallback, useEffect, useMemo, useState, memo } from "react";
+import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl, Modal, TextInput, ActivityIndicator, InteractionManager } from 'react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -12,7 +11,7 @@ import { useConnectivity } from "../../../lib/connectivity-context";
 import { SyncNote } from "../../../components/OfflineStates";
 import { useAuth } from "../../../lib/auth";
 import { ACTIONS, canAction } from "../../../lib/rbac";
-import { useTripTracking, usePosterStatus, weatherChipFor } from "../../../lib/tracking";
+import { usePosterStatus } from "../../../lib/tracking";
 import { useAmbientWeather } from "../../../lib/ambient-weather";
 import DriverHomeHeader from "../../../components/home/DriverHomeHeader";
 import {
@@ -22,25 +21,41 @@ import {
 import { AppAlert } from '../../../components/AppAlert';
 import { useTheme } from "../../../lib/theme-context";
 import { useNotificationFeed } from "../../../context/notification-feed";
-import { fonts, TOUCH_TARGET } from "../../../lib/theme";
+import { TOUCH_TARGET } from "../../../lib/theme";
 import { SkeletonCard, ErrorNotice } from "../../../components/ui";
-import { selectHomeTrips, homeVehicleImage } from "../../../lib/home-trips";
+import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
-import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
-import { shouldRevalidateHome } from "../../../lib/home-revalidate"; // extensionless, matches file convention
 import {
   getIncidentDeadLetters,
   retryIncidentDeadLetters,
 } from "../../../lib/sync";
+import { QUICK_ACTION_ROUTES } from "../../../lib/prefetch-routes";
+import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 
 
 /**
  * Driver Home: image-backed summary and shared current/next assignment cards.
  * Lifecycle actions, offline caching and tracking remain owned by this screen.
  */
-// Frozen at module load so the GPS-age caption never calls Date.now() during render.
-const NOW_MS_AT_LOAD = Date.now();
+
+// Populated-state upcoming list (own component so Home's manual memos keep
+// compiling under the strict preserve-manual-memoization rule): first card
+// NEXT TRIP, the rest UPCOMING, plus a "+N more" footer reusing the same
+// /trips destination as the section heading.
+const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore }) {
+  const { colors, type } = useTheme();
+  return <>
+    {trips.map((trip, i) => <DriverTripCard key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
+      offline={offline} nowMs={nowMs} canManage={canManage} busy={busy}
+      onAction={onAction} onDetails={onDetails} />)}
+    {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
+      style={({ pressed }) => [{ minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, pressed && { opacity: 0.72 }]}>
+      <Text style={[type.labelLg, { color: colors.primary }]}>+{extra} more · View Full Schedule</Text>
+      <Ionicons name="chevron-forward" color={colors.primary} size={16} />
+    </Pressable> : null}
+  </>;
+});
 
 export default function Home() {
   const insets = useSafeAreaInsets();
@@ -60,7 +75,7 @@ export default function Home() {
   const [odometerInput, setOdometerInput] = useState("");
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
-  const [nowMs, setNowMs] = useState(NOW_MS_AT_LOAD);
+  const [nowMs, setNowMs] = useState(Date.now);
   // Incident reports that permanently failed to deliver offline. Surfaced
   // globally — a driver must not have to open Activity Logs to learn that an
   // emergency report never reached dispatch.
@@ -78,36 +93,35 @@ export default function Home() {
   const { status } = useConnectivity();
   const offline = status === "offline";
 
-  // Keep the GPS-age caption ticking without reading Date.now() during render.
+  // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
   useEffect(() => {
-    const tick = () => setNowMs(Date.now());
-    const first = setTimeout(tick, 0);
-    const timer = setInterval(tick, 30000);
-    return () => { clearTimeout(first); clearInterval(timer); };
+    const timer = setInterval(() => setNowMs(Date.now()), 30000);
+    return () => clearInterval(timer);
   }, []);
 
-  const { current: activeTrip, next: upcomingTrip, secondNext, upcoming } = selectHomeTrips(trips, activeStatuses);
+  const { current: activeTrip, upcoming } = selectHomeTrips(trips, activeStatuses);
+  const visibleUpcoming = upcoming.slice(0, HOME_UPCOMING_LIMIT);
+  const hiddenUpcomingCount = Math.max(0, upcoming.length - HOME_UPCOMING_LIMIT);
 
   const canManageTrip = canAction(user, ACTIONS.MANAGE_TRIP);
   const canReportLocation = canAction(user, ACTIONS.REPORT_LOCATION);
   const canReportFuel = canAction(user, ACTIONS.REPORT_FUEL);
 
-  const tracking = useTripTracking(
-    canReportLocation ? activeTrip?.trip_id ?? null : null
-  );
-
-  // Weather chip: the poster's current-conditions payload for THIS trip —
-  // same trip-id staleness guard as the geofence/monitor verdicts, so a
-  // finished trip's weather cannot linger onto the next assignment. When
-  // there is no live trip (idle, between assignments), the ambient fetch
-  // takes over so the chip stays visible — null (no chip) only when there
-  // is no truthful payload at all.
+  // Weather chip and tracking status: consumes the layout poster's pub/sub
+  // without mounting a redundant continuous Location watcher.
   const poster = usePosterStatus();
   const tripWeather =
     poster.weatherTripId != null && String(poster.weatherTripId) === String(activeTrip?.trip_id)
       ? poster.weather
       : null;
-  const { chip: weatherChip } = useAmbientWeather(tripWeather);
+  const { chip: rawWeatherChip } = useAmbientWeather(tripWeather);
+  // Stable chip identity: the hook builds a fresh object per call, which
+  // would defeat the header memo below on every parent render.
+  const weatherChip = useMemo(
+    () => rawWeatherChip,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field-wise identity; the object itself is always new
+    [rawWeatherChip?.icon, rawWeatherChip?.temperature, rawWeatherChip?.label]
+  );
 
   const load = useCallback(async () => {
     // Offline Read Mode: show last-known home data instantly (offline
@@ -181,7 +195,9 @@ export default function Home() {
         getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
         return;
       }
-      const task = InteractionManager.runAfterInteractions(() => { load(); });
+      const task = InteractionManager.runAfterInteractions(() => {
+        load();
+      });
       getIncidentDeadLetters().then((list) => setDeadLetterCount(list.length)).catch(() => {});
       return () => task?.cancel?.();
     }, [load, tripsSyncedAt])
@@ -198,7 +214,7 @@ export default function Home() {
     }
   };
 
-  const doAction = async (trip, nextObj) => {
+  const doAction = useCallback(async (trip, nextObj) => {
     setActingOn(trip.trip_id);
     try {
       const action = nextObj?.action || "start";
@@ -226,9 +242,9 @@ export default function Home() {
     } finally {
       setActingOn(null);
     }
-  };
+  }, [load]);
 
-  const handleTripAction = async (trip) => {
+  const handleTripAction = useCallback(async (trip) => {
     if (!canManageTrip) return;
     const nextObj = await getNextStatus(trip.trip_status);
     if (!nextObj || !nextObj.status) {
@@ -268,7 +284,7 @@ export default function Home() {
       return;
     }
     doAction(trip, nextObj);
-  };
+  }, [canManageTrip, doAction, load]);
 
   const submitOdometer = async () => {
     const val = parseFloat(odometerInput);
@@ -316,11 +332,12 @@ export default function Home() {
   const driverName = String(user?.firstName || user?.name || "Driver").trim().split(/\s+/)[0] || "Driver";
   // GPS posting health for the active trip, shown as a subtle status chip.
   // Relative seconds are recomputed on render — the card re-renders often
-  // enough (focus, polling, actions) to keep a caption honest.
-  const lastSentAgeS = tracking.lastSentAt
-    ? (nowMs ? Math.max(0, Math.round((nowMs - new Date(tracking.lastSentAt).getTime()) / 1000)) : 0)
+  // GPS posting health for the active trip, shown as a subtle status chip.
+  // Consumes the layout poster's pub/sub directly without a duplicate watcher.
+  const lastSentAgeS = poster.lastSentAt
+    ? (nowMs ? Math.max(0, Math.round((nowMs - new Date(poster.lastSentAt).getTime()) / 1000)) : 0)
     : null;
-  const trackingChipText = tracking.error
+  const trackingChipText = poster.error
     ? "Location not sending — will retry"
     : `Location updated ${lastSentAgeS}s ago`;
 
@@ -328,17 +345,43 @@ export default function Home() {
   const vehicleRow = activeTrip?.vehicle_id === vehicleContext?.vehicleId ? activeTrip : driverProfile?.assignedVehicle;
   const assignedVehicle = driverProfile?.assignedVehicle;
   const matchingAssignment = vehicleContext && String(assignedVehicle?.vehicleId ?? assignedVehicle?.vehicle_id) === String(vehicleContext.vehicleId);
-  const vehicle = vehicleContext ? { plate: vehicleContext.plate, model: vehicleRow?.vehicle_model || vehicleRow?.model, imageUri: homeVehicleImage(vehicleRow) ?? (matchingAssignment ? homeVehicleImage(assignedVehicle) : null) } : null;
+  // Stable identities for the memoized hero: without these every tick mints
+  // a fresh vehicle literal + closures and the memo never hits.
+  const vehicle = useMemo(() => (
+    vehicleContext
+      ? { plate: vehicleContext.plate, model: vehicleRow?.vehicle_model || vehicleRow?.model, imageUri: homeVehicleImage(vehicleRow) ?? (matchingAssignment ? homeVehicleImage(assignedVehicle) : null) }
+      : null
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- vehicleContext/rows are stable across ticks; recompute only when the underlying rows change
+  ), [vehicleContext?.vehicleId, vehicleContext?.plate, vehicleRow, assignedVehicle, matchingAssignment]);
   const completed = driverProfile?.performance?.total_trips;
-  const shortcuts = [
-    { label: 'My Schedule', icon: 'calendar', action: () => router.push('/work-schedule') },
-    { label: 'Activity Log', icon: 'pulse', action: () => router.push('/submissions') },
-    { label: 'Report Incident', icon: 'shield-checkmark', action: () => router.push('/incidents') },
-    ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }) }] : []),
-  ];
+  const goProfile = useCallback(() => router.push('/profile'), [router]);
+  const goNotifications = useCallback(() => router.push('/notifications'), [router]);
+  const goTrips = useCallback(() => router.push('/trips'), [router]);
+  const goHistory = useCallback(() => router.push('/history'), [router]);
+  const goVehicle = useCallback(() => router.push('/profile/vehicle'), [router]);
+  const goDetails = useCallback((trip) => router.push(`/trip/${trip.trip_id}`), [router]);
+  const goSchedule = useCallback(() => router.push('/work-schedule'), [router]);
+  const goSubmissions = useCallback(() => router.push('/submissions'), [router]);
+  const goIncidents = useCallback(() => router.push('/incidents'), [router]);
+  const goFuelReport = useCallback(
+    () => router.push({ pathname: '/fuel-report', params: { tripId: activeTrip?.trip_id ? String(activeTrip.trip_id) : undefined } }),
+    [router, activeTrip]
+  );
+  const shortcuts = useMemo(() => [
+    { label: 'My Schedule', icon: 'calendar', action: goSchedule },
+    { label: 'Activity Log', icon: 'pulse', action: goSubmissions },
+    { label: 'Report Incident', icon: 'shield-checkmark', action: goIncidents },
+    ...(canReportFuel ? [{ label: 'Fuel', icon: 'speedometer', action: goFuelReport }] : []),
+  ], [goSchedule, goSubmissions, goIncidents, goFuelReport, canReportFuel]);
+
+  // Prefetch quick-action destination bundles while Home is idle
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
-      QUICK_ACTION_ROUTES.forEach((r) => { try { router.prefetch?.(r); } catch {} });
+      QUICK_ACTION_ROUTES.forEach((r) => {
+        try {
+          router.prefetch?.(r);
+        } catch {}
+      });
     });
     return () => task?.cancel?.();
   }, [router]);
@@ -348,7 +391,7 @@ export default function Home() {
       <DriverHomeHeader driverName={driverName}
         initial={(user?.firstName?.[0] || user?.name?.[0] || 'D').toUpperCase()}
         weather={weatherChip} unreadCount={unreadCount} topInset={insets.top}
-        onProfile={() => router.push('/profile')} onNotifications={() => router.push('/notifications')} />
+        onProfile={goProfile} onNotifications={goNotifications} />
 
       <ScrollView
         contentContainerStyle={[
@@ -391,8 +434,8 @@ export default function Home() {
           upcoming={upcoming.length} capped={trips.length >= 50}
           completed={completed} vehicle={vehicle}
           confirmed={tripsSyncedAt != null} profileConfirmed={meSyncedAt != null}
-          offline={offline} onTrips={() => router.push('/trips')}
-          onHistory={() => router.push('/history')} onVehicle={() => router.push('/profile/vehicle')}
+          onTrips={goTrips}
+          onHistory={goHistory} onVehicle={goVehicle}
         />}
 
         {/* Unsent incident reports — quarantined offline, surfaced globally */}
@@ -435,22 +478,28 @@ export default function Home() {
 
         <HomeQuickActions actions={shortcuts} />
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
-        <AssignmentsHeading onPress={() => router.push('/trips')} />
-        {loading ? <><SkeletonCard lines={4} /><SkeletonCard lines={4} /></> : <>
+        {loading ? <><SkeletonCard lines={4} /><SkeletonCard lines={4} /></> : (!activeTrip && upcoming.length === 0 ? <>
+          {/* Preserved empty state — intentionally unchanged: heading, null
+              cards, and all confirmed/offline/not-synced copy stay exactly as
+              they were. Dynamic layout below only runs with trip data. */}
+          <AssignmentsHeading onPress={goTrips} />
           <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
-            trackingText={activeTrip && canReportLocation && (tracking.error || tracking.lastSentAt) ? trackingChipText : null}
-            onAction={handleTripAction} onDetails={trip => router.push(`/trip/${trip.trip_id}`)} />
-          <DriverTripCard trip={upcomingTrip} variant="next" confirmed={tripsSyncedAt != null}
+            trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
+            onAction={handleTripAction} onDetails={goDetails} />
+          <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
-            onAction={handleTripAction} onDetails={trip => router.push(`/trip/${trip.trip_id}`)} />
-          {/* No active trip and 2+ scheduled: keep the second visible too —
-              the first carries NEXT TRIP, this one THEN; neither claims to be
-              the current trip. Chronological (server) order is preserved. */}
-          {!activeTrip && secondNext ? <DriverTripCard trip={secondNext} variant="then" confirmed={tripsSyncedAt != null}
+            onAction={handleTripAction} onDetails={goDetails} />
+        </> : <>
+          {activeTrip ? <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
-            onAction={handleTripAction} onDetails={trip => router.push(`/trip/${trip.trip_id}`)} /> : null}
-        </>}
+            trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
+            onAction={handleTripAction} onDetails={goDetails} /> : null}
+          <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
+          <UpcomingTripList trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
+            offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} />
+        </>)}
 
       </ScrollView>
 
@@ -539,46 +588,6 @@ export default function Home() {
 
 const styles = StyleSheet.create({
 root: { flex: 1 },
-topBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: moderateScale(16),
-    paddingBottom: moderateScale(10),
-  },
-iconBtn: {
-    width: 48,
-    height: 48,
-    borderRadius: moderateScale(12),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-bellBadge: {
-    position: "absolute",
-    top: -3,
-    right: -3,
-    minWidth: moderateScale(18),
-    height: moderateScale(18),
-    borderRadius: moderateScale(9),
-    paddingHorizontal: moderateScale(4),
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-  },
-bellBadgeText: {
-    fontFamily: fonts.displayBold,
-    fontSize: moderateScale(10),
-    lineHeight: moderateScale(13),
-  },
-avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: moderateScale(12),
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-  },
-avatarText: { letterSpacing: 0.5 },
 pressed: { opacity: 0.75 },
 scroll: {
     paddingHorizontal: moderateScale(16),
