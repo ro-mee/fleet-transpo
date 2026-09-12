@@ -15,15 +15,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { useSettings } from "../../lib/settings-context";
 import ClayScreenHeader from "../../components/ClayScreenHeader";
-import { clayMaterials } from "../../lib/clay";
+import { ClayCard, ClayButton, ClayTile } from "../../components/clay";
+import { pillEdges } from "../../lib/clay";
 import { moderateScale } from "../../lib/scaling";
 import { fonts } from "../../lib/theme";
 
 export default function SettingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, preference, setColorScheme, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const { colors, preference, setColorScheme, type, scheme, isDark } = useTheme();
+  const isDarkTheme = isDark ?? (scheme === "dark");
   const { width: windowWidth } = useWindowDimensions();
   const wide = windowWidth >= 768;
 
@@ -50,14 +51,6 @@ export default function SettingsScreen() {
     }
   };
 
-  // Clay card frame shared by every section below. Rows carry their own
-  // padding; the card only supplies the raised surface + curve.
-  const sectionCard = [
-    styles.sectionCard,
-    mats.compactShade,
-    { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
-  ];
-
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ClayScreenHeader title="Settings" onBack={goBack} />
@@ -71,16 +64,14 @@ export default function SettingsScreen() {
       >
         {/* DISPLAY SECTION */}
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>DISPLAY</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
 
-          <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "40" }]}>
+          <View style={[styles.themeBlock, { borderBottomWidth: 1, borderBottomColor: isDarkTheme ? colors.outlineVariant + "40" : "transparent" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="moon" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="moon" size="sm" variant="surface" />
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Theme</Text>
             </View>
-            <View style={styles.segment}>
+            <View style={[styles.segment, { backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: isDarkTheme ? 'rgba(255,255,255,0.06)' : colors.outlineVariant + '30' }]}>
               {[
                 { key: 'system', label: 'System' },
                 { key: 'light', label: 'Light' },
@@ -93,21 +84,19 @@ export default function SettingsScreen() {
                     onPress={() => setColorScheme(opt.key)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
-                    style={({ pressed }) => [
+                    style={[
                       styles.segmentOption,
-                      active && mats.clayPill,
                       active && {
                         backgroundColor: colors.primary,
                         shadowColor: colors.shadow,
-                        shadowOffset: { width: 0, height: 3 },
-                        shadowOpacity: 0.14,
+                        shadowOpacity: isDarkTheme ? 0.3 : 0.12,
+                        shadowOffset: { width: 0, height: 2 },
                         shadowRadius: 4,
                         elevation: 2,
                       },
-                      !active && pressed && { opacity: 0.7 },
                     ]}
                   >
-                    <Text style={[type.labelLg, { color: active ? colors.onPrimary : colors.onSurfaceVariant }]}>
+                    <Text style={[type.labelLg, { color: active ? colors.onPrimary : colors.onSurfaceVariant, fontWeight: active ? '600' : '500' }]}>
                       {opt.label}
                     </Text>
                   </Pressable>
@@ -116,11 +105,9 @@ export default function SettingsScreen() {
             </View>
           </View>
 
-          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "40" }]}>
+          <Pressable onPress={openTextSizeModal} style={[styles.row, { borderBottomWidth: 1, borderBottomColor: isDarkTheme ? colors.outlineVariant + "40" : "transparent" }]}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="text" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="text" size="sm" variant="surface" />
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>Text Size</Text>
             </View>
             <View style={styles.rowRight}>
@@ -133,19 +120,17 @@ export default function SettingsScreen() {
 
           <View style={styles.row}>
             <View style={styles.rowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="contrast" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="contrast" size="sm" variant="surface" />
               <Text style={[type.bodyMd, { color: colors.onSurface }]}>High Contrast Mode</Text>
             </View>
             <Switch
               value={settings.highContrast}
               onValueChange={(val) => updateSetting('highContrast', val)}
-              trackColor={{ false: colors.surfaceContainerHigh, true: colors.primary }}
-              thumbColor={"white"}
+              trackColor={{ false: colors.surfaceContainerHighest, true: colors.primary }}
+              thumbColor={colors.surfaceBright || "#FFFFFF"}
             />
           </View>
-        </View>
+        </ClayCard>
 
       </ScrollView>
 
@@ -156,13 +141,14 @@ export default function SettingsScreen() {
         onRequestClose={() => setTextSizeModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard variant="standard" style={styles.modalContent}>
             <Text style={[type.titleLg, { color: colors.onSurface, marginBottom: 16 }]}>Select Text Size</Text>
             {['small', 'medium', 'large'].map((size) => (
               <Pressable
                 key={size}
                 style={[
                   styles.modalOption,
+                  pillEdges(isDarkTheme),
                   tempTextSize === size && { backgroundColor: colors.surfaceContainerHigh }
                 ]}
                 onPress={() => setTempTextSize(size)}
@@ -176,14 +162,20 @@ export default function SettingsScreen() {
               </Pressable>
             ))}
             <View style={styles.modalActions}>
-              <Pressable onPress={() => setTextSizeModalVisible(false)} style={[styles.modalBtn, mats.clayCta, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow }]}>
-                <Text style={[type.labelLg, { color: colors.onSurface }]}>Cancel</Text>
-              </Pressable>
-              <Pressable onPress={confirmTextSize} style={[styles.modalBtn, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
-                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Confirm</Text>
-              </Pressable>
+              <ClayButton
+                label="Cancel"
+                variant="tonal"
+                onPress={() => setTextSizeModalVisible(false)}
+                style={{ flex: 1 }}
+              />
+              <ClayButton
+                label="Confirm"
+                variant="primary"
+                onPress={confirmTextSize}
+                style={{ flex: 1 }}
+              />
             </View>
-          </View>
+          </ClayCard>
         </View>
       </Modal>
     </View>
@@ -225,13 +217,6 @@ const styles = StyleSheet.create({
     gap: 12,
     flexShrink: 1,
   },
-  iconTile: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   rowRight: {
     flexDirection: "row",
     alignItems: "center",
@@ -241,18 +226,15 @@ const styles = StyleSheet.create({
   segment: {
     flexDirection: "row",
     marginTop: 10,
-    gap: 6,
+    borderRadius: 14,
+    padding: 4,
+    gap: 4,
   },
-  // The active segment overlays mats.clayPill + a shadow/background block
-  // via `active && {...}`. Those keys must exist here too (as neutral
-  // defaults) so a segment losing selection explicitly resets them — RN
-  // doesn't reliably clear a style prop that merely disappears from the
-  // style array, which left stale borders/shadows on the deselected pill.
   segmentOption: {
     flex: 1,
-    paddingVertical: 9,
+    paddingVertical: 8,
     paddingHorizontal: 0,
-    borderRadius: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 0,
@@ -291,14 +273,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 24,
     gap: 12,
-  },
-  modalBtn: {
-    flex: 1,
-    minHeight: 48,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 18,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });

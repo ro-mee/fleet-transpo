@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,9 +7,9 @@ import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth";
 import { AppAlert } from "../../components/AppAlert";
 import ClayScreenHeader from "../../components/ClayScreenHeader";
-import { clayMaterials } from "../../lib/clay";
+import { ClayBadge, ClayButton, ClayCard, ClayTile } from "../../components/clay";
 import { apiFetch } from "../../lib/api";
-import { TOUCH_TARGET, fonts } from "../../lib/theme";
+import { fonts } from "../../lib/theme";
 
 function formatDate(dateString) {
   if (!dateString) return "Unknown";
@@ -30,7 +30,7 @@ export default function LoggedInDevicesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const isDark = scheme === "dark";
   const { clearAuth } = useAuth();
 
   const [sessions, setSessions] = useState([]);
@@ -107,21 +107,17 @@ export default function LoggedInDevicesScreen() {
         </View>
       ) : error ? (
         <View style={styles.centerContainer}>
+          <ClayTile icon="alert-circle-outline" size={56} variant="danger" style={{ marginBottom: 12 }} />
           <Text style={[type.bodyMd, { color: colors.error, textAlign: 'center', marginBottom: 16 }]}>{error}</Text>
-          <Pressable
-            style={({ pressed }) => [
-              styles.retryBtn,
-              mats.clayCta,
-              { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
-            ]}
+          <ClayButton
+            label="Try Again"
+            variant="primary"
             onPress={fetchSessions}
-          >
-            <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try Again</Text>
-          </Pressable>
+          />
         </View>
       ) : sessions.length === 0 ? (
         <View style={styles.centerContainer}>
-          <Ionicons name="desktop-outline" size={64} color={colors.outline} style={{ marginBottom: 16 }} />
+          <ClayTile icon="desktop-outline" size={56} variant="surface" style={{ marginBottom: 16 }} />
           <Text style={[type.titleMd, { color: colors.onSurface }]}>No logged-in devices</Text>
           <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, textAlign: 'center', marginTop: 8 }]}>
             You currently have no active sessions.
@@ -142,7 +138,7 @@ export default function LoggedInDevicesScreen() {
                   session={session}
                   colors={colors}
                   type={type}
-                  mats={mats}
+                  isDark={isDark}
                   isRevoking={revoking === session.id}
                   onRevoke={() => handleRevoke(session)}
                 />
@@ -159,7 +155,7 @@ export default function LoggedInDevicesScreen() {
                   session={session}
                   colors={colors}
                   type={type}
-                  mats={mats}
+                  isDark={isDark}
                   isRevoking={revoking === session.id}
                   onRevoke={() => handleRevoke(session)}
                 />
@@ -172,22 +168,23 @@ export default function LoggedInDevicesScreen() {
   );
 }
 
-function SessionCard({ session, colors, type, mats, isRevoking, onRevoke }) {
+function SessionCard({ session, colors, type, isDark, isRevoking, onRevoke }) {
   const isCurrent = session.is_current || session.current;
   const isMobile = session.kind === 'mobile';
   const IconName = isMobile ? 'phone-portrait-outline' : 'laptop-outline';
 
   return (
-    <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+    <ClayCard variant="standard" style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
-          <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-            <Ionicons name={IconName} size={20} color={colors.onPrimaryContainer} />
-          </View>
-          <Text style={[type.titleMd, { color: colors.onSurface }]} numberOfLines={1}>
+          <ClayTile icon={IconName} size={38} variant="primary" />
+          <Text style={[type.titleMd, { color: colors.onSurface, flex: 1 }]} numberOfLines={1}>
             {session.device || "Unknown Device"}
           </Text>
         </View>
+        {isCurrent && (
+          <ClayBadge label="This device" variant="primary" dot size="sm" />
+        )}
       </View>
 
       <View style={styles.cardBody}>
@@ -213,35 +210,20 @@ function SessionCard({ session, colors, type, mats, isRevoking, onRevoke }) {
             </Text>
           </View>
         )}
-
-        {isCurrent && (
-          <View style={[styles.infoRow, { marginTop: 4 }]}>
-            <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
-            <Text style={[type.labelLg, { color: colors.primary, marginLeft: 8 }]}>This device</Text>
-          </View>
-        )}
       </View>
 
-      <View style={[styles.cardFooter, { borderTopColor: colors.outlineVariant + "55" }]}>
-        <Pressable
-          style={({ pressed }) => [
-            styles.actionBtn,
-            mats.clayCta,
-            { backgroundColor: colors.errorContainer, shadowColor: colors.shadow, opacity: pressed ? 0.7 : 1 },
-          ]}
-          onPress={onRevoke}
+      <View style={[styles.cardFooter, { borderTopColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
+        <ClayButton
+          label="Sign Out"
+          variant="danger"
+          size="md"
+          loading={isRevoking}
           disabled={isRevoking}
-          accessibilityRole="button"
+          onPress={onRevoke}
           accessibilityLabel={`Sign out ${session.device || "device"}`}
-        >
-          {isRevoking ? (
-            <ActivityIndicator size="small" color={colors.onErrorContainer} />
-          ) : (
-            <Text style={[type.labelLg, { color: colors.onErrorContainer }]}>Sign Out</Text>
-          )}
-        </Pressable>
+        />
       </View>
-    </View>
+    </ClayCard>
   );
 }
 
@@ -252,12 +234,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-  },
-  retryBtn: {
-    paddingHorizontal: 24,
-    paddingVertical: 10,
-    alignItems: "center",
-    justifyContent: "center",
   },
   scroll: {
     paddingHorizontal: 18,
@@ -274,7 +250,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
   },
   card: {
-    borderRadius: 30,
     padding: 20,
     marginBottom: 12,
     gap: 12,
@@ -290,13 +265,6 @@ const styles = StyleSheet.create({
     gap: 12,
     flex: 1,
   },
-  iconTile: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   cardBody: {
     gap: 8,
   },
@@ -307,10 +275,5 @@ const styles = StyleSheet.create({
   cardFooter: {
     borderTopWidth: 1,
     paddingTop: 14,
-  },
-  actionBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
   },
 });

@@ -4,17 +4,15 @@ import {
   StyleSheet,
   Text,
   View,
-  Pressable,
   RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useNotificationFeed } from "../../../context/notification-feed";
 import { mobileNotificationTarget } from "../../../lib/notifications/navigation";
 import { SkeletonCard } from "../../../components/ui";
+import { ClayCard, ClayTile, ClayBadge, ClayButton } from "../../../components/clay";
 
 const NOTIF_TYPE_ICONS = {
   trip_assigned: { icon: "car", color: "primary" },
@@ -32,8 +30,8 @@ const REFERENCE_TYPE_ICONS = {
   maintenance: { icon: "build", color: "warning" },
 };
 
-function NotifCard({ notif, colors, onPress }) {
-  const { type } = useTheme();
+function NotifCard({ notif, onPress }) {
+  const { colors, type } = useTheme();
   const typeInfo =
     NOTIF_TYPE_ICONS[notif.type] ||
     REFERENCE_TYPE_ICONS[notif.reference_type] ||
@@ -58,41 +56,33 @@ function NotifCard({ notif, colors, onPress }) {
     : "";
 
   return (
-    <Pressable
+    <ClayCard
       onPress={() => onPress && onPress(notif)}
-      accessibilityRole="button"
+      variant="compact"
       accessibilityLabel={`${notif.title || "Notification"}. ${notif.message || notif.body || ""}`}
-      style={({ pressed }) => [
-        styles.notifCard,
-        {
-          backgroundColor: notif.is_read
-            ? colors.surfaceContainerLowest
-            : colors.surfaceContainerLow,
-          borderColor: notif.is_read ? colors.outlineVariant : colors.outline,
-          opacity: pressed ? 0.8 : 1,
-        },
-      ]}
+      style={styles.cardSpacing}
     >
-      {!notif.is_read && (
-        <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
-      )}
-      <View style={[styles.notifIconBox, { backgroundColor: bgColor }]}>
-        <Ionicons name={typeInfo.icon} size={22} color={iconColor} />
-      </View>
-      <View style={styles.notifContent}>
-        <View style={styles.notifRow}>
-          <Text style={[type.labelLg, styles.notifTitle, { color: colors.onSurface }]} numberOfLines={1}>
-            {notif.title || "Notification"}
+      <View style={styles.notifCardInner}>
+        {!notif.is_read && (
+          <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />
+        )}
+        <ClayTile icon={typeInfo.icon} size="md" color={iconColor} backgroundColor={bgColor} />
+        <View style={styles.notifContent}>
+          <View style={styles.notifRow}>
+            <Text style={[type.labelLg, styles.notifTitle, { color: colors.onSurface }]} numberOfLines={1}>
+              {notif.title || "Notification"}
+            </Text>
+            <Text style={[type.caption, styles.notifTime, { color: colors.onSurfaceVariant }]}>{timeStr}</Text>
+          </View>
+          <Text style={[type.bodyMd, styles.notifBody, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
+            {notif.message || notif.body}
           </Text>
-          <Text style={[type.caption, styles.notifTime, { color: colors.onSurfaceVariant }]}>{timeStr}</Text>
         </View>
-        <Text style={[type.bodyMd, styles.notifBody, { color: colors.onSurfaceVariant }]} numberOfLines={2}>
-          {notif.message || notif.body}
-        </Text>
       </View>
-    </Pressable>
+    </ClayCard>
   );
 }
+
 
 export default function NotificationsTab() {
   const insets = useSafeAreaInsets();
@@ -141,22 +131,17 @@ export default function NotificationsTab() {
           <View style={styles.titleBlock}>
             <Text style={[type.titleLg, styles.pageTitle, { color: colors.onSurface }]}>Alerts</Text>
             {unreadCount > 0 && (
-              <View style={[styles.badge, { backgroundColor: colors.error }]}>
-                <Text style={[type.labelMd, styles.badgeText, { color: colors.onError }]}>{unreadCount}</Text>
-              </View>
+              <ClayBadge label={String(unreadCount)} tone="danger" size="sm" />
             )}
           </View>
         </View>
         {unreadCount > 0 && (
-          <Pressable
+          <ClayButton
+            label="Mark all read"
             onPress={markAllRead}
-            hitSlop={8}
-            accessibilityRole="button"
-            accessibilityLabel="Mark all notifications as read"
-            style={styles.markReadBtn}
-          >
-            <Text style={[type.labelLg, styles.markRead, { color: colors.primary }]}>Mark all read</Text>
-          </Pressable>
+            variant="tonal"
+            size="sm"
+          />
         )}
       </View>
 
@@ -179,9 +164,7 @@ export default function NotificationsTab() {
           </>
         ) : notifications.length === 0 ? (
           <View style={styles.emptyBox}>
-            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "success").bg }]}>
-              <Ionicons name="notifications-off-outline" size={24} color={statusColorForTone(colors, "success").fg} />
-            </View>
+            <ClayTile icon="notifications-off-outline" size="lg" backgroundColor={colors.surfaceContainerLow} />
             <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>All Caught Up</Text>
             <Text style={[type.bodyMd, styles.emptyText, { color: colors.onSurfaceVariant }]}>
               No notifications at this time.
@@ -193,7 +176,7 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>TODAY</Text>
                 {todayNotifs.map((n) => (
-                  <NotifCard key={n.notification_id || n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                  <NotifCard key={n.notification_id || n.id} notif={n} onPress={handleNotifPress} />
                 ))}
               </>
             )}
@@ -201,7 +184,7 @@ export default function NotificationsTab() {
               <>
                 <Text style={[type.labelMd, styles.groupLabel, { color: colors.onSurfaceVariant }]}>EARLIER</Text>
                 {earlierNotifs.map((n) => (
-                  <NotifCard key={n.notification_id || n.id} notif={n} colors={colors} onPress={handleNotifPress} />
+                  <NotifCard key={n.notification_id || n.id} notif={n} onPress={handleNotifPress} />
                 ))}
               </>
             )}
@@ -230,21 +213,6 @@ const styles = StyleSheet.create({
   topBarBrand: { },
   titleBlock: { flexDirection: "row", alignItems: "center", gap: moderateScale(8) },
   pageTitle: { },
-  badge: {
-    paddingHorizontal: moderateScale(8),
-    paddingVertical: moderateScale(2),
-    borderRadius: moderateScale(999),
-    minWidth: moderateScale(20),
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeText: { },
-  markReadBtn: {
-    minHeight: TOUCH_TARGET,
-    justifyContent: "center",
-    paddingHorizontal: moderateScale(4),
-  },
-  markRead: { },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(8) },
   groupLabel: {
     letterSpacing: 1,
@@ -252,38 +220,23 @@ const styles = StyleSheet.create({
     marginTop: moderateScale(8),
     marginBottom: moderateScale(4),
   },
-  emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(8) },
-  emptyTile: { width: moderateScale(52), height: moderateScale(52), borderRadius: moderateScale(16), alignItems: "center", justifyContent: "center" },
+  cardSpacing: { marginBottom: moderateScale(4) },
+  emptyBox: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(12) },
   emptyTitle: { },
   emptyText: { textAlign: "center" },
-  notifCard: {
+  notifCardInner: {
     flexDirection: "row",
     alignItems: "flex-start",
-    borderRadius: moderateScale(12),
-    borderWidth: 1,
-    padding: moderateScale(14),
     gap: moderateScale(12),
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
     position: "relative",
   },
   unreadDot: {
     position: "absolute",
-    top: moderateScale(14),
-    left: moderateScale(8),
-    width: moderateScale(6),
-    height: moderateScale(6),
-    borderRadius: moderateScale(3),
-  },
-  notifIconBox: {
-    width: moderateScale(44),
-    height: moderateScale(44),
-    borderRadius: moderateScale(22),
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
+    top: moderateScale(2),
+    left: -moderateScale(6),
+    width: moderateScale(7),
+    height: moderateScale(7),
+    borderRadius: moderateScale(4),
   },
   notifContent: { flex: 1, gap: moderateScale(4) },
   notifRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
@@ -291,3 +244,4 @@ const styles = StyleSheet.create({
   notifTime: { marginLeft: moderateScale(8) },
   notifBody: { },
 });
+

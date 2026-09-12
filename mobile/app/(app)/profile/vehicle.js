@@ -8,7 +8,7 @@ import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayTile } from "../../../components/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -22,8 +22,7 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function VehicleInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const { colors, type } = useTheme();
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently (the global offline banner is enough on Profile screens).
@@ -48,7 +47,7 @@ export default function VehicleInformation() {
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
         {vehicle ? (
-          <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
             {vehicle.imageUrl ? (
               <Image
                 source={{ uri: vehicle.imageUrl }}
@@ -73,17 +72,20 @@ export default function VehicleInformation() {
                 isLast={true}
               />
             </View>
-          </View>
+          </ClayCard>
         ) : (
-          <View style={[styles.emptyBox, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-            <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
-              <Ionicons name="car-outline" size={24} color={statusColorForTone(colors, "neutral").fg} />
-            </View>
+          <ClayCard variant="standard" style={styles.emptyBox}>
+            <ClayTile
+              icon="car-outline"
+              size="lg"
+              backgroundColor={statusColorForTone(colors, "neutral").bg}
+              color={statusColorForTone(colors, "neutral").fg}
+            />
             <Text style={[type.titleLg, styles.emptyTitle, { color: colors.onSurface }]}>No vehicle assigned</Text>
             <Text style={[type.bodyMd, styles.emptySubtitle, { color: colors.onSurfaceVariant }]}>
               You do not have a vehicle actively assigned to you at this time.
             </Text>
-          </View>
+          </ClayCard>
         )}
       </ScrollView>
     </View>
@@ -95,10 +97,6 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 18, paddingTop: 14, gap: 24 },
 
-  sectionCard: {
-    borderRadius: 30,
-    overflow: "hidden",
-  },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -114,11 +112,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     padding: 32,
-    borderRadius: 30,
     gap: 8,
   },
   emptyTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold, marginTop: 8 },
-  emptyTile: { width: 52, height: 52, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   emptySubtitle: { fontSize: 14, fontFamily: fonts.body, textAlign: "center", lineHeight: 20 },
 
   vehicleImage: {

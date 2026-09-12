@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  InteractionManager,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -8,10 +9,8 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
-import { InteractionManager } from "react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -23,6 +22,7 @@ import { useConnectivity } from "../../lib/connectivity-context";
 import { SyncNote, NeverSyncedCard } from "../../components/OfflineStates";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
+import { ClayBadge, ClayButton, ClayCard, ClayInput, ClayTile } from "../../components/clay";
 import { AppAlert } from "../../components/AppAlert";
 import { notify } from "../../lib/notifications/notify";
 
@@ -47,7 +47,8 @@ function formatDate(value) {
 export default function WorkScheduleScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors } = useTheme();
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
   const [view, setView] = useState("schedule");
   const [schedule, setSchedule] = useState([]);
   const [leaves, setLeaves] = useState([]);
@@ -152,10 +153,14 @@ export default function WorkScheduleScreen() {
     setRefreshing(false);
   }, [driverId]);
 
-  useFocusEffect(useCallback(() => {
-    const task = InteractionManager.runAfterInteractions(() => { load(); });
-    return () => task?.cancel?.();
-  }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => {
+        load();
+      });
+      return () => task?.cancel?.();
+    }, [load])
+  );
 
   const submitLeave = async () => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
@@ -199,21 +204,33 @@ export default function WorkScheduleScreen() {
           <Text style={[styles.eyebrow, { color: colors.primary }]}>DRIVER WORKSPACE</Text>
           <Text style={[styles.title, { color: colors.onSurface }]}>Work schedule</Text>
         </View>
-        <View style={[styles.headerIcon, { backgroundColor: colors.primaryContainer }]}>
-          <Ionicons name="calendar-outline" size={21} color={colors.onPrimaryContainer} />
-        </View>
       </View>
 
-      <View style={[styles.segmented, { backgroundColor: colors.surfaceContainerHigh }]}>
-        {[{ id: "schedule", label: "My schedule" }, { id: "leave", label: "Leave requests" }].map((item) => (
-          <Pressable
-            key={item.id}
-            onPress={() => setView(item.id)}
-            style={[styles.segment, view === item.id && { backgroundColor: colors.surfaceContainerLowest }]}
-          >
-            <Text style={[styles.segmentText, { color: view === item.id ? colors.onSurface : colors.onSurfaceVariant }]}>{item.label}</Text>
-          </Pressable>
-        ))}
+      <View style={[styles.segmented, { backgroundColor: colors.surfaceContainer, borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.06)' : colors.outlineVariant + '30' }]}>
+        {[{ id: "schedule", label: "My schedule" }, { id: "leave", label: "Leave requests" }].map((item) => {
+          const active = view === item.id;
+          return (
+            <Pressable
+              key={item.id}
+              onPress={() => setView(item.id)}
+              style={[
+                styles.segment,
+                active && {
+                  backgroundColor: colors.primary,
+                  shadowColor: colors.shadow,
+                  shadowOpacity: isDark ? 0.3 : 0.12,
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowRadius: 4,
+                  elevation: 2,
+                },
+              ]}
+            >
+              <Text style={[styles.segmentText, { color: active ? colors.onPrimary : colors.onSurfaceVariant, fontWeight: active ? '600' : '500' }]}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
 
       <ScrollView
@@ -224,29 +241,32 @@ export default function WorkScheduleScreen() {
       >
         {loading ? <ActivityIndicator size="large" color={colors.primary} style={styles.loader} /> : error ? (
           <View style={styles.empty}>
-            <Ionicons name="cloud-offline-outline" size={40} color={colors.onSurfaceVariant} />
+            <ClayTile icon="cloud-offline-outline" size={56} variant="danger" />
             <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>{error}</Text>
-            <Pressable onPress={load} style={[styles.retry, { backgroundColor: colors.primary }]}><Text style={{ color: colors.onPrimary, fontFamily: fonts.bodySemiBold }}>Try again</Text></Pressable>
+            <ClayButton label="Try again" variant="primary" onPress={load} style={{ marginTop: 8 }} />
           </View>
         ) : view === "schedule" ? (
           <View style={styles.contentGap}>
-            <View style={[styles.hero, { backgroundColor: colors.primary }]}>
-              {/* onPrimary-alpha overlays (not literal white): dark mode's
-                  primary is pale sage, where white text/chips wash out. */}
-              <View style={[styles.heroIcon, { backgroundColor: colors.onPrimary + "29" }]}><Ionicons name="time-outline" size={23} color={colors.onPrimary} /></View>
+            <ClayCard variant="hero" style={[styles.hero, { backgroundColor: isDark ? '#1B473A' : colors.primary }]}>
+              <ClayTile icon="time-outline" size={44} color="#FFFFFF" backgroundColor="rgba(255,255,255,0.18)" />
               <View style={styles.heroText}>
-                <Text style={[styles.heroLabel, { color: colors.onPrimary }]}>WEEKLY RHYTHM</Text>
-                <Text style={[styles.heroTitle, { color: colors.onPrimary }]}>Know your next shift.</Text>
-                <Text style={[styles.heroBody, { color: colors.onPrimary + "C2" }]}>Your schedule is managed by the fleet team and syncs with the website.</Text>
+                <Text style={[styles.heroLabel, { color: 'rgba(255,255,255,0.75)' }]}>WEEKLY RHYTHM</Text>
+                <Text style={[styles.heroTitle, { color: '#FFFFFF', fontWeight: '700' }]}>Know your next shift.</Text>
+                <Text style={[styles.heroBody, { color: 'rgba(255,255,255,0.90)' }]}>
+                  Your schedule is managed by the fleet team and syncs with the website.
+                </Text>
               </View>
-            </View>
+            </ClayCard>
             {offline && scheduleSyncedAt == null ? (
               // State 3: offline on a never-synced device — a dedicated card,
               // not day rows pretending to be data.
               <NeverSyncedCard body="Connect once while online to save your schedule for offline viewing." />
             ) : (
-              <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
-                <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>Weekly work schedule</Text><Ionicons name="calendar-clear-outline" size={19} color={colors.primary} /></View>
+              <ClayCard variant="standard" style={styles.panel}>
+                <View style={styles.panelHeader}>
+                  <Text style={[styles.panelTitle, { color: colors.onSurface }]}>Weekly work schedule</Text>
+                  <ClayTile icon="calendar-clear-outline" size={32} variant="surface" />
+                </View>
                 {offline && scheduleSyncedAt != null ? (
                   // State 1: cached rows + one contextual inline note. Microcopy
                   // under the title — the global banner already says "You're
@@ -257,33 +277,177 @@ export default function WorkScheduleScreen() {
                   const day = byDay.get(dayId);
                   const isToday = today === dayId;
                   return (
-                    <View key={dayId} style={[styles.dayRow, { borderBottomColor: colors.outlineVariant + "55" }, isToday && { backgroundColor: colors.primaryContainer }]}>
-                      <View style={styles.dayNameWrap}><View style={[styles.dayDot, { backgroundColor: isToday ? colors.primary : colors.outlineVariant }]} /><Text style={[styles.dayName, { color: colors.onSurface }]}>{DAYS[dayId]}</Text>{isToday ? <Text style={[styles.today, { color: colors.primary }]}>TODAY</Text> : null}</View>
-                      {day?.is_rest_day ? <Text style={[styles.rest, { color: colors.secondary }]}>Rest day</Text> : day?.shift_start ? <Text style={[styles.shift, { color: colors.onSurface }]}>{formatTime(day.shift_start)} - {formatTime(day.shift_end)}</Text> : <Text style={[styles.noSchedule, { color: colors.onSurfaceVariant }]}>No schedule</Text>}
+                    <View
+                      key={dayId}
+                      style={[
+                        styles.dayRow,
+                        { borderBottomColor: isDark ? 'rgba(255,255,255,0.06)' : colors.outlineVariant + '40' },
+                        isToday && { backgroundColor: isDark ? 'rgba(40, 95, 80, 0.28)' : colors.primaryContainer + '70', borderRadius: moderateScale(10), marginHorizontal: moderateScale(2) },
+                      ]}
+                    >
+                      <View style={styles.dayNameWrap}>
+                        <View style={[styles.dayDot, { backgroundColor: isToday ? colors.primary : colors.outlineVariant }]} />
+                        <Text style={[styles.dayName, { color: colors.onSurface, fontWeight: isToday ? '600' : '400' }]}>{DAYS[dayId]}</Text>
+                        {isToday ? <ClayBadge label="TODAY" tone="primary" size="sm" /> : null}
+                      </View>
+                      {day?.is_rest_day ? (
+                        <ClayBadge label="Rest day" tone="neutral" size="sm" />
+                      ) : day?.shift_start ? (
+                        <View style={[styles.timeBadge, { backgroundColor: colors.surfaceContainerHigh, borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.outlineVariant + '50' }]}>
+                          <Text style={[styles.timeText, { color: colors.onSurface }]}>
+                            {formatTime(day.shift_start)} – {formatTime(day.shift_end)}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Text style={[styles.noSchedule, { color: colors.onSurfaceVariant }]}>No schedule</Text>
+                      )}
                     </View>
                   );
                 })}
-                {!schedule.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>{scheduleSyncedAt != null ? "No schedule assigned yet." : "No offline data available. Connect once to save your schedule for offline viewing."}</Text> : null}
-              </View>
+                {!schedule.length ? (
+                  <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>
+                    {scheduleSyncedAt != null
+                      ? "No schedule assigned yet."
+                      : "No offline data available. Connect once to save your schedule for offline viewing."}
+                  </Text>
+                ) : null}
+              </ClayCard>
             )}
           </View>
         ) : (
           <View style={styles.contentGap}>
-            {balances.length > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.balanceRow}>{balances.map((balance) => <View key={balance.leave_type} style={[styles.balanceChip, { backgroundColor: colors.secondaryContainer }]}><Text style={[styles.balanceText, { color: colors.onSecondaryContainer }]}>{balance.leave_type} {balance.used_days}/{balance.allocated_days}</Text></View>)}</ScrollView> : null}
-            <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
-              <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>Request time off</Text><Ionicons name="send-outline" size={19} color={colors.primary} /></View>
-              <Text style={[styles.helper, { color: colors.onSurfaceVariant }]}>Requests stay pending until your fleet manager approves them.</Text>
-              <View style={styles.dateRow}><View style={styles.field}><Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>START DATE</Text><TextInput value={startDate} onChangeText={setStartDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.outline} style={[styles.input, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, color: colors.onSurface }]} keyboardType="numbers-and-punctuation" /></View><View style={styles.field}><Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>END DATE</Text><TextInput value={endDate} onChangeText={setEndDate} placeholder="YYYY-MM-DD" placeholderTextColor={colors.outline} style={[styles.input, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, color: colors.onSurface }]} keyboardType="numbers-and-punctuation" /></View></View>
+            {balances.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.balanceRow}>
+                {balances.map((balance) => (
+                  <ClayBadge
+                    key={balance.leave_type}
+                    label={`${balance.leave_type} ${balance.used_days}/${balance.allocated_days}`}
+                    variant="secondary"
+                    size="md"
+                  />
+                ))}
+              </ScrollView>
+            ) : null}
+            <ClayCard variant="standard" style={styles.panel}>
+              <View style={styles.panelHeader}>
+                <Text style={[styles.panelTitle, { color: colors.onSurface }]}>Request time off</Text>
+                <ClayTile icon="send-outline" size={32} variant="surface" />
+              </View>
+              <Text style={[styles.helper, { color: colors.onSurfaceVariant }]}>
+                Requests stay pending until your fleet manager approves them.
+              </Text>
+              <View style={styles.dateRow}>
+                <View style={{ flex: 1 }}>
+                  <ClayInput
+                    label="START DATE"
+                    value={startDate}
+                    onChangeText={setStartDate}
+                    placeholder="YYYY-MM-DD"
+                    keyboardType="numbers-and-punctuation"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <ClayInput
+                    label="END DATE"
+                    value={endDate}
+                    onChangeText={setEndDate}
+                    placeholder="YYYY-MM-DD"
+                    keyboardType="numbers-and-punctuation"
+                  />
+                </View>
+              </View>
               <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>LEAVE TYPE</Text>
-              <View style={styles.leaveTypes}>{LEAVE_TYPES.map((item) => <Pressable key={item} onPress={() => setLeaveType(item)} style={[styles.leaveType, { borderColor: leaveType === item ? colors.primary : colors.outlineVariant, backgroundColor: leaveType === item ? colors.primaryContainer : colors.surfaceContainerLow }]}><Text style={[styles.leaveTypeText, { color: leaveType === item ? colors.onPrimaryContainer : colors.onSurfaceVariant }]}>{item}</Text></Pressable>)}</View>
-              <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>REASON <Text style={{ fontFamily: fonts.body }}>OPTIONAL</Text></Text>
-              <TextInput value={reason} onChangeText={setReason} placeholder="Add context for your manager" placeholderTextColor={colors.outline} style={[styles.reason, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, color: colors.onSurface }]} multiline textAlignVertical="top" />
-              <Pressable disabled={submitting} onPress={submitLeave} style={({ pressed }) => [styles.submit, { backgroundColor: colors.primary }, pressed && styles.pressed, submitting && { opacity: 0.65 }]}><Text style={[styles.submitText, { color: colors.onPrimary }]}>{submitting ? "Submitting..." : "Submit leave request"}</Text><Ionicons name="arrow-forward" size={18} color={colors.onPrimary} /></Pressable>
-            </View>
-            <View style={[styles.panel, { backgroundColor: colors.surfaceContainerLowest }]}>
-              <View style={styles.panelHeader}><Text style={[styles.panelTitle, { color: colors.onSurface }]}>My requests</Text><Ionicons name="list-outline" size={19} color={colors.primary} /></View>
-              {!leaves.length ? <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>{offline && leavesSyncedAt == null ? "No offline data yet. Connect once to save your requests." : "Leave requests you submit will appear here."}</Text> : leaves.map((leave) => <View key={leave.leave_request_id} style={[styles.leaveRow, { borderBottomColor: colors.outlineVariant + "55" }]}><View style={styles.leaveInfo}><Text style={[styles.leaveDate, { color: colors.onSurface }]}>{formatDate(leave.start_date)} - {formatDate(leave.end_date)}</Text><Text style={[styles.leaveMeta, { color: colors.onSurfaceVariant }]}>{leave.leave_type || "Leave"}{leave.reason ? ` · ${leave.reason}` : ""}</Text></View><Text style={[styles.status, { color: leave.status === "Approved" ? colors.success : leave.status === "Declined" ? colors.error : colors.secondary }]}>{leave.status}</Text></View>)}
-            </View>
+              <View style={styles.leaveTypes}>
+                {LEAVE_TYPES.map((item) => {
+                  const active = leaveType === item;
+                  return (
+                    <Pressable
+                      key={item}
+                      onPress={() => setLeaveType(item)}
+                      style={[
+                        styles.leaveType,
+                        active
+                          ? {
+                              backgroundColor: colors.primary,
+                              borderColor: colors.primary,
+                              shadowColor: colors.shadow,
+                              shadowOpacity: isDark ? 0.25 : 0.12,
+                              shadowOffset: { width: 0, height: 2 },
+                              shadowRadius: 4,
+                              elevation: 2,
+                            }
+                          : {
+                              backgroundColor: colors.surfaceContainer,
+                              borderColor: isDark ? 'rgba(255,255,255,0.08)' : colors.outlineVariant + '45',
+                            },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.leaveTypeText,
+                          { color: active ? colors.onPrimary : colors.onSurfaceVariant, fontWeight: active ? '600' : '500' },
+                        ]}
+                      >
+                        {item}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <ClayInput
+                label="REASON (OPTIONAL)"
+                value={reason}
+                onChangeText={setReason}
+                placeholder="Add context for your manager"
+                multiline
+                numberOfLines={3}
+              />
+              <ClayButton
+                label={submitting ? "Submitting..." : "Submit leave request"}
+                variant="primary"
+                icon="arrow-forward"
+                loading={submitting}
+                disabled={submitting}
+                onPress={submitLeave}
+              />
+            </ClayCard>
+            <ClayCard variant="standard" style={styles.panel}>
+              <View style={styles.panelHeader}>
+                <Text style={[styles.panelTitle, { color: colors.onSurface }]}>My requests</Text>
+                <ClayTile icon="list-outline" size={32} variant="surface" />
+              </View>
+              {!leaves.length ? (
+                <Text style={[styles.noFile, { color: colors.onSurfaceVariant }]}>
+                  {offline && leavesSyncedAt == null
+                    ? "No offline data yet. Connect once to save your requests."
+                    : "Leave requests you submit will appear here."}
+                </Text>
+              ) : (
+                leaves.map((leave) => (
+                  <View
+                    key={leave.leave_request_id}
+                    style={[
+                      styles.leaveRow,
+                      { borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" },
+                    ]}
+                  >
+                    <View style={styles.leaveInfo}>
+                      <Text style={[styles.leaveDate, { color: colors.onSurface }]}>
+                        {formatDate(leave.start_date)} - {formatDate(leave.end_date)}
+                      </Text>
+                      <Text style={[styles.leaveMeta, { color: colors.onSurfaceVariant }]}>
+                        {leave.leave_type || "Leave"}{leave.reason ? ` · ${leave.reason}` : ""}
+                      </Text>
+                    </View>
+                    <ClayBadge
+                      label={leave.status}
+                      tone={leave.status === "Approved" ? "success" : leave.status === "Declined" ? "danger" : "warning"}
+                      size="sm"
+                    />
+                  </View>
+                ))
+              )}
+            </ClayCard>
           </View>
         )}
       </ScrollView>
@@ -298,7 +462,6 @@ const styles = StyleSheet.create({
   headerText: { flex: 1, gap: moderateScale(2) },
   eyebrow: { fontFamily: fonts.dataSemiBold, fontSize: moderateScale(10), letterSpacing: 1.2 },
   title: { fontFamily: fonts.displayBold, fontSize: moderateScale(22), letterSpacing: -0.4 },
-  headerIcon: { width: moderateScale(42), height: moderateScale(42), borderRadius: moderateScale(14), alignItems: "center", justifyContent: "center" },
   segmented: { flexDirection: "row", marginHorizontal: moderateScale(16), marginTop: moderateScale(14), padding: moderateScale(4), borderRadius: moderateScale(14) },
   segment: { flex: 1, minHeight: moderateScale(42), borderRadius: moderateScale(11), alignItems: "center", justifyContent: "center" },
   segmentText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(13) },
@@ -306,7 +469,6 @@ const styles = StyleSheet.create({
   loader: { marginTop: moderateScale(60) },
   contentGap: { gap: moderateScale(14) },
   hero: { flexDirection: "row", borderRadius: moderateScale(20), padding: moderateScale(18), gap: moderateScale(13) },
-  heroIcon: { width: moderateScale(44), height: moderateScale(44), borderRadius: moderateScale(14), alignItems: "center", justifyContent: "center" },
   heroText: { flex: 1, gap: moderateScale(3) },
   heroLabel: { fontFamily: fonts.dataSemiBold, fontSize: moderateScale(10), letterSpacing: 1.2 },
   heroTitle: { fontFamily: fonts.displayBold, fontSize: moderateScale(20), letterSpacing: -0.3 },
@@ -318,32 +480,21 @@ const styles = StyleSheet.create({
   dayNameWrap: { flexDirection: "row", alignItems: "center", gap: moderateScale(8) },
   dayDot: { width: moderateScale(7), height: moderateScale(7), borderRadius: moderateScale(4) },
   dayName: { fontFamily: fonts.bodyMedium, fontSize: moderateScale(13) },
-  today: { fontFamily: fonts.dataSemiBold, fontSize: moderateScale(9), letterSpacing: 0.6 },
-  shift: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(12) },
-  rest: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(12) },
+  timeBadge: { height: moderateScale(28), paddingHorizontal: moderateScale(10), borderRadius: moderateScale(8), borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  timeText: { fontFamily: fonts.data, fontSize: moderateScale(11.5), letterSpacing: -0.2 },
   noSchedule: { fontFamily: fonts.body, fontSize: moderateScale(12), fontStyle: "italic" },
   noFile: { fontFamily: fonts.body, fontSize: moderateScale(13), lineHeight: moderateScale(20), textAlign: "center", paddingVertical: moderateScale(18) },
   balanceRow: { gap: moderateScale(8), paddingVertical: moderateScale(2) },
-  balanceChip: { borderRadius: moderateScale(10), paddingHorizontal: moderateScale(12), paddingVertical: moderateScale(8) },
-  balanceText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(11) },
   helper: { fontFamily: fonts.body, fontSize: moderateScale(12), lineHeight: moderateScale(18) },
   dateRow: { flexDirection: "row", gap: moderateScale(10) },
-  field: { flex: 1, gap: moderateScale(6) },
   fieldLabel: { fontFamily: fonts.dataSemiBold, fontSize: moderateScale(10), letterSpacing: 0.8 },
-  input: { minHeight: moderateScale(48), borderWidth: 1, borderRadius: moderateScale(12), paddingHorizontal: moderateScale(12), fontFamily: fonts.body, fontSize: moderateScale(12) },
   leaveTypes: { flexDirection: "row", gap: moderateScale(8) },
   leaveType: { flex: 1, minHeight: moderateScale(42), borderWidth: 1, borderRadius: moderateScale(11), alignItems: "center", justifyContent: "center" },
   leaveTypeText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(11) },
-  reason: { minHeight: moderateScale(88), borderWidth: 1, borderRadius: moderateScale(12), padding: moderateScale(12), fontFamily: fonts.body, fontSize: moderateScale(13) },
-  submit: { minHeight: TOUCH_TARGET, borderRadius: moderateScale(13), flexDirection: "row", alignItems: "center", justifyContent: "center", gap: moderateScale(9), marginTop: moderateScale(2) },
-  submitText: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(13) },
   leaveRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: moderateScale(12), paddingVertical: moderateScale(12), borderBottomWidth: 1 },
   leaveInfo: { flex: 1, gap: moderateScale(4) },
   leaveDate: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(13) },
   leaveMeta: { fontFamily: fonts.body, fontSize: moderateScale(11) },
-  status: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(11) },
   empty: { alignItems: "center", paddingTop: moderateScale(70), gap: moderateScale(12) },
   emptyTitle: { fontFamily: fonts.bodyMedium, fontSize: moderateScale(14), textAlign: "center" },
-  retry: { minHeight: moderateScale(44), borderRadius: moderateScale(12), paddingHorizontal: moderateScale(18), justifyContent: "center" },
-  pressed: { opacity: 0.86, transform: [{ scale: 0.98 }] },
 });

@@ -11,12 +11,12 @@ import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import ClayMenuRow from '../../../components/ClayMenuRow';
-import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayButton } from "../../../components/clay";
 import { notify } from "../../../lib/notifications/notify";
 
-function InfoRow({ label, value, colors, isLast = false }) {
+function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "40" }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "40" : "transparent" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -26,8 +26,8 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function PersonalInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently instead of erroring (the phone PATCH below still needs a
@@ -86,10 +86,10 @@ export default function PersonalInformation() {
       <ClayScreenHeader title="Personal Information" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-          <InfoRow label="Full Name" value={driverName} colors={colors} />
-          <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} />
-          <InfoRow label="Email" value={profile?.email} colors={colors} />
+        <ClayCard variant="standard" style={styles.sectionCard}>
+          <InfoRow label="Full Name" value={driverName} colors={colors} isDark={isDark} />
+          <InfoRow label="Employee ID" value={profile?.employeeId} colors={colors} isDark={isDark} />
+          <InfoRow label="Email" value={profile?.email} colors={colors} isDark={isDark} />
 
           {/* Editable Phone Row */}
           <View style={[styles.infoRow, { borderBottomWidth: 0 }]}>
@@ -104,35 +104,25 @@ export default function PersonalInformation() {
                   placeholder="Phone number"
                   placeholderTextColor={colors.outline}
                 />
-                <Pressable
-                  onPress={savePhone}
+                <ClayButton
+                  icon="checkmark"
+                  variant="primary"
+                  size="sm"
+                  loading={saving}
                   disabled={saving}
-                  accessibilityRole="button"
+                  onPress={savePhone}
                   accessibilityLabel="Save phone number"
-                  style={({ pressed }) => [
-                    styles.phoneAction,
-                    mats.clayShade,
-                    { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed || saving ? 0.75 : 1 },
-                  ]}
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color={colors.onPrimary} />
-                  ) : (
-                    <Ionicons name="checkmark" size={18} color={colors.onPrimary} />
-                  )}
-                </Pressable>
-                <Pressable
+                  style={{ minWidth: 44, paddingHorizontal: 0 }}
+                />
+                <ClayButton
+                  icon="close"
+                  variant="tonal"
+                  size="sm"
+                  disabled={saving}
                   onPress={() => setEditingPhone(false)}
-                  accessibilityRole="button"
                   accessibilityLabel="Cancel phone number edit"
-                  style={({ pressed }) => [
-                    styles.phoneAction,
-                    mats.clayShade,
-                    { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.75 : 1 },
-                  ]}
-                >
-                  <Ionicons name="close" size={18} color={colors.onSurfaceVariant} />
-                </Pressable>
+                  style={{ minWidth: 44, paddingHorizontal: 0 }}
+                />
               </View>
             ) : (
               <Pressable style={styles.phoneRow} onPress={() => setEditingPhone(true)} accessibilityRole="button" accessibilityLabel="Edit phone number">
@@ -143,10 +133,10 @@ export default function PersonalInformation() {
               </Pressable>
             )}
           </View>
-        </View>
+        </ClayCard>
 
         {/* Hub: related compliance screens live inside Personal Information */}
-        <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
           <ClayMenuRow
             title="License & Compliance"
             icon="card-outline"
@@ -158,7 +148,7 @@ export default function PersonalInformation() {
             onPress={() => router.push("/profile/vehicle")}
             isLast
           />
-        </View>
+        </ClayCard>
       </ScrollView>
     </View>
   );
@@ -195,13 +185,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     minHeight: 44,
     maxWidth: 180,
-  },
-  phoneAction: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
   },
   phoneRow: { flexDirection: "row", alignItems: "center", gap: 8, flex: 1, justifyContent: "flex-end" },
 });

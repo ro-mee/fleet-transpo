@@ -4,12 +4,9 @@ import {
   StyleSheet,
   View,
   Text,
-  Pressable,
-  ScrollView,
   Linking,
   Dimensions,
   Modal,
-  TextInput,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -17,12 +14,14 @@ import { api, wasQueued } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { AppAlert } from "../../../components/AppAlert";
 import { useTripTracking } from "../../../lib/tracking";
-import { getActiveStatuses, getTone, getNextStatus } from "../../../lib/tripRef";
+import { getActiveStatuses, getNextStatus } from "../../../lib/tripRef";
+
 import { useTheme } from "../../../lib/theme-context";
-import { space, fonts } from "../../../lib/theme";
 import TripMap from "../../../components/map";
 import { Plate } from "../../../components/plate";
-import { Avatar, Button, StatusPill, EmptyState, styles as ui } from "../../../components/ui";
+import { Avatar } from "../../../components/ui";
+import { ClayCard, ClayBadge, ClayButton, ClayTile, ClayInput } from "../../../components/clay";
+
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -185,7 +184,7 @@ export default function FullMapTab() {
 
       {/* Floating Top Navigation Header Bar */}
       <View style={[styles.topFloatingBar, { paddingTop: insets.top + 8 }]}>
-        <View style={[styles.topGlassCard, { backgroundColor: colors.surface }]}>
+        <ClayCard variant="compact" style={styles.topGlassCard}>
           <View style={styles.driverRow}>
             <Avatar initials={driverInitials} />
             <View style={styles.driverInfo}>
@@ -198,22 +197,20 @@ export default function FullMapTab() {
             </View>
 
             {activeTrip && (
-              <StatusPill label={activeTrip.trip_status} tone="info" />
+              <ClayBadge label={activeTrip.trip_status} tone="info" statusDot size="sm" />
             )}
           </View>
-        </View>
+        </ClayCard>
       </View>
 
       {/* Floating Bottom Sheet Trip Navigation Card */}
       {activeTrip ? (
-        <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 80, backgroundColor: colors.surface }]}>
+        <ClayCard variant="hero" style={[styles.bottomSheet, { paddingBottom: insets.bottom + 80 }]}>
           <View style={styles.sheetHandle} />
 
           {/* Destination & Route Header */}
           <View style={styles.routeHeader}>
-            <View style={[styles.routeIconBox, { backgroundColor: colors.info + "1F" }]}>
-              <Text style={styles.routeIcon}>📍</Text>
-            </View>
+            <ClayTile icon="location" size="md" />
             <View style={styles.routeDetails}>
               <Text style={[styles.routeLabel, { color: colors.onSurfaceVariant }]}>
                 Heading to Destination
@@ -230,21 +227,21 @@ export default function FullMapTab() {
           {/* Vehicle & Plate Bar */}
           <View style={styles.plateContainer}>
             <Plate plate={activeTrip.plate_number} size="lg" />
-            <Pressable
-              style={({ pressed }) => [styles.navQuickBtn, { backgroundColor: colors.primary }, pressed && styles.navQuickBtnPressed]}
+            <ClayButton
+              label="Directions"
+              icon="compass-outline"
+              size="sm"
               onPress={() => handleOpenGoogleMaps(activeTrip.destination_latitude, activeTrip.destination_longitude)}
-            >
-              <Text style={styles.navQuickIcon}>🧭</Text>
-              <Text style={[styles.navQuickText, { color: colors.onPrimary }]}>Directions</Text>
-            </Pressable>
+            />
           </View>
 
           {/* Action Button */}
           {nextAction && (
-            <Button
+            <ClayButton
               label={nextAction.label}
               loading={actingOn === activeTrip.trip_id}
               onPress={() => handleAction(activeTrip)}
+              size="lg"
               style={styles.primaryActionButton}
             />
           )}
@@ -254,9 +251,9 @@ export default function FullMapTab() {
               {error}
             </Text>
           )}
-        </View>
+        </ClayCard>
       ) : (
-        <View style={[styles.bottomSheet, { paddingBottom: insets.bottom + 80, backgroundColor: colors.surface }]}>
+        <ClayCard variant="hero" style={[styles.bottomSheet, { paddingBottom: insets.bottom + 80 }]}>
           <View style={styles.sheetHandle} />
           <Text style={[styles.destinationTitle, { color: colors.onSurface, textAlign: "center" }]}>
             No Active Trip En Route
@@ -264,7 +261,7 @@ export default function FullMapTab() {
           <Text style={[styles.pickupSub, { color: colors.onSurfaceVariant, textAlign: "center", marginTop: moderateScale(4) }]}>
             New trip assignments from your dispatcher will automatically plot your live GPS route here.
           </Text>
-        </View>
+        </ClayCard>
       )}
 
       {/* Odometer capture modal — cross-platform replacement for the iOS-only
@@ -276,7 +273,7 @@ export default function FullMapTab() {
         onRequestClose={() => setCompletingTrip(null)}
       >
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+          <ClayCard variant="standard" style={styles.modalCard}>
             <View style={[styles.modalHandle, { backgroundColor: colors.outlineVariant }]} />
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
               Complete this trip?
@@ -285,41 +282,33 @@ export default function FullMapTab() {
               Enter the ending odometer (km), then confirm. This closes the trip
               and stops location sharing.
             </Text>
-            <TextInput
+            <ClayInput
               value={odometerInput}
               onChangeText={setOdometerInput}
               keyboardType="decimal-pad"
               autoFocus
               placeholder="e.g. 45230"
-              placeholderTextColor={colors.onSurfaceVariant}
-              style={[
-                styles.modalInput,
-                { color: colors.onSurface, borderColor: colors.outlineVariant, backgroundColor: colors.background },
-              ]}
+              error={odometerError}
             />
-            {odometerError && (
-              <Text style={[styles.errorText, { color: colors.error }]}>{odometerError}</Text>
-            )}
             <View style={styles.modalActions}>
-              <Pressable
-                style={({ pressed }) => [styles.modalCancelBtn, pressed && styles.controlBtnPressed]}
+              <ClayButton
+                label="Not yet"
+                variant="tonal"
                 onPress={() => setCompletingTrip(null)}
-              >
-                <Text style={[styles.modalCancelText, { color: colors.onSurfaceVariant }]}>Not yet</Text>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [styles.modalConfirmBtn, { backgroundColor: colors.primary }, pressed && styles.controlBtnPressed]}
+                style={styles.modalActionBtn}
+              />
+              <ClayButton
+                label="Complete trip"
+                variant="primary"
                 onPress={confirmComplete}
-                disabled={actingOn === completingTrip?.trip_id}
-                accessibilityRole="button"
-                accessibilityLabel="Complete trip"
-              >
-                <Text style={[styles.modalConfirmText, { color: colors.onPrimary }]}>Complete trip</Text>
-              </Pressable>
+                loading={actingOn === completingTrip?.trip_id}
+                style={styles.modalActionBtn}
+              />
             </View>
-          </View>
+          </ClayCard>
         </View>
       </Modal>
+
     </View>
   );
 }
@@ -414,17 +403,6 @@ const styles = StyleSheet.create({
     gap: moderateScale(12),
     marginBottom: moderateScale(16),
   },
-  routeIconBox: {
-    width: moderateScale(42),
-    height: moderateScale(42),
-    borderRadius: moderateScale(21),
-    // Tint applied inline from colors.info — no literal palette here.
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  routeIcon: {
-    fontSize: moderateScale(20),
-  },
   routeDetails: {
     flex: 1,
   },
@@ -452,24 +430,6 @@ const styles = StyleSheet.create({
     paddingTop: moderateScale(12),
     borderTopWidth: 1,
     borderTopColor: "rgba(0, 0, 0, 0.06)",
-  },
-  navQuickBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: moderateScale(14),
-    paddingVertical: moderateScale(8),
-    borderRadius: moderateScale(16),
-    gap: moderateScale(6),
-  },
-  navQuickBtnPressed: {
-    opacity: 0.85,
-  },
-  navQuickIcon: {
-    fontSize: moderateScale(14),
-  },
-  navQuickText: {
-    fontSize: moderateScale(12),
-    fontWeight: "700",
   },
   primaryActionButton: {
     height: moderateScale(52),
@@ -517,41 +477,12 @@ const styles = StyleSheet.create({
     marginTop: moderateScale(6),
     marginBottom: moderateScale(14),
   },
-  modalInput: {
-    borderWidth: 1.5,
-    borderRadius: moderateScale(14),
-    paddingHorizontal: moderateScale(14),
-    paddingVertical: moderateScale(12),
-    fontSize: moderateScale(16),
-    fontWeight: "700",
-    fontVariant: ["tabular-nums"],
-  },
   modalActions: {
     flexDirection: "row",
     gap: moderateScale(10),
     marginTop: moderateScale(16),
   },
-  modalCancelBtn: {
+  modalActionBtn: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: moderateScale(12),
-    borderRadius: moderateScale(14),
-    backgroundColor: "rgba(0, 0, 0, 0.05)",
-  },
-  modalCancelText: {
-    fontSize: moderateScale(13),
-    fontWeight: "700",
-  },
-  modalConfirmBtn: {
-    flex: 1.4,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: moderateScale(12),
-    borderRadius: moderateScale(14),
-  },
-  modalConfirmText: {
-    fontSize: moderateScale(13),
-    fontWeight: "800",
   },
 });

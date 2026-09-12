@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayTile } from "../../../components/clay";
 
 const FAQS = [
   {
@@ -31,7 +31,7 @@ const FAQS = [
   }
 ];
 
-function FAQItem({ item, colors, isLast }) {
+function FAQItem({ item, colors, isLast, isDark }) {
   const [expanded, setExpanded] = useState(false);
 
   const toggle = () => {
@@ -40,7 +40,7 @@ function FAQItem({ item, colors, isLast }) {
   };
 
   return (
-    <View style={!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }}>
+    <View style={!isLast && { borderBottomWidth: 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }}>
       <Pressable style={styles.faqRow} onPress={toggle} accessibilityRole="button" accessibilityState={{ expanded }}>
         <Text style={[styles.faqText, { color: colors.onSurface }]}>{item.question}</Text>
         <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={16} color={colors.onSurfaceVariant} />
@@ -59,14 +59,8 @@ function FAQItem({ item, colors, isLast }) {
 export default function HelpCenter() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-
-  const sectionCard = [
-    styles.sectionCard,
-    mats.clayShade,
-    { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
-  ];
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -75,7 +69,7 @@ export default function HelpCenter() {
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
 
         <View style={styles.heroBox}>
-          <Ionicons name="headset" size={48} color={colors.primary} />
+          <ClayTile icon="headset" size={56} variant="primary" style={{ marginBottom: 4 }} />
           <Text style={[styles.heroTitle, { color: colors.onSurface }]}>How can we help?</Text>
           <Text style={[styles.heroSub, { color: colors.onSurfaceVariant }]}>
             Contact dispatch directly or check our frequently asked questions.
@@ -83,15 +77,13 @@ export default function HelpCenter() {
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>CONTACT</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
           <Pressable
             style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
             onPress={() => Linking.openURL('tel:18001234567')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="call" size={38} variant="primary" />
               <View>
                 <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Dispatch Hotline</Text>
                 <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>1-800-123-4567</Text>
@@ -100,16 +92,14 @@ export default function HelpCenter() {
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
 
-          <View style={[styles.divider, { backgroundColor: colors.outlineVariant + "55" }]} />
+          <View style={[styles.divider, { backgroundColor: isDark ? colors.outlineVariant + "55" : "transparent" }]} />
 
           <Pressable
             style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
             onPress={() => Linking.openURL('mailto:support@fleetops.com')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="mail" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="mail" size={38} variant="primary" />
               <View>
                 <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Email Support</Text>
                 <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>support@fleetops.com</Text>
@@ -117,19 +107,20 @@ export default function HelpCenter() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
-        </View>
+        </ClayCard>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>FAQ</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
           {FAQS.map((faq, index) => (
             <FAQItem
               key={index}
               item={faq}
               colors={colors}
+              isDark={isDark}
               isLast={index === FAQS.length - 1}
             />
           ))}
-        </View>
+        </ClayCard>
 
       </ScrollView>
     </View>
@@ -159,7 +150,6 @@ const styles = StyleSheet.create({
 
   contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, minHeight: TOUCH_TARGET },
   contactRowLeft: { flexDirection: "row", alignItems: "center", gap: 14, flexShrink: 1 },
-  iconTile: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   contactLabel: { fontSize: 16, fontFamily: fonts.bodyMedium },
   contactValue: { fontSize: 13, fontFamily: fonts.body },
 

@@ -8,16 +8,16 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from "../../../components/ClayScreenHeader";
 import { Logo } from "../../../components/logo";
-import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayTile } from "../../../components/clay";
 
 // Currently configured support contacts — reused from the Help Center.
 // TODO(production): verify these are the real hotline/email before release.
 const SUPPORT_PHONE = "1-800-123-4567";
 const SUPPORT_EMAIL = "support@fleetops.com";
 
-function InfoRow({ label, value, colors, isLast = false }) {
+function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
   return (
-    <View style={[styles.infoRow, { borderTopWidth: 1, borderTopColor: colors.outlineVariant + "55", borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
+    <View style={[styles.infoRow, { borderTopWidth: 1, borderTopColor: isDark ? colors.outlineVariant + "55" : "transparent", borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
@@ -27,14 +27,8 @@ function InfoRow({ label, value, colors, isLast = false }) {
 export default function AboutFleetOps() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-
-  const sectionCard = [
-    styles.sectionCard,
-    mats.clayShade,
-    { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
-  ];
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -46,25 +40,23 @@ export default function AboutFleetOps() {
           <Logo size={64} />
         </View>
 
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
           <View style={styles.aboutBlock}>
             <Text style={[styles.aboutText, { color: colors.onSurfaceVariant }]}>
               FleetOps is the companion app for drivers of the organization. It shows your assigned trips with navigation, lets you report incidents, log fuel, complete pre-trip inspections, and keep track of your work schedule.
             </Text>
           </View>
-          <InfoRow label="App Version" value={Constants.expoConfig?.version} colors={colors} isLast />
-        </View>
+          <InfoRow label="App Version" value={Constants.expoConfig?.version} colors={colors} isLast isDark={isDark} />
+        </ClayCard>
 
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>SUPPORT</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={styles.sectionCard}>
           <Pressable
             style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
             onPress={() => Linking.openURL('tel:18001234567')}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="call" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="call" size={38} variant="primary" />
               <View>
                 <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Dispatch Hotline</Text>
                 <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>{SUPPORT_PHONE}</Text>
@@ -73,16 +65,14 @@ export default function AboutFleetOps() {
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
 
-          <View style={[styles.divider, { backgroundColor: colors.outlineVariant + "55" }]} />
+          <View style={[styles.divider, { backgroundColor: isDark ? colors.outlineVariant + "55" : "transparent" }]} />
 
           <Pressable
             style={({ pressed }) => [styles.contactRow, pressed && { backgroundColor: colors.surfaceContainerHigh }]}
             onPress={() => Linking.openURL(`mailto:${SUPPORT_EMAIL}`)}
           >
             <View style={styles.contactRowLeft}>
-              <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                <Ionicons name="mail" size={18} color={colors.onPrimaryContainer} />
-              </View>
+              <ClayTile icon="mail" size={38} variant="primary" />
               <View>
                 <Text style={[styles.contactLabel, { color: colors.onSurface }]}>Email Support</Text>
                 <Text style={[styles.contactValue, { color: colors.onSurfaceVariant }]}>{SUPPORT_EMAIL}</Text>
@@ -90,7 +80,7 @@ export default function AboutFleetOps() {
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.onSurfaceVariant} />
           </Pressable>
-        </View>
+        </ClayCard>
 
       </ScrollView>
     </View>
@@ -130,7 +120,6 @@ const styles = StyleSheet.create({
 
   contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, minHeight: TOUCH_TARGET },
   contactRowLeft: { flexDirection: "row", alignItems: "center", gap: 14, flexShrink: 1 },
-  iconTile: { width: 38, height: 38, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   contactLabel: { fontSize: 16, fontFamily: fonts.bodyMedium },
   contactValue: { fontSize: 13, fontFamily: fonts.body },
   divider: { height: 1, marginHorizontal: 20 },

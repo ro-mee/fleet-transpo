@@ -6,12 +6,12 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET, statusSurfaces } from "../../../lib/theme";
+import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { api } from "../../../lib/api";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayMaterials } from "../../../lib/clay";
+import { ClayBadge, ClayButton, ClayCard } from "../../../components/clay";
 import { notify } from "../../../lib/notifications/notify";
 
 const SCAN_MAX_WIDTH = 1400;
@@ -33,64 +33,39 @@ function formatExpiry(expiry) {
   return new Date(y, m - 1, d).toLocaleDateString();
 }
 
-function InfoRow({ label, value, colors, isLast = false }) {
+function InfoRow({ label, value, colors, isLast = false, isDark = false }) {
   return (
-    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: colors.outlineVariant + "55" }]}>
+    <View style={[styles.infoRow, { borderBottomWidth: isLast ? 0 : 1, borderBottomColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
       <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>{label}</Text>
       <Text style={[styles.infoValue, { color: colors.onSurface }]}>{value || "—"}</Text>
     </View>
   );
 }
 
-function ScanSourceButtons({ side, colors, dark, busy, onPick }) {
+function ScanSourceButtons({ side, busy, onPick }) {
   const disabled = busy !== null;
   const isUploading = busy === side;
-  // Dark: white strip edges wash out / read harsh — swap for the diffused
-  // clay CTA edges and a deeper shadow.
-  const edges = dark
-    ? { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.35 }
-    : null;
   return (
     <View style={styles.sourceRow}>
-      <Pressable
+      <ClayButton
+        label={isUploading ? "Working…" : "Take Photo"}
+        variant="primary"
+        icon="camera-outline"
+        loading={isUploading}
+        disabled={disabled}
         onPress={() => onPick(side, "camera")}
-        disabled={disabled}
-        accessibilityRole="button"
         accessibilityLabel={`Take a photo of the ${side} of your license`}
-        style={({ pressed }) => [
-          styles.sourceBtn,
-          edges,
-          {
-            backgroundColor: colors.primary,
-            shadowColor: colors.shadow,
-            opacity: isUploading || pressed ? 0.85 : 1,
-          },
-        ]}
-      >
-        {isUploading ? (
-          <ActivityIndicator size="small" color={colors.onPrimary} />
-        ) : (
-          <Ionicons name="camera-outline" size={16} color={colors.onPrimary} />
-        )}
-        <Text style={[styles.sourceBtnText, { color: colors.onPrimary }]}>
-          {isUploading ? "Working…" : "Take Photo"}
-        </Text>
-      </Pressable>
-      <Pressable
-        onPress={() => onPick(side, "gallery")}
+        style={{ flex: 1 }}
+      />
+      <ClayButton
+        label="Gallery"
+        variant="outline"
+        icon="images-outline"
         disabled={disabled}
-        accessibilityRole="button"
+        onPress={() => onPick(side, "gallery")}
         accessibilityLabel={`Choose an existing photo of the ${side} of your license`}
-        style={({ pressed }) => [
-          styles.sourceBtn,
-          styles.sourceBtnSecondary,
-          edges,
-          { borderColor: colors.outline, opacity: pressed ? 0.8 : 1 },
-        ]}
-      >
-        <Ionicons name="images-outline" size={16} color={colors.primary} />
-        <Text style={[styles.sourceBtnText, { color: colors.primary }]}>Gallery</Text>
-      </Pressable>
+        style={{ flex: 1 }}
+      />
     </View>
   );
 }
@@ -98,9 +73,8 @@ function ScanSourceButtons({ side, colors, dark, busy, onPick }) {
 export default function LicenseInformation() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  const dark = scheme === "dark";
+  const { colors, scheme } = useTheme();
+  const isDark = scheme === "dark";
 
   // Cached /api/driver/me read — offline falls back to the saved profile
   // silently; the alert only fires when nothing was ever saved.
@@ -207,48 +181,38 @@ export default function LicenseInformation() {
   else if (days <= EXPIRY_WARNING_DAYS) status = { tone: "warning", label: days === 0 ? "Expires today" : `Expires in ${days} day${days === 1 ? "" : "s"}` };
   else status = { tone: "success", label: "Valid" };
 
-  const surfaces = statusSurfaces(colors);
-  const statusColorsMap = {
-    danger: { bg: surfaces.danger, fg: colors.error },
-    warning: { bg: surfaces.warning, fg: colors.warning },
-    success: { bg: surfaces.success, fg: colors.success },
-    neutral: { bg: surfaces.neutral, fg: colors.onSurfaceVariant },
-  };
-  const statusTone = statusColorsMap[status.tone];
-
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ClayScreenHeader title="License & Compliance" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-          <InfoRow label="License Number" value={license?.number} colors={colors} />
-          <InfoRow label="License Class" value={license?.class} colors={colors} />
-          <InfoRow label="License Type" value={license?.type} colors={colors} />
+        <ClayCard variant="standard" style={styles.sectionCard}>
+          <InfoRow label="License Number" value={license?.number} colors={colors} isDark={isDark} />
+          <InfoRow label="License Class" value={license?.class} colors={colors} isDark={isDark} />
+          <InfoRow label="License Type" value={license?.type} colors={colors} isDark={isDark} />
           <InfoRow
             label="Expiry Date"
             value={license?.expiry ? formatExpiry(license.expiry) : null}
             colors={colors}
+            isDark={isDark}
           />
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>Compliance Status</Text>
-            <View style={[styles.statusPill, mats.clayPill, { backgroundColor: statusTone.bg, shadowColor: colors.shadow }]}>
-              <Text style={[styles.statusPillText, { color: statusTone.fg }]}>{status.label}</Text>
-            </View>
+            <ClayBadge label={status.label} tone={status.tone} dot />
           </View>
-          <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} />
-        </View>
+          <InfoRow label="Years Experience" value={`${license?.yearsExperience || 0} Years`} colors={colors} isLast={true} isDark={isDark} />
+        </ClayCard>
 
-        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20, gap: 16 }]}>
-          <Text style={[type.label, styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
+        <ClayCard variant="standard" style={[styles.sectionCard, { padding: 20, gap: 16 }]}>
+          <Text style={[styles.sectionHeading, { color: colors.primary }]}>Document Scans</Text>
 
-          <View style={[styles.scanBox, dark && { borderTopColor: "rgba(255,255,255,0.09)", borderBottomColor: "rgba(0,0,0,0.38)" }, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <ClayCard variant="compact" style={styles.scanBox}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Front of License</Text>
               {license?.frontScanImageUrl ? (
-                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                <Ionicons name="checkmark-circle" size={20} color={colors.secondary || colors.primary} />
               ) : (
-                <Ionicons name="alert-circle" size={20} color={colors.warning} />
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
               )}
             </View>
             {license?.frontScanImageUrl && (
@@ -263,21 +227,19 @@ export default function LicenseInformation() {
             {(!license?.frontScanImageUrl || status.tone !== "success") && (
               <ScanSourceButtons
                 side="front"
-                colors={colors}
-                dark={dark}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />
             )}
-          </View>
+          </ClayCard>
 
-          <View style={[styles.scanBox, dark && { borderTopColor: "rgba(255,255,255,0.09)", borderBottomColor: "rgba(0,0,0,0.38)" }, { backgroundColor: colors.surfaceContainerHigh }]}>
+          <ClayCard variant="compact" style={styles.scanBox}>
             <View style={styles.scanHeader}>
               <Text style={[styles.scanTitle, { color: colors.onSurface }]}>Back of License</Text>
               {license?.backScanImageUrl ? (
-                <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+                <Ionicons name="checkmark-circle" size={20} color={colors.secondary || colors.primary} />
               ) : (
-                <Ionicons name="alert-circle" size={20} color={colors.warning} />
+                <Ionicons name="alert-circle" size={20} color={colors.error} />
               )}
             </View>
             {license?.backScanImageUrl && (
@@ -292,15 +254,13 @@ export default function LicenseInformation() {
             {(!license?.backScanImageUrl || status.tone !== "success") && (
               <ScanSourceButtons
                 side="back"
-                colors={colors}
-                dark={dark}
                 busy={uploadingSide}
                 onPick={handleUpload}
               />
             )}
-          </View>
+          </ClayCard>
 
-        </View>
+        </ClayCard>
       </ScrollView>
 
       <Modal visible={!!viewerImage} transparent={true} animationType="fade" onRequestClose={() => setViewerImage(null)}>
@@ -337,46 +297,14 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
 
-  statusPill: {
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  statusPillText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
-
-  sectionHeading: {},
+  sectionHeading: { fontSize: 13, fontFamily: fonts.dataSemiBold, letterSpacing: 0.8, textTransform: "uppercase" },
   scanBox: {
     padding: 16,
-    borderRadius: 24,
     gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#FFFFFF45",
-    borderBottomWidth: 2,
-    borderBottomColor: "#00000010",
   },
   scanHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   scanTitle: { fontSize: 14, fontFamily: fonts.bodyMedium },
   sourceRow: { flexDirection: "row", gap: 10 },
-  sourceBtn: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 18,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    borderTopWidth: 2,
-    borderTopColor: "#FFFFFF60",
-    borderBottomWidth: 2,
-    borderBottomColor: "#00000012",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  sourceBtnSecondary: { borderWidth: 2, backgroundColor: "transparent" },
-  sourceBtnText: { fontSize: 13, fontFamily: fonts.bodySemiBold },
 
   previewWrap: {
     height: 140,

@@ -17,6 +17,8 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts } from "../../../lib/theme";
 import { clayMaterials } from "../../../lib/clay";
 import ClayMenuRow from "../../../components/ClayMenuRow";
+import { ClayCard, ClayButton } from "../../../components/clay";
+
 
 const ACCOUNT_ROWS = [
   { title: "Personal Information", icon: "person-outline", route: "/profile/personal" },
@@ -34,11 +36,11 @@ const GENERAL_ROWS = [
   { title: "Settings", icon: "settings-outline", route: "/settings" },
 ];
 
-function Section({ title, rows, colors, type, mats, onNavigate }) {
+function Section({ title, rows, colors, type, onNavigate }) {
   return (
     <View style={styles.section}>
       <Text style={[type.labelLg, styles.sectionTitle, { color: colors.onSurfaceVariant }]}>{title}</Text>
-      <View style={[styles.sectionCard, mats.compactShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+      <ClayCard variant="compact" style={styles.sectionCard} showSheen={false}>
         {rows.map((row, i) => (
           <ClayMenuRow
             key={row.route}
@@ -48,7 +50,7 @@ function Section({ title, rows, colors, type, mats, onNavigate }) {
             onPress={() => onNavigate(row.route)}
           />
         ))}
-      </View>
+      </ClayCard>
     </View>
   );
 }
@@ -83,18 +85,13 @@ export default function Profile() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 96 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Identity — compact horizontal clay card */}
-        <View
-          style={[
-            styles.identityCard,
-            mats.compactShade,
-            { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
-          ]}
-        >
+        <ClayCard variant="compact" style={styles.identityCard}>
           <View style={styles.avatarContainer}>
+
             <View
               style={[
                 styles.avatarCircle,
@@ -133,11 +130,11 @@ export default function Profile() {
               </View>
             ) : null}
           </View>
-        </View>
+        </ClayCard>
 
-        <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
-        <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
-        <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} mats={mats} onNavigate={router.push} />
+        <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
 
         {/* Sign Out — soft destructive clay: important, but not the same
             danger level as a destructive confirm, so no harsh red outline.
@@ -181,7 +178,7 @@ export default function Profile() {
           Confirm (solid error, the actual destructive action). */}
       <Modal visible={logoutModal} transparent animationType="fade" onRequestClose={() => setLogoutModal(false)}>
         <View style={styles.modalBackdrop}>
-          <View style={[styles.modalCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard variant="standard" style={styles.modalCard}>
             <View
               style={[
                 styles.modalIconWrap,
@@ -200,30 +197,23 @@ export default function Profile() {
               You will be returned to the login screen.
             </Text>
             <View style={styles.modalActions}>
-              <Pressable
+              <ClayButton
+                label="Cancel"
+                variant="tonal"
                 onPress={() => setLogoutModal(false)}
-                style={({ pressed }) => [
-                  styles.modalCancelBtn,
-                  mats.clayCta,
-                  { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Text style={[type.labelLg, { color: colors.onSurface }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
+                style={{ flex: 1 }}
+              />
+              <ClayButton
+                label="Sign Out"
+                variant="danger"
                 onPress={signOut}
-                style={({ pressed }) => [
-                  styles.modalConfirmBtn,
-                  mats.clayCta,
-                  { backgroundColor: colors.error, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <Text style={[type.labelLg, { color: colors.onError }]}>Sign Out</Text>
-              </Pressable>
+                style={{ flex: 1 }}
+              />
             </View>
-          </View>
+          </ClayCard>
         </View>
       </Modal>
+
     </View>
   );
 }
@@ -301,17 +291,17 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   logoutIconTile: {
-    width: moderateScale(34),
-    height: moderateScale(34),
-    borderRadius: moderateScale(12),
+    width: moderateScale(38),
+    height: moderateScale(38),
+    borderRadius: moderateScale(15),
     alignItems: "center",
     justifyContent: "center",
     borderTopWidth: 1.5,
     borderBottomWidth: 2,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 5,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
   },
   logoutText: {
     fontFamily: fonts.bodySemiBold,
@@ -343,6 +333,4 @@ const styles = StyleSheet.create({
   modalTitle: { },
   modalBody: { textAlign: "center", paddingHorizontal: moderateScale(8) },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(8), alignSelf: "stretch" },
-  modalCancelBtn: { flex: 1, alignItems: "center", justifyContent: "center" },
-  modalConfirmBtn: { flex: 1, alignItems: "center", justifyContent: "center" },
 });

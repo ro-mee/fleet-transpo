@@ -10,7 +10,6 @@ import {
   Platform,
   LayoutAnimation,
   AccessibilityInfo,
-  ActivityIndicator,
   useWindowDimensions,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -30,8 +29,8 @@ import {
 } from "../../../lib/permissions";
 import { AppAlert } from "../../../components/AppAlert";
 import ClayScreenHeader from "../../../components/ClayScreenHeader";
+import { ClayCard, ClayButton, ClayBadge, ClayTile } from "../../../components/clay";
 import { statusColorForTone } from "../../../lib/theme";
-import { clayMaterials } from "../../../lib/clay";
 import { moderateScale } from "../../../lib/scaling";
 import { fonts } from "../../../lib/theme";
 
@@ -40,80 +39,24 @@ import { fonts } from "../../../lib/theme";
 // toggles instead, so they are deliberately not duplicated here.
 const DEVICE_ACCESS_KEYS = ["locationBackground", "camera", "mediaLibrary"];
 
-/** Raised clay pill for a permission state (replaces ui.js StatusPill here). */
-function ClayStatusPill({ label, tone }) {
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  const palette = statusColorForTone(colors, tone);
-  return (
-    <View style={[mats.clayPill, { backgroundColor: palette.bg, shadowColor: colors.shadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 }]}>
-      <Text style={[type.caption, { color: palette.fg }]}>{label}</Text>
-    </View>
-  );
-}
-
-/** Clay primary CTA with a loading state (replaces ui.js FilledButton here). */
-function ClayPrimaryButton({ label, onPress, loading, disabled, style }) {
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  const isDisabled = disabled || loading;
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={isDisabled}
-      accessibilityRole="button"
-      accessibilityState={{ disabled: isDisabled, busy: loading }}
-      style={({ pressed }) => [
-        styles.ctaBase,
-        mats.clayCta,
-        { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: isDisabled ? 0.55 : pressed ? 0.88 : 1 },
-        style,
-      ]}
-    >
-      {loading ? (
-        <ActivityIndicator size="small" color={colors.onPrimary} />
-      ) : (
-        <Text style={[type.labelLg, { color: colors.onPrimary }]}>{label}</Text>
-      )}
-    </Pressable>
-  );
-}
-
-/** Clay outlined CTA (replaces ui.js OutlinedButton here). */
-function ClayOutlineButton({ label, onPress, style }) {
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  return (
-    <Pressable
-      onPress={onPress}
-      accessibilityRole="button"
-      style={({ pressed }) => [
-        styles.ctaBase,
-        mats.clayCta,
-        { borderWidth: 2, borderColor: colors.outline, opacity: pressed ? 0.7 : 1 },
-        style,
-      ]}
-    >
-      <Text style={[type.labelLg, { color: colors.onSurface }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 /**
  * App-level control: what FleetOps itself does with a capability. The toggle
  * only governs FleetOps behavior — the OS permission underneath may remain
  * granted, so the device state is always shown alongside, and the OFF
  * wording says FleetOps will not use the feature, never "permission revoked".
  */
-function AppControlRow({ icon, title, description, value, onValueChange, permissionStatus, colors, type, mats, isLast }) {
+function AppControlRow({ icon, title, description, value, onValueChange, permissionStatus, colors, type, isLast }) {
   const presentation = permissionStatus ? describePermissionState(permissionStatus) : null;
   const palette = presentation ? statusColorForTone(colors, presentation.tone) : null;
   return (
     <View style={[!isLast && { borderBottomWidth: 1, borderBottomColor: colors.outlineVariant + "55" }]}>
       <View style={styles.controlRow}>
-        <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-          <Ionicons name={icon} size={18} color={colors.onPrimaryContainer} />
-        </View>
+        <ClayTile
+          icon={icon}
+          size="sm"
+          backgroundColor={colors.primaryContainer}
+          color={colors.onPrimaryContainer}
+        />
         <View style={styles.controlText}>
           <View style={styles.controlHeader}>
             <Text style={[type.bodyMd, styles.controlTitle, { color: colors.onSurface }]}>{title}</Text>
@@ -139,8 +82,7 @@ function AppControlRow({ icon, title, description, value, onValueChange, permiss
 export default function AppPermissionsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const { colors, type } = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const wide = windowWidth >= 768;
 
@@ -314,14 +256,6 @@ export default function AppPermissionsScreen() {
     }
   };
 
-  // Clay card frame shared by every section below. Rows carry their own
-  // padding; the card only supplies the raised surface + curve.
-  const sectionCard = [
-    styles.sectionCard,
-    mats.clayShade,
-    { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow },
-  ];
-
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ClayScreenHeader title="App Permissions" onBack={goBack} />
@@ -336,7 +270,7 @@ export default function AppPermissionsScreen() {
         {/* APP CONTROLS — what FleetOps itself does with a capability.
             The OS permission underneath is shown, never implied revocable here. */}
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>APP CONTROLS</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
           <AppControlRow
             icon="location"
             title="Location Tracking"
@@ -346,7 +280,6 @@ export default function AppPermissionsScreen() {
             permissionStatus={statusByKey.location}
             colors={colors}
             type={type}
-            mats={mats}
           />
           <AppControlRow
             icon="notifications"
@@ -357,16 +290,15 @@ export default function AppPermissionsScreen() {
             permissionStatus={statusByKey.notifications}
             colors={colors}
             type={type}
-            mats={mats}
             isLast
           />
-        </View>
+        </ClayCard>
 
         {/* DEVICE ACCESS — OS-level permissions. Status + manage only;
             these are never shown as ON/OFF switches because the app cannot
             revoke an OS permission. */}
         <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>DEVICE ACCESS</Text>
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
           <View style={styles.clusterTop}>
             <Text style={[type.labelLg, { color: colors.primary }]}>PERMISSIONS</Text>
             <Text style={[styles.clusterCount, { color: colors.onSurface }]}>
@@ -404,9 +336,9 @@ export default function AppPermissionsScreen() {
               );
             })}
           </View>
-        </View>
+        </ClayCard>
 
-        <View style={sectionCard}>
+        <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
           {deviceRows.map((row, index) => {
             const isLast = index === deviceRows.length - 1;
             const presentation = describePermissionState(row.status);
@@ -426,13 +358,16 @@ export default function AppPermissionsScreen() {
                     pressed && { backgroundColor: colors.surfaceContainerHigh },
                   ]}
                 >
-                  <View style={[styles.iconTile, mats.clayTile, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
-                    <Ionicons name={row.icon} size={18} color={colors.onPrimaryContainer} />
-                  </View>
+                  <ClayTile
+                    icon={row.icon}
+                    size="sm"
+                    backgroundColor={colors.primaryContainer}
+                    color={colors.onPrimaryContainer}
+                  />
                   <Text style={[type.bodyMd, styles.permissionTitle, { color: colors.onSurface }]}>{row.title}</Text>
                   <View style={styles.rowRight}>
                     {row.status ? (
-                      <ClayStatusPill label={presentation.label} tone={presentation.tone} />
+                      <ClayBadge label={presentation.label} tone={presentation.tone} size="sm" />
                     ) : (
                       <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>Checking…</Text>
                     )}
@@ -452,13 +387,17 @@ export default function AppPermissionsScreen() {
                       </Text>
                     )}
                     {blocked ? (
-                      <ClayOutlineButton
+                      <ClayButton
+                        variant="outline"
+                        size="sm"
                         label="Open device settings"
                         onPress={() => openSystemSettingsFor(row)}
                         style={styles.permissionAction}
                       />
                     ) : !approved ? (
-                      <ClayPrimaryButton
+                      <ClayButton
+                        variant="primary"
+                        size="sm"
                         label="Allow"
                         loading={requestingKey === row.key}
                         onPress={() => allowPermission(row)}
@@ -474,7 +413,7 @@ export default function AppPermissionsScreen() {
               </View>
             );
           })}
-        </View>
+        </ClayCard>
         <Text style={[styles.permissionsFootnote, { color: colors.onSurfaceVariant }]}>
           App controls decide whether FleetOps uses a feature; device access is granted in your OS settings and cannot be revoked from here. Tap any device-access item to review or change what you allow.
         </Text>
@@ -495,11 +434,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     textTransform: "uppercase",
   },
-  sectionCard: {
-    borderRadius: 30,
-    overflow: "hidden",
-  },
-
   controlRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -519,13 +453,6 @@ const styles = StyleSheet.create({
   },
   controlTitle: { flexShrink: 1 },
   controlCaption: { lineHeight: moderateScale(16) },
-  iconTile: {
-    width: 38,
-    height: 38,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-  },
 
   rowRight: {
     flexDirection: "row",
@@ -586,12 +513,5 @@ const styles = StyleSheet.create({
     marginTop: -10,
     marginLeft: 8,
     marginRight: 8,
-  },
-  ctaBase: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 10,
   },
 });

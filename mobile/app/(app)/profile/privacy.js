@@ -8,7 +8,7 @@ import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { AppAlert } from '../../../components/AppAlert';
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayBadge } from "../../../components/clay";
 
 function InfoRow({ label, value, colors, isLast = false }) {
   return (
@@ -46,8 +46,7 @@ function PolicySection({ heading, body, colors, type, isLast }) {
 export default function PrivacyConsent() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
+  const { colors, type } = useTheme();
 
   // Cached /api/driver/me read — the policy text arrives with the consent
   // payload, so it is readable offline after one prior sync. Offline falls
@@ -73,33 +72,17 @@ export default function PrivacyConsent() {
       <ClayScreenHeader title="Privacy & Consent" onBack={() => router.back()} />
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
-        <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-
+        <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
           <View style={styles.infoRow}>
             <Text style={[styles.infoLabel, { color: colors.onSurfaceVariant }]}>
               Data Privacy Consent
             </Text>
-            <View
-              style={[
-                styles.consentBadge,
-                mats.clayPill,
-                {
-                  backgroundColor: consent?.accepted ? colors.primaryContainer : colors.errorContainer,
-                  shadowColor: colors.shadow,
-                },
-              ]}
-            >
-              <Ionicons
-                name={consent?.accepted ? "checkmark-circle" : "close-circle"}
-                size={14}
-                color={consent?.accepted ? colors.onPrimaryContainer : colors.onErrorContainer}
-              />
-              <Text
-                style={[styles.consentText, { color: consent?.accepted ? colors.onPrimaryContainer : colors.onErrorContainer }]}
-              >
-                {consent?.accepted ? "GIVEN" : "NOT GIVEN"}
-              </Text>
-            </View>
+            <ClayBadge
+              label={consent?.accepted ? "GIVEN" : "NOT GIVEN"}
+              tone={consent?.accepted ? "primary" : "danger"}
+              icon={consent?.accepted ? "checkmark-circle" : "close-circle"}
+              size="sm"
+            />
           </View>
 
           <InfoRow
@@ -113,15 +96,14 @@ export default function PrivacyConsent() {
             colors={colors}
             isLast={true}
           />
-
-        </View>
+        </ClayCard>
 
         {policy ? (
           <>
             <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>
               PRIVACY POLICY & USER AGREEMENT
             </Text>
-            <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+            <ClayCard variant="standard" style={{ padding: 0, gap: 0 }}>
               <View style={styles.policyMeta}>
                 <Text style={[styles.policyTitle, { color: colors.onSurface }]}>{policy.title}</Text>
                 <Text style={[styles.policyCaption, { color: colors.onSurfaceVariant }]}>
@@ -138,18 +120,18 @@ export default function PrivacyConsent() {
                   isLast={index === policy.sections.length - 1}
                 />
               ))}
-            </View>
+            </ClayCard>
             <Text style={[styles.noteText, { color: colors.onSurfaceVariant }]}>
               Read-only record. If the policy changes, you will be asked to review and accept the new version the next time you sign in.
             </Text>
           </>
         ) : (
-          <View style={[styles.sectionCard, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow, padding: 20 }]}>
+          <ClayCard variant="standard" style={{ padding: 20 }}>
             <Text style={[styles.policyTitle, { color: colors.onSurface }]}>Privacy policy not saved on this device</Text>
-            <Text style={[styles.noteText, { color: colors.onSurfaceVariant, textAlign: "left", marginTop: 6 }]}>
+            <Text style={[styles.noteText, { color: colors.onSurfaceVariant, textAlign: "left", marginTop: 6, paddingHorizontal: 0 }]}>
               The policy is saved for offline reading after your profile syncs once. Connect to the internet and open your profile, then come back.
             </Text>
-          </View>
+          </ClayCard>
         )}
       </ScrollView>
     </View>
@@ -169,10 +151,6 @@ const styles = StyleSheet.create({
     marginBottom: -12,
     marginLeft: 8,
   },
-  sectionCard: {
-    borderRadius: 30,
-    overflow: "hidden",
-  },
   infoRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -184,17 +162,6 @@ const styles = StyleSheet.create({
   },
   infoLabel: { fontSize: 14, fontFamily: fonts.body, flex: 1 },
   infoValue: { fontSize: 14, fontFamily: fonts.bodyMedium, textAlign: "right", flex: 1 },
-
-  consentBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.14,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  consentText: { fontSize: 12, fontFamily: fonts.bodySemiBold },
 
   policyMeta: { paddingHorizontal: 20, paddingVertical: 16, gap: 2 },
   policyTitle: { fontSize: 16, fontFamily: fonts.bodySemiBold },
