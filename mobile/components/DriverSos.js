@@ -11,10 +11,12 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { usePathname } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { moderateScale } from "../lib/scaling";
@@ -25,8 +27,10 @@ import { clayMaterials } from "../lib/clay";
 import { AppAlert } from "./AppAlert";
 import RadarPulse from "./RadarPulse";
 
+const sosIcon = require("../assets/images/SOS.png");
+
 const STORAGE_KEY = "driver-sos-offset";
-const SOS_SIZE = moderateScale(68);
+const SOS_SIZE = moderateScale(64);
 
 let openSosHandler = null;
 export function registerSosHandler(fn) {
@@ -38,21 +42,34 @@ export function triggerDriverSos() {
   }
 }
 
+// The FAB lives in the (tabs) layout but stays mounted while Stack screens are
+// pushed on top, so it must opt out of profile/settings-area routes explicitly.
+const HIDDEN_ROUTE_PREFIXES = ["/profile", "/settings", "/work-schedule", "/devices"];
+
 export function DriverSos() {
   const insets = useSafeAreaInsets();
   const pathname = usePathname();
   const { colors, type, scheme } = useTheme();
   const mats = clayMaterials(scheme === "dark");
-  // The FAB sits on colors.error, which flips from a deep red (light mode) to
-  // a light salmon (dark mode) — the light-tuned white edge strip would read
-  // as a harsh ring on the lighter surface, so the edges are moderated per
-  // scheme and the shadow deepened to lift off the dark stage.
-  const sosEdges = scheme === "dark"
-    ? { borderTopColor: "rgba(255,255,255,0.40)", borderBottomColor: "rgba(0,0,0,0.18)", shadowOpacity: 0.35 }
-    : { borderTopColor: "#FFFFFF70", borderBottomColor: "#00000014", shadowOpacity: 0.2 };
-  const chipEdges = scheme === "dark"
-    ? { borderTopColor: "rgba(255,255,255,0.35)", borderBottomColor: "rgba(0,0,0,0.14)" }
-    : { borderTopColor: "rgba(255,255,255,0.45)", borderBottomColor: "rgba(0,0,0,0.10)" };
+  // Option 2 Enhanced (Soft Rose Medallion centered on #FFF0F0):
+  // Sculpted dual-tone soft rose clay surface centered on #FFF0F0 with a uniform,
+  // seamless soft rose border (no white patches, zero border overhang/crescent),
+  // paired with a dark-mode deep wine clay adaptation for OLED comfort.
+  const sosTheme = scheme === "dark"
+    ? {
+        backgroundColor: "#241012",
+        borderColor: "rgba(242, 163, 156, 0.35)",
+        gradient: ["#3D1B1E", "#241012"],
+        shadowColor: "#000000",
+        shadowOpacity: 0.50,
+      }
+    : {
+        backgroundColor: "#FFF0F0",
+        borderColor: "rgba(230, 80, 80, 0.28)",
+        gradient: ["#FFF0F0", "#FFDADA"],
+        shadowColor: "#E24B4B",
+        shadowOpacity: 0.22,
+      };
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -77,7 +94,22 @@ export function DriverSos() {
 
   useEffect(() => {
     AsyncStorage.getItem(STORAGE_KEY).then((value) => {
-      if (value) setPosition(JSON.parse(value));
+      if (value) {
+        try {
+          const parsed = JSON.parse(value);
+          if (typeof parsed?.x === "number" && typeof parsed?.y === "number") {
+            const screen = Dimensions.get("window");
+            const maxX = screen.width - SOS_SIZE - moderateScale(32);
+            const maxY = screen.height - moderateScale(220);
+            setPosition({
+              x: Math.max(-maxX, Math.min(0, parsed.x)),
+              y: Math.max(-maxY, Math.min(0, parsed.y)),
+            });
+          }
+        } catch {
+          // ignore corrupted storage
+        }
+      }
     }).catch(() => {});
 
     const show = Keyboard.addListener("keyboardDidShow", () => setKeyboardVisible(true));
@@ -201,9 +233,7 @@ export function DriverSos() {
 
   if (
     keyboardVisible ||
-    pathname.startsWith("/profile") ||
-    pathname.startsWith("/settings") ||
-    pathname.startsWith("/work-schedule")
+    HIDDEN_ROUTE_PREFIXES.some((prefix) => pathname.startsWith(prefix))
   ) return null;
 
   return (
@@ -212,10 +242,11 @@ export function DriverSos() {
         {...pan.panHandlers}
         style={[
           styles.sos,
-          sosEdges,
           {
-            backgroundColor: colors.error,
-            shadowColor: colors.shadow,
+            backgroundColor: sosTheme.backgroundColor,
+            borderColor: sosTheme.borderColor,
+            shadowColor: sosTheme.shadowColor,
+            shadowOpacity: sosTheme.shadowOpacity,
             bottom: insets.bottom + 88,
             transform: position.getTranslateTransform(),
           },
@@ -226,25 +257,51 @@ export function DriverSos() {
         accessible
         onAccessibilityTap={() => setOpen(true)}
       >
-        <View style={[styles.iconChip, chipEdges, { shadowColor: colors.shadow }]}>
-          <Ionicons name="shield" size={20} color={colors.onError} />
-        </View>
-        <View style={styles.sosWord}>
-          <Text style={[type.labelLg, styles.sosTextBase, styles.sosWordDepth]}>SOS</Text>
-          <Text style={[type.labelLg, styles.sosTextBase, styles.sosWordFace, { color: colors.onError }]}>SOS</Text>
-        </View>
+        <LinearGradient
+          colors={sosTheme.gradient}
+          start={{ x: 0.2, y: 0 }}
+          end={{ x: 0.8, y: 1 }}
+          style={styles.sosInner}
+        >
+          <View style={styles.concentricRim}>
+            <Image
+              source={sosIcon}
+              style={[styles.sosImage, { width: moderateScale(50), height: moderateScale(50) }]}
+              resizeMode="contain"
+              accessibilityIgnoresInvertColors
+            />
+          </View>
+        </LinearGradient>
       </Animated.View>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>
           <View style={[styles.sheet, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-            <View style={[styles.icon, mats.clayTile, { backgroundColor: colors.errorContainer, shadowColor: colors.shadow }]}>
+            <LinearGradient
+              colors={sosTheme.gradient}
+              start={{ x: 0.2, y: 0 }}
+              end={{ x: 0.8, y: 1 }}
+              style={[
+                styles.icon,
+                mats.clayTile,
+                {
+                  borderColor: sosTheme.borderColor,
+                  borderWidth: 1.5,
+                  shadowColor: sosTheme.shadowColor,
+                },
+              ]}
+            >
               {sending ? (
                 <RadarPulse size={38} color={colors.error} icon="warning" />
               ) : (
-                <Ionicons name="shield" size={26} color={colors.error} />
+                <Image
+                  source={sosIcon}
+                  style={[styles.modalSosImage, { width: moderateScale(44), height: moderateScale(44) }]}
+                  resizeMode="contain"
+                  accessibilityIgnoresInvertColors
+                />
               )}
-            </View>
+            </LinearGradient>
             <Text style={[type.titleLg, { color: colors.onSurface }]}>Emergency assistance</Text>
             <Text style={[type.bodyMd, styles.body, { color: colors.onSurfaceVariant }]}>
               Send your live location directly to dispatch as a critical emergency. Report Issue remains for non-urgent concerns.
@@ -283,9 +340,9 @@ export function DriverSos() {
 }
 
 const styles = StyleSheet.create({
-  // Puffy round clay button — same white top-edge / shaded bottom-edge
-  // language as the clay tiles, sized as a circle so it reads as one soft
-  // clay blob rather than a flat rectangle.
+  // Soft Rose Clay Medallion (#FFF0F0) / Dark Wine Clay:
+  // Uniform symmetric border eliminates any eccentric crescent overhang ("lumalampas").
+  // Consistent soft rose hue across the entire circumference with zero uncolored white spots.
   sos: {
     position: "absolute",
     right: moderateScale(16),
@@ -294,53 +351,38 @@ const styles = StyleSheet.create({
     borderRadius: SOS_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    gap: moderateScale(2),
+    borderWidth: 1.5,
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
     shadowRadius: 12,
     elevation: 8,
-    borderTopWidth: 2,
-    borderTopColor: "#FFFFFF70",
-    borderBottomWidth: 2.5,
-    borderBottomColor: "#00000014",
     zIndex: 10,
   },
-  // Raised clay chip the shield sits on — its own top highlight, shaded
-  // bottom edge and tiny shadow, so the icon reads as a puffy clay element
-  // instead of a flat glyph printed on the button.
-  iconChip: {
-    width: moderateScale(30),
-    height: moderateScale(30),
-    borderRadius: moderateScale(11),
+  sosInner: {
+    width: "100%",
+    height: "100%",
+    borderRadius: SOS_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "rgba(255,255,255,0.16)",
-    borderTopWidth: 1.5,
-    borderTopColor: "rgba(255,255,255,0.45)",
-    borderBottomWidth: 2,
-    borderBottomColor: "rgba(0,0,0,0.10)",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.18,
-    shadowRadius: 3,
-    elevation: 2,
+    overflow: "hidden",
   },
-  // Puffy embossed word: a dark copy offset below gives the letters depth,
-  // and the face layer carries a soft top glow — the same highlight/shade
-  // language as the clay edges, applied to type.
-  sosWord: { alignItems: "center", justifyContent: "center" },
-  sosTextBase: {
-    fontSize: moderateScale(11),
-    lineHeight: moderateScale(15),
-    fontWeight: "800",
-    letterSpacing: moderateScale(1.2),
-    textAlign: "center",
-    includeFontPadding: false,
+  concentricRim: {
+    width: "100%",
+    height: "100%",
+    borderRadius: SOS_SIZE / 2,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  sosWordDepth: { position: "absolute", top: moderateScale(1.5), color: "rgba(0,0,0,0.20)" },
-  sosWordFace: {
-    textShadowColor: "rgba(255,255,255,0.5)",
-    textShadowOffset: { width: 0, height: -1 },
-    textShadowRadius: 2,
+  sosImage: {
+    width: moderateScale(50),
+    height: moderateScale(50),
+    maxWidth: moderateScale(50),
+    maxHeight: moderateScale(50),
+  },
+  modalSosImage: {
+    width: moderateScale(44),
+    height: moderateScale(44),
+    maxWidth: moderateScale(44),
+    maxHeight: moderateScale(44),
   },
   backdrop: {
     flex: 1,
