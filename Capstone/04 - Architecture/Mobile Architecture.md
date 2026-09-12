@@ -25,13 +25,20 @@ Expo SDK ~54, expo-router ~6. **Drivers only.** A separate app with a separate a
 
 ## Navigation — CONFIRMED (`mobile/app/(app)/(tabs)/_layout.js`)
 
-| Route | Label |
-|---|---|
-| `index` | Home |
-| `trips` | Trips |
-| `vehicle` | Vehicle |
-| `notifications` | Alerts |
-| `profile` | Profile |
+Visible tab order = declaration order (2026-09-10: explicit `trips` entry added — it previously auto-registered with no icon and landed out of order):
+
+| Route | Label | Visible |
+|---|---|---|
+| `index` | Home | yes |
+| `map` | Live Map | yes |
+| `fuel_action` | (center scan FAB, no label) | yes |
+| `trips` | Trips (navigate icon) | yes |
+| `profile` | Profile | yes |
+| `history` | — (`href: null`) | no |
+| `notifications` | Alerts (via header bell) | no |
+| `vehicle` | — (`href: null`, via Profile) | no |
+
+Shared tab language: icons 24px (focused/outline pairs), labels 11px `bodyMedium`, item height 48, equal `flex: 1` slots; scan FAB is a 56px raised circle (`raisedControl`) centered in its slot.
 
 Three separate documents describe these tabs differently, all wrong. → [[DOC Mobile Tabs Documented Three Ways]]
 

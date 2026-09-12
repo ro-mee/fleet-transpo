@@ -5,6 +5,40 @@ Status: Implemented; automated checks and isolated component review completed. N
 
 ## Direction and scope
 
+### Empty-state map scenery — 2026-09-12
+
+Owner request: put `mobile/assets/images/map.png` (3D clay map with pin, transparent) in the Next Trip empty state, center-right — position fixed per ui-ux-pro-max guidance (flexbox row over absolute overlay: `flexDirection: 'row'`, `alignItems: 'center'`, text `flex: 1` left, 112x90 art right, decorative `accessible={false}`, slight dim in dark mode). Follow-up optical-lift fix: the PNG is optically bottom-heavy (visible mass + transparent padding sit low), so `s.mapArt` gained layout-neutral `transform: [{ translateY: -20 }]` — vertical only, no horizontal shift, card/text/badge/typography/colors untouched (`-24` held as fallback pending device screenshot; long-term fix is cropping the PNG's transparent padding). Copy, handlers, and empty-state branching unchanged; current-card empty/radar untouched. Touched-file ESLint clean; Android export passed.
+
+### Dynamic trip list — 2026-09-12
+
+Owner request: replace the fixed Current + Next (+Then) slots with a status-driven list ("conditional current pinned first, all upcoming chronological"). Empty state intentionally untouched — the dynamic layout only runs once at least one actual trip exists.
+
+- **Selector** (`mobile/lib/home-trips.js`): `selectHomeTrips` returns `{ current, upcoming }` (`next`/`secondNext` removed). `current` = first open trip matching the server active statuses (unchanged definition — tracking, weather poster, vehicle context, and action gates keyed off it are untouched). `upcoming` = all remaining open trips in server order, which is chronological (`ORDER BY scheduled_departure ASC NULLS LAST` — no backend change, no client sort). `Completed`/`Cancelled` still excluded. New `HOME_UPCOMING_LIMIT = 3`.
+- **Render** (`(tabs)/index.js`): `!activeTrip && upcoming.length === 0` renders the pre-existing empty path verbatim (same `Today's Assignments` heading, same two null cards, all confirmed/offline/not-synced copy and radar behavior unchanged). Otherwise: current card only when it exists (pinned first), `Upcoming Trips` heading, and an `UpcomingTripList` child rendering `upcoming.slice(0, 3)` (first `NEXT TRIP`, rest new `UPCOMING` tag) plus a `+N more · View Full Schedule` footer reusing the heading's `goTrips` (`/trips`) destination past the cap.
+- **Cards** (`DriverHomeCards.jsx`): `VARIANT` gains `upcoming` (muted teal, same family as next); `then` kept in the map (no remaining consumer, zero-risk); `AssignmentsHeading` takes an optional `title` (default `Today's Assignments`, so the empty path is zero-change); heading row is now single-line (`nowrap`, title shrinks with tail ellipsis, link never shrinks) per owner request.
+- **Lint note**: inline `.slice()`/`.map()` calls as JSX props in `Home` trip the repo's strict `preserve-manual-memoization` rule (bailout misattributed to `goFuelReport`/`activeTrip`). Fix: slice/count hoisted to body consts (`visibleUpcoming`, `hiddenUpcomingCount`) and the list in the memo child — same rendered output, no unrelated refactors.
+- **Verification**: full Vitest suite 101 files / 1112 tests passed (incl. rewritten selector cases + cap-constant case); ESLint clean on all 4 touched code files (`home-trips.js`, `home-trips.test.js`, `DriverHomeCards.jsx`, `(tabs)/index.js`); `expo export --platform android` passed (5.14 MB). Native visual acceptance pending.
+
+### KPI shrink pass — 2026-09-12
+
+Owner request: make the Upcoming trips / Trips completed KPI cards smaller ("liitan yung kpi"). ~20% density-only reduction in `DriverHomeCards.jsx` — icon tiles 44→36 (radius 16→13, glyph 22→18), numbers 32→26 (lineHeight 34→28), card padding 12→10 / radius 22→18 / gap 6→5 (sheen overlay radius matched to 18), labels 14→13, action links 13→12 with chevrons 14→12, row gap 10→8 / marginTop 12→10. Content, handlers, colors, materials, and vehicle/quick-action sections unchanged. Touched-file ESLint clean.
+
+Decision (same day): a further shrink to 30px tiles / 22px numbers was discussed, but the owner explicitly deferred it ("md lang, dont resize"). Code stays at 36px tiles / 26px numbers — no second shrink landed, and the docs below describe the code as-is.
+
+### Hero headline removal — 2026-09-12
+
+Owner request: remove the `Ready for what’s next?` headline (and its offline `Your saved dashboard` variant) from the Home hero card. The hero header is now the eyebrow date plus the `Smooth rides. Happy guests.` subtitle only. Removed the `heroTitle` Text block and style from `DriverHeroCard`, dropped the now-unused `offline` prop from the hero (the caller in `(tabs)/index.js` no longer passes it; trip-card offline handling is untouched), and left KPI/vehicle/shortcut sections unchanged. Touched-file ESLint clean.
+
+### 1:1 Hotel Background & Pale Mint Clay KPI Alignment — 2026-09-12
+
+Owner request: Align the Home hero card (`DriverHeroCard`) one-to-one with the supplied reference mockup using `mobile/assets/images/hotel.png` as the 3D hotel background, restyling the KPI cards to match the pale mint clay composition, and keeping the assigned vehicle row untouched ("wag mo na pakielaman yung van jann just focus in kpi bg").
+
+- **Hotel Scenery**: Placed `hotel.png` in the top-right quadrant of the hero shell (`position: 'absolute', top: -4, right: -12, width: 275, height: 160, pointerEvents: 'none'`) with `overflow: 'hidden'`. Its road extends across behind the header subtitle and top of the KPI cards, establishing the layered 2.5D depth from the mockup. Dark mode applies `opacity: 0.65` for seamless stage blending.
+- **Header Structure**: Eyebrow date (`WEDNESDAY, SEP 9`) and subtitle (`Smooth rides. Happy guests.`). The bold headline (`Ready for what’s next?`) was removed per owner request on 2026-09-12 — see "Hero headline removal" above. Text column constrained to `maxWidth: '62%'` to prevent overlapping the hotel building.
+- **Pale Mint Clay KPI Cards**: Restyled `Upcoming trips` and `Trips completed` with soft pale mint clay surfaces (`#E5EEE7` in light mode with top highlight and soft shadow; `colors.primaryContainer` in dark mode). Each card features a 30x30dp extruded squircle clay icon badge (`#F3F7F4`, `calendar` and `checkmark-circle` in dark green `#163D31`) with bold numbers (22px), bold labels, and action links with chevrons (`View assignments >` / `All time >`). Shrunk in two passes on 2026-09-12 from the original 44px-tile/32px-number sizing per owner request — see "KPI shrink pass" above.
+- **Vehicle Section**: Assigned vehicle card layout, photo rendering logic, plate number, and action handlers preserved completely intact.
+- **Verification**: Touched-file ESLint clean; 22 test suites / 129 Vitest tests passed; `npx expo export --platform android` passed (1,366 modules, 5.14 MB bundle). Native device acceptance remains pending.
+
 ### Real route preview — 2026-09-09
 
 Current-trip fix (owner report: "dapat kita pa din yung route preview kahit naka current trip na sya"): routeless booking dispatches (trips created by `ensureTripForDispatch` where `dispatch.route_id` is null) return null endpoint coordinates, so the CURRENT TRIP card fell to "Route preview unavailable" mid-trip. Fixed server-side in `GET /api/mobile/driver/trips` with the shared gazetteer fallback (canonical → gazetteer → none, same chain as the geofence service); unknown endpoint text stays null. No mobile changes — both Home and Trip Details already render the preview whenever coordinates exist. Details in `Capstone/02 - Features/Trips.md`.

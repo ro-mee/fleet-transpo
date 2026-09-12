@@ -97,3 +97,7 @@ Same-day sizing/spacing refinement matching the Home compact pass â€” the screen
 - `TripMapPreview` (Trip Details) widened to 1.9:1, as documented in the Home note.
 
 Net effect: the summary card plus the first full trip card are visible without scrolling on a typical phone. Verified: targeted ESLint clean, mobile Vitest 14 files / 102 tests, `expo export --platform android` passed. On-device acceptance still pending. No commit created.
+
+## Home-consistency pass — 2026-09-09
+
+Same session also aligned Trip Details (`trip/[id].js`), the Live Map sheets (`(tabs)/map.js`), and the Profile logout tile to the Home language (tokens/patterns per the Home note): status pills gained the 6px dot + caption type; section kickers use `type.label`/`type.caption`; detail CTA 58/22 ? 48/18 + `clayCta`; detail cards 30 ? 24; meter strip is now `primaryContainer` + `compactShade`; map panel framed as a clay card; back button uses `clayTile` 48/18; map idle surfaces carry clay spreads with `colors.shadow` (dark stage aligned to `#0D1713`, gas/fleet hexes ? `info`/`success` tokens, FAB/avatar/location icon to 48/tile geometry, greeting/ETA/location names to Home type roles); logout tile 34/12 ? 38/15. Business logic, navigation, radar behavior and API calls untouched. Verified: touched-file ESLint clean, full Vitest 96 files / 1098 tests green. No commit created.

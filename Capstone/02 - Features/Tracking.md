@@ -127,7 +127,6 @@ Driver report: with the active trip at `Drop-off`, opening the live map (`mobile
 - Null `destination_latitude/longitude` (request-dispatched trips with no `route_id` + gazetteer miss) was ruled out as the loader cause — it only suppresses the dest pin/route/ETA, and `MAP_READY` fires before those guards.
 
 ## Arrival gates — 2026-09-09 (spam-proof proximity enforcement)
-
 Driver report: the live map let a trip advance from pickup to Drop-off by
 spamming the swipe — the "far away" warning could be retried through.
 Investigation (3 parallel agents) found the real shape of the hole:
@@ -162,6 +161,20 @@ completion gate, never a hard block that could strand a driver):
   (in-flight lock in `SwipeButton` gesture path + dimmed track).
 - Verified: eslint clean, `trip-geofence` + `geofence` + `trip-state` 31/31
   green (3 new pickup tests), route-auth audit 259/259.
+
+## Map smoothness pass — 2026-09-09
+
+Driver report: lag on the live map after the styling passes. Diagnosis (3 parallel agents) found render/bridge churn, not the clay itself (`clayMaterials` returns stable refs; only `homeMaterials` allocated per call):
+
+- GPS `setDriverLocation` rebuilt state on **every** fix (even parked): full-screen re-render + `easeTo(2800)` camera restart + radar-marker `JSON.stringify` bridge transfer every ~3 s. Fixed with a parked bail-out (`<8 m` + `<5°` + `<1 m/s` returns prev; odometer still sees raw fixes via `distRef`) in `map.js` and `incident/navigate.js` (which also gained the 5° compass gate).
+- Camera `easeTo` now re-fires only after ~16 m of movement; marker + rotation still update per fix.
+- `radarMarkers` rebuild on a ~11 m quantized grid (heading-only fixes no longer rebuild); `origin`/`destination` + map callbacks stabilized with `useMemo`/`useCallback` (hoisted above early returns, null-safe).
+- 15 s `loadTrip` poll gated on `AppState === 'active'`; `homeMaterials` cached per scheme; `RouteTimeline`/`RadarPulse`/`TripMapPreview` memoized with stable `stops` arrays at call sites.
+- Verified: touched-file ESLint clean, full Vitest 96 files / 1098 tests green. No device profiler available — confirm on-device.
+- Home follow-up: up to 3 `TripMapPreview` WebViews mounted in the same frame as the tab switch (one per trip card) — deferred each behind `InteractionManager.runAfterInteractions` (1.2 s fallback) with the loading placeholder meanwhile. No visual change after load.
+- Round 2 (scroll + tap lag): map GPS watcher + 15 s poll now focus-gated (tabs stay mounted — background Highest-accuracy fixes kept feeding renders/bridge while on Home; odometer still accumulates via refs, position re-seeds on refocus); poster publishes only on change (removed the duplicate per-tick publish); Home layer memoized (header/hero/actions/cards + stable shortcuts/vehicle/callbacks) with `removeClippedSubviews` on the Home scroll; `RouteTimeline`/`RadarPulse`/`TripMapPreview` memoized.
+- Round 3 (tile/tag/node shadow flattening): icon tiles, timeline nodes, status pills and small chips no longer carry `elevation`/`shadow*` (edge strips alone carry the molded read); hero/trip cards, sheets, CTAs and FABs keep full clay depth. ~15 offscreen layers removed per Home render with no layout/token changes.
+- Round 4 (Android gradient overlays): metric wash, trip sheen and avatar sheen `LinearGradient`s render only off-Android (transparent overdraw every scroll frame); vehicle photo uses `fadeDuration={0}`. Clay edges unchanged, so the molded read survives.
 
 ## Related
 

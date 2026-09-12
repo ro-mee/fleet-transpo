@@ -169,3 +169,21 @@ Current GPS, geofence, monitor, trip lifecycle, background tracking, responder t
 ## Related
 
 [[Tracking]] · [[Mobile Architecture]] · [[Mobile Home Claymorphism Implementation Plan]] · [[Mobile Trips Claymorphism Implementation Plan]]
+
+---
+
+## Claymorphism Weather Pill Update — 2026-09-10
+
+Owner request: "yung ui ng weather ay hindi naka claymorphism gawin mo nga" (apply claymorphism to the weather UI).
+
+### Changes Implemented
+- **`mobile/components/WeatherChip.js`:**
+  - Upgraded the weather pill from flat elevation to full claymorphism aesthetics matching the Home header's clay avatar and notification bell.
+  - **Clay Pill Edges:** Top white highlight (`borderTopWidth: 2`, `borderTopColor: '#FFFFFF90'` in light, diffused `rgba(255,255,255,0.12)` in dark) and bottom shade (`borderBottomWidth: 2.5`, `borderBottomColor: '#00000015'` in light, `rgba(0,0,0,0.38)` in dark) with strict dark/light key parity (`borderWidth: 0` vs `1`).
+  - **Molded Icon Disc:** Weather icon now sits inside a tactile 30dp clay disc (`iconDisc`) with `mats.clayTile` styling and condition-adaptive tinting (`secondary` for sun, `info` for rain/night).
+  - **Themed Elevation Shadow:** Soft elevation (`elevation: 4`, `shadowRadius: 8`, `shadowColor: colors.shadow`).
+- **Verification:**
+  - `npm test -- mobile/lib`: 14 suites / 104 tests passed.
+  - ESLint clean (0 errors, 0 warnings).
+  - Android Expo export passed (1,356 modules, 5.16 MB).
+
