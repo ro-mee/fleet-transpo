@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -10,11 +10,12 @@ import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, tripCacheKey, resolveDriverId } from "../../../lib/offline-cache";
 import { useConnectivity } from "../../../lib/connectivity-context";
 import { SyncNote, NeverSyncedCard } from "../../../components/OfflineStates";
-import { statusColors, TOUCH_TARGET } from "../../../lib/theme";
+import { tripStatusTone, TOUCH_TARGET } from "../../../lib/theme";
 import { useTheme } from "../../../lib/theme-context";
 import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
 import { clayMaterials } from "../../../lib/clay";
+import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
 // light-mode edge strips that read as a harsh gray line in dark mode.
@@ -175,6 +176,13 @@ export default function TripDetailsScreen() {
   // Active trips: navigation only.
   const handleContinue = () => router.replace("/map");
 
+  // Stable stops identity for the memoized RouteTimeline: the screen
+  // re-renders on a 30 s clock with the same trip object.
+  const routeStops = useMemo(() => [
+    { label: "Pickup", value: trip?.origin ? String(trip.origin) : null, time: fmtTime(scheduledDeparture(trip)) },
+    { label: "Drop-off", value: trip?.destination ? String(trip.destination) : null },
+  ], [trip]);
+
   // Render function (not a nested component) so the header doesn't remount
   // on every state tick.
   const headerBar = (onClose) => (
@@ -183,9 +191,9 @@ export default function TripDetailsScreen() {
         onPress={onClose}
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        style={({ pressed }) => [styles.backBtn, mats.clayShade, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }]}
+        style={({ pressed }) => [styles.backBtn, mats.clayTile, { backgroundColor: colors.surfaceContainerHigh, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }]}
       >
-        <Ionicons name="arrow-back" size={22} color={colors.onSurface} />
+        <Ionicons name="arrow-back" size={22} color={colors.primary} />
       </Pressable>
       <Text style={type.titleLg}>Trip Details</Text>
       <View style={{ width: TOUCH_TARGET }} />
@@ -209,24 +217,20 @@ export default function TripDetailsScreen() {
           {offline ? (
             <NeverSyncedCard title="Trip not saved for offline" body="Connect once while online to view this trip's details." />
           ) : notFound ? (
-            <View style={styles.absent}>
-              <Ionicons name="help-circle-outline" size={44} color={colors.onSurfaceVariant} />
+            <ClayCard style={styles.absent}>
+              <Ionicons name="help-circle-outline" size={40} color={colors.onSurfaceVariant} />
               <Text style={[type.cardTitle, { textAlign: "center" }]}>This trip isn&apos;t in your loaded assignments.</Text>
               <Text style={[type.supporting, { textAlign: "center" }]}>
                 It may have been reassigned or removed by dispatch. Pull to refresh if you were expecting it.
               </Text>
-              <Pressable onPress={retry} accessibilityRole="button" style={({ pressed }) => [styles.absentBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try Again</Text>
-              </Pressable>
-            </View>
+              <ClayButton label="Try Again" variant="primary" onPress={retry} />
+            </ClayCard>
           ) : (
-            <View style={styles.absent}>
-              <Ionicons name="alert-circle-outline" size={44} color={colors.onSurfaceVariant} />
+            <ClayCard style={styles.absent}>
+              <Ionicons name="alert-circle-outline" size={40} color={colors.onSurfaceVariant} />
               <Text style={[type.cardTitle, { textAlign: "center" }]}>{loadError || "This trip couldn't be loaded."}</Text>
-              <Pressable onPress={retry} accessibilityRole="button" style={({ pressed }) => [styles.absentBtn, { backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-                <Text style={[type.labelLg, { color: colors.onPrimary }]}>Try Again</Text>
-              </Pressable>
-            </View>
+              <ClayButton label="Try Again" variant="primary" onPress={retry} />
+            </ClayCard>
           )}
         </View>
       </View>
@@ -240,7 +244,7 @@ export default function TripDetailsScreen() {
     : null;
   const endMs = completionTime(trip);
   const pax = passengerSummary(trip);
-  const sc = statusColors(colors, trip.trip_status);
+  const tone = tripStatusTone(trip.trip_status);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -254,68 +258,69 @@ export default function TripDetailsScreen() {
         ) : null}
 
         {/* Summary card */}
-        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <ClayCard style={styles.card}>
           <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
-            <View style={[styles.pill, dark && { borderTopColor: "rgba(255,255,255,0.10)", borderBottomColor: "rgba(0,0,0,0.35)" }, { backgroundColor: sc.bg }]}>
-              <Text style={[type.labelMd, { color: sc.fg }]}>{String(trip.trip_status)}</Text>
-            </View>
-            <Text style={[type.supporting, { color: colors.primary }]}>Trip #{String(id)}</Text>
+            <ClayBadge
+              text={String(trip.trip_status).toUpperCase()}
+              tone={tone}
+            />
+            <Text style={[type.caption, { color: colors.primary }]}>Trip #{String(id)}</Text>
           </View>
           <View>
-            <Text style={[type.labelMd, { marginBottom: 2 }]}>Scheduled departure</Text>
+            <Text style={[type.caption, { marginBottom: 2 }]}>Scheduled departure</Text>
             <Text style={type.cardTitle}>{depLabel || "Not provided"}</Text>
           </View>
-        </View>
+        </ClayCard>
 
         {/* Readiness panel (pre-start) or completion summary (terminal) */}
         {isTerminal ? (
-          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard style={styles.card}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name={isCompleted ? "flag-outline" : "close-circle-outline"} size={16} color={isCompleted ? colors.primary : colors.error} />
-              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLED"}</Text>
+              <Text style={[type.label, { letterSpacing: 0.6 }]}>{isCompleted ? "COMPLETION SUMMARY" : "TRIP CANCELLED"}</Text>
             </View>
             <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
               <View style={styles.pair}>
-                <Text style={type.labelMd}>{isCompleted ? "COMPLETED AT" : "STATUS"}</Text>
+                <Text style={type.caption}>{isCompleted ? "COMPLETED AT" : "STATUS"}</Text>
                 <Text style={[type.headlineMd, { color: isCompleted ? colors.primary : colors.error }]}>
                   {isCompleted ? (fmtTime(endMs) || "Time not recorded") : "Cancelled"}
                 </Text>
               </View>
             </View>
-            <View style={[styles.meterRow, { backgroundColor: colors.surfaceContainer }]}>
+            <View style={[styles.meterRow, mats.compactShade, { backgroundColor: colors.primaryContainer, shadowColor: colors.shadow }]}>
               <View style={styles.pair}>
-                <Text style={type.labelMd}>START ODOMETER</Text>
+                <Text style={type.caption}>START ODOMETER</Text>
                 <Text style={[type.data, { color: colors.onSurface }]}>
                   {trip?.start_odometer != null && trip.start_odometer !== "" ? `${trip.start_odometer} km` : "Not recorded"}
                 </Text>
               </View>
               <View style={[styles.pair, { alignItems: "flex-end" }]}>
-                <Text style={type.labelMd}>VEHICLE MILEAGE</Text>
+                <Text style={type.caption}>VEHICLE MILEAGE</Text>
                 <Text style={[type.data, { color: colors.onSurface }]}>
                   {trip?.current_mileage != null && trip.current_mileage !== "" ? `${trip.current_mileage} km` : "Not recorded"}
                 </Text>
               </View>
             </View>
-          </View>
+          </ClayCard>
         ) : (
-          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard style={styles.card}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="time-outline" size={16} color={colors.primary} />
-              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>{isPreStart ? "START READINESS" : "TRIP IN PROGRESS"}</Text>
+              <Text style={[type.label, { letterSpacing: 0.6 }]}>{isPreStart ? "START READINESS" : "TRIP IN PROGRESS"}</Text>
             </View>
             {isPreStart ? (
               ready.earliestStart != null ? (
                 <>
                   <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
                     <View style={styles.pair}>
-                      <Text style={type.labelMd}>EARLIEST START</Text>
+                      <Text style={type.caption}>EARLIEST START</Text>
                       <Text style={[type.headlineMd, { color: ready.windowOpen ? colors.secondary : colors.onSurface }]}>
                         {fmtTime(ready.earliestStart)}
                       </Text>
                     </View>
                     {ready.recommended != null ? (
                       <View style={[styles.pair, { alignItems: "flex-end" }]}>
-                        <Text style={type.labelMd}>RECOMMENDED</Text>
+                        <Text style={type.caption}>RECOMMENDED</Text>
                         <Text style={type.headlineMd}>{fmtTime(ready.recommended)}</Text>
                       </View>
                     ) : null}
@@ -361,41 +366,38 @@ export default function TripDetailsScreen() {
                 This trip is underway. Continue to the map to track the route and progress.
               </Text>
             )}
-          </View>
+          </ClayCard>
         )}
 
         {/* Route */}
-        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="navigate-outline" size={16} color={colors.primary} />
-            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>ROUTE</Text>
+            <Text style={[type.label, { letterSpacing: 0.6 }]}>ROUTE</Text>
           </View>
           <RouteTimeline
             accent={colors.primary}
-            stops={[
-              { label: "Pickup", value: trip?.origin ? String(trip.origin) : null, time: fmtTime(depMs) },
-              { label: "Drop-off", value: trip?.destination ? String(trip.destination) : null },
-            ]}
+            stops={routeStops}
           />
-        </View>
+        </ClayCard>
 
         {/* Map panel — static route preview only; interactive navigation
             lives on the Live Map tab. */}
-        <View style={{ gap: 12 }}>
+        <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="map-outline" size={16} color={colors.primary} />
-            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>ROUTE MAP</Text>
+            <Text style={[type.label, { letterSpacing: 0.6 }]}>ROUTE MAP</Text>
           </View>
           <TripMapPreview key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}`}
             trip={trip} offline={offline} airport={/\b(airport|NAIA)\b/i.test(trip.destination || '')} />
-        </View>
+        </ClayCard>
 
         {/* Passenger — supplied facts only, no VIP tier, no call action (the
             API has no phone field for this trip). */}
-        <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <ClayCard style={styles.card}>
           <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
             <Ionicons name="person-outline" size={16} color={colors.primary} />
-            <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>PASSENGER</Text>
+            <Text style={[type.label, { letterSpacing: 0.6 }]}>PASSENGER</Text>
           </View>
           <View style={styles.paxRow}>
             <Ionicons name="people-outline" size={18} color={colors.onSurfaceVariant} />
@@ -406,19 +408,19 @@ export default function TripDetailsScreen() {
               </Text>
             </View>
           </View>
-        </View>
+        </ClayCard>
 
         {/* Notes */}
         {trip?.special_requests ? (
-          <View style={[styles.card, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+          <ClayCard style={styles.card}>
             <View style={[styles.sectionHead, { borderBottomColor: colors.outlineVariant + "55" }]}>
               <Ionicons name="document-text-outline" size={16} color={colors.primary} />
-              <Text style={[type.labelMd, { letterSpacing: 0.6 }]}>SPECIAL REQUESTS</Text>
+              <Text style={[type.label, { letterSpacing: 0.6 }]}>SPECIAL REQUESTS</Text>
             </View>
-            <Text style={[type.bodyMd, { color: colors.onSurface }]}>
+            <Text style={[type.supporting, { color: colors.onSurface }]}>
               {trip.special_requests}
             </Text>
-          </View>
+          </ClayCard>
         ) : null}
       </ScrollView>
 
@@ -453,8 +455,10 @@ export default function TripDetailsScreen() {
             style={({ pressed }) => [
               styles.cta,
               dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 },
+              mats.clayCta,
               {
                 backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
+                shadowColor: colors.shadow,
                 opacity: pressed ? 0.85 : 1,
               },
             ]}
@@ -489,7 +493,7 @@ export default function TripDetailsScreen() {
           </Pressable>
         ) : (
           <Pressable
-            style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, { backgroundColor: colors.primary, opacity: pressed ? 0.85 : 1 }]}
+            style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 }]}
             onPress={handleContinue}
             disabled={accepting}
             accessibilityRole="button"
@@ -514,15 +518,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 12,
   },
-  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center", borderRadius: TOUCH_TARGET / 2 },
-  scroll: { padding: 18, paddingBottom: 26, gap: 22 },
+  backBtn: { width: TOUCH_TARGET, height: TOUCH_TARGET, alignItems: "center", justifyContent: "center", borderRadius: 18 },
+  scroll: { padding: 16, paddingBottom: 26, gap: 16 },
   card: {
-    borderRadius: 30,
-    padding: 20,
-    gap: 16,
+    borderRadius: 24,
+    padding: 16,
+    gap: 14,
   },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  pill: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, maxWidth: "100%", borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012' },
   sectionHead: { flexDirection: "row", alignItems: "center", gap: 8, borderBottomWidth: 1, paddingBottom: 10 },
   pairRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   pair: { gap: 2, flexShrink: 1 },
@@ -544,14 +547,13 @@ const styles = StyleSheet.create({
   },
   hintRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   paxRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  absent: { alignItems: "center", gap: 12, marginTop: 48, padding: 16 },
-  absentBtn: { minHeight: TOUCH_TARGET, borderRadius: 18, paddingHorizontal: 20, alignItems: "center", justifyContent: "center" },
+  absent: { alignItems: "center", gap: 12, marginTop: 48, padding: 16, borderRadius: 24 },
   bottomBar: {
     paddingTop: 12,
     paddingHorizontal: 16,
     borderTopWidth: 1,
   },
-  cta: { minHeight: 58, borderRadius: 22, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 },
+  cta: { minHeight: 48, borderRadius: 18, padding: 14, flexDirection: "row", alignItems: "center", justifyContent: "center", flexWrap: "wrap", gap: 10, borderTopWidth: 2, borderTopColor: '#FFFFFF55', borderBottomWidth: 3, borderBottomColor: '#00000028', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 7, elevation: 5 },
   finishedBanner: {
     flexDirection: "row",
     alignItems: "center",

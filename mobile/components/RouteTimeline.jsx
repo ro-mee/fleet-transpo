@@ -3,6 +3,7 @@
 // track) so both reworked screens render routes identically. Home keeps its
 // own copy — its files are another session's WIP and stay untouched.
 
+import React from 'react';
 import { Text, View, StyleSheet } from 'react-native';
 import { useTheme } from '../lib/theme-context';
 
@@ -11,15 +12,19 @@ import { useTheme } from '../lib/theme-context';
  *  - stops: [{ label, value, time }] — rendered in order; `value` missing shows
  *    "Location not provided", `time` (pre-formatted string) is optional.
  *  - accent: color for nodes/track (defaults to theme primary).
+ *
+ * Memoized: parents (Trips list clock tick, Trip Details) re-render on
+ * timers with identical stops — skip the subtree. Callers must pass a
+ * memoized stops array for the memo to hit.
  */
-export default function RouteTimeline({ stops, accent }) {
+function RouteTimeline({ stops, accent }) {
   const { colors, type } = useTheme();
   const line = accent || colors.primary;
   return <View style={s.wrap}>
-    {stops.map((stop, i) => (
+    {(stops ?? []).map((stop, i) => (
       <View key={stop.label + ':' + i} style={s.stop}>
         <View style={s.track}>
-          <View style={[s.node, { backgroundColor: i === 0 ? line : colors.surfaceContainerLow, borderColor: line, shadowColor: colors.shadow }]} />
+          <View style={[s.node, { backgroundColor: i === 0 ? line : colors.surfaceContainerLow, borderColor: line }]} />
           {i === 0 ? <View style={[s.rail, { backgroundColor: line }]} /> : null}
         </View>
         <View style={s.stopText}>
@@ -35,7 +40,9 @@ const s = StyleSheet.create({
   wrap: { gap: 0 },
   stop: { flexDirection: 'row', gap: 10 },
   track: { width: 22, alignItems: 'center', paddingTop: 4 },
-  node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 3 },
+  node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5 },
   rail: { width: 2, flex: 1, marginBottom: -4 },
   stopText: { flex: 1, minWidth: 0, paddingBottom: 12, gap: 2 },
 });
+
+export default React.memo(RouteTimeline);

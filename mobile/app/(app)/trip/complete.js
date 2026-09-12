@@ -1,9 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  Pressable,
   Animated,
   ScrollView,
   TextInput,
@@ -12,12 +11,13 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../../../lib/theme-context';
-import { fonts, statusSurfaces } from '../../../lib/theme';
+import { fonts } from '../../../lib/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LottieView from 'lottie-react-native';
 import { AppAlert } from '../../../components/AppAlert';
 import { api, wasQueued } from '../../../lib/api';
+import { ClayCard, ClayButton, ClayBadge } from '../../../components/clay';
 
 export default function TripCompleteScreen() {
   const router = useRouter();
@@ -165,10 +165,13 @@ export default function TripCompleteScreen() {
           ]}
         >
           {/* Eyebrow badge */}
-          <View style={[styles.eyebrowBadge, { backgroundColor: colors.primary + '14', borderColor: colors.primary + '30' }]}>
-            <View style={[styles.pulseDot, { backgroundColor: colors.primary }]} />
-            <Text style={[styles.eyebrowText, { color: colors.primary }]}>MISSION COMPLETE</Text>
-          </View>
+          <ClayBadge
+            text="MISSION COMPLETE"
+            tone="success"
+            dot
+            dotColor={colors.primary}
+            style={{ marginBottom: 12 }}
+          />
 
           {/* Title Row with Check Animation following after Trip Completed */}
           <View style={styles.titleRow}>
@@ -216,9 +219,7 @@ export default function TripCompleteScreen() {
           ]}
         >
           {/* Outer Shell */}
-          <View style={[styles.cardOuterShell, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '35' }]}>
-            <View style={[styles.topGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.10)" }]} />
-
+          <ClayCard variant="standard" style={styles.cardOuterShell}>
             {/* Inner Core */}
             <View style={styles.cardInner}>
 
@@ -350,7 +351,7 @@ export default function TripCompleteScreen() {
               ) : null}
 
             </View>
-          </View>
+          </ClayCard>
         </Animated.View>
 
         {/* ─── Bottom Actions ─── */}
@@ -365,54 +366,31 @@ export default function TripCompleteScreen() {
         >
           {/* Secondary Action Double-Pill Row */}
           <View style={styles.secondaryActionsRow}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.secondaryActionBtn,
-                {
-                  backgroundColor: pressed ? colors.surfaceVariant : colors.surfaceContainerLowest,
-                  borderColor: colors.outlineVariant + '50',
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                },
-              ]}
+            <ClayButton
+              variant="tonal"
+              label={savedNote ? 'Edit Note' : 'Add Note'}
+              icon="document-text-outline"
               onPress={() => {
                 setNoteText(savedNote);
                 setNoteModalVisible(true);
               }}
-            >
-              <View style={[styles.btnIconWrapper, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="document-text-outline" size={16} color={colors.onSurface} />
-              </View>
-              <Text style={[styles.secondaryActionText, { color: colors.onSurface }]}>
-                {savedNote ? 'Edit Note' : 'Add Note'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.secondaryActionBtn,
-                {
-                  backgroundColor: pressed ? colors.surfaceVariant : colors.surfaceContainerLowest,
-                  borderColor: colors.outlineVariant + '50',
-                  transform: [{ scale: pressed ? 0.98 : 1 }],
-                },
-              ]}
+              style={{ flex: 1 }}
+            />
+            <ClayButton
+              variant="tonal"
+              label={reportedIssue ? 'Edit Issue' : 'Report Issue'}
+              icon="warning-outline"
               onPress={() => {
                 setIssueText(reportedIssue);
                 setIssueModalVisible(true);
               }}
-            >
-              <View style={[styles.btnIconWrapper, { backgroundColor: colors.surfaceContainer }]}>
-                <Ionicons name="warning-outline" size={16} color={colors.onSurface} />
-              </View>
-              <Text style={[styles.secondaryActionText, { color: colors.onSurface }]}>
-                {reportedIssue ? 'Edit Issue' : 'Report Issue'}
-              </Text>
-            </Pressable>
+              style={{ flex: 1 }}
+            />
           </View>
 
           {/* Primary High-Impact CTA (Island Button Architecture) */}
           {overrideMode ? (
-            <>
+            <View style={{ gap: 10, marginTop: 4 }}>
               <TextInput
                 style={[styles.modalInput, { backgroundColor: colors.surfaceContainerLowest, borderColor: colors.outlineVariant + '40', color: colors.onSurface }]}
                 placeholder="Why are you completing away from the destination? (required)"
@@ -422,61 +400,34 @@ export default function TripCompleteScreen() {
                 value={overrideReason}
                 onChangeText={setOverrideReason}
               />
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryDoneBtn,
-                  {
-                    backgroundColor: colors.error,
-                    transform: [{ scale: pressed ? 0.985 : 1 }],
-                    shadowColor: colors.error,
-                    opacity: overriding ? 0.7 : 1,
-                  },
-                ]}
+              <ClayButton
+                variant="danger"
+                size="lg"
+                label={overriding ? "COMPLETING…" : "COMPLETE ANYWAY"}
+                icon="arrow-forward"
+                iconPosition="right"
                 disabled={overriding}
+                loading={overriding}
                 onPress={handleCompleteAnyway}
-              >
-                <View style={[styles.ctaGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.12)" }]} />
-                <Text style={[styles.primaryDoneText, { color: colors.onError }]}>
-                  {overriding ? "COMPLETING…" : "COMPLETE ANYWAY"}
-                </Text>
-                <View style={[styles.trailingIconCircle, { backgroundColor: colors.onError + '20' }]}>
-                  <Ionicons name="arrow-forward" size={18} color={colors.onError} />
-                </View>
-              </Pressable>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryActionBtn,
-                  {
-                    backgroundColor: pressed ? colors.surfaceVariant : colors.surfaceContainerLowest,
-                    borderColor: colors.outlineVariant + '50',
-                    transform: [{ scale: pressed ? 0.98 : 1 }],
-                  },
-                ]}
+                style={{ alignSelf: 'stretch' }}
+              />
+              <ClayButton
+                variant="tonal"
+                label="Go Back"
                 onPress={() => router.back()}
-              >
-                <Text style={[styles.secondaryActionText, { color: colors.onSurface }]}>Go Back</Text>
-              </Pressable>
-            </>
-          ) : (
-          <Pressable
-            style={({ pressed }) => [
-              styles.primaryDoneBtn,
-              {
-                backgroundColor: colors.primary,
-                transform: [{ scale: pressed ? 0.985 : 1 }],
-                shadowColor: colors.primary,
-              },
-            ]}
-            onPress={() => router.replace('/(app)/(tabs)/map')}
-          >
-            <View style={[styles.ctaGleam, dark && { backgroundColor: "rgba(255, 255, 255, 0.12)" }]} />
-            <Text style={[styles.primaryDoneText, { color: colors.onPrimary }]}>
-              COMPLETE & RETURN
-            </Text>
-            <View style={[styles.trailingIconCircle, { backgroundColor: colors.onPrimary + '20' }]}>
-              <Ionicons name="arrow-forward" size={18} color={colors.onPrimary} />
+                style={{ alignSelf: 'stretch' }}
+              />
             </View>
-          </Pressable>
+          ) : (
+            <ClayButton
+              variant="primary"
+              size="lg"
+              label="COMPLETE & RETURN"
+              icon="arrow-forward"
+              iconPosition="right"
+              onPress={() => router.replace('/(app)/(tabs)/map')}
+              style={{ alignSelf: 'stretch', marginTop: 8 }}
+            />
           )}
         </Animated.View>
       </ScrollView>
@@ -484,7 +435,7 @@ export default function TripCompleteScreen() {
       {/* ─── Modal: Add Note ─── */}
       <Modal visible={noteModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
+          <ClayCard style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Ionicons name="document-text" size={20} color={colors.primary} />
               <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Attach Trip Note</Text>
@@ -499,27 +450,27 @@ export default function TripCompleteScreen() {
               onChangeText={setNoteText}
             />
             <View style={styles.modalBtnRow}>
-              <Pressable
-                style={[styles.modalCancelBtn, { borderColor: colors.outlineVariant + '50' }]}
+              <ClayButton
+                variant="outline"
+                label="Cancel"
                 onPress={() => setNoteModalVisible(false)}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.outline }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalSubmitBtn, { backgroundColor: colors.primary }]}
+                style={{ flex: 1 }}
+              />
+              <ClayButton
+                variant="primary"
+                label="Save Note"
                 onPress={handleSaveNote}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.onPrimary }]}>Save Note</Text>
-              </Pressable>
+                style={{ flex: 1 }}
+              />
             </View>
-          </View>
+          </ClayCard>
         </View>
       </Modal>
 
       {/* ─── Modal: Report Issue ─── */}
       <Modal visible={issueModalVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalCard, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant + '40' }]}>
+          <ClayCard style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Ionicons name="warning" size={20} color={colors.error} />
               <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Report Trip Issue</Text>
@@ -534,20 +485,20 @@ export default function TripCompleteScreen() {
               onChangeText={setIssueText}
             />
             <View style={styles.modalBtnRow}>
-              <Pressable
-                style={[styles.modalCancelBtn, { borderColor: colors.outlineVariant + '50' }]}
+              <ClayButton
+                variant="outline"
+                label="Cancel"
                 onPress={() => setIssueModalVisible(false)}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.outline }]}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.modalSubmitBtn, { backgroundColor: colors.error }]}
+                style={{ flex: 1 }}
+              />
+              <ClayButton
+                variant="danger"
+                label="Submit Issue"
                 onPress={handleReportIssue}
-              >
-                <Text style={[styles.modalBtnText, { color: colors.onError }]}>Submit Issue</Text>
-              </Pressable>
+                style={{ flex: 1 }}
+              />
             </View>
-          </View>
+          </ClayCard>
         </View>
       </Modal>
     </View>
@@ -581,26 +532,6 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     marginTop: 1,
-  },
-  eyebrowBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 999,
-    borderWidth: 1,
-    gap: 6,
-    marginBottom: 12,
-  },
-  pulseDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  eyebrowText: {
-    fontFamily: fonts.dataSemiBold,
-    fontSize: 10,
-    letterSpacing: 1.2,
   },
   heroTitle: {
     fontFamily: fonts.displayBold,
@@ -651,14 +582,6 @@ const styles = StyleSheet.create({
       },
     }),
     overflow: 'hidden',
-  },
-  topGleam: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   cardInner: {
     padding: 20,
@@ -855,69 +778,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  secondaryActionBtn: {
-    flex: 1,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-    gap: 8,
-  },
-  btnIconWrapper: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryActionText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 13,
-  },
-  primaryDoneBtn: {
-    height: 56,
-    borderRadius: 28,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    ...Platform.select({
-      ios: {
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.25,
-        shadowRadius: 18,
-      },
-      android: {
-        elevation: 8,
-      },
-    }),
-    overflow: 'hidden',
-  },
-  ctaGleam: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1.5,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-  },
-  primaryDoneText: {
-    fontFamily: fonts.displayBold,
-    fontSize: 15,
-    letterSpacing: 0.8,
-  },
-  trailingIconCircle: {
-    position: 'absolute',
-    right: 8,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 
   // ─── Modal Styles ───
   modalOverlay: {
@@ -957,21 +817,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 10,
-  },
-  modalCancelBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    borderWidth: 1,
-  },
-  modalSubmitBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 20,
-  },
-  modalBtnText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 13,
   },
 });
 

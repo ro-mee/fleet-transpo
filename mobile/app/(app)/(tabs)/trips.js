@@ -1,10 +1,9 @@
-import { useCallback, useState, useEffect } from "react";
+import { useCallback, useState, useEffect, useMemo, memo } from "react";
 import {
   ScrollView,
   StyleSheet,
   Text,
   View,
-  Pressable,
   RefreshControl,
   ActivityIndicator,
 } from "react-native";
@@ -12,7 +11,6 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { statusColorForTone, fonts } from "../../../lib/theme";
 import { api, isTransportFailure } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
@@ -22,8 +20,8 @@ import { useConnectivity } from "../../../lib/connectivity-context";
 import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../../lib/connectivity-state";
 import { groupTrips, bucketTone, OPEN_BUCKETS } from "../../../lib/trips-queue";
 import RouteTimeline from "../../../components/RouteTimeline";
-import { clayMaterials } from "../../../lib/clay";
 import RadarPulse from "../../../components/RadarPulse";
+import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
 
 function formatWhen(value) {
   if (!value) return null;
@@ -32,55 +30,35 @@ function formatWhen(value) {
   return d.toLocaleDateString([], { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-function TripCard({ trip, display, router, colors, type, mats, dark }) {
-  // The whole card is the single tap target → that trip's details. The list
-  // never offers a start action (the old START TRIP button routed to the
-  // unscoped live map); starting happens on the detail screen where the
-  // acceptance/inspection/departure gates are visible.
-  const bc = trip.trip_status === 'Completed'
-    ? { bg: colors.primary, fg: colors.onPrimary }
-    : statusColorForTone(colors, bucketTone(display));
+const TripCard = memo(function TripCard({ trip, display, router, colors, type }) {
   const when = formatWhen(trip.departure_time);
   const isOverdue = display === "OVERDUE · ACTION REQUIRED";
+  const tone = trip.trip_status === 'Completed' ? 'primary' : bucketTone(display);
+  const stops = useMemo(() => [
+    { label: "Pickup", value: trip?.origin ? String(trip.origin) : null },
+    { label: "Drop-off", value: trip?.destination ? String(trip.destination) : null },
+  ], [trip?.origin, trip?.destination]);
 
   return (
-    <Pressable
+    <ClayCard
       onPress={() => router.push(`/trip/${trip.trip_id}`)}
-      style={({ pressed }) => [
-        styles.card,
-        mats.clayShade,
-        {
-          backgroundColor: colors.surfaceContainerLow,
-          shadowColor: colors.shadow,
-          // Light keeps the tonal top edge; dark uses clayShade's diffused
-          // border treatment (a tonal strip on a dark card reads flat).
-          ...(dark ? null : { borderTopWidth: 2, borderTopColor: colors.surface + "BB" }),
-          shadowOpacity: pressed ? 0.1 : dark ? 0.5 : 0.22,
-          elevation: pressed ? 2 : dark ? 8 : 7,
-          opacity: pressed ? 0.92 : 1,
-        },
-      ]}
-      accessibilityRole="button"
+      variant="standard"
       accessibilityLabel={`Trip ${trip.trip_id}: ${display}. Pickup ${trip?.origin || "not provided"}, destination ${trip?.destination || "not provided"}. View details.`}
+      style={styles.cardSpacing}
     >
       <View style={[styles.cardHeader, { flexWrap: "wrap", gap: 8 }]}>
-        <View style={[styles.pill, dark && { borderTopColor: "rgba(255,255,255,0.10)", borderBottomWidth: 1.5, borderBottomColor: "rgba(0,0,0,0.35)" }, { backgroundColor: bc.bg, shadowColor: colors.shadow }]}>
-          <Text style={[type.labelMd, { color: bc.fg }]}>{display}</Text>
-        </View>
-        <Text style={[type.supporting, { color: colors.onSurfaceVariant }]}>
+        <ClayBadge label={display} tone={tone} statusDot />
+        <Text style={[type.labelLg, { color: colors.onSurfaceVariant }]}>
           {when || "Departure time not set"}
         </Text>
       </View>
 
       <RouteTimeline
         accent={isOverdue ? colors.danger : colors.primary}
-        stops={[
-          { label: "Pickup", value: trip?.origin ? String(trip.origin) : null },
-          { label: "Drop-off", value: trip?.destination ? String(trip.destination) : null },
-        ]}
+        stops={stops}
       />
 
-      <View style={[styles.metaRow, { borderTopColor: colors.outlineVariant + "55" }]}>
+      <View style={[styles.metaRow, { borderTopColor: colors.outlineVariant + "40" }]}>
         <View style={styles.metaLeft}>
           <Ionicons name="person-outline" size={16} color={colors.onSurfaceVariant} />
           <Text style={[type.supporting, { color: colors.onSurface, flexShrink: 1 }]}>
@@ -98,22 +76,25 @@ function TripCard({ trip, display, router, colors, type, mats, dark }) {
         ) : null}
       </View>
 
-      <View style={[styles.detailsRow, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)" }, { backgroundColor: colors.primary, shadowColor: colors.shadow }]}>
-        <Text style={[type.labelLg, { color: colors.onPrimary }]}>Details</Text>
-        <Ionicons name="chevron-forward" size={16} color={colors.onPrimary} />
-      </View>
-    </Pressable>
+      <ClayButton
+        label="Details"
+        onPress={() => router.push(`/trip/${trip.trip_id}`)}
+        icon="chevron-forward"
+        iconPosition="right"
+        size="sm"
+        style={styles.detailsBtn}
+      />
+    </ClayCard>
   );
-}
+});
+
 
 // Frozen at module load; the 30s interval below keeps it current without render-time reads.
 const NOW_AT_LOAD = Date.now();
 
 export default function TripsTab() {
   const insets = useSafeAreaInsets();
-  const { colors, type, scheme } = useTheme();
-  const mats = clayMaterials(scheme === "dark");
-  const dark = scheme === "dark";
+  const { colors, type } = useTheme();
   const router = useRouter();
 
   const [trips, setTrips] = useState([]);
@@ -196,21 +177,21 @@ export default function TripsTab() {
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[styles.scroll, { paddingTop: insets.top + 10, paddingBottom: insets.bottom + 96 }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} tintColor={colors.primary} />
         }
       >
-        <View style={[styles.summary, mats.clayShade, { backgroundColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
+        <ClayCard variant="hero" style={styles.summary}>
           <View style={styles.summaryText}>
             <Text style={type.titleLg}>Trips</Text>
             <Text style={[type.supporting, { marginTop: 2 }]}>{dateStr}</Text>
           </View>
-          <View style={[styles.summaryCount, { borderTopColor: colors.outlineVariant + "55" }]}>
+          <View style={[styles.summaryCount, { borderTopColor: colors.outlineVariant + "40" }]}>
             <Text style={[type.headlineMd, { color: colors.primary }]}>{openCount}{capped ? "+" : ""}</Text>
             <Text style={[type.caption, { flexShrink: 1 }]}>open assignment{openCount === 1 ? "" : "s"} from your loaded trips — these may span multiple dates</Text>
           </View>
-        </View>
+        </ClayCard>
 
         {view.showSyncNote && trips.length > 0 ? (
           // One note for the whole queue, not per bucket.
@@ -220,46 +201,47 @@ export default function TripsTab() {
         {loading ? (
           <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 40 }} />
         ) : error ? (
-          <View style={{ alignItems: "center", marginTop: 60 }}>
-            <Ionicons name="alert-circle-outline" size={48} color={colors.onSurface} />
-            <Text style={{ color: colors.onSurface, marginTop: 16, textAlign: "center" }}>{error}</Text>
-          </View>
+          <ClayCard variant="standard" style={styles.emptyCard}>
+            <Ionicons name="alert-circle-outline" size={40} color={colors.onSurfaceVariant} />
+            <Text style={[type.cardTitle, { textAlign: "center" }]}>Couldn’t load trips</Text>
+            <Text style={[type.supporting, { textAlign: "center" }]}>{error}</Text>
+          </ClayCard>
         ) : sections.length === 0 ? (
           view.state === "never-synced" ? (
             <NeverSyncedCard body="Connect once while online to save your trips for offline viewing." />
           ) : (
-            <View style={{ alignItems: "center", marginTop: 44, gap: 14 }}>
+            <ClayCard variant="standard" style={styles.emptyCard}>
               {view.state === "empty-confirmed" && !offline ? (
-                <RadarPulse size={64} color={colors.primary} icon="radio-outline" />
+                <RadarPulse size={38} color={colors.primary} icon="radio-outline" />
               ) : (
                 <Ionicons
                   name={view.state === "empty-unconfirmed" ? "alert-circle-outline" : "checkmark-circle-outline"}
-                  size={48}
-                  color={colors.onSurface}
+                  size={40}
+                  color={colors.onSurfaceVariant}
                 />
               )}
               <View style={{ alignItems: "center", gap: 4, paddingHorizontal: 20 }}>
-                <Text style={{ color: colors.onSurface, fontFamily: fonts.bodySemiBold, fontSize: 16, textAlign: "center" }}>
+                <Text style={[type.cardTitle, { textAlign: "center" }]}>
                   {view.state === "empty-confirmed"
                     ? (offline ? "No trips were assigned when last synced." : "No trips assigned right now")
-                    : "Trips couldn't be confirmed right now"}
+                    : "Trips couldn’t be confirmed right now"}
                 </Text>
-                <Text style={{ color: colors.onSurfaceVariant, fontFamily: fonts.body, fontSize: 13, textAlign: "center", maxWidth: 280 }}>
+                <Text style={[type.supporting, { textAlign: "center", maxWidth: 280 }]}>
                   {view.state === "empty-confirmed"
                     ? (offline ? "Your offline queue is clear." : "Your vehicle is active on standby. New dispatch assignments will appear here automatically.")
                     : "Pull to refresh or try again."}
                 </Text>
               </View>
               {view.state === "empty-confirmed" && offline ? <SavedChip syncedAt={lastSynced} /> : null}
-            </View>
+            </ClayCard>
           )
         ) : (
           <View>
             {sections.map((section) => (
               <View key={section.bucket}>
-                <Text style={[styles.sectionLabel, { color: colors.onSurfaceVariant }]}>{section.label}</Text>
+                <Text style={[type.sectionTitle, { color: colors.onSurfaceVariant, textTransform: "uppercase", marginTop: 2, marginBottom: 8 }]}>{section.label}</Text>
                 {section.items.map((trip) => (
-                  <TripCard key={trip.trip_id} trip={trip} display={section.label} router={router} colors={colors} type={type} mats={mats} dark={dark} />
+                  <TripCard key={trip.trip_id} trip={trip} display={section.label} router={router} colors={colors} type={type} />
                 ))}
               </View>
             ))}
@@ -273,23 +255,15 @@ export default function TripsTab() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   scroll: { paddingHorizontal: 16, gap: 12 },
-  summary: { borderRadius: 24, padding: 14, gap: 10 },
+  summary: { padding: 14, gap: 10 },
   summaryText: { flexShrink: 1, gap: 2 },
   summaryCount: { borderTopWidth: 1, paddingTop: 8, flexDirection: "row", alignItems: "center", gap: 10 },
-  sectionLabel: { fontSize: 12, fontFamily: fonts.dataSemiBold, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 2, marginBottom: 8 },
-  card: {
-    borderRadius: 24,
-    padding: 14,
-    gap: 12,
-    marginBottom: 12,
-  },
+  emptyCard: { padding: 20, gap: 12, marginTop: 24, alignItems: "center" },
+  cardSpacing: { marginBottom: 12 },
   cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  // borderBottomWidth/Color declared (as 0/transparent) for key parity with
-  // the dark-only inline override above — RN won't reset a prop that merely
-  // vanishes, so the dark bottom edge would survive a Dark→Light switch.
-  pill: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, maxWidth: "100%", borderTopWidth: 1, borderTopColor: '#FFFFFF80', borderBottomWidth: 0, borderBottomColor: 'transparent', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.14, shadowRadius: 4, elevation: 2 },
   metaRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, borderTopWidth: 1, paddingTop: 8 },
   metaLeft: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
-  plateChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
-  detailsRow: { minHeight: 48, borderRadius: 16, padding: 9, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderTopWidth: 2, borderTopColor: '#FFFFFF60', borderBottomWidth: 2, borderBottomColor: '#00000012', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.12, shadowRadius: 5, elevation: 2 },
+  plateChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 16 },
+  detailsBtn: { marginTop: 4 },
 });
+

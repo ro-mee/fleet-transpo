@@ -1,12 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../../../lib/theme-context';
 import { fonts } from '../../../lib/theme';
-import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppAlert } from '../../../components/AppAlert';
-import { FilledButton, TonalButton } from '../../../components/ui';
+import { ClayButton, ClayCard, ClayTile, ClayInput } from '../../../components/clay';
 import { api, wasQueued } from '../../../lib/api';
 
 // Generic arrival-override screen: the map's proximity pre-check found the
@@ -78,38 +77,48 @@ export default function TripOverrideScreen() {
       contentContainerStyle={[styles.content, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}
       keyboardShouldPersistTaps="handled"
     >
-      <View style={[styles.iconWrap, { backgroundColor: colors.warning + '1A' }]}>
-        <Ionicons name="location-outline" size={32} color={colors.warning} />
-      </View>
-      <Text style={[styles.title, { color: colors.onSurface }]}>Far from {copy.endpoint}</Text>
-      <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>
-        You appear to be {distanceText || 'an unknown distance'} from {placeName || `the ${copy.endpoint}`}.
-        {`\n\n`}To {copy.title.toLowerCase()} anyway, a reason is required — dispatch will see it on the trip record.
-      </Text>
+      <ClayCard style={styles.card}>
+        <View style={styles.headerRow}>
+          <ClayTile icon="location-outline" size={48} />
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.title, { color: colors.onSurface }]}>Far from {copy.endpoint}</Text>
+            <Text style={[styles.message, { color: colors.onSurfaceVariant }]}>
+              You appear to be {distanceText || 'an unknown distance'} from {placeName || `the ${copy.endpoint}`}.
+            </Text>
+          </View>
+        </View>
+        <Text style={[styles.submessage, { color: colors.onSurfaceVariant }]}>
+          To {copy.title.toLowerCase()} anyway, a reason is required — dispatch will see it on the trip record.
+        </Text>
+      </ClayCard>
 
-      <Text style={[styles.label, { color: colors.onSurfaceVariant }]}>REASON FOR DISPATCH</Text>
-      <TextInput
-        style={[styles.input, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, color: colors.onSurface }]}
-        placeholder="e.g. Guest waiting at the gate, GPS drift indoors…"
-        placeholderTextColor={colors.outline}
-        multiline
-        numberOfLines={4}
-        textAlignVertical="top"
-        value={reason}
-        onChangeText={setReason}
-        editable={!submitting}
-        maxLength={500}
-      />
+      <ClayCard style={styles.card}>
+        <ClayInput
+          label="REASON FOR DISPATCH"
+          placeholder="e.g. Guest waiting at the gate, GPS drift indoors…"
+          value={reason}
+          onChangeText={setReason}
+          multiline
+          numberOfLines={4}
+          editable={!submitting}
+          maxLength={500}
+        />
+      </ClayCard>
 
-      <FilledButton
+      <ClayButton
         label={copy.verb}
+        variant="danger"
+        size="lg"
         onPress={confirm}
         loading={submitting}
+        disabled={submitting}
         style={styles.action}
       />
-      <TonalButton
+      <ClayButton
         label="GO BACK"
+        variant="tonal"
         onPress={() => router.back()}
+        disabled={submitting}
         style={styles.action}
       />
     </ScrollView>
@@ -118,17 +127,11 @@ export default function TripOverrideScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { paddingHorizontal: 24, gap: 12 },
-  iconWrap: {
-    width: 64, height: 64, borderRadius: 32,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 4,
-  },
-  title: { fontFamily: fonts.displayBold || fonts.bodySemiBold, fontSize: 22 },
-  message: { fontFamily: fonts.body, fontSize: 14, lineHeight: 21, marginBottom: 8 },
-  label: { fontFamily: fonts.dataSemiBold || fonts.bodySemiBold, fontSize: 11, letterSpacing: 0.6, marginTop: 8 },
-  input: {
-    borderWidth: 1, borderRadius: 14, padding: 14, minHeight: 110,
-    fontFamily: fonts.body, fontSize: 14, lineHeight: 20,
-  },
-  action: { alignSelf: 'stretch', marginTop: 8 },
+  content: { paddingHorizontal: 20, gap: 16 },
+  card: { padding: 18, gap: 12 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  title: { fontFamily: fonts.displayBold || fonts.bodySemiBold, fontSize: 18, letterSpacing: -0.2 },
+  message: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, marginTop: 2 },
+  submessage: { fontFamily: fonts.body, fontSize: 13, lineHeight: 19 },
+  action: { alignSelf: 'stretch' },
 });

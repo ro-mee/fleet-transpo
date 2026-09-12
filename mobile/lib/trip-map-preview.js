@@ -6,6 +6,29 @@ export function previewEndpoints(trip) {
   return [[lng, lat], [endLng, endLat]];
 }
 
+export function previewStaticImageUrl(points, key) {
+  if (!points || !points.length || !key) return null;
+  const [[startLng, startLat], [endLng, endLat]] = points;
+  if (!Number.isFinite(startLat) || !Number.isFinite(startLng) || !Number.isFinite(endLat) || !Number.isFinite(endLng)) {
+    return null;
+  }
+  const centerLat = (startLat + endLat) / 2;
+  const centerLng = (startLng + endLng) / 2;
+  const maxSpan = Math.max(Math.abs(startLat - endLat), Math.abs(startLng - endLng));
+  const zoom = Math.max(10, Math.min(15, Math.floor(13 - Math.log2(Math.max(maxSpan, 0.005) / 0.04))));
+  const params = new URLSearchParams({
+    key,
+    format: 'png',
+    zoom: String(zoom),
+    width: '540',
+    height: '284',
+    center: `${centerLng},${centerLat}`,
+  });
+  params.append('markers', `color:0x285448|label:A|${startLat},${startLng}`);
+  params.append('markers', `color:0xEF4444|label:B|${endLat},${endLng}`);
+  return `https://api.tomtom.com/map/1/staticimage?${params.toString()}`;
+}
+
 // Only serialized coordinates/config enter the document, never raw trip text.
 export function previewDocument(points, key, airport = false) {
   const config = JSON.stringify({ points, key, airport }).replaceAll('<', '\\u003c');

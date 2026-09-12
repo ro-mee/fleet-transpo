@@ -1,32 +1,31 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, RefreshControl } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, RefreshControl } from 'react-native';
 import { useFocusEffect, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
-import { fonts, TOUCH_TARGET, statusColorForTone } from "../../../lib/theme";
+import { fonts } from "../../../lib/theme";
 import { api, isTransportFailure } from "../../../lib/api";
 import { useAuth } from "../../../lib/auth";
 import { CACHE_KEYS, getCached, setCached, resolveDriverId } from "../../../lib/offline-cache";
 import { offlineViewState } from "../../../lib/offline-ux";
 import { SyncNote, NeverSyncedCard, SavedChip } from "../../../components/OfflineStates";
 import { useConnectivity } from "../../../lib/connectivity-context";
-import { StatusPill, SkeletonCard } from "../../../components/ui";
-import { AppAlert } from '../../../components/AppAlert';
+import { SkeletonCard } from "../../../components/ui";
+import { ClayCard, ClayBadge, ClayTile, ClayButton } from '../../../components/clay';
 
-function statusColor(status, colors) {
-  const tone =
-    ["Completed"].includes(status) ? "success"
-    : ["Cancelled"].includes(status) ? "danger"
-    : ["Trip Started", "En Route", "Arrived", "Driver Accepted", "In Progress"].includes(status) ? "warning"
-    : ["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(status) ? "info"
-    : "neutral";
-  return statusColorForTone(colors, tone);
+function getStatusTone(status) {
+  if (["Completed"].includes(status)) return "success";
+  if (["Cancelled"].includes(status)) return "danger";
+  if (["Trip Started", "En Route", "Arrived", "Driver Accepted", "In Progress"].includes(status)) return "warning";
+  if (["Pending", "Approved", "Assigned", "Vehicle Assigned", "Driver Assigned", "Dispatched"].includes(status)) return "info";
+  return "neutral";
 }
 
-function TripItem({ trip, colors, onPress }) {
-  const sc = statusColor(trip.trip_status, colors);
+function TripItem({ trip, onPress }) {
+  const { colors, type } = useTheme();
+  const tone = getStatusTone(trip.trip_status);
   const depTime = trip.departure_time
     ? new Date(trip.departure_time).toLocaleString([], {
         month: "short",
@@ -37,46 +36,37 @@ function TripItem({ trip, colors, onPress }) {
     : "--";
 
   return (
-    <Pressable
+    <ClayCard
       onPress={() => onPress(trip)}
-      accessibilityRole="button"
+      variant="standard"
       accessibilityLabel={`Trip #${trip.trip_id}: ${trip.origin || "Origin"} to ${trip.destination || "Destination"}, status ${trip.trip_status}`}
-      style={({ pressed }) => [
-        styles.tripItem,
-        {
-          backgroundColor: colors.surfaceContainerLowest,
-          borderColor: colors.outlineVariant,
-          opacity: pressed ? 0.85 : 1,
-        },
-      ]}
+      style={styles.cardSpacing}
     >
       {/* Header row */}
       <View style={styles.tripItemHeader}>
         <View style={styles.tripItemIdRow}>
-          <Text style={[styles.tripItemId, { color: colors.onSurfaceVariant }]}>
+          <Text style={[styles.tripItemId, { color: colors.primary }]}>
             TRIP #{trip.trip_id}
           </Text>
-          <Text style={[styles.tripItemTime, { color: colors.onSurfaceVariant }]}>
+          <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>
             {depTime}
           </Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: sc.bg }]}>
-          <Text style={[styles.statusBadgeText, { color: sc.fg }]}>{trip.trip_status}</Text>
-        </View>
+        <ClayBadge label={trip.trip_status} tone={tone} statusDot size="sm" />
       </View>
 
       {/* Route */}
       <View style={styles.tripRouteRow}>
         <View style={styles.routeItem}>
-          <Ionicons name="radio-button-on" size={14} color={colors.outline} />
-          <Text style={[styles.routeText, { color: colors.onSurface }]} numberOfLines={1}>
+          <Ionicons name="radio-button-on" size={16} color={colors.primary} />
+          <Text style={[type.bodyMd, styles.routeText, { color: colors.onSurface }]} numberOfLines={1}>
             {trip.origin || "Origin"}
           </Text>
         </View>
-        <View style={[styles.routeArrow, { backgroundColor: colors.outlineVariant }]} />
+        <View style={[styles.routeArrow, { backgroundColor: colors.outlineVariant + '60' }]} />
         <View style={styles.routeItem}>
-          <Ionicons name="location" size={14} color={colors.primary} />
-          <Text style={[styles.routeText, { color: colors.onSurface }]} numberOfLines={1}>
+          <Ionicons name="location" size={16} color={colors.primary} />
+          <Text style={[type.bodyMd, styles.routeText, { color: colors.onSurface }]} numberOfLines={1}>
             {trip.destination || "Destination"}
           </Text>
         </View>
@@ -84,28 +74,29 @@ function TripItem({ trip, colors, onPress }) {
 
       {/* Footer info */}
       {(trip.vehicle_plate || trip.passenger_name) ? (
-        <View style={[styles.tripFooter, { borderTopColor: colors.surfaceContainerHigh }]}>
+        <View style={[styles.tripFooter, { borderTopColor: colors.outlineVariant + '40' }]}>
           {trip.vehicle_plate ? (
             <View style={styles.tripMeta}>
-              <Ionicons name="car-outline" size={14} color={colors.onSurfaceVariant} />
-              <Text style={[styles.tripMetaText, { color: colors.onSurfaceVariant }]}>
+              <Ionicons name="car-outline" size={15} color={colors.onSurfaceVariant} />
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>
                 {trip.vehicle_plate}
               </Text>
             </View>
           ) : null}
           {trip.passenger_name ? (
             <View style={styles.tripMeta}>
-              <Ionicons name="person-outline" size={14} color={colors.onSurfaceVariant} />
-              <Text style={[styles.tripMetaText, { color: colors.onSurfaceVariant }]}>
+              <Ionicons name="person-outline" size={15} color={colors.onSurfaceVariant} />
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>
                 {trip.passenger_name}
               </Text>
             </View>
           ) : null}
         </View>
       ) : null}
-    </Pressable>
+    </ClayCard>
   );
 }
+
 
 export default function TripsTab() {
   const insets = useSafeAreaInsets();
@@ -198,29 +189,21 @@ export default function TripsTab() {
       </View>
 
       {/* Filter tabs */}
-      <View style={[styles.filterBar, { backgroundColor: colors.surface, borderBottomColor: colors.outlineVariant }]}>
+      <View style={[styles.filterBar, { backgroundColor: colors.background }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
           {FILTERS.map((f) => {
             const active = activeFilter === f;
             return (
-              <Pressable
+              <ClayBadge
                 key={f}
+                label={f}
+                active={active}
+                tone={active ? "primary" : "neutral"}
                 onPress={() => setActiveFilter(f)}
                 accessibilityRole="button"
-                accessibilityState={{ selected: active }}
                 accessibilityLabel={`Filter trips: ${f}`}
-                style={[
-                  styles.filterTab,
-                  {
-                    backgroundColor: active ? colors.primaryContainer : "transparent",
-                    borderColor: active ? colors.primary : colors.outlineVariant,
-                  },
-                ]}
-              >
-                <Text style={[styles.filterText, { color: active ? colors.primary : colors.onSurfaceVariant }]}>
-                  {f}
-                </Text>
-              </Pressable>
+                style={styles.filterTab}
+              />
             );
           })}
         </ScrollView>
@@ -249,14 +232,9 @@ export default function TripsTab() {
           </>
         ) : error ? (
           <View style={styles.centered}>
-            <Ionicons name="cloud-offline-outline" size={48} color={colors.outline} />
+            <ClayTile icon="cloud-offline-outline" size="lg" color={colors.error} />
             <Text style={[styles.errorText, { color: colors.onSurface }]}>{error}</Text>
-            <Pressable
-              onPress={load}
-              style={[styles.retryBtn, { borderColor: colors.primary }]}
-            >
-              <Text style={[styles.retryText, { color: colors.primary }]}>Retry</Text>
-            </Pressable>
+            <ClayButton label="Retry" onPress={load} variant="outline" size="sm" />
           </View>
         ) : filtered.length === 0 ? (
           view.state === "never-synced" ? (
@@ -265,9 +243,7 @@ export default function TripsTab() {
             // Filter artifact: the cache HAS trips — this empty is the filter's,
             // not the source's. Unchanged behavior, now explicit.
             <View style={styles.centered}>
-              <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
-                <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
-              </View>
+              <ClayTile icon="trail-sign-outline" size="lg" />
               <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
               <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
                 {activeFilter === "Active" ? "No active trips right now." : "No completed trips yet."}
@@ -275,9 +251,7 @@ export default function TripsTab() {
             </View>
           ) : (
             <View style={styles.centered}>
-              <View style={[styles.emptyTile, { backgroundColor: statusColorForTone(colors, "neutral").bg }]}>
-                <Ionicons name="route" size={24} color={statusColorForTone(colors, "neutral").fg} />
-              </View>
+              <ClayTile icon="trail-sign-outline" size="lg" />
               <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>No Trips</Text>
               <Text style={[styles.emptySub, { color: colors.onSurfaceVariant }]}>
                 {view.state === "empty-confirmed"
@@ -290,7 +264,7 @@ export default function TripsTab() {
           )
         ) : (
           filtered.map((trip) => (
-            <TripItem key={trip.trip_id} trip={trip} colors={colors} onPress={handleTripPress} />
+            <TripItem key={trip.trip_id} trip={trip} onPress={handleTripPress} />
           ))
         )}
       </ScrollView>
@@ -313,51 +287,30 @@ const styles = StyleSheet.create({
   topBarTitle: { fontSize: moderateScale(24), fontFamily: fonts.displayBold, lineHeight: moderateScale(32) },
   pageTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
   pageSub: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
-  filterBar: { borderBottomWidth: 1 },
+  filterBar: { },
   filterScroll: { paddingHorizontal: moderateScale(16), paddingVertical: moderateScale(10), gap: moderateScale(8) },
   filterTab: {
-    paddingHorizontal: moderateScale(16),
-    paddingVertical: moderateScale(6),
-    minHeight: moderateScale(40),
-    justifyContent: "center",
-    borderRadius: moderateScale(999),
-    borderWidth: 1,
+    minHeight: moderateScale(36),
   },
-  filterText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
   scroll: { paddingHorizontal: moderateScale(16), paddingTop: moderateScale(16), gap: moderateScale(12) },
+  cardSpacing: { marginBottom: moderateScale(4) },
   centered: { padding: moderateScale(48), alignItems: "center", gap: moderateScale(12) },
-  emptyTile: { width: moderateScale(52), height: moderateScale(52), borderRadius: moderateScale(16), alignItems: "center", justifyContent: "center" },
   errorText: { fontSize: moderateScale(16), fontFamily: fonts.body, lineHeight: moderateScale(24), textAlign: "center" },
-  retryBtn: { paddingHorizontal: moderateScale(24), paddingVertical: moderateScale(10), borderRadius: moderateScale(999), borderWidth: 1 },
-  retryText: { fontSize: moderateScale(14), fontFamily: fonts.bodySemiBold },
   emptyTitle: { fontSize: moderateScale(20), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(28) },
   emptySub: { fontSize: moderateScale(14), fontFamily: fonts.body, lineHeight: moderateScale(20), textAlign: "center" },
-  tripItem: {
-    borderRadius: moderateScale(12),
-    borderWidth: 1,
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  tripItemHeader: { padding: moderateScale(16), gap: moderateScale(6) },
-  tripItemIdRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  tripItemHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: moderateScale(8) },
+  tripItemIdRow: { gap: moderateScale(2) },
   tripItemId: { fontSize: moderateScale(12), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(16), letterSpacing: 0.5, textTransform: "uppercase" },
-  tripItemTime: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
-  statusBadge: { alignSelf: "flex-start", paddingHorizontal: moderateScale(10), paddingVertical: moderateScale(3), borderRadius: moderateScale(999) },
-  statusBadgeText: { fontSize: moderateScale(12), fontFamily: fonts.bodySemiBold, lineHeight: moderateScale(16) },
-  tripRouteRow: { paddingHorizontal: moderateScale(16), paddingBottom: moderateScale(16), gap: moderateScale(6) },
+  tripRouteRow: { gap: moderateScale(8) },
   routeItem: { flexDirection: "row", alignItems: "center", gap: moderateScale(8) },
   routeArrow: { height: 1, marginLeft: moderateScale(22) },
-  routeText: { flex: 1, fontSize: moderateScale(16), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(24) },
+  routeText: { flex: 1, fontSize: moderateScale(15), fontFamily: fonts.bodyMedium, lineHeight: moderateScale(22) },
   tripFooter: {
     flexDirection: "row",
     gap: moderateScale(16),
-    paddingHorizontal: moderateScale(16),
-    paddingVertical: moderateScale(10),
+    paddingTop: moderateScale(10),
     borderTopWidth: 1,
   },
-  tripMeta: { flexDirection: "row", alignItems: "center", gap: moderateScale(4) },
-  tripMetaText: { fontSize: moderateScale(12), fontFamily: fonts.body, lineHeight: moderateScale(16) },
+  tripMeta: { flexDirection: "row", alignItems: "center", gap: moderateScale(5) },
 });
+
