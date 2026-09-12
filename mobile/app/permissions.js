@@ -9,10 +9,10 @@ import {
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../lib/theme-context";
-import { fonts, radius, space } from "../lib/theme";
-import { Button, ErrorNotice, StatusPill, styles as ui } from "../components/ui";
+import { fonts, space } from "../lib/theme";
+import { ErrorNotice } from "../components/ui";
 import { BrandBar } from "../components/logo";
-import { Ionicons } from "@expo/vector-icons";
+import { ClayCard, ClayButton, ClayBadge, ClayTile } from "../components/clay";
 import {
   describePermissionState,
   getPermissionStatuses,
@@ -24,18 +24,21 @@ function PermissionCard({ icon, title, description, state }) {
   const { colors, type } = useTheme();
   const presentation = describePermissionState(state);
   return (
-    <View style={[styles.cardItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-      <View style={[styles.iconBox, { backgroundColor: colors.primaryContainer }]}>
-        <Ionicons name={icon} size={22} color={colors.onPrimaryContainer} />
-      </View>
+    <ClayCard variant="compact" style={styles.cardItem}>
+      <ClayTile
+        icon={icon}
+        size="md"
+        backgroundColor={colors.primaryContainer}
+        color={colors.onPrimaryContainer}
+      />
       <View style={styles.cardText}>
         <View style={styles.titleRow}>
           <Text style={[type.titleMd, styles.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>{title}</Text>
-          {state && <StatusPill label={presentation.label} tone={presentation.tone} />}
+          {state && <ClayBadge label={presentation.label} tone={presentation.tone} size="sm" />}
         </View>
-        <Text style={[type.bodyMd, ui.bodyText, { color: colors.onSurfaceVariant }]}>{description}</Text>
+        <Text style={[type.bodyMd, { color: colors.onSurfaceVariant }]}>{description}</Text>
       </View>
-    </View>
+    </ClayCard>
   );
 }
 
@@ -86,9 +89,13 @@ export default function PermissionsScreen() {
         ]}
       >
         <View style={styles.header}>
-          <View style={[styles.iconContainer, { backgroundColor: colors.secondaryContainer }]}>
-            <Ionicons name="devices" size={48} color={colors.onSecondaryContainer} />
-          </View>
+          <ClayTile
+            icon="devices"
+            size="lg"
+            backgroundColor={colors.secondaryContainer}
+            color={colors.onSecondaryContainer}
+            style={styles.iconTile}
+          />
           <Text style={[type.headlineMd, styles.title, { color: colors.onSurface }]}>App Permissions</Text>
           <Text style={[type.bodyMd, styles.subtitle, { color: colors.onSurfaceVariant }]}>
             We need a few permissions to give you the best experience on the road.
@@ -115,10 +122,11 @@ export default function PermissionsScreen() {
         borderTopColor: colors.outlineVariant,
         paddingBottom: Math.max(insets.bottom, space.md)
       }]}>
-        <Button
+        <ClayButton
           label="Enable Permissions"
           onPress={onRequestPermissions}
           loading={loading}
+          size="lg"
           style={styles.fullButton}
         />
       </View>
@@ -137,12 +145,7 @@ const styles = StyleSheet.create({
     alignSelf: "center" 
   },
   header: { alignItems: "center", gap: space.sm, marginTop: space.md },
-  iconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
+  iconTile: {
     marginBottom: space.sm,
   },
   title: {
@@ -157,17 +160,8 @@ const styles = StyleSheet.create({
   cardItem: {
     flexDirection: "row",
     padding: space.md,
-    borderRadius: radius.card,
-    borderWidth: 1,
     gap: space.md,
     alignItems: "center"
-  },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
   },
   cardText: { flex: 1, gap: 2 },
   titleRow: {

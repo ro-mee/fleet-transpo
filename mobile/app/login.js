@@ -4,19 +4,17 @@ import {
   StyleSheet,
   Text,
   View,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Pressable,
-  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme-context";
-import { fonts, space, radius, TOUCH_TARGET } from "../lib/theme";
+import { fonts } from "../lib/theme";
+import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -71,9 +69,13 @@ export default function LoginScreen() {
       >
         {/* ─── Branding ─── */}
         <View style={styles.brand}>
-          <View style={[styles.logoBox, { backgroundColor: colors.primary }]}>
-            <Ionicons name="car-sport" size={36} color={colors.onPrimary} />
-          </View>
+          <ClayTile
+            icon="car-sport"
+            size="lg"
+            backgroundColor={colors.primary}
+            color={colors.onPrimary}
+            style={styles.logoTile}
+          />
           <Text style={[styles.appName, { color: colors.primary }]}>FleetOps</Text>
           <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>
             Driver Portal Access
@@ -81,15 +83,7 @@ export default function LoginScreen() {
         </View>
 
         {/* ─── Form Card ─── */}
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: colors.surfaceContainerLowest,
-              borderColor: colors.outlineVariant,
-            },
-          ]}
-        >
+        <ClayCard variant="standard" style={styles.card}>
           {/* Error Banner */}
           {error ? (
             <View
@@ -103,102 +97,55 @@ export default function LoginScreen() {
           ) : null}
 
           {/* Username field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.fieldLabel, { color: colors.onSurface }]}>
-              Driver ID or Email
-            </Text>
-            <View
-              style={[
-                styles.inputRow,
-                { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest },
-              ]}
-            >
-              <Ionicons name="person-outline" size={20} color={colors.outline} />
-              <TextInput
-                style={[styles.input, { color: colors.onSurface }]}
-                placeholder="Enter ID or Email"
-                placeholderTextColor={colors.outline}
-                autoCapitalize="none"
-                autoCorrect={false}
-                value={username}
-                onChangeText={setUsername}
-                returnKeyType="next"
-              />
-            </View>
-          </View>
+          <ClayInput
+            label="Driver ID or Email"
+            icon="person-outline"
+            placeholder="Enter ID or Email"
+            autoCapitalize="none"
+            autoCorrect={false}
+            value={username}
+            onChangeText={setUsername}
+            returnKeyType="next"
+          />
 
           {mfaRequired ? (
-            <View style={styles.fieldGroup}>
-              <Text style={[styles.fieldLabel, { color: colors.onSurface }]}>Verification code</Text>
-              <View
-                style={[
-                  styles.inputRow,
-                  { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest },
-                ]}
-              >
-                <Ionicons name="shield-checkmark-outline" size={20} color={colors.outline} />
-                <TextInput
-                  style={[styles.input, { color: colors.onSurface }]}
-                  placeholder="6-digit code or recovery code"
-                  placeholderTextColor={colors.outline}
-                  autoCapitalize="characters"
-                  autoCorrect={false}
-                  value={mfaCode}
-                  onChangeText={setMfaCode}
-                  returnKeyType="done"
-                  onSubmitEditing={handleLogin}
-                />
-              </View>
-            </View>
+            <ClayInput
+              label="Verification code"
+              icon="shield-checkmark-outline"
+              placeholder="6-digit code or recovery code"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              value={mfaCode}
+              onChangeText={setMfaCode}
+              returnKeyType="done"
+              onSubmitEditing={handleLogin}
+            />
           ) : null}
 
           {/* Password field */}
-          <View style={styles.fieldGroup}>
-            <Text style={[styles.fieldLabel, { color: colors.onSurface }]}>Password</Text>
-            <View
-              style={[
-                styles.inputRow,
-                { borderColor: colors.outline, backgroundColor: colors.surfaceContainerLowest },
-              ]}
-            >
-              <Ionicons name="lock-closed-outline" size={20} color={colors.outline} />
-              <TextInput
-                style={[styles.input, { color: colors.onSurface }]}
-                placeholder="Enter Password"
-                placeholderTextColor={colors.outline}
-                secureTextEntry={!showPassword}
-                value={password}
-                onChangeText={setPassword}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-              />
-              <Pressable onPress={() => setShowPassword(!showPassword)} hitSlop={8}>
-                <Ionicons
-                  name={showPassword ? "eye-off-outline" : "eye-outline"}
-                  size={20}
-                  color={colors.outline}
-                />
-              </Pressable>
-            </View>
-          </View>
+          <ClayInput
+            label="Password"
+            icon="lock-closed-outline"
+            placeholder="Enter Password"
+            secureTextEntry={!showPassword}
+            rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+            onRightIconPress={() => setShowPassword(!showPassword)}
+            value={password}
+            onChangeText={setPassword}
+            returnKeyType="done"
+            onSubmitEditing={handleLogin}
+          />
 
           {/* Login CTA */}
-          <Pressable
+          <ClayButton
+            label="Login"
             onPress={handleLogin}
-            disabled={loading}
-            style={({ pressed }) => [
-              styles.loginBtn,
-              { backgroundColor: loading ? colors.surfaceContainerHigh : colors.primary },
-              pressed && !loading && { opacity: 0.9 },
-            ]}
-          >
-            {loading ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <Text style={[styles.loginBtnText, { color: colors.onPrimary }]}>Login</Text>
-            )}
-          </Pressable>
-        </View>
+            loading={loading}
+            size="lg"
+            variant="primary"
+            style={styles.loginBtn}
+          />
+        </ClayCard>
 
         {/* Footer */}
         <Text style={[styles.footer, { color: colors.outline }]}>
@@ -222,17 +169,7 @@ const styles = StyleSheet.create({
     gap: moderateScale(8),
     marginBottom: moderateScale(4),
   },
-  logoBox: {
-    width: moderateScale(64),
-    height: moderateScale(64),
-    borderRadius: moderateScale(16),
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: moderateScale(4) },
-    elevation: 4,
+  logoTile: {
     marginBottom: moderateScale(4),
   },
   appName: {
@@ -246,22 +183,15 @@ const styles = StyleSheet.create({
     lineHeight: moderateScale(24),
   },
   card: {
-    borderRadius: moderateScale(16),
-    borderWidth: 1,
-    padding: moderateScale(16),
-    gap: moderateScale(12),
-    shadowColor: "#000",
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: moderateScale(2) },
-    elevation: 3,
+    padding: moderateScale(20),
+    gap: moderateScale(16),
   },
   errorBanner: {
     flexDirection: "row",
     alignItems: "center",
     gap: moderateScale(8),
     padding: moderateScale(12),
-    borderRadius: moderateScale(8),
+    borderRadius: moderateScale(12),
   },
   errorText: {
     flex: 1,
@@ -269,39 +199,8 @@ const styles = StyleSheet.create({
     fontFamily: fonts.body,
     lineHeight: moderateScale(20),
   },
-  fieldGroup: { gap: moderateScale(4) },
-  fieldLabel: {
-    fontSize: moderateScale(12),
-    fontFamily: fonts.bodyMedium,
-    lineHeight: moderateScale(16),
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderRadius: moderateScale(8),
-    paddingHorizontal: moderateScale(12),
-    minHeight: TOUCH_TARGET,
-    gap: moderateScale(8),
-  },
-  input: {
-    flex: 1,
-    fontSize: moderateScale(16),
-    fontFamily: fonts.body,
-    lineHeight: moderateScale(24),
-  },
   loginBtn: {
-    height: moderateScale(56),
-    borderRadius: moderateScale(8),
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: moderateScale(4),
-  },
-  loginBtnText: {
-    fontSize: moderateScale(14),
-    fontFamily: fonts.bodySemiBold,
-    lineHeight: moderateScale(20),
-    letterSpacing: 0.1,
+    marginTop: moderateScale(8),
   },
   footer: {
     textAlign: "center",

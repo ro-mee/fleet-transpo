@@ -4,42 +4,43 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View,
-  Pressable
+  View
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { api } from "../lib/api";
-import { useAuth } from "../lib/auth";
 import {
   CURRENT_PRIVACY_POLICY_VERSION,
   setAcceptedConsentVersion,
 } from "../lib/consent";
 import { useTheme } from "../lib/theme-context";
-import { fonts, radius, space } from "../lib/theme";
-import { Button, ErrorNotice, styles as ui } from "../components/ui";
+import { fonts, space } from "../lib/theme";
+import { ErrorNotice } from "../components/ui";
 import { BrandBar } from "../components/logo";
 import { MaterialIcons } from "@expo/vector-icons";
+import { ClayCard, ClayButton, ClayTile } from "../components/clay";
 
 function ConsentCard({ icon, title, description }) {
-  const { colors } = useTheme();
+  const { colors, type } = useTheme();
   return (
-    <View style={[styles.cardItem, { backgroundColor: colors.surfaceContainer, borderColor: colors.outlineVariant }]}>
-      <View style={[styles.iconBox, { backgroundColor: colors.primaryContainer }]}>
+    <ClayCard variant="compact" style={styles.cardItem}>
+      <ClayTile
+        size="md"
+        backgroundColor={colors.primaryContainer}
+      >
         <MaterialIcons name={icon} size={24} color={colors.onPrimaryContainer} />
-      </View>
+      </ClayTile>
       <View style={styles.cardText}>
         <Text style={[styles.cardTitle, { color: colors.onSurface }]}>{title}</Text>
-        <Text style={[ui.bodyText, { color: colors.onSurfaceVariant, fontSize: 13 }]}>{description}</Text>
+        <Text style={[type.caption, { color: colors.onSurfaceVariant, fontSize: 13, lineHeight: 18 }]}>{description}</Text>
       </View>
-    </View>
+    </ClayCard>
   );
 }
 
 export default function ConsentScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user } = useAuth();
   const { colors } = useTheme();
 
   const [checked, setChecked] = useState(false);
@@ -76,9 +77,13 @@ export default function ConsentScreen() {
         ]}
       >
         <View style={styles.header}>
-          <View style={[styles.shieldContainer, { backgroundColor: colors.primaryContainer }]}>
-            <MaterialIcons name="security" size={48} color={colors.onPrimaryContainer} />
-          </View>
+          <ClayTile
+            size="lg"
+            backgroundColor={colors.primaryContainer}
+            style={styles.shieldTile}
+          >
+            <MaterialIcons name="security" size={38} color={colors.onPrimaryContainer} />
+          </ClayTile>
           <Text style={[styles.title, { color: colors.onSurface }]}>Driver Data Privacy</Text>
           <Text style={[styles.subtitle, { color: colors.onSurfaceVariant }]}>
             To keep operations running smoothly and securely, here is how we use your data.
@@ -105,8 +110,9 @@ export default function ConsentScreen() {
           />
         </View>
 
-        <Pressable 
-          style={[styles.checkboxContainer, { borderColor: checked ? colors.primary : colors.outlineVariant }]} 
+        <ClayCard 
+          variant="compact"
+          style={styles.checkboxContainer} 
           onPress={() => setChecked(!checked)}
           accessibilityRole="checkbox"
           accessibilityState={{ checked }}
@@ -120,7 +126,7 @@ export default function ConsentScreen() {
           <Text style={[styles.checkboxLabel, { color: colors.onSurface }]}>
             I agree to the Terms and Conditions and Privacy Policy
           </Text>
-        </Pressable>
+        </ClayCard>
       </ScrollView>
 
       {/* Sticky Bottom Bar */}
@@ -129,11 +135,12 @@ export default function ConsentScreen() {
         borderTopColor: colors.outlineVariant,
         paddingBottom: Math.max(insets.bottom, space.md)
       }]}>
-        <Button
+        <ClayButton
           label="Confirm & Continue"
           onPress={onAccept}
           loading={submitting}
           disabled={!checked}
+          size="lg"
           style={styles.fullButton}
         />
       </View>
@@ -152,12 +159,7 @@ const styles = StyleSheet.create({
     alignSelf: "center" 
   },
   header: { alignItems: "center", gap: space.sm, marginTop: space.md },
-  shieldContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    alignItems: "center",
-    justifyContent: "center",
+  shieldTile: {
     marginBottom: space.sm,
   },
   title: {
@@ -175,17 +177,8 @@ const styles = StyleSheet.create({
   cardItem: {
     flexDirection: "row",
     padding: space.md,
-    borderRadius: radius.card,
-    borderWidth: 1,
     gap: space.md,
     alignItems: "center"
-  },
-  iconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
   },
   cardText: { flex: 1, gap: 2 },
   cardTitle: { fontFamily: fonts.bodySemiBold, fontSize: moderateScale(15) },
@@ -193,8 +186,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: space.md,
-    borderRadius: radius.control,
-    borderWidth: 1,
     gap: space.md,
     marginTop: space.sm
   },
