@@ -355,6 +355,37 @@ export default function MapTab() {
   const [nearbyTrips, setNearbyTrips] = useState([]);
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
+  const [coverageVisibility, setCoverageVisibility] = useState({
+    vehicle: true,
+    gas_station: true,
+    driver: true,
+    assignment: true,
+  });
+
+  const toggleCoverage = useCallback((key) => {
+    setCoverageVisibility((prev) => {
+      const nextVal = !prev[key];
+      if (!nextVal && selectedMarker) {
+        if (key === 'gas_station' && selectedMarker.type === 'gas_station') {
+          setSelectedMarker(null);
+        } else if (key === 'driver' && (selectedMarker.type === 'driver' || selectedMarker.type === 'vehicle')) {
+          setSelectedMarker(null);
+        } else if (key === 'assignment' && selectedMarker.type === 'assignment') {
+          setSelectedMarker(null);
+        }
+      }
+      return { ...prev, [key]: nextVal };
+    });
+  }, [selectedMarker]);
+
+  const showAllCoverage = useCallback(() => {
+    setCoverageVisibility({
+      vehicle: true,
+      gas_station: true,
+      driver: true,
+      assignment: true,
+    });
+  }, []);
 
   const rTheme = RADAR_THEME[scheme === 'dark' ? 'dark' : 'light'];
   // Home clay language for the map surfaces (same mats family as Home cards).
@@ -594,6 +625,15 @@ export default function MapTab() {
     return getOperationalRadarMarkers(driverLocation, nearbyTrips);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- quantized grid only; identity churns per fix
   }, [radarGridLat, radarGridLng, nearbyTrips]);
+
+  const filteredRadarMarkers = useMemo(() => {
+    return radarMarkers.filter((m) => {
+      if (m.type === 'gas_station') return coverageVisibility.gas_station;
+      if (m.type === 'driver' || m.type === 'vehicle') return coverageVisibility.driver;
+      if (m.type === 'assignment') return coverageVisibility.assignment;
+      return true;
+    });
+  }, [radarMarkers, coverageVisibility]);
 
   const handleAcceptAssignment = async (tripId) => {
     if (!tripId) return;
@@ -946,7 +986,8 @@ export default function MapTab() {
           showCarIcon={true}
           radarMode={true}
           radarRadiusKm={radarRadiusKm}
-          radarMarkers={radarMarkers}
+          radarMarkers={filteredRadarMarkers}
+          showVehicleMarker={coverageVisibility.vehicle}
           onMarkerPress={handleMarkerPress}
           onMapDragged={handleMapDragged}
           onMapReady={handleMapReady}
@@ -1016,7 +1057,7 @@ export default function MapTab() {
           </View>
         </View>
 
-        {/* Collapsible Radar Legend */}
+        {/* Collapsible Interactive Radar Legend */}
         <View style={[styles.legendCard, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
           <Pressable 
             onPress={() => setLegendExpanded(!legendExpanded)} 
@@ -1027,28 +1068,105 @@ export default function MapTab() {
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <View style={[styles.legendIndicatorDot, { backgroundColor: rTheme.primary }]} />
               <Text style={[styles.legendHeaderTitle, { color: rTheme.legendText }]}>Coverage Legend</Text>
+              {(() => {
+                const activeCount = Object.values(coverageVisibility).filter(Boolean).length;
+                if (activeCount < 4) {
+                  return (
+                    <View style={[styles.legendFilterBadge, { backgroundColor: rTheme.activeRangeBg }]}>
+                      <Text style={[styles.legendFilterBadgeText, { color: rTheme.activeRangeText }]}>
+                        {activeCount}/4
+                      </Text>
+                    </View>
+                  );
+                }
+                return null;
+              })()}
             </View>
             <Ionicons name={legendExpanded ? "chevron-up" : "chevron-down"} size={13} color={rTheme.legendSubtext} />
           </Pressable>
           
           {legendExpanded && (
             <View style={styles.legendItemsList}>
-              <View style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: rTheme.primary }]} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Your Vehicle</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <Ionicons name="water" size={13} color={colors.info} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Nearest Gas Station</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <Ionicons name="car" size={13} color={colors.success} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Fleet Drivers</Text>
-              </View>
-              <View style={styles.legendItem}>
-                <Ionicons name="document-text" size={13} color={rTheme.warning} />
-                <Text style={[styles.legendLabel, { color: rTheme.legendText }]}>Dispatch Requests</Text>
-              </View>
+              {[
+                {
+                  key: 'vehicle',
+                  label: 'Your Vehicle',
+                  renderIcon: (active) => (
+                    <View style={[styles.legendDot, { backgroundColor: rTheme.primary, opacity: active ? 1 : 0.4 }]} />
+                  ),
+                },
+                {
+                  key: 'gas_station',
+                  label: 'Nearest Gas Station',
+                  renderIcon: (active) => (
+                    <Ionicons name="water" size={13} color={active ? "#0284c7" : rTheme.legendSubtext} />
+                  ),
+                },
+                {
+                  key: 'driver',
+                  label: 'Fleet Drivers',
+                  renderIcon: (active) => (
+                    <Ionicons name="car" size={13} color={active ? "#286B54" : rTheme.legendSubtext} />
+                  ),
+                },
+                {
+                  key: 'assignment',
+                  label: 'Dispatch Requests',
+                  renderIcon: (active) => (
+                    <Ionicons name="document-text" size={13} color={active ? rTheme.warning : rTheme.legendSubtext} />
+                  ),
+                },
+              ].map((item) => {
+                const isVisible = coverageVisibility[item.key];
+                return (
+                  <Pressable
+                    key={item.key}
+                    onPress={() => toggleCoverage(item.key)}
+                    style={({ pressed }) => [
+                      styles.legendItem,
+                      { opacity: pressed ? 0.7 : (isVisible ? 1 : 0.45) },
+                    ]}
+                    accessibilityRole="switch"
+                    accessibilityState={{ checked: isVisible }}
+                    accessibilityLabel={`Toggle ${item.label} coverage visibility`}
+                    accessibilityHint={`Currently ${isVisible ? 'visible' : 'hidden'}. Tap to toggle.`}
+                  >
+                    <View style={styles.legendItemLeft}>
+                      {item.renderIcon(isVisible)}
+                      <Text
+                        style={[
+                          styles.legendLabel,
+                          {
+                            color: isVisible ? rTheme.legendText : rTheme.legendSubtext,
+                            textDecorationLine: isVisible ? 'none' : 'line-through',
+                          },
+                        ]}
+                      >
+                        {item.label}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name={isVisible ? "eye-outline" : "eye-off-outline"}
+                      size={12}
+                      color={isVisible ? rTheme.legendSubtext : rTheme.legendSubtext + '88'}
+                      style={styles.legendEyeIcon}
+                    />
+                  </Pressable>
+                );
+              })}
+
+              {Object.values(coverageVisibility).some((v) => !v) && (
+                <Pressable
+                  onPress={showAllCoverage}
+                  style={styles.legendShowAllBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Show all coverage layers"
+                >
+                  <Text style={[styles.legendShowAllText, { color: rTheme.primary }]}>
+                    Show all layers
+                  </Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
@@ -2233,7 +2351,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 3,
     zIndex: 10,
-    minWidth: 150,
+    minWidth: 172,
   },
   legendHeaderRow: {
     flexDirection: 'row',
@@ -2251,6 +2369,17 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 0.4,
   },
+  legendFilterBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 6,
+    marginLeft: 4,
+  },
+  legendFilterBadgeText: {
+    fontSize: 9,
+    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
+    letterSpacing: 0.2,
+  },
   legendItemsList: {
     marginTop: 8,
     gap: 6,
@@ -2258,7 +2387,17 @@ const styles = StyleSheet.create({
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 2,
+  },
+  legendItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
+    flex: 1,
+  },
+  legendEyeIcon: {
+    marginLeft: 6,
   },
   legendDot: {
     width: 8,
@@ -2281,6 +2420,18 @@ const styles = StyleSheet.create({
   legendLabel: {
     fontFamily: fonts.body,
     fontSize: 11,
+  },
+  legendShowAllBtn: {
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(166, 199, 184, 0.2)',
+    alignItems: 'center',
+  },
+  legendShowAllText: {
+    fontFamily: fonts.bodySemiBold,
+    fontSize: 10,
+    letterSpacing: 0.2,
   },
   selectedMarkerCard: {
     position: 'absolute',

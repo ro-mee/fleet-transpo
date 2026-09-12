@@ -21,18 +21,19 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
 
 1. **Multi-Layered Concentric Depth Radar with High-Visibility Wave Pulse Layers**:
    - Inspired directly by the "Radar Wave Pulse – Visibility Layers" design specification ([`media_1788952463286.jpg`](file:///C:/Users/Joseph%20T%20Lopez/.gemini/antigravity-ide/brain/36335d0f-ca22-46a1-afe9-48cdff1fd179/.user_uploaded/media_1788952463286.jpg)):
-   - **4 Visible Proximity Depth Tiers**:
-     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.4s breathe.
-     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 4.6s breathe.
-     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.0s breathe.
-     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 7.8s breathe.
+   - **4 Visible Proximity Depth Tiers (GPU-Accelerated Ambient Terrain)**:
+     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.8s breathe.
+     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 5.4s breathe.
+     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.4s breathe.
+     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 8.1s breathe with multi-stop radial gradient falloff (replacing software `filter: blur` to eliminate CPU/GPU re-rasterization).
    - **Central Vehicle Ambient Core (`.radar-core-glow`, 88px)**:
-     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 22px glow (`rgba(92, 255, 220, 0.60)`).
-   - **3 Distinct, Defined Wave Pulse Rings (Layer-by-Layer Visibility)**:
-     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–70%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
-     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–45%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.35s.
-     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–25%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 0.70s.
-     - Full loop duration: 2.4s sequence (0ms -> 350ms -> 700ms -> 1200ms full pulse).
+     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 20px glow. Hardware-composited `transform: translate3d(0,0,0)` and `will-change: transform, opacity`.
+   - **3 Distinct, Defined Wave Pulse Rings (Continuous 60/120fps Wave Train)**:
+     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–72%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
+     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–52%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.9s.
+     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–32%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 1.8s.
+     - **Smooth Organic Keyframes**: 2.7s continuous loop with exponential deceleration `cubic-bezier(0.22, 1, 0.36, 1)`. Fades in organically from `0%` (`scale(0.20), opacity: 0`) -> `12%` peak opacity -> expands outward -> cleanly dissolves to `0%` opacity at boundary. Eliminates 0% opacity popping and dead freeze gaps.
+     - **Compositing & Anti-Aliasing**: Isolated with `contain: layout paint;`, `will-change: transform, opacity;`, `-webkit-backface-visibility: hidden;`, and `transform: translate3d(0, 0, 0);` to eliminate sub-pixel border shimmer.
    - **Vehicle Marker (Fleet Car)**:
      - Top-down fleet vehicle marker with headlights glow (`car-headlights-glow`), customizable color swatch palette (`carCustomizer` modal on vehicle tap), and heading rotation (`updateCarRotation`).
      - Pinned precisely to driver GPS coordinates; dynamically rotates to match vehicle heading and map bearing.
@@ -61,8 +62,19 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
    - When set to 5 km or when zoomed out, the pulse expands dynamically (`baseScale` up to `2.55x`–`3.15x`) via `window.updateRadarBloomScale()`.
    - Listens to map `zoom` events so the multi-layered pulse wave envelope smoothly covers the entire 5 km coverage perimeter.
 
-6. **Collapsible Radar Legend & Dynamic Recenter FAB**:
+6. **Interactive Radar Legend & Coverage Toggling**:
    - Interactive badge at top-left: `● Your Vehicle`, `⛽ Nearest Gas Station`, `🚗 Fleet Drivers`, `📄 Dispatch Requests`.
+   - **Specific Coverage Toggling**: Drivers can tap any legend category to toggle its visibility on/off:
+     - Tapping **Nearest Gas Station** toggles all partner fuel station markers on the map/radar.
+     - Tapping **Fleet Drivers** toggles all active nearby fleet vehicle markers.
+     - Tapping **Dispatch Requests** toggles pending/scheduled dispatch assignment markers.
+     - Tapping **Your Vehicle** toggles the driver center vehicle puck and radar wave pulse bloom.
+   - **Visual Feedback & Controls**:
+     - Active layers render with full-color indicators and `eye-outline` icons.
+     - Inactive (hidden) layers dim (45% opacity) with strikethrough typography and `eye-off-outline` icons.
+     - Active layer counter badge in header (`3/4`, `2/4`) appears when any layer is hidden.
+     - Quick **"Show all layers"** button restores all categories with a single tap.
+     - Auto-dismisses `selectedMarker` if the currently inspected entity's category is toggled off.
    - Floating recenter FAB with locate icon appears upon map drag and returns camera focus to the vehicle, dynamically lowering its position when the bottom sheet is collapsed.
 
 7. **Full View Map (Swipe-Down Gestures)**:
@@ -79,17 +91,22 @@ When a driver opens the Live Map tab without an active trip assignment, the app 
   - `window.updateRadarBloomScale()`: Dynamically calculates scale based on range and map zoom level, expanding the bloom container up to 5 km.
   - `window.updateCarRotation(heading)`: Rotates the forward-pointing center puck to match vehicle heading.
   - `window.renderRadarMarkers(markers, selectedKm)`: Groups markers into Euclidean clusters, styles `.priority-station` and `.priority-vehicle`, and binds tap events.
+  - `window.setVehicleVisible(visible)`: Toggles DOM visibility of the center vehicle marker and radar bloom container.
   - `window.recenterRadar()`: Eases camera to driver location with north-up bearing.
   - `window.applyFleetMapTheme(isDark)`: Switches body class and map layer styles.
+- Supported props:
+  - `showVehicleMarker`: controls visibility of the driver origin puck / radar bloom via `useEffect` injection.
 
 ### 2. Standby Radar Interface in `map.js`
-- Manages `radarRadiusKm`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, and `isIdleCollapsed`.
+- Manages `radarRadiusKm`, `coverageVisibility`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, `filteredRadarMarkers`, and `isIdleCollapsed`.
+- `coverageVisibility`: tracks active state for `vehicle`, `gas_station`, `driver`, `assignment`.
+- `filteredRadarMarkers`: dynamically filters `radarMarkers` before feeding into `TomTomMap`, triggering instant map marker cluster updates.
 - Reads real active and pending driver trips from `/api/mobile/driver/trips`.
 - Restricts marker generation strictly to Gas Stations, Fleet Drivers, and Dispatch Requests.
 - Renders `selectedMarkerCard` with dispatcher-only accept actions and Fuel Report shortcuts.
 - Manages the swipe-down collapse mechanism for Full Map View.
 
 ## Verification
-- Unit test suite: all 996 Vitest tests passing (`npm run test:run`).
+- Unit test suite: all 96 test files (1,098 tests) passing (`npm run test:run`).
 - ESLint: zero errors, zero warnings across `mobile/app/(app)/(tabs)/map.js` and `mobile/components/TomTomMap.js`.
 - Verified native dev client running without errors.
