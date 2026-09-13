@@ -62,7 +62,10 @@ import { getPlaceName } from "./geo/reverse-geocode";
 /**
  * Parse an Open-Meteo current-weather response into the chip's payload.
  * Pure: no fetch, no cache — the vitest suite exercises this directly.
- * @returns {{temperatureC: number, code: number, label: string}|null}
+ * `isDay` comes from Open-Meteo's `is_day` flag (1 = day, 0 = night) so the
+ * mobile chip can pick day/night-correct icons; a missing flag is null (fail
+ * open — the chip falls back to the day variant, never silence).
+ * @returns {{temperatureC: number, code: number, label: string, isDay: boolean|null}|null}
  */
 export function parseCurrentWeather(payload) {
   const current = payload?.current;
@@ -72,7 +75,9 @@ export function parseCurrentWeather(payload) {
   if (!Number.isFinite(temperatureC) || !Number.isFinite(code)) return null;
   const label = WMO_LABELS[code];
   if (!label) return null; // unknown code → silence, never an invented label
-  return { temperatureC, code, label };
+  const rawDay = Number(current.is_day);
+  const isDay = Number.isFinite(rawDay) ? rawDay === 1 : null;
+  return { temperatureC, code, label, isDay };
 }
 
 function cellKey(latitude, longitude) {
@@ -106,7 +111,7 @@ export async function getCurrentWeather(latitude, longitude, opts = {}) {
   try {
     const url =
       `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}` +
-      `&current=temperature_2m,weather_code`;
+      `&current=temperature_2m,weather_code,is_day`;
     const response = await fetchImpl(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
     if (response?.ok) weather = parseCurrentWeather(await response.json());
   } catch {

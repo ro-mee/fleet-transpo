@@ -12,7 +12,7 @@ import { parseCurrentWeather, getCurrentWeather } from "./weather";
 
 const okResponse = (json) => ({ ok: true, json: async () => json });
 
-const sample = { current: { temperature_2m: 28.4, weather_code: 61 } };
+const sample = { current: { temperature_2m: 28.4, weather_code: 61, is_day: 1 } };
 
 describe("parseCurrentWeather", () => {
   it("parses a valid current-weather payload", () => {
@@ -20,6 +20,22 @@ describe("parseCurrentWeather", () => {
       temperatureC: 28.4,
       code: 61,
       label: "Light Rain",
+      isDay: true,
+    });
+  });
+
+  it("night payloads carry isDay false so the chip picks night icons", () => {
+    expect(
+      parseCurrentWeather({ current: { temperature_2m: 28, weather_code: 0, is_day: 0 } })
+    ).toEqual({ temperatureC: 28, code: 0, label: "Clear", isDay: false });
+  });
+
+  it("a missing is_day flag is null, never silence — the chip falls back to day icons", () => {
+    expect(parseCurrentWeather({ current: { temperature_2m: 28, weather_code: 0 } })).toEqual({
+      temperatureC: 28,
+      code: 0,
+      label: "Clear",
+      isDay: null,
     });
   });
 
@@ -72,11 +88,13 @@ describe("getCurrentWeather", () => {
       temperatureC: 28.4,
       code: 61,
       label: "Light Rain",
+      isDay: true,
     });
     expect(await get(14.602, 121.003, { fetchImpl })).toEqual({
       temperatureC: 28.4,
       code: 61,
       label: "Light Rain",
+      isDay: true,
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
@@ -136,6 +154,7 @@ describe("getCurrentConditions composition", () => {
       temperatureC: 28.4,
       code: 61,
       label: "Light Rain",
+      isDay: true,
       placeName: "Quezon City",
     });
   });
@@ -150,6 +169,7 @@ describe("getCurrentConditions composition", () => {
       temperatureC: 28.4,
       code: 61,
       label: "Light Rain",
+      isDay: true,
       placeName: null,
     });
   });
