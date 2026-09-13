@@ -15,6 +15,10 @@ source:
   - mobile/lib/offline-cache.js
   - mobile/components/ConnectivityBanner.jsx
   - mobile/app/(app)/profile/license.js
+  - mobile/app/(app)/profile/change-password.js
+  - mobile/app/forgot-password.js
+  - mobile/app/reset-password.js
+  - mobile/lib/password-validation.js
   - mobile/AGENTS.md
 last_verified: 2026-09-08
 ---
@@ -94,6 +98,27 @@ Separate from web — 15-minute access tokens, 30-day single-use rotating refres
 ## Profile screens share the web driver endpoint — CONFIRMED (`mobile/app/(app)/profile/*.js`)
 
 The profile sub-screens (personal, license, safety, vehicle) call **`/api/driver/me`** — the same endpoint as the web driver home — not `/api/mobile/driver/me`. That is deliberate: `DRIVER_VISIBLE_SECTIONS` / `DRIVER_SELF_EDITABLE_FIELDS` live in `src/lib/consent/driver-visibility.js`, and both surfaces reading one response keeps web and mobile views identical. The mobile-native endpoint only covers identity + active trip. Full scan-upload flow: [[Driver Consent]].
+
+## Driver credential screens — CONFIRMED (2026-09-13)
+
+Drivers change and recover passwords without the web dashboard, reusing the
+existing credential endpoints (no new backend route — full detail in
+[[Authentication]]):
+
+- **Change** (`(app)/profile/change-password.js`): top row of Profile →
+  Privacy & Security. Same `POST /api/auth/change-password` as web Settings >
+  Security; success signs out (cache cleared before SecureStore) and returns
+  to login on the `signInRequired` contract.
+- **Recovery** (public, outside the `(app)` guard like login): `forgot-password.js`
+  (email → generic contact-admin stub response) and `reset-password.js`
+  (admin-issued 30-min single-use code + new password), linked from a new
+  "Forgot password?" entry on `login.js`. Paste-the-code — no deep-link config.
+- **Policy + offline rules (locked):** one pure validator
+  (`mobile/lib/password-validation.js`, client≡server parity fuzz-pinned)
+  drives both screens' live checklists and submit gates; every credential
+  mutation uses `queueOnFailure: false` — never queued, offline is a plain
+  connection error under the global banner. Profile/Settings stay silent about
+  caching per the Offline Read Mode UX rule.
 
 ## OS permission registry — CONFIRMED (`mobile/lib/permissions.js`)
 

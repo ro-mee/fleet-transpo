@@ -15,6 +15,10 @@ source:
   - src/app/api/auth/change-password/route.js
   - src/app/api/mobile/auth/login/route.js
   - src/app/api/mobile/auth/refresh/route.js
+  - mobile/app/(app)/profile/change-password.js
+  - mobile/app/forgot-password.js
+  - mobile/app/reset-password.js
+  - mobile/lib/password-validation.js
   - src/app/api/auth/sessions/route.js
   - src/app/api/auth/mfa/route.js
   - src/app/api/auth/mfa/setup/route.js
@@ -153,6 +157,41 @@ behavior is:
 
 Verified email delivery and scheduled pruning remain explicitly unimplemented
 until their provider or deployment decisions are made.
+
+## Driver credential screens on mobile — CONFIRMED (2026-09-13)
+
+No new backend route: the three mobile screens reuse the existing
+credential endpoints, which already authorize mobile bearer tokens.
+
+- **Change** (`mobile/app/(app)/profile/change-password.js`, via Profile →
+  Privacy & Security): `POST /api/auth/change-password` accepts any role and
+  `resolveIdentity()` prefers Bearer over cookie, so the driver's access token
+  authorizes directly. Success carries `signInRequired: true` — the app signs
+  out (offline cache cleared before SecureStore, per the `auth.js` ordering)
+  and returns to login, mirroring web Settings > Security.
+- **Forgot** (`mobile/app/forgot-password.js`, public, linked from login):
+  `POST /api/auth/forgot-password` with `skipAuth`; renders the generic
+  contact-admin message verbatim (no enumeration, no email sent).
+- **Reset** (`mobile/app/reset-password.js`, public, paste-the-code): the
+  token mode of `POST /api/auth/reset-password` (`{ token, newPassword }`,
+  `skipAuth`) consumes the administrator-issued 30-minute single-use code.
+  A deep link for the web `reset-password?token=` URL is a follow-up.
+- **Policy enforcement is two-layered.** Client: pure
+  `mobile/lib/password-validation.js` (min 8, lower + upper + number +
+  special, ≤72 UTF-8 bytes, new-must-differ, confirm-must-match) blocks submit
+  on both screens with a live checklist. Server: both routes validate
+  `newPassword` as `type: "password"`, so a bypassed client still cannot set a
+  weak password. `password-validation.test.js` locks client≡server parity by
+  importing `isPassword`/`isPasswordByteLengthAllowed` from
+  `src/lib/validation/index.js` and asserting identical verdicts on an
+  adversarial corpus plus 2000 deterministic fuzz passwords.
+- **Never queued.** All three mutations pass `queueOnFailure: false` — a
+  credential change the server has not confirmed is not a change; offline the
+  driver gets a plain connection error (the global banner speaks for it).
+
+Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
+`npm run verify:auth` 261/261 (no new backend surface). Physical-device E2E
+(airplane-mode errors, post-change forced re-login, admin-code reset) pending.
 
 ## TOTP MFA and session management — CONFIRMED (2026-09-02)
 
