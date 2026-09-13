@@ -50,6 +50,16 @@ An **allow-list**, not a deny-list. A driver can edit exactly four fields; anyth
 > one). Now `POST /api/driver/face-photo` + the Profile-tab pencil badge
 > close the loop — one upload fills the avatar AND the attendance
 > face-verification reference. Full flow: → [[Driver Consent]]
+>
+> **Web sync (2026-09-13, display-only):** the photo renders across all web
+> surfaces with initials fallbacks — staff detail header (`AvatarImage` on
+> the existing `face → avatar → license` chain), staff list name cell,
+> performance table (report payload extended additively; Excel ignores the
+> extra keys), the driver's own `/driver/profile` header, the global
+> `UserDropdown` (trigger and dropdown card header), and the `AppShell`
+> sidebar user footer. NextAuth session propagation and `GET /api/auth/profile`
+> ensure live sync without requiring re-login. Mobile `DriverHomeHeader` also
+> reflects the uploaded face photo.
 
 `canUpdateLicenseScan()` used to enforce a 30-day re-upload window — removed 2026-08-25: re-upload is allowed anytime, gated instead by Gemini's authenticity/readability check. → [[ADR-012 Anytime Self-Service License Renewal]]
 

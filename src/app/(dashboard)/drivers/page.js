@@ -145,11 +145,23 @@ export default function DriversPage() {
         const emp = row.employees;
         const name = emp ? `${emp.first_name} ${emp.last_name}` : "Unassigned driver";
         const initials = name ? name.split(" ").map((part) => part[0]).join("").slice(0, 2) : "DR";
+        // Same chain as the driver detail header: self-uploaded face photo
+        // first, then the staff-set employee avatar, else initials.
+        const photoUrl = row.face_image_url || emp?.avatar_url || null;
         return (
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
-              {initials}
-            </div>
+            {photoUrl ? (
+              <img
+                src={photoUrl}
+                alt={name}
+                className="flex h-10 w-10 shrink-0 rounded-2xl border border-border/40 object-cover shadow-2xs"
+                loading="lazy"
+              />
+            ) : (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
+                {initials}
+              </div>
+            )}
             <div>
               <p className="font-bold text-sm text-foreground">{name}</p>
               <p className="text-xs text-foreground-muted font-medium">Driver profile</p>

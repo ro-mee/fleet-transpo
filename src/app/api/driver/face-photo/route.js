@@ -84,6 +84,26 @@ export async function POST(req) {
       [signedData.signedUrl, session.user.driverId]
     );
 
+    // Keep the employee record's avatar_url in sync so the app shell and user dropdown
+    // reflect the newly uploaded face photo.
+    if (session.user.employeeId) {
+      await query(
+        `UPDATE employees SET avatar_url = $1, updated_at = NOW()
+          WHERE employee_id = $2 AND deleted_at IS NULL`,
+        [signedData.signedUrl, session.user.employeeId]
+      );
+    } else {
+      await query(
+        `UPDATE employees e
+            SET avatar_url = $1, updated_at = NOW()
+           FROM drivers d
+          WHERE d.driver_id = $2
+            AND d.employee_id = e.employee_id
+            AND e.deleted_at IS NULL`,
+        [signedData.signedUrl, session.user.driverId]
+      );
+    }
+
     notifyStaffOfFacePhotoUpdate(session.user.driverId).catch((e) =>
       console.warn("Face photo staff notification skipped:", e.message)
     );

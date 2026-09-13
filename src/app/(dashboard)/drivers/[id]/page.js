@@ -18,7 +18,7 @@ import { RenewLicenseDialog } from "@/components/drivers/renew-license-dialog";
 import { AssignedVehicleCard } from "@/components/drivers/assigned-vehicle-card";
 import { WorkScheduleCard } from "@/components/drivers/work-schedule-card";
 import { useRoleAccess } from "@/hooks/use-role-access";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getInitials, formatDate } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { Input } from "@/components/ui/input";
@@ -171,6 +171,13 @@ export default function DriverDetailPage() {
               </Button>
               <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
                 <Avatar className="h-24 w-24 ring-4 ring-surface shadow-sm rounded-2xl">
+                  {licenseImage ? (
+                    <AvatarImage
+                      src={licenseImage}
+                      alt={`${emp.first_name || ""} ${emp.last_name || ""}`.trim() || "Driver photo"}
+                      className="object-cover rounded-2xl"
+                    />
+                  ) : null}
                   <AvatarFallback className="bg-gradient-to-br from-primary/10 to-primary/5 text-primary text-3xl font-bold rounded-2xl">
                     {getInitials(`${emp.first_name || ""} ${emp.last_name || ""}`)}
                   </AvatarFallback>

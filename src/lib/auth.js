@@ -32,7 +32,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, roles(role_name)")
+          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, roles(role_name), avatar_url")
           .eq("email", normalizedEmail)
           .eq("status", "Active")
           .is("deleted_at", null)
@@ -100,14 +100,18 @@ export const authOptions = {
         }
 
         let driverStatus = null;
+        let driverFaceImageUrl = null;
         if (employee.roles?.role_name === "driver") {
           const { data: driverData } = await supabase
             .from("drivers")
-            .select("driver_status")
+            .select("driver_status, face_image_url, license_image_url")
             .eq("employee_id", employee.employee_id)
             .maybeSingle();
           driverStatus = driverData?.driver_status || null;
+          driverFaceImageUrl = driverData?.face_image_url || driverData?.license_image_url || null;
         }
+
+        const avatarUrl = driverFaceImageUrl || employee.avatar_url || null;
 
         const sessionId = randomUUID();
         const userAgent = auditReq.headers.get("user-agent") || null;
@@ -140,6 +144,8 @@ export const authOptions = {
           position: employee.position,
           status: employee.status,
           driverStatus,
+          avatarUrl,
+          image: avatarUrl,
           authVersion: employee.auth_version,
           sessionId,
         };
@@ -147,7 +153,7 @@ export const authOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.role = user.role;
         token.employeeId = user.employeeId;
@@ -156,8 +162,12 @@ export const authOptions = {
         token.position = user.position;
         token.status = user.status;
         token.driverStatus = user.driverStatus;
+        token.avatarUrl = user.avatarUrl;
         token.authVersion = user.authVersion;
         token.sessionId = user.sessionId;
+      }
+      if (trigger === "update" && session?.avatarUrl !== undefined) {
+        token.avatarUrl = session.avatarUrl;
       }
       return token;
     },
@@ -169,6 +179,8 @@ export const authOptions = {
       session.user.position = token.position;
       session.user.status = token.status;
       session.user.driverStatus = token.driverStatus;
+      session.user.avatarUrl = token.avatarUrl || null;
+      session.user.image = token.avatarUrl || null;
       session.user.authVersion = token.authVersion;
       session.user.sessionId = token.sessionId;
       return session;

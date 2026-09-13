@@ -19,7 +19,7 @@ import {
   CarFront,
   Bell,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserDropdown } from "@/components/ui/user-dropdown";
 import { NotificationDropdown } from "@/components/ui/notification-dropdown";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -345,6 +345,13 @@ export function Sidebar() {
             )}
           >
             <Avatar className="h-7 w-7 shrink-0">
+              {employee?.avatar_url || employee?.face_image_url || employee?.image ? (
+                <AvatarImage
+                  src={employee.avatar_url || employee.face_image_url || employee.image}
+                  alt={employee ? `${employee.first_name} ${employee.last_name}` : "User"}
+                  className="object-cover"
+                />
+              ) : null}
               <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
                 {employee ? getInitials(employee.first_name + " " + employee.last_name) : "U"}
               </AvatarFallback>

@@ -143,6 +143,8 @@ export async function GET(req) {
       phone: driver.phone,
       driverId: driver.driver_id,
       driverStatus: driver.driver_status,
+      avatarUrl: driver.face_image_url || driver.avatar_url || null,
+      faceImageUrl: driver.face_image_url || null,
       license: {
         number: driver.license_number,
         type: driver.license_type,

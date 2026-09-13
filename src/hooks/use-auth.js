@@ -1,22 +1,27 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useMemo } from "react";
 import { useSession, signOut as nextAuthSignOut } from "next-auth/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-function mapSessionToEmployee(session) {
+function mapSessionToEmployee(session, profile) {
   if (!session?.user) return null;
   const u = session.user;
+  const photoUrl = profile?.avatar_url || profile?.face_image_url || u.avatarUrl || u.image || null;
   return {
     employee_id: u.employeeId,
     user_id: u.employeeId,
-    first_name: u.firstName,
-    last_name: u.lastName,
-    email: u.email,
-    position: u.position,
-    status: u.status || "Active",
-    driver_status: u.driverStatus || null,
+    first_name: profile?.first_name || u.firstName,
+    last_name: profile?.last_name || u.lastName,
+    email: profile?.email || u.email,
+    position: profile?.position || u.position,
+    status: profile?.status || u.status || "Active",
+    driver_status: profile?.driver_status || u.driverStatus || null,
+    avatar_url: photoUrl,
+    image_url: photoUrl,
+    photo_url: photoUrl,
     role_id: null,
-    roles: { role_id: null, role_name: u.role, description: "" },
+    roles: { role_id: null, role_name: profile?.role || u.role, description: "" },
   };
 }
 
@@ -30,9 +35,25 @@ const AuthContext = createContext({
 
 export function AuthProvider({ children }) {
   const { data: session, status, update } = useSession();
+  const queryClient = useQueryClient();
+
+  const { data: profile } = useQuery({
+    queryKey: ["auth-profile", session?.user?.employeeId],
+    queryFn: async () => {
+      const res = await fetch("/api/auth/profile");
+      if (!res.ok) return null;
+      const json = await res.json();
+      return json?.data || json;
+    },
+    enabled: Boolean(session?.user?.employeeId),
+    staleTime: 60 * 1000,
+  });
 
   const user = session?.user || null;
-  const employee = mapSessionToEmployee(session);
+  const employee = useMemo(
+    () => mapSessionToEmployee(session, profile),
+    [session, profile]
+  );
   const loading = status === "loading";
 
   const handleSignOut = async () => {
@@ -52,7 +73,11 @@ export function AuthProvider({ children }) {
   };
 
   const refreshEmployee = async () => {
-    await update();
+    await Promise.all([
+      update(),
+      queryClient.invalidateQueries({ queryKey: ["auth-profile"] }),
+      queryClient.invalidateQueries({ queryKey: ["driver-me"] }),
+    ]);
   };
 
   return (
