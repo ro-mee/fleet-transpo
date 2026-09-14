@@ -64,7 +64,13 @@ export const TRIPS_SELECT = `
       'dropoff_location',   tr.dropoff_location,
       'passenger_count',    tr.passenger_count,
       'estimated_distance', tr.estimated_distance,
-      'estimated_duration', tr.estimated_duration
+      'estimated_duration', tr.estimated_duration,
+      'priority',           tr.priority,
+      'is_vip',             tr.is_vip,
+      'is_emergency',       tr.is_emergency,
+      'derived_priority',   tr.derived_priority,
+      'service_type_id',    tr.service_type_id,
+      'service_name',       st.service_name
     )
   END AS transportation_requests
 `;
@@ -85,6 +91,8 @@ export const TRIPS_JOINS = `
   LEFT JOIN locations dl ON r.destination_location_id = dl.location_id
   LEFT JOIN transportation_requests tr
     ON ds.request_id = tr.request_id AND tr.deleted_at IS NULL
+  LEFT JOIN service_types st
+    ON tr.service_type_id = st.service_type_id
 `;
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, ZoomControl } from "react-leaflet";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip, Marker, Popup, useMap, useMapEvents, ZoomControl } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "@/styles/map.css";
@@ -142,19 +142,39 @@ function MapControls({ trafficOn, onTraffic, legendOn, onLegend, mapStyle, onMap
   );
 }
 
-function MapViewport({ points, focusPoints = null }) {
+// Tracks dispatcher manual interaction: a drag or zoom means the map is
+// dispatcher-owned until they select a mission or press Recenter.
+function ViewportTracker({ manualRef }) {
+  useMapEvents({
+    dragstart: () => { manualRef.current = true; },
+    zoomstart: () => { manualRef.current = true; },
+  });
+  return null;
+}
+
+function MapViewport({ points, focusPoints = null, manualRef, focusStamp, recenterTick }) {
   const map = useMap();
-  // Always auto-fit: re-runs on every points/focusPoints change (each GPS poll
-  // produces a new array identity), keeping all pins centered in view.
+  const lastStampRef = useRef(focusStamp);
+  const lastRecenterRef = useRef(recenterTick);
+  // Auto-fit on first load, on mission selection (focusStamp change), or on
+  // explicit Recenter. Manual pans/zooms are otherwise left alone — polling
+  // refreshes must never steal the dispatcher's view.
   useEffect(() => {
     if (!points.length) return;
+    const stampChanged = focusStamp !== lastStampRef.current;
+    if (stampChanged) lastStampRef.current = focusStamp;
+    const recentered = recenterTick !== lastRecenterRef.current;
+    if (recentered) lastRecenterRef.current = recenterTick;
+    if (manualRef?.current && !stampChanged && !recentered) return;
+    if (manualRef && (stampChanged || recentered)) manualRef.current = false;
     const target = focusPoints?.length ? focusPoints : points;
     if (target.length === 1) {
       map.setView(target[0], Math.max(map.getZoom(), 14), { animate: false });
       return;
     }
     map.fitBounds(target, { padding: [48, 48], maxZoom: 15, animate: false });
-  }, [map, points, focusPoints]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, points, focusPoints, focusStamp, recenterTick]);
 
   return null;
 }
@@ -177,6 +197,13 @@ export default function LiveLocationsMap({
   // never mistaken for a live one, but it stays on the map instead of
   // vanishing the moment GPS hiccups.
   routeStale = false,
+  // Vehicle→pickup relationship stub (straight 2-point line, NOT road
+  // geometry). Rendered dashed/thin and visually distinct from the solid
+  // mission corridor so it never reads as "dito dadaan".
+  approach = null,
+  // Opaque stamp identifying the selected mission (trip or rescue). A change
+  // re-fits the viewport even in manual mode; polling array churn does not.
+  focusStamp = null,
   traffic = true,
   waypoints = null,
   originName = "",
@@ -194,6 +221,10 @@ export default function LiveLocationsMap({
   const [legendOn, setLegendOn] = useState(true);
   const [mapStyle, setMapStyle] = useState(hasTomTomKey ? "tomtom" : "street");
   const [showZoomHint, setShowZoomHint] = useState(false);
+  // Dispatcher viewport ownership: set on manual drag/zoom, cleared on
+  // mission selection or explicit Recenter.
+  const manualRef = useRef(false);
+  const [recenterTick, setRecenterTick] = useState(0);
 
   // PR #4: live-monitor risk per trip_id (Map or plain object) → marker accent.
   const monitorRiskFor = (tripId) => {
@@ -236,6 +267,16 @@ export default function LiveLocationsMap({
       .filter((point) => isValidCoordinate(point[0], point[1]));
     return points.length >= 2 ? points : null;
   }, [route]);
+  // Approach stub: exactly 2 points (vehicle → pickup), straight line only.
+  const approachPts = useMemo(() => {
+    if (!Array.isArray(approach)) return null;
+    const points = approach
+      .map((point) => Array.isArray(point)
+        ? [Number(point[0]), Number(point[1])]
+        : [Number(point?.latitude ?? point?.lat), Number(point?.longitude ?? point?.lng)])
+      .filter((point) => isValidCoordinate(point[0], point[1]));
+    return points.length >= 2 ? points.slice(0, 2) : null;
+  }, [approach]);
 
   const originLat = waypoints?.origin?.[0];
   const originLng = waypoints?.origin?.[1];
@@ -339,7 +380,8 @@ export default function LiveLocationsMap({
       >
         <ZoomControl position="bottomright" />
         <MapCtrlZoom setShowHint={setShowZoomHint} />
-        <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} />
+        <ViewportTracker manualRef={manualRef} />
+        <MapViewport points={viewportPoints} focusPoints={mapFocusPoints} manualRef={manualRef} focusStamp={focusStamp} recenterTick={recenterTick} />
         <TileLayer attribution={activeTile.attribution} url={activeTile.url} />
         
         {trafficOn && (
@@ -374,6 +416,16 @@ export default function LiveLocationsMap({
               ? { color: CHART_COLORS.info, weight: 5, opacity: 0.55, dashArray: "8 10", lineCap: "round", lineJoin: "round" }
               : { color: CHART_COLORS.info, weight: 6, opacity: 0.9, lineCap: "round", lineJoin: "round" }}
           />
+        )}
+        {/* Approach relationship stub: straight vehicle→pickup line, visually
+            distinct from the road corridor (thin, dotted, amber). Never a route. */}
+        {approachPts && (
+          <Polyline
+            positions={approachPts}
+            pathOptions={{ color: CHART_COLORS.warning, weight: 3, opacity: 0.7, dashArray: "2 8", lineCap: "round", lineJoin: "round" }}
+          >
+            <Tooltip sticky className="fleet-tooltip text-[11px]">Approach — direct line, not road route</Tooltip>
+          </Polyline>
         )}
 
         {valid.map((l, i) => {
@@ -570,6 +622,17 @@ export default function LiveLocationsMap({
           Live Traffic Layer Active <span className="text-[11px] text-foreground-muted font-medium font-data">(Real-Time Flow)</span>
         </div>
       )}
+
+      {/* Recenter: returns viewport ownership to auto-fit after manual pan/zoom */}
+      <button
+        type="button"
+        onClick={() => setRecenterTick((t) => t + 1)}
+        aria-label="Recenter map on fleet"
+        className="absolute bottom-3 right-3 z-[1000] flex items-center gap-1.5 rounded-xl border border-border/80 bg-surface/95 px-3 py-2 text-xs font-semibold text-foreground shadow-md backdrop-blur transition-colors hover:bg-hover cursor-pointer"
+      >
+        <Compass className="h-3.5 w-3.5 text-foreground-muted" />
+        Recenter
+      </button>
 
       {/* Minimal Floating Map Legend (Section 9) */}
       {legendOn && (

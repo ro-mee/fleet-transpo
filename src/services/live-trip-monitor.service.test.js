@@ -472,6 +472,45 @@ describe("evaluatePingMonitor — off-route over DB breadcrumbs", () => {
   });
 });
 
+// ─── Resolved endpoint pair (stable corridor inputs, no new engine) ─────────
+// endpointTargets exposes the existing canonical → gazetteer chain for BOTH
+// ends so the web map can draw a pickup→destination corridor for route-less
+// trips. Nulls are honest; nothing is fabricated or GPS-derived.
+describe("endpointTargets", () => {
+  function endpointDb(trip) {
+    return makeDb([
+      ["FROM trips t", [trip]],
+      ["FROM routes r", [ROUTE_LOCATIONS_ROW]],
+      ["WHERE active AND trip_id = ANY($1)", []],
+      ["FROM driverincidents", []],
+    ]);
+  }
+
+  it("route trip exposes both canonical endpoints with sources", async () => {
+    const db = endpointDb(tripRow());
+    const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+    expect(result.live).toBe(true);
+    expect(result.endpointTargets.pickup).toMatchObject({ label: "CoCo Star Hotel", source: "canonical" });
+    expect(result.endpointTargets.destination).toMatchObject({ label: "Makati", source: "canonical" });
+  });
+
+  it("route-less trip with unresolvable text exposes nulls, never fabrications", async () => {
+    const trip = tripRow({ route_id: null, dispatch_id: null, origin: "Nowhere XYZ 123", destination: "Unknown ABC 999" });
+    const db = endpointDb(trip);
+    const result = await evaluateLiveTripMonitor(db, { tripId: 101, now: NOW, persist: false });
+    expect(result.live).toBe(true);
+    expect(result.endpointTargets).toEqual({ pickup: null, destination: null });
+  });
+
+  it("cheap fleet summaries also carry the pair (corridor fallback needs it)", async () => {
+    const db = endpointDb(tripRow());
+    const { trips } = await summarizeFleet(db, { now: NOW, sweep: false });
+    expect(trips).toHaveLength(1);
+    expect(trips[0].endpointTargets.pickup).toMatchObject({ source: "canonical" });
+    expect(trips[0].endpointTargets.destination).toMatchObject({ source: "canonical" });
+  });
+});
+
 // ─── Lifecycle-owned resolution (review correction #5) ──────────────────────
 
 describe("resolveMonitorAlerts / sweepStaleMonitorAlerts", () => {

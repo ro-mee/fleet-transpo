@@ -162,6 +162,21 @@ export function evaluateLiveTripMonitor({
     reasons.push(`No scheduled ${activeTarget} baseline — delay cannot be computed truthfully.`);
   }
 
+  // Pickup-overdue (fail-open): the scheduled pickup time has passed while
+  // the trip is still heading to pickup and no usable ETA exists to quantify
+  // the delay. Surfaces WATCH — never a fabricated minute count, never a
+  // block. Requires a truthful baseline; unknown baselines stay UNKNOWN.
+  let pickupOverdue = false;
+  if (activeTarget === "pickup" && liveEta == null && baselineMs != null) {
+    const overdueMin = (nowMs - baselineMs) / 60000;
+    if (Number.isFinite(overdueMin) && overdueMin >= WATCH_DELAY_MIN) {
+      pickupOverdue = true;
+      reasons.push(
+        `Scheduled pickup time passed about ${Math.round(overdueMin)} min ago — still heading to pickup.`
+      );
+    }
+  }
+
   // trafficDelayMinutes null = unknown; 0 = provider reports no delay. Never
   // let Number(null)===0 launder "unknown" into "no traffic".
   const trafficDelayMin = trafficDelayMinutes != null
@@ -207,6 +222,9 @@ export function evaluateLiveTripMonitor({
   // ── Risk condensation ───────────────────────────────────────────────────
   const candidates = [];
 
+  if (pickupOverdue) {
+    candidates.push(RISK_LEVELS.WATCH);
+  }
   const dRisk = delayRisk(targetDelayMin);
   if (dRisk) {
     candidates.push(dRisk);

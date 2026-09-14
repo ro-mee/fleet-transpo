@@ -255,6 +255,33 @@ describe("worst-of-signals", () => {
   });
 });
 
+describe("pickup overdue (fail-open)", () => {
+  it("pickup 12 min past with no usable ETA → WATCH with an overdue reason", () => {
+    const result = healthy({
+      liveTargetMinutes: null,
+      scheduledPickupAt: "2026-09-08T09:48:00+08:00", // 12 min before NOW
+    });
+    expect(result.risk).toBe("WATCH");
+    expect(result.reasons.some((r) => r.includes("Scheduled pickup time passed"))).toBe(true);
+    expect(result.targetDelayMin).toBeNull(); // no fabricated minute count
+  });
+
+  it("pickup in the future with no ETA stays UNKNOWN (not overdue)", () => {
+    const result = healthy({ liveTargetMinutes: null });
+    expect(result.risk).toBe("UNKNOWN");
+  });
+
+  it("destination phase with no ETA is never pickup-overdue", () => {
+    const result = healthy({
+      tripPhase: "to_destination",
+      liveTargetMinutes: null,
+      scheduledArrivalAt: "2026-09-08T09:30:00+08:00",
+    });
+    expect(result.risk).toBe("UNKNOWN");
+    expect(result.reasons.some((r) => r.includes("Scheduled pickup time passed"))).toBe(false);
+  });
+});
+
 describe("fleetSortRank", () => {
   it("orders ACTION > ATTENTION > UNKNOWN > WATCH > NORMAL", () => {
     const order = ["ACTION", "ATTENTION", "UNKNOWN", "WATCH", "NORMAL"]

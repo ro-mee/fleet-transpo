@@ -527,6 +527,18 @@ async function evaluateTripRow(db, trip, {
     target: target
       ? { label: target.label ?? null, lat: target.lat, lng: target.lng, source: target.source ?? null }
       : null,
+    // Resolved endpoint PAIR from the existing canonical → gazetteer → null
+    // chain (cachedTargets). Additive and optional: route-less trips expose
+    // both ends so the web map can draw a stable pickup→destination corridor;
+    // null per end when unresolvable — never fabricated, never GPS-derived.
+    endpointTargets: {
+      pickup: targets.pickup
+        ? { label: targets.pickup.label ?? null, lat: targets.pickup.lat, lng: targets.pickup.lng, source: targets.pickup.source ?? null }
+        : null,
+      destination: targets.destination
+        ? { label: targets.destination.label ?? null, lat: targets.destination.lat, lng: targets.destination.lng, source: targets.destination.source ?? null }
+        : null,
+    },
     nextDispatch,
     provenance: {
       eta: eta.provenance,

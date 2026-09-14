@@ -122,6 +122,67 @@ function mapTargetFor(trip, monitorRow = null) {
   return { kind: null, coords: null, drawRoute: false };
 }
 
+// Resolved endpoint of the monitor's endpointTargets pair (existing
+// canonical → gazetteer chain, exposed by the live-monitor evaluation).
+// Null when unresolvable — never fabricated, never GPS-derived.
+function monitorEndpointCoords(monitorRow, kind) {
+  const target = monitorRow?.endpointTargets?.[kind];
+  return isValidCoordinate(target?.lat, target?.lng) ? [Number(target.lat), Number(target.lng)] : null;
+}
+
+// Stable mission-corridor endpoints: route record first (canonical route
+// coordinates for trips with a route_id), else the monitor's resolved
+// endpoint pair for route-less request-dispatched trips. Both ends or
+// nothing — a partial pair never draws a full corridor.
+function corridorEndpointsFor(trip, monitorRow = null) {
+  const pickup = coordinatesFor(trip, "pickup") ?? monitorEndpointCoords(monitorRow, "pickup");
+  const destination = coordinatesFor(trip, "destination") ?? monitorEndpointCoords(monitorRow, "destination");
+  return { pickup, destination };
+}
+
+// Phase sentence for the selected mission — one operational line from the
+// shared resolver, never raw status alone.
+function phaseSentenceFor(trip, mapTarget) {
+  if (!trip) return null;
+  if (mapTarget.kind === "pickup") return "Heading to pickup";
+  if (mapTarget.kind === "destination") {
+    const s = trip.trip_status;
+    if (s === "Passenger Onboard" || s === "En Route" || s === "In Progress") return "Guest onboard — heading to destination";
+    return "Heading to destination";
+  }
+  return "Preparing trip";
+}
+
+// Opportunistic per-row timing from the cheap fleet row only — cached
+// signals and durable alerts, never a fresh route. Null-safe: unknown
+// evidence renders as quiet honesty, never a number.
+function rowTimingFor(tripId, monitorByTripId) {
+  const row = monitorByTripId?.get(String(tripId));
+  if (!row) return { etaLabel: null, delayLabel: null, tone: null, nextAtRisk: false };
+  const eta = row.liveEta ? new Date(row.liveEta) : null;
+  const etaLabel = eta && !Number.isNaN(eta.getTime())
+    ? eta.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : null;
+  const delay = Number.isFinite(Number(row.targetDelayMin)) ? Math.round(Number(row.targetDelayMin)) : null;
+  const delayLabel = delay == null ? null : delay >= 5 ? `+${delay} min late` : delay >= 1 ? `+${delay} min` : "On time";
+  const nextAtRisk = row.nextTrip?.slackMin != null && Number(row.nextTrip.slackMin) < 10;
+  const tone = delay != null && delay >= 10 ? "late" : row.risk === "ACTION" || row.risk === "ATTENTION" ? "risk" : nextAtRisk ? "risk" : delay != null ? "ok" : null;
+  return { etaLabel, delayLabel, tone, nextAtRisk };
+}
+
+// Priority tokens from real request fields only — capped at two calm badges.
+function priorityTokensFor(trip) {
+  const req = trip?.transportation_requests;
+  if (!req) return [];
+  const tokens = [];
+  if (req.is_vip) tokens.push({ key: "vip", label: "VIP" });
+  const service = String(req.service_name || "");
+  if (/airport/i.test(service)) tokens.push({ key: "airport", label: "Airport" });
+  if (!tokens.length && req.is_emergency) tokens.push({ key: "emergency", label: "Emergency" });
+  if (!tokens.length && String(req.priority || "").toLowerCase() === "urgent") tokens.push({ key: "urgent", label: "Urgent" });
+  return tokens.slice(0, 2);
+}
+
 function formatDateTime(value) {
   if (!value) return "No signal";
   const date = new Date(value);
@@ -141,6 +202,19 @@ function formatSpeed(location) {
 
 function formatAccuracy(location) {
   return location?.accuracy == null ? "—" : `${Math.round(location.accuracy)} m`;
+}
+
+// Straight-line km between two [lat, lng] points — context only (labels like
+// "2.1 km from pickup"), never a route or ETA input.
+function straightKm(from, to) {
+  if (!Array.isArray(from) || !Array.isArray(to)) return null;
+  const [lat1, lng1] = from.map(Number);
+  const [lat2, lng2] = to.map(Number);
+  if (![lat1, lng1, lat2, lng2].every(Number.isFinite)) return null;
+  const rad = (d) => (d * Math.PI) / 180;
+  const a = Math.sin(rad(lat2 - lat1) / 2) ** 2
+    + Math.cos(rad(lat1)) * Math.cos(rad(lat2)) * Math.sin(rad(lng2 - lng1) / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
 }
 
 function Metric({ label, value, icon: Icon }) {
@@ -346,30 +420,60 @@ export default function LiveMapPage() {
     [selectedRescue]
   );
 
-  // One route query for whichever mission is selected — a guest trip or a
-  // rescue. Both draw the same TomTom polyline via the shared endpoint.
+  // Stable mission corridor: pickup→destination road geometry, keyed by the
+  // ENDPOINTS (never by the live vehicle position — GPS movement must not
+  // refetch or redraw the corridor). Drawn only when both ends are known;
+  // GPS affects the marker, the approach stub and ETA math, never the
+  // corridor origin. Rescue keeps its vehicle-anchored live-response route.
+  const corridorEndpoints = useMemo(
+    () => (activeTrip ? corridorEndpointsFor(activeTrip, selectedMonitorRow) : { pickup: null, destination: null }),
+    [activeTrip, selectedMonitorRow]
+  );
+  const corridorReady = Boolean(
+    activeTrip && mapTarget.drawRoute && corridorEndpoints.pickup && corridorEndpoints.destination
+  );
+  const corridorPickupKey = corridorEndpoints.pickup?.join(",") ?? null;
+  const corridorDestKey = corridorEndpoints.destination?.join(",") ?? null;
+  // Approach relationship stub (vehicle → pickup, straight line, not a route)
+  // shown only while heading to pickup with a known pickup.
+  const approachCoords = useMemo(
+    () => (activeTrip && mapTarget.kind === "pickup" && originCoords && corridorEndpoints.pickup
+      ? [originCoords, corridorEndpoints.pickup]
+      : null),
+    [activeTrip, mapTarget.kind, originCoords, corridorEndpoints]
+  );
+
+  // One route query for whichever mission is selected — a guest trip corridor
+  // or a rescue response leg. Both draw via the shared TomTom endpoint.
   const isRescueSelection = !activeTrip && Boolean(selectedRescue);
-  const routeOriginCoords = activeTrip ? originCoords : rescueOriginCoords;
-  const routeTargetCoords = activeTrip ? targetCoords : rescueTargetCoords;
-  const routeDrawEnabled = activeTrip ? Boolean(mapTarget.drawRoute) : true;
+  const rescueRouteEnabled = Boolean(selectedRescue && rescueOriginCoords && rescueTargetCoords);
+  const routeDrawEnabled = activeTrip ? corridorReady : true;
 
   const routeQuery = useQuery({
     queryKey: [
-      isRescueSelection ? "rescue-route" : "driver-trip-route",
+      isRescueSelection ? "rescue-route" : "mission-corridor",
       activeTrip?.trip_id ?? selectedRescue?.incident_id ?? null,
-      routeOriginCoords?.join(",") ?? null,
-      routeTargetCoords?.join(",") ?? null,
+      activeTrip ? mapTarget.kind ?? null : null,
+      activeTrip ? corridorPickupKey : rescueOriginCoords?.join(",") ?? null,
+      activeTrip ? corridorDestKey : rescueTargetCoords?.join(",") ?? null,
       routeDrawEnabled,
     ],
     queryFn: async () => {
-      if (!routeOriginCoords || !routeTargetCoords || !routeDrawEnabled) return null;
+      if (isRescueSelection) {
+        if (!rescueOriginCoords || !rescueTargetCoords) return null;
+        return apiFetch(
+          `/api/tomtom/route?origin=${rescueOriginCoords[1]},${rescueOriginCoords[0]}&destination=${rescueTargetCoords[1]},${rescueTargetCoords[0]}`
+        );
+      }
+      if (!corridorReady) return null;
       return apiFetch(
-        `/api/tomtom/route?origin=${routeOriginCoords[1]},${routeOriginCoords[0]}&destination=${routeTargetCoords[1]},${routeTargetCoords[0]}`
+        `/api/tomtom/route?origin=${corridorEndpoints.pickup[1]},${corridorEndpoints.pickup[0]}&destination=${corridorEndpoints.destination[1]},${corridorEndpoints.destination[0]}`
       );
     },
-    enabled: Boolean((activeTrip || selectedRescue) && routeOriginCoords && routeTargetCoords && routeDrawEnabled),
+    enabled: Boolean((activeTrip && corridorReady) || (isRescueSelection && rescueRouteEnabled)),
     retry: 0,
-    staleTime: 10000,
+    staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: false,
   });
 
   const healthRows = useMemo(
@@ -457,7 +561,7 @@ export default function LiveMapPage() {
         title="Live GPS Tracking"
         badge="Operations"
         description={activeTrip
-          ? `${driverName} · ${driverPlate} · ${activeTrip.trip_status}. ${mapTarget.kind ? `Next stop: ${targetName}.` : "Marker context only until the trip starts."}`
+          ? `${phaseSentenceFor(activeTrip, mapTarget)} — ${driverName} · ${driverPlate} · ${activeTrip.trip_status}. ${mapTarget.kind ? `Next stop: ${targetName}.` : "Marker context only until the trip starts."}`
           : selectedRescue
           ? `Rescue mission — ${selectedRescue.responder?.name || "responder"} going to ${selectedRescue.driver?.name || "stranded driver"}. ${selectedRescue.response_status || "Dispatched"}.`
           : rescueRows.length
@@ -599,9 +703,16 @@ export default function LiveMapPage() {
                     selectedResponderId={selectedRescue?.incident_id ?? null}
                     onSelectResponder={selectRescue}
                     route={routeReady ? routePoints : null}
-                    // Trip routes only — a stale (last-known) origin draws the
-                    // corridor dashed. Rescue routes are always fresh-gated.
+                    // Stable pickup→destination corridor (never GPS-originated).
+                    // Stale GPS keeps the corridor but renders it dashed via
+                    // routeStale. Rescue routes are always fresh-gated.
                     routeStale={Boolean(activeTrip) && originStale}
+                    // Vehicle→pickup relationship stub (straight line, not a
+                    // road route) — only while heading to pickup.
+                    approach={approachCoords}
+                    // Mission identity stamp: viewport re-fits on selection
+                    // change, never on polling churn.
+                    focusStamp={activeTrip ? `trip-${activeTrip.trip_id}` : selectedRescue ? `rescue-${selectedRescue.incident_id}` : "fleet"}
                     // Rescue markers come from the responders feed — waypoints
                     // (green origin / red destination pins) only describe a
                     // selected trip.
@@ -635,6 +746,7 @@ export default function LiveMapPage() {
                     <div className="min-w-0">
                       <p className="truncate font-data text-base font-semibold text-foreground">{driverPlate}</p>
                       <p className="mt-0.5 truncate text-xs text-foreground-secondary">{driverName}</p>
+                      <p className="mt-0.5 truncate text-xs font-semibold text-primary">{phaseSentenceFor(activeTrip, mapTarget)}</p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {/* Fleet summary risk while the detail evaluation loads,
@@ -643,6 +755,15 @@ export default function LiveMapPage() {
                       <StatusBadge status={activeTrip.trip_status} entity="trip" className="text-[11px]" />
                     </div>
                   </div>
+                  {priorityTokensFor(activeTrip).length > 0 && (
+                    <div className="flex flex-wrap gap-1.5" aria-label="Operational priority">
+                      {priorityTokensFor(activeTrip).map((token) => (
+                        <Badge key={token.key} variant={token.key === "vip" ? "warning" : "outline"} size="sm" className="rounded-full font-bold">
+                          {token.label}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-2 border-y border-border/60 py-3">
                     <span className="text-xs font-semibold text-foreground-muted">GPS health</span>
                     <StatusBadge status={selectedHealth.label} entity="gps" className="text-[11px]" />
@@ -660,27 +781,38 @@ export default function LiveMapPage() {
                     <p className="mt-1 truncate text-sm font-semibold text-foreground" title={targetName}>
                       {mapTarget.kind ? targetName : `${pickupName} → ${destinationName}`}
                     </p>
-                    {routeReady ? (
-                      <p className="mt-1 font-data text-xs text-primary">
-                        {routeQuery.data.distanceKm != null ? `${routeQuery.data.distanceKm} km` : "Distance unavailable"}
-                        {routeQuery.data.travelTimeMin != null ? ` · ~${routeQuery.data.travelTimeMin} min` : ""}
-                        {originStale ? " · from last known position" : ""}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-xs text-foreground-muted">
-                        {routeQuery.isError
-                          ? "Route unavailable"
-                          : !mapTarget.kind
-                          ? "Route appears after the trip starts"
-                          : !targetCoords
-                          ? `${mapTarget.kind === "pickup" ? "Pickup" : "Destination"} coordinates unavailable`
-                          : !originCoords
-                          ? "Waiting for a GPS fix"
-                          : originStale
-                          ? "Route drawn from last known position"
-                          : "Calculating route"}
-                      </p>
-                    )}
+                    {(() => {
+                      const directKm = originCoords && targetCoords ? straightKm(originCoords, targetCoords) : null;
+                      const contextLine = directKm != null && mapTarget.kind
+                        ? `${directKm.toFixed(1)} km from ${mapTarget.kind}`
+                        : null;
+                      return (
+                        <>
+                          {contextLine && (
+                            <p className="mt-1 text-xs font-medium text-foreground-secondary">{contextLine}</p>
+                          )}
+                          {routeReady ? (
+                            <p className="mt-1 font-data text-xs text-primary">
+                              {routeQuery.data.distanceKm != null ? `Corridor ${routeQuery.data.distanceKm} km` : "Corridor distance unavailable"}
+                              {routeQuery.data.travelTimeMin != null ? ` · ~${routeQuery.data.travelTimeMin} min` : ""}
+                              {originStale ? " · vehicle at last known position" : ""}
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-xs text-foreground-muted">
+                              {routeQuery.isError
+                                ? "Route unavailable"
+                                : !mapTarget.kind
+                                ? "Route appears after the trip starts"
+                                : !corridorEndpoints.pickup || !corridorEndpoints.destination
+                                ? "Mission corridor unavailable — showing live position only"
+                                : !originCoords
+                                ? "Waiting for a GPS fix"
+                                : "Calculating corridor"}
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="grid grid-cols-1 gap-2 text-xs">
                     <Metric label="Pickup" value={pickupName} icon={MapPin} />
@@ -839,9 +971,9 @@ export default function LiveMapPage() {
                     <p className="text-xs text-foreground-muted">
                       {routeQuery.isError
                         ? "Route unavailable"
-                        : !routeOriginCoords
+                        : !rescueOriginCoords
                         ? "Waiting for a fresh responder GPS fix"
-                        : !routeTargetCoords
+                        : !rescueTargetCoords
                         ? "Stranded driver coordinates unavailable"
                         : "Calculating route"}
                     </p>
@@ -885,6 +1017,10 @@ export default function LiveMapPage() {
                     const hasCoordinates = isValidCoordinate(location?.latitude, location?.longitude);
                     const monitorRisk = monitorByTripId.get(String(trip.trip_id))?.risk ?? null;
                     const routeLine = routeLineFor(trip);
+                    // Opportunistic timing from the cheap fleet row — cached
+                    // evidence only, never a fresh route per row.
+                    const timing = rowTimingFor(trip.trip_id, monitorByTripId);
+                    const priorityTokens = priorityTokensFor(trip);
                     return (
                       <div key={trip.trip_id} className={cn("p-3.5", isSelected && "bg-primary/10")}>
                         <button
@@ -903,6 +1039,27 @@ export default function LiveMapPage() {
                               {routeLine && (
                                 <span className="mt-0.5 block truncate text-[10px] text-foreground-muted/80" title={routeLine}>
                                   {routeLine}
+                                </span>
+                              )}
+                              {(timing.etaLabel || timing.delayLabel) && (
+                                <span className="mt-0.5 block truncate font-data text-[11px] font-semibold text-foreground-secondary" aria-label="Operational timing">
+                                  {timing.etaLabel ? `ETA ${timing.etaLabel}` : ""}
+                                  {timing.etaLabel && timing.delayLabel ? " · " : ""}
+                                  {timing.delayLabel ? timing.delayLabel.toUpperCase() : ""}
+                                </span>
+                              )}
+                              {timing.nextAtRisk && (
+                                <span className="mt-0.5 block truncate text-[11px] font-bold text-warning">
+                                  ⚠ Next trip at risk
+                                </span>
+                              )}
+                              {priorityTokens.length > 0 && (
+                                <span className="mt-1 flex flex-wrap gap-1">
+                                  {priorityTokens.map((token) => (
+                                    <Badge key={token.key} variant={token.key === "vip" ? "warning" : "outline"} size="sm" className="rounded-full font-bold">
+                                      {token.label}
+                                    </Badge>
+                                  ))}
                                 </span>
                               )}
                             </span>

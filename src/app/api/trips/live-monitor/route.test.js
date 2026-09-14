@@ -40,9 +40,12 @@ const LIVE_TRIP = {
   driver_last_name: "Reyes",
   dispatch_number: "DSP-001",
   scheduled_departure: NOW.toISOString(),
-  scheduled_arrival: "2026-09-08T11:00:00+08:00",
+  scheduled_arrival: new Date(Date.now() + 60 * 60000).toISOString(),
   request_id: 900,
-  pickup_datetime: "2026-09-08T10:30:00+08:00",
+  // Pickup stays 30 min in the FUTURE of wall-clock time so the pickup-
+  // overdue rule (past-baseline + no usable ETA → WATCH) never fires here:
+  // this fixture pins the no-evidence → UNKNOWN contract.
+  pickup_datetime: new Date(Date.now() + 30 * 60000).toISOString(),
   pickup_location: "Makati",
   dropoff_location: "CoCo Star Hotel",
   gps_pings: [{
