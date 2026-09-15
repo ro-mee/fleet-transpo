@@ -153,3 +153,20 @@ export function calculateLtoRenewalSchedule(plateNumber, referenceDate = new Dat
     source: "Calculated from Plate Number (LTO Rules)",
   };
 }
+
+/**
+ * Resolve the registration expiry for a renewal action.
+ *
+ * The LTO window is deterministic per plate (last digit → month,
+ * second-to-last → week), so a renewal always expires at the end of the
+ * upcoming window — not "today + 1 year". Pass the renewal action date as
+ * reference so early/late renewals still snap to the correct window end.
+ *
+ * @param {string} plateNumber
+ * @param {Date} [actionDate] renewal action date (defaults to now)
+ * @returns {string|null} YYYY-MM-DD window end, or null when undeterminable
+ */
+export function resolveRenewalExpiry(plateNumber, actionDate = new Date()) {
+  const sched = calculateLtoRenewalSchedule(plateNumber, actionDate);
+  return sched?.success ? sched.renewal_end_date : null;
+}

@@ -366,6 +366,7 @@ export default function VehicleDetailPage() {
                   <RenewRegistrationDialog
                     canManage={can("vehicles", "update")}
                     vehicleId={vehicleId}
+                    plateNumber={vehicle.plate_number}
                     currentExpiry={vehicle.registration_expiry ? formatDate(vehicle.registration_expiry) : null}
                     orCrDoc={orCrDoc}
                   />

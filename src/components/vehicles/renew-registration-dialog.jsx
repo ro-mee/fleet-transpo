@@ -12,6 +12,7 @@ import { updateVehicle } from "@/services/vehicle.service";
 import { scanDocumentWithAi } from "@/services/ai.service";
 import { DatePicker } from "@/components/ui/date-picker";
 import { useFormValidation } from "@/lib/validation/useFormValidation";
+import { resolveRenewalExpiry } from "@/lib/lto-renewal";
 
 const renewSchema = {
   registration_expiry: { required: true, type: "date", label: "New registration expiry" },
@@ -20,12 +21,20 @@ const renewSchema = {
 const EMPTY_FORM = { registration_expiry: "", document_number: "" };
 
 function plusOneYear() {
-  // Local-date math formatted as YYYY-MM-DD so an <input type="date"> accepts
-  // it verbatim; toISOString would drift a day on UTC-negative timezones.
+  // Fallback when the plate cannot determine a window (invalid/missing
+  // plate). Local-date math formatted as YYYY-MM-DD so an <input type="date">
+  // accepts it verbatim; toISOString would drift a day on UTC-negative timezones.
   const d = new Date();
   d.setFullYear(d.getFullYear() + 1);
   const pad = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function defaultExpiryFor(plateNumber) {
+  // The LTO window is deterministic per plate (last digit → month,
+  // second-to-last → week), so a renewal always expires at the end of the
+  // upcoming window — not "today + 1 year".
+  return resolveRenewalExpiry(plateNumber, new Date()) || plusOneYear();
 }
 
 /**
@@ -37,8 +46,11 @@ function plusOneYear() {
  * without any extra step. The scan is a base64 data URL — same convention as
  * the vehicle form — and attaching one triggers Gemini extraction that
  * pre-fills the expiry and OR/CR number from the scanned document.
+ *
+ * The expiry default is plate-derived (upcoming LTO window end); staff may
+ * still override manually, with a warning when the date leaves the window.
  */
-export function RenewRegistrationDialog({ canManage = false, vehicleId, currentExpiry, orCrDoc }) {
+export function RenewRegistrationDialog({ canManage = false, vehicleId, plateNumber, currentExpiry, orCrDoc }) {
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
@@ -64,7 +76,7 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
 
   function openDialog() {
     setFormData({
-      registration_expiry: plusOneYear(),
+      registration_expiry: defaultExpiryFor(plateNumber),
       document_number: orCrDoc?.document_number || "",
     });
     setNewScanUrl(null);
@@ -82,8 +94,8 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
   }
 
   // Scan the freshly attached OR/CR and pre-fill fields from what Gemini reads.
-  // The extracted expiry replaces the +1y default guess until staff manually
-  // edits the date; a typed OR/CR number always wins over the extraction.
+  // The extracted expiry replaces the plate-derived default until staff
+  // manually edits the date; a typed OR/CR number always wins over the extraction.
   async function autoFillFromScan(fileUrl) {
     setScanning(true);
     try {
@@ -162,6 +174,10 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
   }
 
   const submitting = renewMutation.isPending;
+  const expectedExpiry = resolveRenewalExpiry(plateNumber, new Date());
+  const offWindow = Boolean(
+    expectedExpiry && formData.registration_expiry && formData.registration_expiry !== expectedExpiry
+  );
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) closeDialog(); else setOpen(true); }}>
@@ -210,6 +226,16 @@ export function RenewRegistrationDialog({ canManage = false, vehicleId, currentE
                 />
                 {fieldError("registration_expiry").error && (
                   <p className="text-xs text-danger">{fieldError("registration_expiry").error}</p>
+                )}
+                {expectedExpiry && (
+                  <p className="text-[11px] text-foreground-muted">
+                    Plate window ends {expectedExpiry}. Renewals normally expire on this date.
+                  </p>
+                )}
+                {offWindow && (
+                  <p className="text-[11px] font-semibold text-warning">
+                    This date is outside the plate window (expected {expectedExpiry}). Save anyway for special cases.
+                  </p>
                 )}
               </div>
 
