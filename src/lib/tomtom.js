@@ -174,10 +174,10 @@ export async function fetchTomTomEstimate(origin, destination, opts = {}) {
  * @param {object} [opts]  { traffic, departAt, maxAlternatives, fetchImpl }
  */
 export async function fetchTomTomRoute(origin, destination, opts = {}) {
-  const { fetchImpl = fetch, ...urlOpts } = opts;
+  const { fetchImpl = fetch, timeoutMs = 15000, ...urlOpts } = opts;
   if (!getServerKey() || !isValidPoint(origin) || !isValidPoint(destination)) return null;
   try {
-    const response = await fetchImpl(buildRouteUrl(origin, destination, urlOpts), { signal: AbortSignal.timeout(15000) });
+    const response = await fetchImpl(buildRouteUrl(origin, destination, urlOpts), { signal: AbortSignal.timeout(Math.max(1,Math.min(15000,Math.floor(timeoutMs)))) });
     if (!response.ok) return null;
     const routes = (await response.json())?.routes || [];
     const primary = parseRouteSummary(routes[0]);

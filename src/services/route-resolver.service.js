@@ -265,14 +265,15 @@ export function estimateForRequest(request) {
   return { ...legacy, source: "Legacy / Unknown" };
 }
 
-async function tomTomEstimate(endpoints) {
+async function tomTomEstimate(endpoints, departAt) {
   if (!routeHasCoordinates({
     origin_location: endpoints?.originLocation,
     destination_location: endpoints?.destinationLocation,
   })) return null;
   return fetchTomTomEstimate(
     [Number(endpoints.originLocation.latitude), Number(endpoints.originLocation.longitude)],
-    [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)]
+    [Number(endpoints.destinationLocation.latitude), Number(endpoints.destinationLocation.longitude)],
+    { departAt }
   );
 }
 
@@ -298,7 +299,7 @@ export async function resolveRequestEstimate(request, db, { persistRoute = false
     });
   }
 
-  const resolved = await tomTomEstimate(endpoints);
+  const resolved = await tomTomEstimate(endpoints, request?.pickup_datetime);
   const fallback = resolved || estimateForRequest(request);
 
   // A valid, known endpoint pair is safe to register for reuse. Unknown text

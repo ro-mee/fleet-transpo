@@ -81,8 +81,23 @@ export const NAV_ROLES = {
 };
 
 export function hasRole(employee, roleOrRoles) {
-  if (!employee || !employee.roles) return false;
-  const userRole = employee.roles.role_name;
+  if (!employee) return false;
+  // Two shapes cross this predicate. Client employee objects carry
+  // `roles: { role_name }` (NextAuth session), while server identities from
+  // resolveIdentity/requirePermission carry a flat `role` string. Accept both
+  // — the maintenance completion guard passed a server session here and every
+  // role, including admin, was denied because `roles` is undefined on it.
+  const userRole =
+    (typeof employee.role === "string" && employee.role) ||
+    (typeof employee.roles === "string" && employee.roles) ||
+    employee.roles?.role_name ||
+    (Array.isArray(employee.roles)
+      ? typeof employee.roles[0] === "string"
+        ? employee.roles[0]
+        : employee.roles[0]?.role_name
+      : null) ||
+    null;
+  if (!userRole) return false;
   const roles = Array.isArray(roleOrRoles) ? roleOrRoles : [roleOrRoles];
   return roles.includes("*") || roles.includes(userRole);
 }

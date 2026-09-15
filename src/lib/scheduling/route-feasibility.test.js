@@ -113,4 +113,69 @@ describe("evaluateRouteFeasibility", () => {
       evaluateRouteFeasibility({ now: null, pickupAt: PICKUP_9AM, deadheadMinutes: 10, passengerMinutes: 10 }).verdict
     ).toBe("UNKNOWN");
   });
+
+  it("tags the missing leg for specific follow-up messaging", () => {
+    expect(
+      evaluateRouteFeasibility({ now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: null, passengerMinutes: 42 }).unknownLegs
+    ).toEqual(["deadhead"]);
+    expect(
+      evaluateRouteFeasibility({
+        now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: 10, passengerMinutes: 42,
+        nextPickupAt: NEXT_11AM, repositionMinutes: null,
+      }).unknownLegs
+    ).toEqual(["reposition"]);
+  });
+});
+
+describe("evaluateRouteFeasibility without a required deadhead", () => {
+  it("returns SAFE when no adjacent trip constrains the assignment", () => {
+    const out = evaluateRouteFeasibility({
+      now: AT,
+      pickupAt: PICKUP_9AM,
+      deadheadMinutes: null,
+      passengerMinutes: 42,
+      safetyBufferMinutes: 10,
+      deadheadRequired: false,
+    });
+    expect(out.verdict).toBe("SAFE");
+    expect(out.reasons.join(" ")).toMatch(/No adjacent trips/);
+    expect(out.pickupBufferMin).toBeNull();
+    expect(out.requiredDeparture).toBeNull();
+    expect(out.expectedArrival.toISOString()).toBe(new Date("2026-09-07T09:42:00+08:00").toISOString());
+  });
+
+  it("still judges next-commitment turnaround on static legs", () => {
+    const fits = evaluateRouteFeasibility({
+      now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: null, passengerMinutes: 42,
+      nextPickupAt: NEXT_11AM, repositionMinutes: 25, safetyBufferMinutes: 10, deadheadRequired: false,
+    });
+    expect(fits.verdict).toBe("SAFE");
+    expect(fits.turnaroundMin).toBe(53);
+    const miss = evaluateRouteFeasibility({
+      now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: null, passengerMinutes: 100,
+      nextPickupAt: "2026-09-07T10:45:00+08:00", repositionMinutes: 10,
+      safetyBufferMinutes: 10, deadheadRequired: false,
+    });
+    expect(miss.verdict).toBe("INFEASIBLE");
+    expect(miss.turnaroundMin).toBe(-5);
+  });
+
+  it("stays UNKNOWN with a specific leg when reposition is unroutable", () => {
+    const out = evaluateRouteFeasibility({
+      now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: null, passengerMinutes: 42,
+      nextPickupAt: NEXT_11AM, repositionMinutes: null, safetyBufferMinutes: 10, deadheadRequired: false,
+    });
+    expect(out.verdict).toBe("UNKNOWN");
+    expect(out.unknownLegs).toEqual(["reposition"]);
+    expect(out.reasons.join(" ")).toMatch(/next assigned pickup/);
+  });
+
+  it("still needs the passenger leg even when deadhead is excused", () => {
+    const out = evaluateRouteFeasibility({
+      now: AT, pickupAt: PICKUP_9AM, deadheadMinutes: null, passengerMinutes: null,
+      safetyBufferMinutes: 10, deadheadRequired: false,
+    });
+    expect(out.verdict).toBe("UNKNOWN");
+    expect(out.unknownLegs).toEqual(["passenger"]);
+  });
 });

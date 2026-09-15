@@ -56,7 +56,7 @@ To prevent idle or stationary vehicles from polluting historical trip breadcrumb
 
 1. **Trip-Scoped Ping Ingestion (`src/lib/gps.js`)**:
    - `/api/mobile/driver/gps` and `/api/mobile/driver/trips/[id]/gps` now validate trip status.
-   - Pings are strictly recorded to `gpstracking` only when a driver is actively executing an `In Progress` trip. Stationary pings from drivers parked at the depot or between trips are discarded.
+   - Pings are strictly recorded to `gpstracking` only when a driver is actively executing an `In Progress` trip. Standby observations now use the separate latest-only presence path described under PR 4.5 below; they do not enter gpstracking.
 2. **Stale Connection & Disconnect Detection**:
    - Implemented `isStaleGps()` using a 3-minute threshold (`GPS_STALE_THRESHOLD_MS = 3 * 60 * 1000`).
    - If a vehicle in `In Progress` or `Dispatched` has not emitted a ping for > 3 minutes, its status indicator flags it as "Stale/Disconnected" with last-ping age context.
@@ -179,3 +179,33 @@ Driver report: lag on the live map after the styling passes. Diagnosis (3 parall
 ## Related
 
 [[Mobile Architecture]] · [[Trips]] · [[Feature Index]] · [[Graceful Degradation]] · [[ADR-011 Background GPS Tracking]]
+
+
+## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)
+
+The app-level foreground poster now also publishes checked-in standby fixes when no trip/rescue takes precedence. Standby uses separate latest-only fields (migration 111), observed-time/accuracy qualification and live-session/consent checks; it never queues offline or creates a trip breadcrumb trail. Profile controls duty via existing attendance. The driver map live label comes from acknowledged publication, not local marker movement. Generic API responses strip standby storage fields.
+
+Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
+
+
+## Web standby visibility fix - 2026-09-14
+
+The web Live Map previously consumed only active-trip GPS and rescue positions, so PR 4.5 standby publications were invisible there. It now polls the separately authorized GET /api/tracking/standby-locations feed every 15 seconds and merges verified standby pins into the existing operations map. Standby pins carry driver/plate identity, a Standby label, observation time and accuracy, without a fabricated trip or breadcrumb history. The map shows a standby count and removes expired pins or pins from a failed standby feed; active trips take precedence for the same driver/vehicle.
+
+The endpoint requires trips:read_all, uses private/no-store responses, and reuses standbyState, qualifiedGps and effectiveStandbyVehicle. Presence requires current attendance, consent, active session, tracking enabled, no active trip/rescue, a matching eligible vehicle and a fresh accurate observation from the current duty session. This explicitly adds operations-wide standby visibility; request-specific recommendation GPS relevance and generic API storage-field suppression remain unchanged. Foreground-only publication remains the current mobile scope. Per-driver eligibility checks are reused for the small fleet; batch schedule/pairing reads if polling cost becomes significant.
+
+Verified: 15 focused tests across four files; targeted ESLint; web production build (200 pages); route authorization audit (264 guarded methods, zero failures); new identity SQL executed successfully against the configured database. Real-device/browser acceptance remains pending.
+
+## Live Map operations workspace — v3 (2026-09-14, implemented)
+
+The Live Map is now a dispatcher operations workspace reusing the existing engines (shared trip-phase resolver, cheap-fleet + full-detail monitor, intent-anchored off-route corridor, geofence target chain, standby eligibility, RBAC). No new engine, provider, migration, or mobile scope.
+
+- **Stable mission corridor**: pickup→destination road geometry keyed by endpoints (never by live GPS), `staleTime` 5 min; route-`id` trips use canonical route coords, route-less trips use the monitor's new additive `endpointTargets` pair (existing canonical → gazetteer chain, nulls when unresolvable). Corridor draws only with both ends known. GPS moves only the marker, the dashed amber vehicle→pickup approach stub (relationship line, never a route), and ETA math.
+- **Viewport ownership**: manual drag/zoom sticks; auto-fit only on first load, mission selection (`focusStamp`), or Recenter button.
+- **Scan-friendly rows**: opportunistic ETA/delay from cheap fleet rows only (zero new TomTom calls), next-trip-at-risk flag, max-2 priority tokens (VIP/Airport from `is_vip`/`service_name`, capped calm).
+- **Drawer**: phase sentence ("Heading to pickup" / "Guest onboard — heading to destination"), straight-line context ("2.1 km from pickup"), corridor-specific degraded copy.
+- **Resources**: `Available resources` (standby eligibility only, 30 s poll) separate from `Fleet exceptions · active fleet only` (grounded vehicles + monitor incident signals from already-loaded data — standby feed never carries unavailable vehicles).
+- **Pickup-overdue**: past-baseline + no usable ETA while `to_pickup` → WATCH with reason (fail-open, no fabricated minutes).
+- **Projection**: `TRIPS_SELECT` gains `priority/is_vip/is_emergency/derived_priority/service_type_id/service_name` (+ `service_types` join); guest PII stays out (pinned by test). `recorded_at` remains `COALESCE(device, NOW())` device-capture-or-server-fallback; health basis unchanged.
+
+Verified: full Vitest 114 files / 1164 tests green (incl. 3 overdue, 3 endpointTargets, 3 projection tests; one legacy fleet test re-pinned to future-baseline for the new overdue rule); targeted ESLint clean; live-DB projection check (14 keys incl. new signals); `next build` 201 pages; route-auth audit 266/266. Browser/device acceptance pending.

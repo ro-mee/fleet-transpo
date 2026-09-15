@@ -15,6 +15,10 @@ related: ["[[Reservations]]", "[[Trips]]"]
 
 # Feature: Dispatch
 
+## Temporal recommendation start revalidation - 2026-09-15
+
+The reservation-backed trip-start route revalidates the committed driver/vehicle against current schedule, leave, maintenance, capacity, pairing and route/readiness evidence after the existing ownership, inspection and start-window gates. Its own dispatch/trip is excluded from conflicts. Fresh, accurate GPS must belong to that trip and pair; the start commit locks and rechecks the source revision and expiry before a compare-and-set status update. Changes require dispatcher review; no automatic reassignment occurs. Core tests and read-only live SQL passed; live operational/browser acceptance remains pending. See [[Temporal Dispatch Recommendation Implementation Plan]].
+
 ## What it does
 
 Turns an approved request into a **committed booking of resources**: this vehicle, this driver, this window.
@@ -227,6 +231,24 @@ The half-open interval (`<` and `>`, not `<=`/`>=`) is the difference between "b
 - Is `'Pending Reassignment'` a real product state? → [[BUG Pending Reassignment Not In State Machine]]
 - With only 2 rows, has concurrent dispatch ever actually been tested? **TODO:** write a two-connection race test against the trigger.
 
+## PR 5 queue planning (2026-09-14)
+
+Analysis overlays tentative trips on persisted commitments for both resources, including travel beyond midnight. Confirm one root proposal through the existing assignment endpoint, then reanalyze; dependent proposals cannot be committed first. Signed choices and revisions are checked before lifecycle work and inside the assignment transaction. See [[PR 5 AI Dispatch Copilot]] for safety, bounds and verification (1,173 tests/build passed; browser/live concurrency acceptance pending).
+
+## Advisory de-gating + scheduled materiality — 2026-09-15
+
+- **Fuel is out of the dispatch conversation.** `vehicleRisks()` still records fuel findings (engine data intact, scoring untouched), but the new `isFuelNoise()` predicate (`src/lib/dispatch/decision.js`) filters fuel text from decision reasons, copilot bullets, assign API `warnings`/`acknowledged_findings`, and the AI rationale prompt. Advisories no longer force `REVIEW_REQUIRED` either — only hard blocks, missing evidence, `TIGHT`, and maintenance forecasts gate confirmation now.
+- **Scheduled pairs warn only when something is actually affected.** `evaluateRouteFeasibility` takes `deadheadRequired` (default `true`, so existing callers are unchanged): the radar passes `false` for SCHEDULED pairs with no preceding commitment and no live origin, judging them on the knowable static legs — no adjacent trips + known trip length → `SAFE` ("No adjacent trips constrain this assignment"), no warning, no reason required. The generic *"Scheduled planning…"* override is deleted; remaining UNKNOWNs name the leg (`Unverified turnaround before dispatch #N`, `Departing from trip #M…`) via the new `unknownLegs[]` return.
+- Verified: `route-feasibility.test.js` (new `deadheadRequired:false` matrix + `unknownLegs`), `dispatch-radar.test.js` (scheduled-no-neighbors → SAFE/VERIFIED; unroutable-next → named UNKNOWN), updated `decision.test.js` + `queue-workspace.test.js`. Full suite 130 files / 1273 tests pass, ESLint clean, production build green.
+- **Uncommitted-tree sweep 2026-09-15:** no merge markers; fixed 2 lint errors (`copilot-conversation.test.js` children-prop, `dispatch-evidence.test.js` use-before-define); deleted dead `getAvailableVehiclesForReservation` (zero callers) and stray `debug.log`; all new services/routes verified wired (no orphans); no duplicate verdict logic (`dispatch-plan.service` reuses the shared engine).
+
 ## Related
 
 [[Dispatch State Machine]] · [[Trips]] · [[AI Advisory]] · [[UVVRP Number Coding]] · [[Feature Index]]
+
+
+## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)
+
+All assignment paths now share candidate context and route-feasibility revalidation, including independent next commitments for driver and vehicle. Hard conflicts cannot be forced; reviewable uncertainty requires an explicit reason where applicable. Future On Leave/Off Duty status can be superseded only by loaded, valid work-window and leave evidence. A short transaction rechecks an evidence hash before writing. Request assignment and its dispatch are committed together, and resolved service arrival is persisted. Current implementation serializes brief operational writes for the small fleet; provider calls stay outside the transaction.
+
+Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.

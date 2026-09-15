@@ -3,6 +3,7 @@ import { validatePayload } from "@/lib/validation/helpers";
 import { query } from "@/lib/db";
 import { extractBearerToken, verifyAccessToken } from "@/lib/auth/mobile-token";
 import { rolesFor } from "@/lib/auth/permissions";
+import { omitStandbyStorage } from '@/lib/dispatch/location-relevance';
 import {
   normalizeContext,
   requestContext,
@@ -238,7 +239,7 @@ export async function parseOptionalBody(req) {
 }
 
 export function ok(data, status = 200) {
-  return Response.json(data, { status });
+  return new Response(JSON.stringify(data,omitStandbyStorage), { status,headers:{ 'Content-Type':'application/json' } });
 }
 
 export function err(message, status = 400) {

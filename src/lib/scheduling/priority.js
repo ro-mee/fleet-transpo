@@ -39,7 +39,11 @@ function minutesUntil(pickupDatetime, now) {
   return (t - n) / 60000;
 }
 
-function sameCalendarDay(a, b) {
+function sameCalendarDay(a, b, timeZone) {
+  if (timeZone) {
+    const format = new Intl.DateTimeFormat("en-CA", { timeZone, year:"numeric", month:"2-digit", day:"2-digit" });
+    return format.format(new Date(a)) === format.format(new Date(b));
+  }
   const da = new Date(a);
   const db = new Date(b);
   return (
@@ -82,6 +86,7 @@ export function derivePriority({
   isEmergency = false,
   now = new Date(),
   thresholds = DEFAULT_THRESHOLDS,
+  timeZone,
 } = {}) {
   if (fleetStatus && [L.COMPLETED, L.CANCELLED].includes(fleetStatus)) {
     return null;
@@ -111,7 +116,7 @@ export function derivePriority({
       ? DERIVED_PRIORITY.CRITICAL
       : applyVipBoost(DERIVED_PRIORITY.MEDIUM, isVip);
   }
-  if (sameCalendarDay(pickupDatetime, now)) {
+  if (sameCalendarDay(pickupDatetime, now, timeZone)) {
     return applyVipBoost(DERIVED_PRIORITY.NORMAL, isVip);
   }
   return DERIVED_PRIORITY.FUTURE;

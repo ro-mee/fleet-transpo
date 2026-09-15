@@ -70,6 +70,7 @@ export async function executeLlmCompletion({
   defer_log = false,
   prefer_fast_model = false,
   provider_name = null,
+  timeout_ms = null,
 }) {
   const startTime = Date.now();
   const provider = await getActiveAiProvider(provider_name);
@@ -125,7 +126,7 @@ export async function executeLlmCompletion({
 
     // Controller for timeout
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), provider.timeout_ms || 10000);
+    const timeoutId = setTimeout(() => controller.abort(), timeout_ms ?? provider.timeout_ms ?? 10000);
 
     const fullUrl = `${endpointUrl}/chat/completions`;
     const response = await fetch(fullUrl, {

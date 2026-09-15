@@ -75,6 +75,17 @@ export async function PUT(req, { params }) {
       return errValidation(errors);
     }
 
+    // Check prior state before allowing changes. This lookup uses its own
+    // [id] param: passing the SET values array here would leave $1..$N-1
+    // unreferenced and Postgres fails the parse with
+    // "could not determine data type of parameter $1" (500 on every PUT).
+    const beforeRow = (await query(
+      `SELECT status, created_by, inspection_required, inspection_completed_at, inspected_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
+      [id]
+    )).rows[0];
+
+    if (!beforeRow) return err("Maintenance record not found", 404);
+
     const sets = [];
     const values = [];
     const seen = new Set();
@@ -87,19 +98,10 @@ export async function PUT(req, { params }) {
     }
     if (sets.length === 0) return err("No writable fields were provided", 400);
 
-    // An archived record is not editable. Without this predicate a PUT could
-    // amend a soft-deleted row and the recompute below would then push the
-    // vehicle's schedule from a record that is supposed to be gone.
-    values.push(id);
-    const idParamIndex = values.length;
-    
-    // Check prior state before allowing changes
-    const beforeRow = (await query(
-      `SELECT status, created_by, inspection_required, inspection_completed_at, inspected_by FROM vehiclemaintenance WHERE maintenance_id = $${idParamIndex} AND deleted_at IS NULL`,
-      values
-    )).rows[0];
-    
-    if (!beforeRow) return err("Maintenance record not found", 404);
+    // An archived record is not editable. Without the deleted_at predicate
+    // below, a PUT could amend a soft-deleted row and the recompute would
+    // then push the vehicle's schedule from a record that is supposed
+    // to be gone.
     
     const beforeStatus = beforeRow.status;
     const isTransitioningToCompleted = body.status === 'Completed' && beforeStatus !== 'Completed';
@@ -152,6 +154,10 @@ export async function PUT(req, { params }) {
       
       sets.push(`completed_at = CURRENT_TIMESTAMP`);
     }
+
+    // The id goes last so every $n above lines up with values[n-1].
+    values.push(id);
+    const idParamIndex = values.length;
 
     const { rows } = await query(
       `UPDATE vehiclemaintenance SET ${sets.join(", ")}

@@ -14,6 +14,18 @@ related: ["[[Dispatch]]", "[[System Boundaries]]"]
 
 # Feature: Reservations
 
+## Manual Analyze controls removed - 2026-09-15
+
+Removed the remaining Copilot Analyze buttons from its header, empty state and recovery flow. Selecting an option still automatically generates and validates the required queue plan. Recheck reservation now repeats the chosen-pair check when a pair is selected, so stale or failed queue evidence has a recovery path without a separate Analyze action. Seven focused panel/assignment tests and touched-source ESLint passed.
+
+## Analysis summary removed - 2026-09-15
+
+Removed the queue-wide Ready, Review Required, Blocked and Needs Verification cards, plus their evaluated-count/plan-expiry row and duplicate Analyze action, at the user's request. The reservation list and Copilot remain the workspace; existing plan analysis, validation and guarded assignment behavior are unchanged. Verification: ESLint passed for the queue page.
+
+## Conversational assignment - 2026-09-15
+
+Reservation Queue now keeps Copilot options, free questions, selected-pair checking and confirmation inside one chat. Typed option selection and buttons share the same handler. After automatic revalidation, one explicit Assign it confirms the named pair; no separate Review assignment click is needed. The completed reservation remains selected for the success reply after its actionable queue row disappears, and the mobile drawer remains open. See [[Temporal Dispatch Recommendation Implementation Plan#Unified conversation follow-up - 2026-09-15]] for tests and acceptance limitations.
+
 ## What it does
 
 Receives guest transportation requests from the Booking subsystem, triages them, and moves them through review → approval → scheduling.
@@ -62,6 +74,8 @@ Nine states, governed by an **adjacency map** in `src/lib/scheduling/reservation
 | `src/lib/scheduling/reservation-state.js` | Adjacency map, `transitionPath()` |
 | `src/lib/scheduling/priority.js` | Priority derivation |
 | `src/lib/integration/contracts.js` | Zod schemas, `normalizePriority()` |
+| `src/components/reservations/reservation-queue-table.jsx` | Compact semantic table with selectable rows, inline category text next to reference (`#RS-xxxx · Category`), trip attribute pill tags (`VIP`, `Airport`, `Restaurant`, `Group`), and Copilot status chips |
+| `src/app/(dashboard)/reservations/queue/page.js` | Persistent two-column queue workspace + Copilot aside coordinator |
 
 ## Database tables used
 
@@ -90,6 +104,11 @@ already answering 410) was deleted with migration 036 on 2026-08-11.
   the field also had native `<option>` children inside the Radix `FloatingSelect`,
   which made the dropdown unopenable). Verified via a scratch vitest run against
   `parseTransportationRequest`.
+- **Operational timezone boundary ('Asia/Manila') in Queue predicates** →
+  PostgreSQL runs in UTC by default. Timestamps for early morning next-day Manila trips
+  (e.g. Sep 16, 01:00 AM PHT) convert to late previous-day in UTC (Sep 15, 17:00 UTC).
+  Casting with `(pickup_datetime AT TIME ZONE 'Asia/Manila')::date` ensures next-day
+  reservations are categorized under Upcoming, not Today.
 
 ## What I learned
 

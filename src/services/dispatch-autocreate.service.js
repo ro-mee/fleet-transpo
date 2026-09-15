@@ -2,6 +2,7 @@ import { query, withTransaction } from "@/lib/db";
 import { ensureTripForDispatch, syncVehicleStatus, syncDriverStatus } from "@/services/status.service";
 import { flushOutbox } from "@/services/push.service";
 import { resolveRouteForRequest } from "@/services/route-resolver.service";
+import { serviceEnd } from '@/services/dispatch-radar.service';
 
 // Auto-create a dispatch (+ its trip) the moment a full vehicle+driver pair is
 // committed to a transportation request — GAP-FIX: previously the assign
@@ -28,13 +29,13 @@ import { resolveRouteForRequest } from "@/services/route-resolver.service";
  * @param {object}  [opts.session] caller identity (employeeId for created_by)
  * @returns {Promise<object|null>} the dispatch row, or null when not a full pair
  */
-export async function createDispatchForRequest({ request, vehicleId, driverId, session }) {
+export async function createDispatchForRequest({ request, vehicleId, driverId, session, tx: outerTx = null }) {
   // Full-pair gate: only commit resources to a dispatch when BOTH halves exist.
   if (!request?.request_id || !vehicleId || !driverId) return null;
 
   const employeeId = session?.user?.employeeId ?? null;
 
-  return withTransaction(async (tx) => {
+  const create = async (tx) => {
     // Idempotency: never raise a second live dispatch for the same request.
     const existing = await tx.query(
       `SELECT * FROM dispatchschedules
@@ -42,7 +43,16 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
         ORDER BY dispatch_id DESC LIMIT 1`,
       [request.request_id]
     );
-    if (existing.rows[0]) return existing.rows[0];
+    if (existing.rows[0]) {
+      const row = existing.rows[0];
+      if (Number(row.vehicle_id)===Number(vehicleId) && Number(row.driver_id)===Number(driverId)
+        && new Date(row.scheduled_departure).getTime()===new Date(request.pickup_datetime).getTime()
+        && new Date(row.scheduled_arrival).getTime()===serviceEnd(request)?.getTime()) return row;
+      const { rows } = await tx.query(`UPDATE dispatchschedules SET vehicle_id=$2,driver_id=$3,
+        scheduled_departure=$4,scheduled_arrival=$5,updated_at=NOW() WHERE dispatch_id=$1 RETURNING *`,
+      [row.dispatch_id,vehicleId,driverId,request.pickup_datetime,serviceEnd(request)?.toISOString() ?? null]);
+      return rows[0];
+    }
 
     // Resolve a route for the pickup->dropoff leg. Unknown free-text legs stay
     // ad-hoc (route_id remains null); only canonical location pairs may create
@@ -75,7 +85,7 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
           driverId,
           routeId,
           request.pickup_datetime ?? null,
-          null, // scheduled_arrival
+          serviceEnd(request)?.toISOString() ?? null,
           notes,
           employeeId,
         ]
@@ -100,7 +110,7 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
             driverId,
             routeId,
             request.pickup_datetime ?? null,
-            null,
+            serviceEnd(request)?.toISOString() ?? null,
             notes,
             fallback,
             employeeId,
@@ -113,7 +123,8 @@ export async function createDispatchForRequest({ request, vehicleId, driverId, s
     }
 
     return dispatch;
-  });
+  };
+  return outerTx ? create(outerTx) : withTransaction(create);
 }
 
 /**

@@ -3,7 +3,9 @@ import { isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { CONFLICT_SEVERITY, CONFLICT_TYPE } from "@/lib/scheduling/conflict-types";
 import { getUvvrpPolicy, getExemptVehicleIds } from "@/lib/uvvrp/uvvrp.service";
 import { isRestricted, weekdayFor, plateLastDigit } from "@/lib/uvvrp/policy";
-import { resolveSubstituteForDate } from "@/lib/ai/pair-scoring";
+import { resolveSubstituteForDate, resolveVehiclePairing, vehicleOperationallyAvailable } from "@/lib/ai/pair-scoring";
+import { shouldGroundVehicle } from "@/lib/driver/grounding";
+import { vehicleRisks } from "@/lib/ai/dispatch-advisor";
 import { getDispatchPolicy } from "@/services/dispatch-settings.service";
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
 import { travelBufferBlocked } from "@/lib/scheduling/travel-buffer";
@@ -129,12 +131,12 @@ function overlapsWindow(dispatch, startIso, endIso) {
 }
 
 /** Calendar-day containment for a maintenance window, mirroring the SQL. */
-function maintenanceCoversDay(row, day) {
+function maintenanceCoversDay(row, day, endDay = day) {
   if (!day) return false;
   const from = toCalendarDay(row.maintenance_date);
   const to = toCalendarDay(row.completed_date ?? row.maintenance_date);
   if (!from || !to) return false;
-  return from <= day && to >= day;
+  return from <= endDay && to >= day;
 }
 
 /**
@@ -257,7 +259,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
 
   if (driver) {
     const name = `${driver.first_name || ""} ${driver.last_name || ""}`.trim() || `#${driver.driver_id}`;
-    if (["Suspended", "On Leave", "Off Duty"].includes(driver.driver_status)) {
+    if (driver.driver_status === "Suspended" || (!scheduleContext && ["On Leave", "Off Duty"].includes(driver.driver_status))) {
       findings.push({
         type: CONFLICT_TYPE.DRIVER_UNAVAILABLE,
         severity: SEVERITY.BLOCKING,
@@ -297,7 +299,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
   if (vehicle && pickupDay) {
     for (const m of maintenance) {
       if (m.vehicle_id !== vehicle.vehicle_id) continue;
-      if (!maintenanceCoversDay(m, pickupDay)) continue;
+      if (!maintenanceCoversDay(m, pickupDay, toCalendarDay(arrival ? new Date(new Date(arrival).getTime() - 1) : pickup) || pickupDay)) continue;
       findings.push({
         type: CONFLICT_TYPE.MAINTENANCE_CONFLICT,
         severity: SEVERITY.BLOCKING,
@@ -380,7 +382,7 @@ export function evaluateRequestConflicts(request, { vehicle = null, driver = nul
  * Number-coding (UVVRP) finding context for a vehicle + departure. Failure-
  * tolerant: a policy/exemption read error degrades to no finding.
  */
-async function buildUvvrpCtx(vehicle, date) {
+async function buildUvvrpCtx(vehicle, date, strict = false) {
   if (!vehicle || !date) return null;
   try {
     const policy = await getUvvrpPolicy();
@@ -396,6 +398,7 @@ async function buildUvvrpCtx(vehicle, date) {
       digit: plateLastDigit(vehicle.plate_number),
     };
   } catch (e) {
+    if (strict) throw e;
     console.warn("uvvrp ctx failed:", e?.message || e);
     return null;
   }
@@ -430,18 +433,19 @@ export async function detectRequestConflicts(request, opts = {}) {
           driverId,
           departure: pickup,
           arrival: request.scheduled_arrival || null,
-        }).catch(() => [])
+          excludeId: opts.excludeDispatchId ?? request.dispatch_id ?? null,
+        }).catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
     // 6. Vehicle registration + 7. capacity.
     vehicleId
       ? query(
-          `SELECT vehicle_id, plate_number, seating_capacity, registration_expiry, insurance_expiry, vehicle_status
+          `SELECT vehicle_id, plate_number, category_id, seating_capacity, registration_expiry, insurance_expiry, vehicle_status,fuel_level,next_service_date
              FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
           [vehicleId]
         )
           .then((r) => r.rows[0] || null)
-          .catch(() => null)
+          .catch(error => { if (opts.strict) throw error; return null; })
       : Promise.resolve(null),
 
     // 4. Driver availability + 5. license.
@@ -454,10 +458,10 @@ export async function detectRequestConflicts(request, opts = {}) {
           [driverId]
         )
           .then((r) => r.rows[0] || null)
-          .catch(() => null)
+          .catch(error => { if (opts.strict) throw error; return null; })
       : Promise.resolve(null),
 
-    // 3. Vehicle in an open maintenance window covering the pickup date.
+    // 3. Open maintenance intersecting any day touched by the service window.
     // maintenance_date/completed_date are DATEs (001_schema.sql); an unfinished
     // record with no completed_date is treated as covering its own day only.
     vehicleId && pickup
@@ -467,12 +471,12 @@ export async function detectRequestConflicts(request, opts = {}) {
             WHERE vehicle_id = $1
               AND deleted_at IS NULL
               AND status <> 'Completed'
-              AND maintenance_date <= $2::date
+              AND maintenance_date <= $3::date
               AND COALESCE(completed_date, maintenance_date) >= $2::date`,
-          [vehicleId, pickup]
+          [vehicleId, pickup, request.scheduled_arrival ? new Date(new Date(request.scheduled_arrival).getTime() - 1).toISOString() : pickup]
         )
           .then((r) => r.rows)
-          .catch(() => [])
+          .catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
     // 8. Custodial pairing (017) for either side. Unlike the checks above this
@@ -483,7 +487,7 @@ export async function detectRequestConflicts(request, opts = {}) {
           driverId ? [driverId] : [],
         ])
           .then((r) => r.rows)
-          .catch(() => [])
+          .catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
     // Substitute schedules (032) for the proposed vehicle — the engine resolves
@@ -496,7 +500,7 @@ export async function detectRequestConflicts(request, opts = {}) {
           [vehicleId]
         )
           .then((r) => r.rows)
-          .catch(() => [])
+          .catch(error => { if (opts.strict) throw error; return []; })
       : Promise.resolve([]),
 
     // §4.8.3 — the resource's most recent active commitment that ENDS before the
@@ -515,14 +519,14 @@ export async function detectRequestConflicts(request, opts = {}) {
           [vehicleId, driverId, ACTIVE_DISPATCH_STATUSES, pickup]
         )
           .then((r) => r.rows[0] || null)
-          .catch(() => null)
+          .catch(error => { if (opts.strict) throw error; return null; })
       : Promise.resolve(null),
   ]);
 
   // findDispatchConflicts has already applied the overlap window in SQL, so the
   // rows handed to the evaluator are pre-filtered; re-checking there is
   // harmless and keeps the batch path (which fetches a wider window) honest.
-  const policy = await getDispatchPolicy().catch(() => null);
+  const policy = opts.policy ?? await getDispatchPolicy().catch(error => { if (opts.strict) throw error; return null; });
 
   // Attach the §4.8.3 signals so the pure evaluator can run the travel+buffer
   // gate. ETA to pickup is supplied by the caller (the assign route passes a
@@ -535,22 +539,62 @@ export async function detectRequestConflicts(request, opts = {}) {
 
   // Work-schedule + approved-leave context (migration 049) for the checked driver.
   const scheduleContext = driverId
-    ? await loadDriverScheduleContext([driverId]).catch(() => ({ schedules: new Map(), leave: new Map() }))
+    ? await loadDriverScheduleContext([driverId]).catch(error => { if (opts.strict) throw error; return { schedules: new Map(), leave: new Map() }; })
     : null;
 
-  return evaluateRequestConflicts(request, {
+  const findings = evaluateRequestConflicts(request, {
     vehicle: vehicleRow,
     driver: driverRow,
     dispatches: overlap,
     maintenance: maintenance.map((m) => ({ ...m, vehicle_id: vehicleId })),
     assignments,
     substitutes,
-    uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime),
+    uvvrp: await buildUvvrpCtx(vehicleRow, request.pickup_datetime, opts.strict),
     scheduleContext,
     travelBufferEnabled: policy?.travelBufferEnabled,
     safetyBufferMinutes: policy?.safetyBufferMinutes,
     bufferFloorMinutes: policy?.bufferFloorMinutes,
   });
+  if (!opts.includeEvidence) return findings;
+  // This mode is authoritative: callers must use strict probes, never fallbacks.
+  if (!opts.strict) throw new Error('Decision evidence requires strict conflict probes.');
+  findings.push(...vehicleRisks(vehicleRow,request).map(r=>({type:'vehicle_advisory',severity:'warning',message:r.message})));
+  const ids = [...new Set([driverId, ...assignments.map(a => a.driver_id), ...substitutes.map(s => s.substitute_driver_id)].filter(Boolean))];
+  const [{ rows: pairingDrivers }, { rows: incidents }] = await Promise.all([
+    query(`SELECT d.driver_id,d.driver_status,d.license_expiry,(SELECT count(*) FROM dispatchschedules ds WHERE ds.driver_id=d.driver_id
+      AND ds.deleted_at IS NULL AND ds.status IN ('Scheduled','In Progress') AND ds.request_id IS DISTINCT FROM $4::int
+      AND ($5::int IS NULL OR ds.dispatch_id<>$5) AND ds.scheduled_departure<$3::timestamptz
+      AND COALESCE(ds.scheduled_arrival,ds.scheduled_departure)>$2::timestamptz)::int AS _schedule_load
+      FROM drivers d WHERE d.driver_id=ANY($1::int[]) AND d.deleted_at IS NULL`, [ids,pickup,request.scheduled_arrival,request.request_id ?? null,request.dispatch_id ?? null]),
+    query("SELECT incident_id,incident_type,severity,vehicle_id FROM driverincidents WHERE vehicle_id=$1 AND deleted_at IS NULL AND status <> 'Resolved'", [vehicleId]),
+  ]);
+  const pairing = resolveVehiclePairing({ vehicleId, pickupDate:pickup, returnAt:request.scheduled_arrival ? new Date(request.scheduled_arrival) : null,
+    activePairs:assignments, activeSubstitutes:substitutes, driverById:new Map(pairingDrivers.map(d => [d.driver_id,d])),
+    scheduleContext:await loadDriverScheduleContext(ids) });
+  if (!pairing.ok || Number(pairing.driver?.driver_id) !== Number(driverId)) findings.push({type:'pairing',severity:'blocking',message:pairing.reason || 'This is not the effective designated or substitute pair.'});
+  if (vehicleRow && !vehicleOperationallyAvailable(vehicleRow)) findings.push({type:'vehicle_status',severity:'blocking',message:`Vehicle is ${vehicleRow.vehicle_status}.`});
+  if (request.requested_category_id && Number(vehicleRow?.category_id)!==Number(request.requested_category_id)) findings.push({type:'category',severity:'blocking',message:'Vehicle does not match the requested class.'});
+  for (const incident of incidents) if (shouldGroundVehicle({incidentType:incident.incident_type,severity:incident.severity,vehicleId}))
+    findings.push({type:'incident',severity:'blocking',message:`Vehicle is restricted by incident #${incident.incident_id}.`,detail:{incident_id:incident.incident_id}});
+  const validDate = value => !!value && Number.isFinite(+new Date(value));
+  const known = [
+    ['request','Request requirements',validDate(pickup) && Number.isInteger(Number(request.passenger_count)) && Number(request.passenger_count)>0 && validDate(request.scheduled_arrival)],
+    ['capacity','Seating capacity',Number(vehicleRow?.seating_capacity)>0],
+    ['registration','Vehicle registration',validDate(vehicleRow?.registration_expiry)],
+    ['insurance','Vehicle insurance',validDate(vehicleRow?.insurance_expiry)],
+    ['license','Driver license',validDate(driverRow?.license_expiry)],
+    ['pairing','Effective driver and vehicle pairing',pairing.ok && Number(pairing.driver?.driver_id)===Number(driverId)],
+    ['schedule','Duty, leave and resource schedule',!!driverRow && !!vehicleRow && validDate(pickup) && validDate(request.scheduled_arrival)],
+    ['maintenance','Service-window maintenance',validDate(pickup) && validDate(request.scheduled_arrival)],
+    ['incidents','Blocking incident check',!!vehicleRow],
+  ];
+  if (request.requested_vehicle_type && !request.requested_category_id) known.push(['category','Requested vehicle class',false]);
+  const types = {capacity:['capacity_mismatch'],registration:['registration_expired'],insurance:['insurance_expired'],license:['license_expired'],pairing:['pairing'],schedule:['driver_unavailable','driver_conflict','vehicle_conflict','vehicle_status'],maintenance:['maintenance_conflict'],incidents:['incident'],category:['category']};
+  if (request.requested_category_id) known.push(['category','Requested vehicle class',!!vehicleRow?.category_id]);
+  return { conflicts:findings, checks:known.map(([id,label,present]) => {
+    const blocked = findings.find(f => f.severity==='blocking' && types[id]?.includes(f.type));
+    return {id,label,status:blocked?'blocking':present?'verified':'missing',message:blocked?.message ?? (present?`${label}: source records checked.`:`${label} could not be verified.`)};
+  }) };
 }
 
 /**

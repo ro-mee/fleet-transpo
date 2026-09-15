@@ -6,6 +6,10 @@ import {
   PAIRING_KIND,
 } from "@/lib/ai/pair-scoring";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { evaluateDispatchCandidate, serviceEnd } from '@/services/dispatch-radar.service';
+import { resolveRequestEstimate } from '@/services/route-resolver.service';
+import { LOCATION_POLICY_VERSION } from '@/lib/dispatch/location-relevance';
+import { readDispatchRevision } from '@/services/dispatch-evidence.service';
 
 // Recommendation snapshot service — the durable store for AI fleet-pair
 // recommendations (migration 027).
@@ -46,6 +50,9 @@ export async function saveRecommendationSnapshot({ request, pair, session }) {
   const driver = recommended?.driver ?? null;
 
   const pairJson = JSON.stringify({
+    policyVersion: LOCATION_POLICY_VERSION,
+    requestUpdatedAt: request.updated_at,
+    pickupAt: request.pickup_datetime,
     trip: pair?.trip ?? null,
     recommended,
     alternate: pair?.alternate ?? null,
@@ -156,13 +163,24 @@ export async function markRecommendationConsumed(requestId, snapshotId) {
  * @param {Date} [params.now]
  * @returns {Promise<{ ok:boolean, conflict?:object, reason?:string }>}
  */
-export async function validatePairAvailability({ request, vehicleId, driverId, now = new Date() }) {
+export async function validatePairAvailability({ request, vehicleId, driverId, now = new Date(), allowReview = false, excludeTripId = null }) {
   if (!vehicleId || !driverId) return { ok: true }; // one-sided assign is fine
+  if (request?.request_id) {
+    const { rows } = await query('SELECT * FROM transportation_requests WHERE request_id=$1 AND deleted_at IS NULL', [request.request_id]);
+    if (!rows[0] || !['Pending','Scheduled','Assigned'].includes(rows[0].fleet_status))
+      return { ok:false,conflict:{type:'request_state',severity:'blocking',message:'The transportation request is no longer actionable.'} };
+    request = { ...rows[0],...request,passenger_count:rows[0].passenger_count,requested_category_id:rows[0].requested_category_id };
+  }
+  const commitToken = { driverId,vehicleId,requestId:request?.request_id ?? null,...(excludeTripId ? {tripId:excludeTripId} : {}) };
+  commitToken.revision = await readDispatchRevision(commitToken);
+  if (request?.route_id && !request.pickup_location) {
+    const { rows } = await query('SELECT origin,destination FROM routes WHERE route_id=$1 AND deleted_at IS NULL', [request.route_id]);
+    request = { ...request,pickup_location:rows[0]?.origin,dropoff_location:rows[0]?.destination };
+  }
 
   const windowStart = request?.pickup_datetime ? new Date(request.pickup_datetime).toISOString() : null;
-  const windowEnd = windowStart
-    ? new Date(new Date(windowStart).getTime() + 60 * 60 * 1000).toISOString()
-    : null;
+  const estimate = await resolveRequestEstimate(request, { query }, { persistRoute: false });
+  const windowEnd = serviceEnd(request, estimate)?.toISOString() ?? null;
 
   const [{ rows: pairs }, { rows: substitutes }, { rows: vehicleRows }] = await Promise.all([
     query(
@@ -175,13 +193,16 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
          FROM substitute_vehicle_schedules`
     ),
     query(
-      `SELECT vehicle_id, plate_number, vehicle_status
+      `SELECT vehicle_id, plate_number, vehicle_status,category_id,seating_capacity
          FROM vehicles WHERE vehicle_id = $1 AND deleted_at IS NULL`,
       [vehicleId]
     ),
   ]);
 
   const vehicle = vehicleRows[0] ?? null;
+  if (!vehicle) return { ok:false,conflict:{ type:'vehicle_missing',severity:'blocking',message:'Vehicle no longer exists.' } };
+  if (request?.requested_category_id && Number(vehicle.category_id)!==Number(request.requested_category_id))
+    return { ok:false,conflict:{type:'vehicle_category',severity:'blocking',message:'Vehicle does not match the requested class.'} };
   if (vehicle && !vehicleOperationallyAvailable(vehicle)) {
     return {
       ok: false,
@@ -213,12 +234,14 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
                WHERE ds.driver_id = d.driver_id
                  AND ds.deleted_at IS NULL
                  AND ds.status IN ('Scheduled', 'In Progress')
+                 AND ($4::int IS NULL OR ds.dispatch_id <> $4)
+                 AND ($5::int IS NULL OR ds.request_id IS DISTINCT FROM $5)
                  AND ($2::timestamptz IS NULL OR ds.scheduled_departure < $2)
                  AND ($1::timestamptz IS NULL OR COALESCE(ds.scheduled_arrival, ds.scheduled_departure) > $1)
             ), 0)::int AS _schedule_load
        FROM drivers d
       WHERE d.deleted_at IS NULL AND d.driver_id = ANY($3::int[])`,
-    [windowStart, windowEnd, wanted]
+    [windowStart, windowEnd, wanted, request?.dispatch_id ?? null, request?.request_id ?? null]
   );
   const driverById = new Map(drivers.map((d) => [d.driver_id, d]));
 
@@ -256,8 +279,23 @@ export async function validatePairAvailability({ request, vehicleId, driverId, n
   }
 
   if (Number(driverId) === Number(pairing.driver.driver_id)) {
+    const evidence = await evaluateDispatchCandidate({ request:{ ...request, fleet_status:'Pending' },vehicleId,driverId,estimate,now,excludeTripId });
+    commitToken.expiresAt = new Date(Math.min(Date.now()+30_000,
+      ...[evidence.proximity?.expiresAt,evidence.evidenceExpiresAt].filter(Boolean).map(value=>new Date(value).getTime()))).toISOString();
+    const unavailable = evidence.dispatchContext?.reasonCode === 'STANDBY_NOT_VERIFIED';
+    const infeasible = evidence.feasibility?.verdict === 'INFEASIBLE';
+    const unverified = evidence.readiness !== 'VERIFIED';
+    const missing = !evidence.checks?.length || evidence.checks.some(c => c.status === 'missing');
+    if (unavailable || infeasible || missing || (unverified && !(allowReview && evidence.reviewable))) return {
+      ok:false, conflict:{ type:'dispatch_evidence',severity:'blocking',reviewable:!unavailable && !infeasible && !missing && evidence.reviewable === true,
+        message:unavailable ? 'Driver must be checked in, on duty and available for standby dispatch.' : missing ? 'Required request, capacity or compliance evidence is missing. Correct the source records before assigning.' : evidence.feasibility.reasons.join(' ') },
+    };
     return {
       ok: true,
+      evidence,
+      reviewed:unverified && allowReview,
+      commitToken,
+      serviceEnd: windowEnd,
       reason:
         pairing.kind === PAIRING_KIND.DESIGNATED
           ? `Driver ${driverId} is the designated driver for vehicle #${vehicleId}.`

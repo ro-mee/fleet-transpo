@@ -4,6 +4,8 @@ import { mergeDispatchPolicy, validateDispatchPolicy } from "@/lib/dispatch-poli
 import { writeAudit } from "@/lib/audit";
 
 const ALLOWED_KEYS = new Set([
+  'shortNoticeHorizonMinutes', 'efficiencyTieMinutes', 'safetyBufferMinutes', 'bufferFloorMinutes',
+  'departureBufferMinutes', 'earlyStartAllowanceMinutes', 'travelBufferEnabled',
   "criticalMinutes",
   "highMinutes",
   "mediumMinutes",
@@ -35,16 +37,17 @@ export async function PUT(req) {
       if (!ALLOWED_KEYS.has(key)) delete candidate[key];
     }
 
-    const check = validateDispatchPolicy(candidate);
+    const before = await getDispatchPolicy();
+    const check = validateDispatchPolicy({...before,...candidate});
     if (!check.ok) return err(check.error, 400);
 
-    const policy = mergeDispatchPolicy(candidate);
+    const policy = mergeDispatchPolicy({...before,...candidate});
     const saved = await saveDispatchPolicy(policy, session.user?.employeeId ?? null);
 
     await writeAudit(req, session, {
       action: "update",
       resource: "dispatch_policy",
-      oldValues: policy,
+      oldValues: before,
       newValues: saved,
     });
 

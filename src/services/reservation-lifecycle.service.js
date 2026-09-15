@@ -104,6 +104,7 @@ export async function advanceReservation({
   patch = {},
   outbound = {},
   notifyBooking = true,
+  writeAssignment = null,
 }) {
   const before = await loadRequest(requestId);
   if (!before) return { ok: false, status: 404, error: "Transportation request not found" };
@@ -130,13 +131,14 @@ export async function advanceReservation({
       values.push(value !== null && typeof value === "object" ? JSON.stringify(value) : value);
     }
     values.push(requestId);
-    const { rows } = await query(
+    const { rows, eventRecorded } = await (writeAssignment || query)(
       `UPDATE transportation_requests SET ${columns.join(", ")} WHERE request_id = $${idx} RETURNING *`,
-      values
+      values,
+      { requestId,eventType,fromStatus:before.fleet_status,toStatus,session,description,metadata }
     );
     if (!rows[0]) return { ok: false, status: 404, error: "Transportation request not found" };
 
-    if (eventType) {
+    if (eventType && !eventRecorded) {
       await recordReservationEvent({
         requestId,
         eventType,
@@ -186,16 +188,17 @@ export async function advanceReservation({
     }
 
     values.push(requestId);
-    const { rows } = await query(
+    const { rows, eventRecorded } = await (isFinal && writeAssignment ? writeAssignment : query)(
       `UPDATE transportation_requests SET ${columns.join(", ")} WHERE request_id = $${idx} RETURNING *`,
-      values
+      values,
+      { requestId,eventType:isFinal && eventType ? eventType : eventForStatus(next),fromStatus:current.fleet_status,toStatus:next,session,description:isFinal?description:null,metadata:isFinal?metadata:null }
     );
     if (!rows[0]) return { ok: false, status: 404, error: "Transportation request not found" };
 
     const previous = current;
     current = rows[0];
 
-    await recordReservationEvent({
+    if (!eventRecorded) await recordReservationEvent({
       requestId,
       eventType: isFinal && eventType ? eventType : eventForStatus(next),
       fromStatus: previous.fleet_status,

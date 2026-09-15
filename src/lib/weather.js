@@ -131,16 +131,16 @@ export async function getCurrentWeather(latitude, longitude, opts = {}) {
  * fail-open like weather: absent key/timeout/parse → placeName null (the chip
  * then shows icon + temperature only, never an invented place).
  *
- * @returns {Promise<{temperatureC: number, code: number, label: string, placeName: string|null}|null>}
+ * Weather and place resolve in parallel: they are independent provider calls
+ * and the serial order only added latency to the mobile chip's first paint.
+ *
+ * @returns {Promise<{temperatureC: number, code: number, label: string, isDay: boolean|null, placeName: string|null}|null>}
  */
 export async function getCurrentConditions(latitude, longitude, opts = {}) {
-  const weather = await getCurrentWeather(latitude, longitude, opts);
+  const [weather, placeName] = await Promise.all([
+    getCurrentWeather(latitude, longitude, opts),
+    getPlaceName(latitude, longitude, opts).catch(() => null),
+  ]);
   if (!weather) return null;
-  let placeName = null;
-  try {
-    placeName = await getPlaceName(latitude, longitude, opts);
-  } catch {
-    placeName = null;
-  }
   return { ...weather, placeName };
 }

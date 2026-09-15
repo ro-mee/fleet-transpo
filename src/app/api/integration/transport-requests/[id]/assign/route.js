@@ -9,6 +9,9 @@ import { tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
 import { validatePairAvailability, getActiveRecommendation, markRecommendationConsumed } from "@/services/recommendation.service";
 import { createDispatchForRequest, syncDispatchSideEffects } from "@/services/dispatch-autocreate.service";
 import { writeAudit } from "@/lib/audit";
+import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
+import { verifyPlanToken } from '@/services/dispatch-plan-evidence.service';
+import { isFuelNoise } from '@/lib/dispatch/decision';
 
 // §4.8.3 travel+buffer signals for the conflict gate. The caller may supply the
 // per-resource ETA directly, or a TomTom origin/destination pair to compute it;
@@ -46,6 +49,9 @@ export async function PUT(req, { params }) {
     const session = await requirePermission(req, "reservations", "assign");
     const { id } = await params;
     const body = await parseBody(req);
+    const force = body?.force === true;
+    const overrideReason = typeof body?.override_reason === 'string' ? body.override_reason.trim() : '';
+    if (force && (!overrideReason || overrideReason.length > 500)) return err('Manual review requires a reason between 1 and 500 characters.',400);
 
     const before = await loadRequest(id);
     if (!before) return err("Transportation request not found", 404);
@@ -66,17 +72,19 @@ export async function PUT(req, { params }) {
       return err(`Cannot assign resources to a request that is ${before.fleet_status}.`, 409);
     }
 
+    const planSelection = { requestId: id, vehicleId, driverId, mode:force ? 'manual' : 'verified' };
+    if (body.plan_token !== undefined) await verifyPlanToken(body.plan_token, planSelection);
+
     const travel = await buildTravelSignals(body);
     const conflicts = await detectRequestConflicts(before, { vehicleId, driverId, travel });
     const blocking = conflicts.filter((c) => c.severity === "blocking");
-    const force = body?.force === true;
 
-    if (blocking.length > 0 && !force) {
+    if (blocking.length > 0) {
       return Response.json(
         {
           error: blocking[0].message,
           conflicts: blocking,
-          hint: "Resolve the conflicts or resend with { force: true } to override.",
+          hint: "Resolve the hard conflicts before assigning.",
         },
         { status: 409 }
       );
@@ -85,9 +93,11 @@ export async function PUT(req, { params }) {
     // Designated-driver enforcement: a pair that departs from the vehicle's
     // active custodian is only legal when that custodian is provably
     // unavailable for the pickup window. `force` remains the escape hatch.
-    if (!force) {
-      const pairCheck = await validatePairAvailability({
+    let pairCheck;
+    {
+      pairCheck = await validatePairAvailability({
         request: before,
+        allowReview: force && typeof body?.override_reason === "string" && body.override_reason.trim().length > 0,
         vehicleId,
         driverId,
       });
@@ -96,7 +106,7 @@ export async function PUT(req, { params }) {
           {
             error: pairCheck.conflict.message,
             conflict: pairCheck.conflict,
-            hint: "Assign the designated driver, or resend with { force: true } to override.",
+            hint: "Resolve the conflict. Only unverified evidence allows manual review with an override reason.",
           },
           { status: 409 }
         );
@@ -121,6 +131,8 @@ export async function PUT(req, { params }) {
 
     const driverLabel = `${driverRow.first_name || ""} ${driverRow.last_name || ""}`.trim() || `#${driverRow.driver_id}`;
 
+    let committedDispatch = null;
+    const assignmentRequest = { ...before, scheduled_arrival:pairCheck.serviceEnd };
     const result = await advanceReservation({
       requestId: id,
       toStatus: L.ASSIGNED,
@@ -128,10 +140,12 @@ export async function PUT(req, { params }) {
       eventType: E.VEHICLE_ASSIGNED,
       description: `Assigned vehicle ${vehicleRow.plate_number} and driver ${driverLabel}.`,
       metadata: {
+        dispatch_evidence: pairCheck.evidence,
         vehicle_id: vehicleId,
         driver_id: driverId,
-        forced: force && blocking.length > 0,
-        overridden_conflicts: force && blocking.length > 0 ? blocking : undefined,
+        forced: force,
+        manual_review: pairCheck.reviewed === true,
+        acknowledged_findings: force ? [...(pairCheck.evidence?.advisories ?? []).filter((a) => !isFuelNoise(a?.message)), ...(pairCheck.evidence?.feasibility?.reasons ?? []).map(message=>({message}))] : undefined,
         // PR #2 thesis field: why the dispatcher ignored the advisory/blocks.
         override_reason:
           force && typeof body?.override_reason === "string" && body.override_reason.trim()
@@ -139,6 +153,15 @@ export async function PUT(req, { params }) {
             : undefined,
       },
       patch: { vehicle_id: vehicleId, driver_id: driverId },
+      writeAssignment: (sql, values, event) => commitDispatchEvidence(pairCheck.commitToken, async tx => {
+        // Recheck under the existing operational locks, before the assignment.
+        if (body.plan_token !== undefined) await verifyPlanToken(body.plan_token, planSelection, tx);
+        const updated = await tx.query(sql,values);
+        if (!updated.rows[0]) return updated;
+        committedDispatch = await createDispatchForRequest({ request:assignmentRequest,vehicleId,driverId,session,tx });
+        await recordReservationEvent({...event,db:tx,strict:true});
+        return {...updated,eventRecorded:true};
+      }),
       outbound: {
         vehicle: { plate_number: vehicleRow.plate_number },
         driver: { name: driverLabel },
@@ -150,7 +173,7 @@ export async function PUT(req, { params }) {
     // The recommended pair was committed — consume the active snapshot so the
     // same suggestion is never reapplied or shown again for this request.
     const { snapshot: activeSnapshot } = await getActiveRecommendation(id);
-    if (activeSnapshot) {
+    if (activeSnapshot && Number(activeSnapshot.vehicle_id) === vehicleId && Number(activeSnapshot.driver_id) === driverId) {
       await markRecommendationConsumed(id, activeSnapshot.snapshot_id).catch(() => {});
     }
 
@@ -182,12 +205,7 @@ export async function PUT(req, { params }) {
     let dispatchId = null;
     let dispatchNumber = null;
     try {
-      const dispatch = await createDispatchForRequest({
-        request: before,
-        vehicleId,
-        driverId,
-        session,
-      });
+      const dispatch = committedDispatch;
       if (dispatch) {
         dispatchId = dispatch.dispatch_id;
         dispatchNumber = dispatch.dispatch_number;
@@ -208,7 +226,8 @@ export async function PUT(req, { params }) {
 
     return ok({
       ...result.request,
-      warnings: force ? blocking : [],
+      reviewed: pairCheck.reviewed === true,
+      warnings: force ? (pairCheck.evidence?.advisories ?? []).filter((a) => !isFuelNoise(a?.message)) : [],
       dispatch_id: dispatchId ?? undefined,
       dispatch_number: dispatchNumber ?? undefined,
     });

@@ -27,7 +27,6 @@ import { AlertCircle } from "lucide-react";
 import { ConflictChips } from "@/components/reservations/conflict-chips";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
-import { AiAssignDialog } from "@/components/reservations/ai-assign-dialog";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import {
   getTransportRequest,
@@ -189,7 +188,6 @@ export default function ReservationDetailPage() {
   const { can } = useRoleAccess();
   const requestId = Number(params.id);
 
-  const [assigning, setAssigning] = useState(false);
   const [reason, setReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -301,11 +299,14 @@ export default function ReservationDetailPage() {
           {isAssignable(status) && permissions.assign && (
             <Button
               size="sm"
-              onClick={() => setAssigning(true)}
+              onClick={() => {
+                if (r.vehicle_id && r.driver_id) { router.push(r.dispatches?.[0]?.dispatch_id ? '/dispatch/'+r.dispatches[0].dispatch_id : '/dispatch'); return; }
+                const panel=document.getElementById('dispatch-copilot');panel?.scrollIntoView({block:'center'});panel?.focus();
+              }}
               className="rounded-xl text-xs bg-primary hover:bg-primary/90 text-white font-semibold shadow-xs"
             >
               <Send className="w-3.5 h-3.5 mr-1 text-white" />
-              {r.vehicle_id && r.driver_id ? "Reassign Resources" : "Assign Resources"}
+              {r.vehicle_id && r.driver_id ? "Open dispatch" : "Review dispatch decision"}
             </Button>
           )}
           {isCancellable(status) && permissions.reschedule && (
@@ -511,17 +512,6 @@ export default function ReservationDetailPage() {
       </div>
 
       {/* ── Dialogs ── */}
-      <AiAssignDialog
-        request={r}
-        isOpen={assigning}
-        onClose={() => setAssigning(false)}
-        canAssign={permissions.assign}
-        alreadyAssigned={status === L.ASSIGNED}
-        onAssigned={() => {
-          setAssigning(false);
-          invalidate();
-        }}
-      />
 
       <ConfirmDialog
         open={cancelling}

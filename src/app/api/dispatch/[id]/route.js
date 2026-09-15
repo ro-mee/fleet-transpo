@@ -1,3 +1,5 @@
+import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
@@ -8,6 +10,7 @@ import { findDispatchConflicts } from "@/lib/scheduling/conflicts";
 import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
+import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 
 const NON_DISPATCHABLE_VEHICLE = ["Under Maintenance", "Decommissioned", "Registration Expired"];
 const NON_DISPATCHABLE_DRIVER = ["Suspended", "On Leave", "Off Duty"];
@@ -131,7 +134,7 @@ export async function PUT(req, { params }) {
     }
 
     const { rows: before } = await query(
-      `SELECT vehicle_id, driver_id, scheduled_departure, scheduled_arrival, status FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
+      `SELECT * FROM dispatchschedules WHERE dispatch_id = $1 LIMIT 1`,
       [id]
     );
 
@@ -206,8 +209,12 @@ export async function PUT(req, { params }) {
       if (driverTravelExpired(driver.license_expiry)) {
         return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
       }
-      if (NON_DISPATCHABLE_DRIVER.includes(driver.driver_status)) {
-        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} cannot be dispatched (status: ${driver.driver_status}).`, 400);
+      const dutyContext = await loadDriverScheduleContext([driver.driver_id]);
+      const dutyCheck = isDriverUnavailableFor(driver, new Date(), {
+        pickup: effDeparture, returnAt: effArrival, scheduleContext: dutyContext,
+      });
+      if (dutyCheck.unavailable) {
+        return err(dutyCheck.reason || "Driver is unavailable for this work window.", 400);
       }
     }
 
@@ -233,12 +240,13 @@ export async function PUT(req, { params }) {
     // than the one they are the custodian of, unless that custodian is provably
     // unavailable and a substitute covers the departure date. The reassign
     // dialog only offers valid pairs, but a direct caller must get the same 409.
+    let dispatchEvidence;
     if (effVehicleId && effDriverId) {
       const pairCheck = await validatePairAvailability({
-        request: { pickup_datetime: effDeparture ?? null },
+        request: { ...before[0], ...body, dispatch_id: Number(id), pickup_datetime: effDeparture ?? null, scheduled_arrival: effArrival, fleet_status: "Pending" },
         vehicleId: effVehicleId,
         driverId: effDriverId,
-        now: effDeparture ? new Date(effDeparture) : new Date(),
+        allowReview: typeof body.override_reason === "string" && body.override_reason.trim().length > 0,
       });
       if (!pairCheck.ok) {
         return err(
@@ -246,16 +254,23 @@ export async function PUT(req, { params }) {
           409
         );
       }
+      dispatchEvidence = pairCheck.commitToken;
+      if (!effArrival && pairCheck.serviceEnd) {
+        const arrivalIndex = columns.indexOf('scheduled_arrival');
+        if (arrivalIndex >= 0) values[arrivalIndex] = pairCheck.serviceEnd;
+        else { columns.push('scheduled_arrival'); values.push(pairCheck.serviceEnd); }
+      }
     }
 
     const assignments = columns.map((c, i) => `${c} = $${i + 1}`);
     assignments.push(`updated_at = NOW()`, `updated_by = $${columns.length + 1}`);
     values.push(session.user.employeeId);
 
-    const { rows } = await query(
+    const update = db => db.query(
       `UPDATE dispatchschedules SET ${assignments.join(", ")} WHERE dispatch_id = $${values.length + 1} AND deleted_at IS NULL RETURNING *`,
       [...values, id]
     );
+    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,update) : await update({ query });
     if (!rows[0]) return err("Dispatch not found", 404);
 
     // Reassigning a Pending Reassignment dispatch moves it back to Scheduled

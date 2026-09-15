@@ -1,757 +1,504 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { manilaDate } from "@/lib/dispatch/plan-window";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ProgressBar } from "@/components/ui/progress-bar";
-import { EmptyState } from "@/components/ui/empty-state";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TONE_TEXT, severityTone } from "@/components/ui/status-badge";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
-import { toast } from "@/components/ui/toast";
-import { getRecommendation, assignResources } from "@/services/transport.service";
-import { cn } from "@/lib/utils";
-import { hasCompleteAssignment } from "@/lib/scheduling/reservation-state";
+import { CopilotConversation, setReservationMessages } from "./copilot-conversation";
+import { CopilotBubble, CopilotOptionFlow, PairTemporalFacts } from "@/components/reservations/copilot-option-flow";
+import { deriveOptions, optionKey as pairKey } from "@/components/reservations/copilot-options";
 import { useNow } from "@/components/reservations/trip-summary";
 import {
-  CarFront,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ChevronUp,
-  ChevronsUpDown,
-  Clock,
+  getRecommendation,
+  getTransportRequest,
+  assignResources,
+} from "@/services/transport.service";
+import { dispatchDecision, dispatchConfirmation } from "@/lib/dispatch/decision";
+import { formatDateTime, cn } from "@/lib/utils";
+import { useRoleAccess } from "@/hooks/use-role-access";
+import { parseCopilotIntent } from '@/lib/dispatch/conversation';
+import {
   RefreshCw,
-  Sparkles,
-  TriangleAlert,
-  UserCheck,
-  Scale as ScaleIcon,
 } from "lucide-react";
 
-// Phase 14 - the AI advisor's proposal for one request.
-//
-// AI NEVER ASSIGNS. The GET behind this panel is a pure preview that writes
-// nothing, and the only path to a committed assignment is the Accept button,
-// which calls the same assign endpoint the manual dialog uses. So the same
-// conflict check, the same 409, and the same timeline entry apply whether a
-// dispatcher picked the vehicle themselves or agreed with the advisor.
-//
-// Scoring is deterministic (lib/ai/dispatch-advisor.js): every number here traces
-// to a rule, which is why the panel can explain itself instead of just asserting.
-function RiskList({ risks = [] }) {
-  if (!risks.length) return null;
-  return (
-    <ul className="mt-2 space-y-1">
-      {risks.map((r, i) => (
-        <li key={i} className="flex items-start gap-1.5 text-xs">
-          <TriangleAlert
-            className={cn("mt-0.5 w-3 h-3 shrink-0", TONE_TEXT[severityTone(r.level)])}
-            aria-hidden="true"
-          />
-          <span className="text-foreground-secondary">{r.message}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
+const pairLabel = (p) =>
+  p
+    ? `${p.vehicle?.plate_number || "Vehicle #" + p.vehicle_id} + ${
+        p.driver?.driver_name || "Driver #" + p.driver_id
+      }`
+    : "No current selection";
 
-/**
- * Combined Vehicle & Driver Pair Block.
- *
- * The pair is the decision unit: every eligible vehicle+driver pairing the
- * scorer formed is surfaced in `candidates`, top-ranked by score, and the
- * dispatcher picks any of them. Swapping always swaps the WHOLE pair, so the
- * vehicle's designated (or day-assigned substitute) driver comes along — you
- * can never end up with a vehicle and a driver that don't belong together.
- */
-function AvailabilityChip({ availability }) {
-  if (!availability?.label) return null;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-        availability.free ? "bg-success/10 text-success" : "bg-warning/10 text-warning"
-      )}
-    >
-      {availability.free ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-      {availability.label}
-    </span>
-  );
-}
+export function AiRecommendationPanel({
+  requestId,
+  selectedRequest = null,
+  canAssign = false,
+  alreadyAssigned = false,
+  onAssigned,
+  onBusyChange,
+  className,
+  hideHeader = false,
+  planProposal = null,
+  planToken = null,
+  planExpiresAt = null,
+  onPlanStale,
+  pickupAt,
+  plan = null,
+  planError = null,
+  onReanalyze = null,
+  isAnalyzing = false,
+  queueMode = false,
+  planValidation = null,
+  planInvalidReason = null,
+}) {
+  const client = useQueryClient();
+  const now = useNow(1000);
+  const { can } = useRoleAccess();
 
-/** AI Fair Workload Distribution chip - pool-relative fairness score. */
-function FairWorkloadChip({ fairnessScore }) {
-  if (fairnessScore == null) return null;
-  const high = fairnessScore >= 85;
-  const mid = fairnessScore >= 60;
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-        high ? "bg-success/10 text-success" : mid ? "bg-warning/10 text-warning" : "bg-danger/10 text-danger"
-      )}
-      title="Workload fairness vs the other eligible drivers in this window"
-    >
-      <ScaleIcon className="w-3 h-3" aria-hidden="true" />
-      Fairness {fairnessScore}%
-    </span>
-  );
-}
+  const [selected, setSelected] = useState(null);
+  const [pinnedKeys, setPinnedKeys] = useState(null);
+  const [reason, setReason] = useState("");
+  const [failure, setFailure] = useState(null);
+  const [committed, setCommitted] = useState(null);
+  const [selectionCheck, setSelectionCheck] = useState(null);
+  const selectionGeneration = useRef(0);
+  const submitting = useRef(false);
 
-const FEASIBILITY_TONE = {
-  SAFE: "bg-success/10 text-success border-success/25",
-  TIGHT: "bg-warning/10 text-warning border-warning/25",
-  INFEASIBLE: "bg-danger/10 text-danger border-danger/25",
-  UNKNOWN: "bg-muted/40 text-foreground-muted border-border/60",
-};
+  // Reset local review & mutation states whenever active request changes
+  const [activeRequest,setActiveRequest]=useState(requestId);
+  if(activeRequest!==requestId){
+    setActiveRequest(requestId);
+    setSelected(null);
+    setPinnedKeys(null);
+    setReason("");
+    setFailure(null);
+    setCommitted(null);
+    setSelectionCheck(null);
+  }
+  useEffect(() => () => { selectionGeneration.current++; }, [requestId]);
 
-const PROVENANCE_LABEL = {
-  live: "live traffic",
-  cached: "cached",
-  snapshot: "route snapshot",
-  fallback: "estimated",
-  unknown: "unknown",
-};
+  // Request-level recommendation query
+  const query = useQuery({
+    queryKey: ["reservation-recommendation", requestId, "decision"],
+    queryFn: () => getRecommendation(requestId),
+    enabled: !!requestId && !alreadyAssigned && !committed,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    retry: false,
+  });
 
-function formatClock(iso) {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return null;
-  return new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
+  const rec = query.data;
+  const candidates = rec?.pair?.candidates ?? [];
+  const options = deriveOptions({
+    candidates,
+    recommended: (plan?.selectedPair ? rec?.pair?.recommended : planProposal?.pair ?? rec?.pair?.recommended) ?? null,
+    proposalPair: planProposal?.pair ?? null,
+    pinnedKeys,
+  });
+  const pair = selected
+    ? (pairKey(planProposal?.pair) === selected ? planProposal.pair : null) ?? candidates.find((p) => pairKey(p) === selected) ??
+      options.find((o) => pairKey(o.pair) === selected)?.pair ??
+      null
+    : null;
+  const effectivePlanToken = queueMode ? planToken : null;
+  const analysisDate = pickupAt && Number.isFinite(+new Date(pickupAt)) ? manilaDate(pickupAt) : manilaDate();
 
-/**
- * PR #2 — Route feasibility for the shown pair.
- *
- * Deterministic output of `evaluateRouteFeasibility` (via the recommendation
- * endpoint, which attaches it to recommended/alternate/top-3). Advisory only:
- * it explains whether this pair can reach the current pickup on time and
- * still make its next ASSIGNED trip — it never blocks the assignment.
- * Rendered only when the payload carries it (older snapshots predate it).
- */
-function FeasibilityBlock({ feasibility }) {
-  if (!feasibility?.verdict) return null;
-  const tone = FEASIBILITY_TONE[feasibility.verdict] ?? FEASIBILITY_TONE.UNKNOWN;
-  const prov = feasibility.provenance ?? {};
-  const withProv = (value, key) => {
-    if (value == null) return "—";
-    const label = PROVENANCE_LABEL[prov[key]] ?? prov[key] ?? "unknown";
-    return `${value} · ${label}`;
+
+  // Handle scheduled horizon re-check
+  const contextBoundary = rec?.requestContext?.nextBoundaryAt ? +new Date(rec.requestContext.nextBoundaryAt) : null;
+
+  const refetch = query.refetch;
+  useEffect(() => {
+    if (
+      contextBoundary == null ||
+      !Number.isFinite(contextBoundary) ||
+      alreadyAssigned ||
+      committed
+    )
+      return;
+    const delay = contextBoundary - Date.now();
+    if (delay < 0 || delay > 30_000) return;
+    const timer = setTimeout(() => { if (document.visibilityState === 'visible') refetch(); }, delay + 1);
+    return () => clearTimeout(timer);
+  }, [contextBoundary, rec?.evaluatedAt, alreadyAssigned, committed, refetch]);
+
+  const planExpired =
+    !!planProposal &&
+    (!planToken ||
+      !planExpiresAt ||
+      !Number.isFinite(+new Date(planExpiresAt)) ||
+      +new Date(planExpiresAt) <= now);
+
+
+
+  const queueCurrent =
+    queueMode && !!plan && !planInvalidReason && +new Date(plan.expiresAt) > now && planValidation?.isSuccess;
+
+  const decision = dispatchDecision(pair,{now,stale:query.isError || planExpired || (!!planProposal && !queueCurrent)});
+
+  const complete = (res) => {
+    setCommitted(res);
+    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'assistant',content:`Assignment completed. ${pair ? pairLabel(pair) : 'The selected resources'} assigned to this reservation.`,at:Date.now()}]);
+    setFailure(null);
+    client.setQueryData(["dispatch-plan"], null);
+    for (const key of [
+      "transport-request",
+      "transport-requests",
+      "reservation-recommendation",
+      "reservation-timeline",
+      "dispatches",
+      "dispatches-status",
+    ]) {
+      client.invalidateQueries({ queryKey: [key] });
+    }
+    onAssigned?.(res);
   };
-  const rows = [
-    ["Reach pickup", feasibility.deadheadMin != null ? withProv(`${feasibility.deadheadMin} min`, "deadhead") : "—"],
-    ["Required departure", formatClock(feasibility.requiredDeparture) ?? "—"],
-    ["Pickup buffer", feasibility.pickupBufferMin != null ? `${feasibility.pickupBufferMin} min` : "—"],
-    ["Passenger journey", feasibility.passengerMin != null ? withProv(`${feasibility.passengerMin} min`, "passenger") : "—"],
-    ["Expected arrival", formatClock(feasibility.expectedArrival) ?? "—"],
-    ["Next assigned pickup", formatClock(feasibility.nextPickupAt) ?? "None"],
-    ["Reposition travel", feasibility.nextPickupAt ? (feasibility.repositionMin != null ? withProv(`${feasibility.repositionMin} min`, "reposition") : "unknown") : "—"],
-    ["Turnaround", feasibility.turnaroundMin != null ? `${feasibility.turnaroundMin} min` : "—"],
-  ];
-  return (
-    <div className="rounded-xl border border-border/60 bg-muted/20 px-3.5 py-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider">
-          Route Feasibility
-        </p>
-        <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-bold", tone)}>
-          {feasibility.verdict}
-        </span>
-      </div>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-baseline justify-between gap-2 text-xs">
-            <dt className="text-foreground-muted shrink-0">{label}</dt>
-            <dd className="font-data font-semibold text-foreground text-right truncate">{value}</dd>
-          </div>
-        ))}
-      </dl>
-      {Array.isArray(feasibility.reasons) && feasibility.reasons.length > 0 && (
-        <ul className="space-y-1 pt-1">
-          {feasibility.reasons.map((reason, i) => (
-            <li key={i} className="flex items-start gap-1.5 text-xs text-foreground-secondary leading-relaxed">
-              <span className="w-1.5 h-1.5 rounded-full bg-foreground-muted/50 shrink-0 mt-1.5" aria-hidden="true" />
-              <span>{reason}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
-/** Verified dispatch checks used when AI narration is unavailable. */
-function ChecklistBlock({ items = [] }) {  if (!items.length) return null;
-  return (
-    <div className="rounded-lg border border-border/60 bg-hover/30 px-3 py-2.5">
-      <p className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wider mb-1.5">
-        Verified Dispatch Checks
-      </p>
-      <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-        {items.map((item, i) => (
-          <li key={i} className="flex items-start gap-1.5 text-xs">
-            {item.pass ? (
-              <Check className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" aria-hidden="true" />
-            ) : (
-              <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-            )}
-            <span className={item.pass ? "text-foreground-secondary" : "text-foreground"}>{item.text}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
+  const assignment = useMutation({
+    mutationFn: (choice) =>
+      assignResources(requestId, {
+        vehicleId: choice.vehicle_id,
+        driverId: choice.driver_id,
+        force: choice.force,
+        overrideReason: choice.reason,
+        planToken: choice.planToken,
+      }),
+    onSuccess: complete,
+    onSettled: () => { submitting.current = false; },
+    onError: async (error, choice) => {
+        setFailure({
+        message: error.message,
+        previous: choice.label,
+        conflicts:
+          error.data?.conflicts ??
+          (error.data?.conflict ? [error.data.conflict] : []),
+      });
+      if (planToken && error.status === 409) {
+        onPlanStale?.(error);
+      }
+      if (!error.status || error.status >= 500) {
+        setFailure({
+          message:
+            "Outcome uncertain. Checking the current request before retrying.",
+          previous: choice.label,
+          checking: true,
+        });
+        try {
+          const current = await getTransportRequest(requestId);
+          if (
+            current.fleet_status === "Assigned" &&
+            Number(current.vehicle_id) === Number(choice.vehicle_id) &&
+            Number(current.driver_id) === Number(choice.driver_id)
+          ) {
+            complete(current);
+          } else {
+            setFailure({
+              message:
+                "Current request loaded. Review the record and recheck before retrying.",
+              previous: choice.label,
+            });
+          }
+        } catch {
+          setFailure({
+            message:
+              "Unable to verify the assignment outcome. Open the current request before retrying.",
+            previous: choice.label,
+            checking: true,
+          });
+        }
+      }
+    },
+  });
 
-function VehicleDriverPairBlock({ pair, candidates = [], selectedIndex = 0, onSelectIndex, isNarrating, narration }) {
-  const chosen = candidates[selectedIndex] ?? candidates[0] ?? null;
-  const vehicle = chosen?.vehicle;
-  const driver = chosen?.driver;
+  const chooseOption = async (option, message = null) => {
+    if (assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
+    const operation = ++selectionGeneration.current;
+    const key = pairKey(option.pair);
+    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:message || `Option ${option.index+1}`,at:Date.now()}]);
+    setSelected(pairKey(option.pair));
+    setPinnedKeys(options.map(o => pairKey(o.pair)));
+    setFailure(null);
+    setReason("");
+    setSelectionCheck({key,pending:true});
+    try {
+      if (queueMode && onReanalyze) {
+        const baseline = plan?.planToken && !planInvalidReason && +new Date(plan.expiresAt)>now ? plan : await onReanalyze(analysisDate);
+        if (operation !== selectionGeneration.current) return;
+        if (!baseline?.planToken) throw new Error('Queue analysis is required before confirming this option.');
+        await onReanalyze({date:analysisDate,selection:{requestId:Number(requestId),vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)},basePlanToken:baseline.planToken});
+      }
+      const fresh = await query.refetch();
+      if (fresh?.isError) throw fresh.error;
+      if (operation === selectionGeneration.current) setSelectionCheck({key,pending:false});
+    } catch(error) {
+      if (operation !== selectionGeneration.current) return;
+      setSelectionCheck(null);
+      setFailure({message:error.message || 'This option could not be rechecked.',previous:pairLabel(option.pair)});
+    }
+  };
 
-  if (!vehicle) {
-    const reasons = Array.isArray(pair?.none_reasons) ? pair.none_reasons : [];
+  const recheck = async () => {
+    setFailure(null);
+    setReason("");
+    const option = options.find(o => pairKey(o.pair) === selected);
+    if (option) await chooseOption(option, 'Recheck selected option');
+    else await query.refetch();
+  };
+
+  const chooseAnother = () => {
+    selectionGeneration.current++;
+    setSelected(null);
+    setPinnedKeys(null);
+    setFailure(null);
+    setReason("");
+    setSelectionCheck(null);
+  };
+
+  useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending);},[assignment.isPending,failure?.checking,selectionCheck?.pending,onBusyChange]);
+
+  const action = dispatchConfirmation({
+    canAssign, pair, decision, fetching: query.isFetching, error: query.isError,
+    pending: assignment.isPending, failure, reason, now,
+    queue: queueMode
+      ? { plan, proposal: planProposal, token: planToken, validation: planValidation,
+          invalidReason: planInvalidReason || planError, analyzing: isAnalyzing }
+      : null,
+  });
+
+  if (action.recovery === "analyze") action.message = "This option needs a fresh queue check. Recheck the reservation before assigning.";
+  const manual = !!pair && !decision.canConfirm;
+  const canRecommend = can("reservations", "recommend");
+  // The checked-pair reply is the review. Choosing never commits an assignment.
+  const reviewCurrent = !!pair && selectionCheck?.key === selected && !selectionCheck.pending && action.canSubmit;
+  const confirmSelection = (message = 'Assign it') => {
+    if (!action.canSubmit || !reviewCurrent || submitting.current) return;
+    submitting.current = true;
+    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:typeof message === 'string' ? message : 'Assign it',at:Date.now()}]);
+    assignment.mutate({vehicle_id:pair.vehicle_id,driver_id:pair.driver_id,force:manual,reason:reason.trim(),label:pairLabel(pair),planToken:effectivePlanToken});
+  };
+  const handleCommand = message => {
+    const intent = parseCopilotIntent(message);
+    if (!intent) return null;
+    if (assignment.isPending || failure?.checking) return 'An assignment is still being checked. Wait for its result.';
+    if (intent.type === 'change') { chooseAnother(); return 'Choose a current option below.'; }
+    if (intent.type === 'choose') {
+      const option = options[intent.index];
+      if (!option || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return 'That option is not available in the current evidence.';
+      chooseOption(option,message); return {handled:true};
+    }
+    if (!pair) return 'Choose an option first so the assignment identifies a specific driver and vehicle.';
+    if (!action.canSubmit) return action.message;
+    if (!reviewCurrent) return 'I am still double-checking this option. Wait for the confirmation reply before assigning.';
+    confirmSelection(message); return {handled:true};
+  };
+
+  if (!requestId) {
     return (
-      <div className="rounded-[1.375rem] p-1.5 bg-foreground/[0.035] ring-1 ring-border/60">
-        <div className="rounded-[calc(1.375rem-0.375rem)] bg-surface shadow-xs p-4 space-y-2">
-          <div className="flex items-center gap-2 text-foreground font-semibold text-sm">
-            <div className="w-8 h-8 rounded-xl bg-foreground/[0.06] text-foreground-muted flex items-center justify-center">
-              <CarFront className="w-4 h-4" />
-            </div>
-            <span>Vehicle &amp; Driver Dispatch Pair</span>
-          </div>
-          <p className="text-xs text-foreground-secondary leading-relaxed">
-            {reasons.length > 0
-              ? `No available vehicle could form a dispatch pair for this pickup window.`
-              : pair?.considered > 0
-                ? `None of the ${pair.considered} available vehicles fit this request's seating capacity or requirements.`
-                : "No candidates are currently available for this pickup window."}
-          </p>
-          {reasons.length > 0 && (
-            <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 space-y-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground-muted">
-                Why no pair is available
-              </p>
-              <ul className="space-y-1.5">
-                {reasons.map((r, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs text-foreground-secondary leading-relaxed">
-                    <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-                    <span>
-                      {r.plate ? <span className="font-semibold text-foreground">{r.plate}: </span> : null}
-                      {r.reason}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+      <section
+        id="dispatch-copilot"
+        tabIndex={-1}
+        aria-label="Dispatch copilot"
+        className={cn(
+          "flex flex-col h-full items-center justify-center p-6 text-center text-foreground-secondary space-y-3.5",
+          className
+        )}
+      >
+        <div className="relative w-20 h-20 rounded-3xl p-1 bg-gradient-to-b from-emerald-500/20 to-emerald-600/5 border border-emerald-500/25 shadow-sm flex items-center justify-center">
+          <img
+            src="/images/copilot-avatar.png"
+            alt="Dispatch Copilot Mascot"
+            className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none"
+          />
+          <span className="absolute -bottom-1 -right-1 flex h-4 w-4" aria-hidden="true">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-600 border-2 border-surface" />
+          </span>
         </div>
-      </div>
+        <div className="space-y-1">
+          <h3 className="text-sm font-bold text-foreground">Dispatch Copilot Ready</h3>
+          <p className="text-xs max-w-xs text-foreground-muted leading-relaxed">
+            Select a reservation row from the queue to inspect AI pair analysis, feasibility evidence, and confirm assignment.
+          </p>
+        </div>
+      </section>
     );
   }
 
-  const vehicleTitle = vehicle.plate_number
-    ? `${vehicle.plate_number}${vehicle.vehicle_name ? ` - ${vehicle.vehicle_name}` : ""}`
-    : "Vehicle Unassigned";
-
-  const driverTitle = driver ? driver.driver_name : "No Designated Driver Available";
-
-  const vehicleMeta = [
-    vehicle.seating_capacity != null ? `${vehicle.seating_capacity} seats` : null,
-    vehicle.fuel_level != null ? `Fuel ${vehicle.fuel_level}%` : null,
-    vehicle.estimated_fuel_liters != null ? `~${vehicle.estimated_fuel_liters} L round trip` : null,
-  ].filter(Boolean);
-
-  const driverMeta = driver
-    ? [
-        driver.years_of_experience != null ? `${driver.years_of_experience} yr experience` : null,
-        driver.rating ? `Rating ${driver.rating}/5` : null,
-      ].filter(Boolean)
-    : [];
-
-  // Rolling workload detail (AI Fair Workload Distribution) - only when history exists.
-  const workload = chosen?.workload;
-  const workloadMeta = workload
-    ? (() => {
-        const t7 = Number(workload.trips_7d) || 0;
-        const t30 = Number(workload.trips_30d) || 0;
-        const km7 = Number(workload.km_7d) || 0;
-        const km30 = Number(workload.km_30d) || 0;
-        const trips = t7 > 0 ? t7 : t30;
-        const km = km7 > 0 ? km7 : km30;
-        return [`${trips} trip${trips === 1 ? "" : "s"}${km ? ` - ${Math.round(km)} km` : ""} ${t7 > 0 ? "this week" : "this month"}`];
-      })()
-    : [];
-
-  const rankLabel = (i) => (i === 0 ? "Recommended" : i === 1 ? "Alternate" : `Rank ${i + 1}`);
-  const selectedRank = Math.min(selectedIndex, candidates.length - 1);
-
-  return (
-    <div className="rounded-[1.375rem] p-1.5 bg-foreground/[0.035] ring-1 ring-border/60">
-      <div className="rounded-[calc(1.375rem-0.375rem)] bg-surface shadow-xs overflow-hidden">
-        {/* Header: pair identity + ranked picker */}
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4 pb-3 border-b border-border/50">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-info/10 text-info flex items-center justify-center shrink-0">
-              <Sparkles className="w-[18px] h-[18px]" strokeWidth={1.75} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold text-foreground uppercase tracking-wider">AI Fleet Pair</p>
-              <p className="text-[11px] text-foreground-muted truncate">
-                {chosen?.reason_type === "replacement"
-                  ? "Substitute pair — designated driver unavailable"
-                  : selectedIndex === 0
-                    ? "Recommended vehicle + designated driver"
-                    : `${rankLabel(selectedIndex)} · ${candidates.length} eligible pair${candidates.length === 1 ? "" : "s"}`}
-              </p>
-            </div>
-          </div>
-
-          {candidates.length > 1 ? (
-            <div className="relative shrink-0">
-              <select
-                value={selectedRank}
-                onChange={(e) => onSelectIndex(Number(e.target.value))}
-                aria-label="Choose dispatch pair"
-                className={cn(
-                  "appearance-none h-9 pl-3 pr-8 rounded-xl border border-border bg-surface",
-                  "text-[11px] font-semibold text-foreground cursor-pointer",
-                  "focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
-                )}
-              >
-                {candidates.map((c, i) => (
-                  <option key={`${c.vehicle_id}-${c.driver_id}`} value={i}>
-                    {`${i + 1}. ${c.vehicle?.plate_number ?? "Vehicle"} · ${c.driver?.driver_name ?? "No driver"}${c.score != null ? ` · ${c.score}/100` : ""}`}
-                  </option>
-                ))}
-              </select>
-              <ChevronsUpDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-foreground-muted" />
-            </div>
-          ) : (
-            <span className="inline-flex items-center h-9 px-3 rounded-xl border border-border bg-hover/50 text-[11px] font-bold text-foreground-secondary shrink-0">
-              1 eligible pair
-            </span>
-          )}
-        </div>
-
-        <div className="p-4 space-y-3">
-          {/* Replacement attribution */}
-          {chosen?.reason_type === "replacement" && chosen?.replacement_reason && (
-            <div className="flex items-start gap-2 rounded-xl bg-warning/10 border border-warning/25 px-3 py-2 text-xs text-foreground-secondary">
-              <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-              <span>
-                <span className="font-semibold text-foreground">Substitute pair.</span> The designated driver
-                was unavailable: {chosen.replacement_reason}
-              </span>
-            </div>
-          )}
-
-          {/* Vehicle */}
-          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-3.5 py-3">
-            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-              <CarFront className="w-[18px] h-[18px]" strokeWidth={1.75} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wide">Vehicle</span>
-                {selectedIndex > 0 && (
-                  <Badge variant="secondary" className="text-[10px] py-0 px-1">{rankLabel(selectedIndex)}</Badge>
-                )}
-              </div>
-              <p className="font-bold text-foreground text-sm truncate">{vehicleTitle}</p>
-              {vehicleMeta.length > 0 && (
-                <p className="text-[11px] font-data text-foreground-muted truncate">{vehicleMeta.join(" · ")}</p>
-              )}
-            </div>
-            <AvailabilityChip availability={vehicle.availability} />
-          </div>
-
-          {/* Driver */}
-          <div className="flex items-center gap-3 rounded-xl border border-border/60 bg-muted/20 px-3.5 py-3">
-            <div className="w-10 h-10 rounded-xl bg-info/10 text-info flex items-center justify-center shrink-0">
-              <UserCheck className="w-[18px] h-[18px]" strokeWidth={1.75} />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] font-semibold text-foreground-muted uppercase tracking-wide">Designated Driver</span>
-                {chosen?.is_designated === false && (
-                  <Badge variant="secondary" className="text-[10px] py-0 px-1">Substitute</Badge>
-                )}
-                <FairWorkloadChip fairnessScore={chosen?.fairness_score} />
-              </div>
-              <p className="font-bold text-foreground text-sm truncate">{driverTitle}</p>
-              {[...driverMeta, ...workloadMeta].length > 0 && (
-                <p className="text-[11px] font-data text-foreground-muted truncate">
-                  {[...driverMeta, ...workloadMeta].join(" · ")}
-                </p>
-              )}
-            </div>
-            <AvailabilityChip availability={driver.availability} />
-          </div>
-
-          {/* Route feasibility for the shown pair (PR #2; absent on old snapshots) */}
-          <FeasibilityBlock feasibility={chosen?.feasibility} />
-
-          {/* AI rationale with deterministic fallback */}
-          <div className="rounded-xl border border-info/20 bg-info/[0.05] px-3.5 py-3 space-y-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-info/15 text-info flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5" strokeWidth={2} />
-              </div>
-              <p className="text-[11px] font-semibold text-info uppercase tracking-wider">
-                AI Rationale{narration?.provider ? ` · ${narration.provider}` : ""}
-              </p>
-            </div>
-            {isNarrating ? (
-              <p className="text-xs text-foreground-muted flex items-center gap-1.5">
-                <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
-                Writing rationale...
-              </p>
-            ) : narration ? (
-              <ul className="space-y-2 text-xs text-foreground-secondary leading-relaxed">
-                {narration.text.split(/\n+|(?<=\.)\s+/).map((sentence) => sentence.trim()).filter(Boolean).map((sentence, idx) => (
-                  <li key={idx} className="flex items-start gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-info/50 shrink-0 mt-1.5" aria-hidden="true" />
-                    <span>{sentence}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <div className="space-y-2">
-                <p className="text-xs leading-relaxed text-foreground-muted">
-                  AI rationale is unavailable. Showing verified dispatch checks instead.
-                </p>
-                <ChecklistBlock items={chosen?.checklist} />
-              </div>
-            )}
-          </div>
-
-          {/* Risks */}
-          <RiskList risks={[...(vehicle?.detected_risks || []), ...(driver?.detected_risks || [])]} />
-
-          {/* Skipped vehicles: per-vehicle rejection reasons even when a pair exists */}
-          {Array.isArray(pair?.none_reasons) && pair.none_reasons.length > 0 && (
-            <details className="rounded-xl border border-border/60 bg-muted/20 px-3.5 py-2.5">
-              <summary className="cursor-pointer text-xs font-semibold text-foreground-secondary">
-                Why {pair.none_reasons.length} other vehicle{pair.none_reasons.length === 1 ? "" : "s"} didn&apos;t qualify
-              </summary>
-              <ul className="mt-2 space-y-1.5">
-                {pair.none_reasons.map((r, i) => (
-                  <li key={i} className="flex items-start gap-1.5 text-xs text-foreground-secondary leading-relaxed">
-                    <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0 mt-0.5" aria-hidden="true" />
-                    <span>
-                      {r.plate ? <span className="font-semibold text-foreground">{r.plate}: </span> : null}
-                      {r.reason}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
-        </div>
+  // The confirmation action lives inside the conversation as Copilot's reply,
+  // so the flow and its gating are composed as slots of the option message.
+  const busy = assignment.isPending || !!failure?.checking;
+  const recovery =
+    action.recovery === "request" ? (
+      <Link className="text-xs text-primary underline" href={`/reservations/${requestId}`}>Open current request</Link>
+    ) : (action.recovery === "recheck" || action.recovery === "analyze") ? (
+      <Button size="xs" variant="outline" className="rounded-lg text-[11px]" onClick={recheck} disabled={query.isFetching || busy}>Recheck reservation</Button>
+    ) : null;
+  const reasonSlot =
+    canAssign && manual && decision.canReview ? (
+      <div>
+        <label htmlFor="dispatch-manual-reason" className="block text-xs font-bold text-foreground mb-1">
+          Reason <span className="text-danger">*</span>
+        </label>
+        <textarea
+          id="dispatch-manual-reason"
+          disabled={busy}
+          rows={2}
+          maxLength={500}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          className="w-full text-xs rounded-xl border border-border bg-surface p-2.5 placeholder:text-foreground-muted focus:outline-none focus:border-primary"
+          placeholder="e.g. Driver confirmed availability by phone"
+        />
       </div>
+    ) : null;
+  const actionSlot = pair ? (
+    <CopilotBubble>
+      <div id="copilot-option-result" tabIndex={-1} className="space-y-3">
+        <p className="text-xs text-foreground-secondary">Option {options.findIndex(o=>pairKey(o.pair)===selected)+1} selected</p>
+        <p className="font-semibold">{pairLabel(pair)}</p>
+        {selectionCheck?.pending ? <p role="status">I am double-checking this option against the current schedule and queue.</p> : <>
+          {pair.decisionEvidence?.explanation && <p>{pair.decisionEvidence.explanation}</p>}
+          <PairTemporalFacts pair={pair} now={now}/>
+          <ul className="space-y-1 text-xs text-foreground-secondary">{(pair.checks ?? []).map(c => <li key={c.id}>{c.label}: {c.status === 'verified' ? c.message || 'Verified' : c.message || 'Needs verification'}</li>)}</ul>
+          {reasonSlot}
+          <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'I have rechecked this pairing. Shall I assign it? Type "Assign it" or use the button below.' : action.message}</p>
+          {recovery}
+          <Button className="w-full" disabled={!reviewCurrent || busy} onClick={confirmSelection}>
+            {assignment.isPending ? 'Assigning...' : 'Assign ' + pairLabel(pair)}
+          </Button>
+        </>}
+        <Button variant="ghost" size="sm" disabled={busy || selectionCheck?.pending} onClick={chooseAnother}>Change selection</Button>
+      </div>
+    </CopilotBubble>
+  ) : null;
+  // Pre-choice gating (permission, queue analysis, failures) is spoken by
+  // Copilot as a status message instead of a disabled footer button.
+  const preChoiceStatus =
+    !pair && !action.canSubmit && action.recovery !== "analyze" && action.message !== "No current pair is selected. Review exclusions or recheck this reservation."
+      ? action
+      : null;
+  const flowNode = (
+    <div className="space-y-3">
+      <CopilotOptionFlow
+        options={options}
+        exclusionReason={(rec?.pair?.none_reasons ?? [])[0] ?? (rec?.pair?.recommended && dispatchDecision(rec.pair.recommended,{now}).state === 'BLOCKED' ? {reason:`Blocked: ${dispatchDecision(rec.pair.recommended,{now}).reasons.join(' ')}`} : null)}
+        busy={busy || !!selectionCheck?.pending || !!selected}
+        onChoose={chooseOption}
+        now={now}
+      />
+      {!!plan?.changedProposals?.length && <p className="text-xs text-warning">Queue proposals changed for requests {plan.changedProposals.join(', ')}. Review the updated arrangement before confirmation.</p>}
+      {preChoiceStatus && (
+        <CopilotBubble>
+          <div className="space-y-1.5">
+            <p id="dispatch-confirmation-status" role="status" aria-live="polite" className="text-xs text-foreground-secondary">
+              {preChoiceStatus.message}
+            </p>
+            {recovery}
+          </div>
+        </CopilotBubble>
+      )}
     </div>
   );
-}
-/** The trip estimate the advisor scored against. */
 
-function relativeMinutes(iso, now) {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return null;
-  const mins = Math.floor((t - now) / 60_000);
-  const abs = Math.abs(mins);
-  if (abs < 1) return "just now";
-  return `${abs} minute${abs === 1 ? "" : "s"} ${mins >= 0 ? "remaining" : "ago"}`;
-}
-
-/**
- * Expandable AI recommendation panel for one request.
- *
- * `onAssigned` fires only after the assign endpoint returns 200, so the parent
- * invalidates on a real state change rather than on an intent. A 409 keeps the
- * panel open with the server's blocking conflicts and an explicit override -
- * identical to the manual dialog, because it is the same endpoint answering.
- */
-export function AiRecommendationPanel({
-  requestId,
-  className,
-  canAssign = false,
-  onAssigned,
-  alreadyAssigned = false,
-  hideHeader = false,
-  compact = false,
-  onTrip,
-}) {
-  const queryClient = useQueryClient();
-  const now = useNow();
-  const [dismissed, setDismissed] = useState(false);
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [conflictError, setConflictError] = useState(null);
-  const [regenerating, setRegenerating] = useState(false);
-  // PR #2 thesis field: why the dispatcher overrode the advisory/blocks.
-  // Optional, recorded in the timeline metadata when an override is forced.
-  const [overrideReason, setOverrideReason] = useState("");
-  // The assign endpoint returns the dispatch it auto-created. Kept in state so
-  // the panel can hand the dispatcher the link onward — request → dispatch
-  // continuity without leaving this surface.
-  const [assignedDispatch, setAssignedDispatch] = useState(null);
-
-  const {
-    data: rec,
-    isLoading,
-    isFetching,
-    isError,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["reservation-recommendation", requestId, regenerating ? "fresh" : "cached"],
-    queryFn: () => getRecommendation(requestId, { regenerate: regenerating }),
-    enabled: requestId != null && !dismissed,
-    staleTime: 60_000,
-  });
-
-  // Every eligible pair the scorer formed, top-ranked first. Backward compat:
-  // a stored snapshot written before `candidates` existed carries only the top
-  // two, so derive the list from those when the field is absent.
-  const candidates = useMemo(() => {
-    const list = rec?.pair?.candidates;
-    if (Array.isArray(list) && list.length) return list;
-    return [rec?.pair?.recommended, rec?.pair?.alternate].filter(Boolean);
-  }, [rec]);
-
-  const chosen = candidates[selectedIndex] ?? null;
-  const vehicle = chosen?.vehicle ?? null;
-  const driver = chosen?.driver ?? null;
-  const snapshot = rec?.snapshot ?? null;
-  const chosenVehicleId = vehicle?.vehicle_id ?? null;
-  const chosenDriverId = driver?.driver_id ?? null;
-
-  // Stream the scored trip estimate up to the shell so the request-context card
-  // (TripEstimateCard) can show distance / duration / route basis without a
-  // second fetch. Fires with `null` until the scorer answers.
-  useEffect(() => {
-    onTrip?.(rec?.trip ?? null);
-  }, [rec, onTrip]);
-
-  // LLM narration - slow, nullable, streams in behind the scored result only
-  // once the user opens the full explanation. Never changes the pick. It is
-  // pinned to the pair being shown so the rationale always describes the pair
-  // the dispatcher sees, not the server's own first pick.
-  const { data: narrated, isFetching: isNarrating } = useQuery({
-    queryKey: ["reservation-recommendation", requestId, "narrated", chosenVehicleId, chosenDriverId],
-    queryFn: () =>
-      getRecommendation(requestId, {
-        narrate: true,
-        vehicleId: chosenVehicleId,
-        driverId: chosenDriverId,
-      }),
-    enabled: requestId != null && !dismissed && chosenVehicleId != null,
-    staleTime: 5 * 60 * 1000,
-    refetchOnMount: "always",
-    retry: false,
-  });
-  const narration = narrated?.narration;
-
-  const assignMutation = useMutation({
-    mutationFn: ({ force }) =>
-      assignResources(requestId, {
-        vehicleId: vehicle?.vehicle_id ?? null,
-        driverId: driver?.driver_id ?? null,
-        force,
-        overrideReason: force ? overrideReason : null,
-      }),
-    onSuccess: (res) => {
-      const forced = res?.warnings?.length;
-      toast[forced ? "warning" : "success"](
-        forced
-          ? `Assigned with ${res.warnings.length} conflict override${res.warnings.length === 1 ? "" : "s"}`
-          : "AI recommendation accepted - resources assigned"
-      );
-      setConflictError(null);
-      if (res?.dispatch_id) {
-        setAssignedDispatch({ id: res.dispatch_id, number: res.dispatch_number ?? null });
-      }
-      setOverrideReason("");
-      queryClient.invalidateQueries({ queryKey: ["reservation-timeline", requestId] });
-      onAssigned?.(res);
-    },
-    onError: (e) => {
-      // The 409 carries the blocking findings; show them rather than a toast so
-      // the override decision is made against the server's own reasons.
-      if (e?.status === 409 && e?.data?.conflicts?.length) setConflictError(e);
-      else toast.error(e.message || "Failed to assign resources");
-    },
-  });
-
-  const blocking =
-    conflictError?.data?.conflicts ||
-    (conflictError?.data?.conflict ? [conflictError.data.conflict] : []);
-  const incompleteAssignment = !hasCompleteAssignment(vehicle?.vehicle_id, driver?.driver_id);
   return (
-    <Card className={cn(className, compact && "border-0 shadow-none bg-transparent")}>
-      {!hideHeader && (
-        <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-          <div className="min-w-0">
-            <CardTitle className="flex items-center gap-2">
-              <span className="w-7 h-7 rounded-lg bg-info/10 text-info flex items-center justify-center shrink-0">
-                <Sparkles className="w-4 h-4" strokeWidth={1.75} aria-hidden="true" />
-              </span>
-              AI Recommendation
-            </CardTitle>
-            <CardDescription>
-              Deterministic scoring of the available fleet. Advisory only - you confirm the
-              assignment.
-            </CardDescription>
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={isFetching}
-              onClick={() => {
-                setConflictError(null);
-                setSelectedIndex(0);
-                setRegenerating(true);
-                refetch();
-              }}
-              aria-label="Regenerate recommendation"
-              title="Regenerate a fresh fleet pair"
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", isFetching && "animate-spin")} />
-            </Button>
-          </div>
-        </CardHeader>
+    <section
+      id="dispatch-copilot"
+      tabIndex={-1}
+      aria-label="Dispatch copilot"
+      className={cn(
+        "flex flex-col h-full bg-surface text-foreground overflow-hidden",
+        className
       )}
-
-      <CardContent className={cn("space-y-3", compact && "p-0")}>
-        {/* Continuity: the pair was committed and a dispatch exists — say so
-            here and hand over the link, since this panel is where the
-            dispatcher was last standing. */}
-        {assignedDispatch && (
-          <div className="flex items-center justify-between gap-2 rounded-lg border border-success/40 bg-success/5 px-3 py-2">
-            <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-success">
-              <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                Dispatch {assignedDispatch.number || `#${assignedDispatch.id}`} created
-              </span>
-            </span>
-            <Button asChild variant="outline" size="sm" className="h-7 shrink-0">
-              <Link href={`/dispatch/${assignedDispatch.id}`}>View dispatch</Link>
-            </Button>
-          </div>
-        )}
-        {isLoading ? (
-          <div className="rounded-[1.375rem] p-1.5 bg-foreground/[0.035] ring-1 ring-border/60">
-            <div className="rounded-[calc(1.375rem-0.375rem)] bg-surface shadow-xs p-4 space-y-3">
-              <Skeleton className="h-8 w-full rounded-xl" />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Skeleton className="h-20 w-full rounded-xl" />
-                <Skeleton className="h-20 w-full rounded-xl" />
+    >
+      {/* ── 1. Top Header: Title, Analysis State, Scope & Action ── */}
+      {!hideHeader && (
+        <div className="p-4 border-b border-border/80 bg-muted/20 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
+                <img
+                  src="/images/copilot-avatar.png"
+                  alt="Dispatch Copilot Avatar"
+                  className="w-full h-full object-cover select-none pointer-events-none"
+                />
+                <span className="absolute bottom-0 right-0 w-2 h-2 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
               </div>
-              <Skeleton className="h-24 w-full rounded-xl" />
+              <div>
+                <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5 leading-none">
+                  Dispatch Copilot
+                  <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                    {query.isFetching ? "Checking" : decision.stale ? "Stale" : query.isError ? "Unavailable" : "Evidence"}
+                  </span>
+                </h2>
+                <p className="text-[11px] text-foreground-secondary mt-1">
+                  {rec?.evaluatedAt
+                    ? `Evidence evaluated ${formatDateTime(rec.evaluatedAt)}`
+                    : "Evaluating pair options…"}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={recheck}
+                disabled={query.isFetching || assignment.isPending || failure?.checking}
+                className="h-7 text-xs rounded-lg border-border/80"
+                title="Recheck evidence for this reservation"
+              >
+                <RefreshCw
+                  className={cn("w-3 h-3 mr-1", query.isFetching && "animate-spin")}
+                />
+                {query.isFetching ? "Checking…" : "Recheck reservation"}
+              </Button>
             </div>
           </div>
-        ) : isError ? (
-          <EmptyState
-            icon={TriangleAlert}
-            title="Could not build a recommendation"
-            description={error?.message || "The request failed."}
-            action={
-              <Button variant="outline" size="sm" onClick={() => refetch()}>
-                Try again
-              </Button>
-            }
-          />
-        ) : (
-          <>
-            {snapshot?.expired && (
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-foreground-secondary">
-                <span className="flex items-center gap-1.5">
-                  <TriangleAlert className="w-3.5 h-3.5 text-warning shrink-0" aria-hidden="true" />
-                  {snapshot.expiry_reason}
-                </span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 shrink-0"
-                  onClick={() => {
-                    setConflictError(null);
-                    setSelectedIndex(0);
-                    setRegenerating(true);
-                    refetch();
-                  }}
-                >
-                  <RefreshCw className="w-3 h-3 mr-1" /> Regenerate
-                </Button>
-              </div>
-            )}
 
-            <VehicleDriverPairBlock
-              pair={rec?.pair}
-              candidates={candidates}
-              selectedIndex={selectedIndex}
-              onSelectIndex={(idx) => { setSelectedIndex(idx); setConflictError(null); setOverrideReason(""); }}
-              isNarrating={isNarrating}
-              narration={narration}
-            />
+          {queueMode && plan?.generatedAt && (
+            <div className="mt-2.5 pt-2 border-t border-border/40 flex items-center justify-between text-[11px] text-foreground-muted">
+              <span>Plan date: {plan.window?.date || "Today"}{plan.window?.includesOverdue ? " + overdue" : ""}</span>
+              <span>Expires {formatDateTime(plan.expiresAt)}</span>
+            </div>
+          )}
+        </div>
+      )}
 
-            <ConflictBlock conflicts={blocking} />
-
-            {canAssign && !alreadyAssigned && (
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
-                {blocking.length > 0 && (
-                  <input
-                    value={overrideReason}
-                    onChange={(e) => setOverrideReason(e.target.value.slice(0, 500))}
-                    placeholder="Why are you overriding? (recorded in timeline)"
-                    aria-label="Reason for overriding conflicts"
-                    className="h-9 w-full rounded-xl border border-border bg-surface px-3 text-xs text-foreground placeholder:text-foreground-muted focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
-                  />
-                )}                {blocking.length > 0 && (
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={assignMutation.isPending || incompleteAssignment || snapshot?.expired || regenerating}
-                    onClick={() => assignMutation.mutate({ force: true })}
-                    className="h-9 rounded-xl active:scale-[0.98] transition-transform"
-                  >
-                    <TriangleAlert className="w-3.5 h-3.5 mr-1.5" />
-                    Override &amp; Accept
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  disabled={assignMutation.isPending || incompleteAssignment || snapshot?.expired || regenerating}
-                  onClick={() => assignMutation.mutate({ force: false })}
-                  className="group h-9 pl-3.5 pr-1.5 rounded-full active:scale-[0.98] transition-transform"
-                >
-                  {assignMutation.isPending ? (
-                    <>
-                      <RefreshCw className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Assigning...
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-xs font-bold">Assign Pair</span>
-                      <span className="w-6 h-6 ml-2 rounded-full bg-black/10 dark:bg-white/15 text-surface dark:text-foreground flex items-center justify-center transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:translate-x-0.5 group-hover:scale-105">
-                        <Check className="w-3 h-3" strokeWidth={2.5} />
-                      </span>
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-
-            {rec?.generated_at && (
-              <p className="text-xs text-foreground-muted">
-                Generated {relativeMinutes(rec.generated_at, now)}
-              </p>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+      {planError && <p role="alert" className="p-3 text-sm text-danger">Queue analysis failed: {planError}. Choose or recheck an option to try again.</p>}
+      <div className="min-h-0 flex-1 flex flex-col">
+        <CopilotConversation
+          key={requestId}
+          requestId={requestId}
+          selectedRequest={selectedRequest}
+          planToken={queueMode ? effectivePlanToken : null}
+          hasPair={options.length > 0}
+          selectedPair={pair ? {vehicleId:Number(pair.vehicle_id),driverId:Number(pair.driver_id)} : null}
+          selectedPairLabel={pair ? pairLabel(pair) : null}
+          displayedOptions={options.map(o=>({vehicleId:Number(o.pair.vehicle_id),driverId:Number(o.pair.driver_id)}))}
+          displayedEvaluatedAt={rec?.evaluatedAt ?? null}
+          disabled={busy || !canRecommend || alreadyAssigned || !!committed}
+          completed={alreadyAssigned || !!committed}
+          onCommand={handleCommand}
+          reply={<>
+            {query.isLoading && <CopilotBubble><p role="status">I am checking the eligible pairs and their schedules.</p></CopilotBubble>}
+            {query.isError && <CopilotBubble><p role="alert">I could not refresh the evidence. {query.error.message}</p>{recovery}</CopilotBubble>}
+            {failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
+            {assignment.isPending && <CopilotBubble><p role="status">Assigning {pairLabel(pair)}. I am revalidating availability and conflicts before saving.</p></CopilotBubble>}
+            {!alreadyAssigned && !committed && !assignment.isPending && actionSlot}
+            {(alreadyAssigned || committed) && <CopilotBubble>
+              <p className="font-semibold text-success">Assignment completed</p>
+              <p className="mt-1 text-xs">{pair ? pairLabel(pair) : 'The driver and vehicle'} assigned to this reservation.</p>
+              <Link className="mt-2 inline-block text-xs text-primary underline" href={'/reservations/'+requestId}>View reservation</Link>
+            </CopilotBubble>}
+          </>}
+        >
+          {!alreadyAssigned && !committed && !query.isLoading && flowNode}
+        </CopilotConversation>
+      </div>
+    </section>
   );
 }

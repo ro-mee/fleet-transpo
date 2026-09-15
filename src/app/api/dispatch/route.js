@@ -1,3 +1,5 @@
+import { isDriverUnavailableFor } from "@/lib/ai/pair-scoring";
+import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
 import { syncVehicleStatus, syncDriverStatus, ensureTripForDispatch } from "@/services/status.service";
@@ -8,6 +10,7 @@ import { isExpired, isExpiredOn, toCalendarDay } from "@/lib/dates";
 import { flushOutbox } from "@/services/push.service";
 import { enforceCoding } from "@/lib/uvvrp/uvvrp.service";
 import { validatePairAvailability } from "@/services/recommendation.service";
+import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { RESERVATION_LIFECYCLE as L, RESERVATION_EVENT as E } from "@/lib/constants";
 import { advanceReservation } from "@/services/reservation-lifecycle.service";
 
@@ -76,6 +79,7 @@ export async function POST(req) {
       return errValidation(errors);
     }
 
+    const allowRadarReview = typeof body.override_reason === 'string' && body.override_reason.trim().length > 0;
     const allowedKeys = new Set([
       "vehicle_id", "driver_id", "request_id", "route_id", "scheduled_departure",
       "scheduled_arrival", "actual_departure", "actual_arrival", "status",
@@ -129,24 +133,28 @@ export async function POST(req) {
       if (driverTravelExpired(driver.license_expiry)) {
         return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} license ${isExpired(driver.license_expiry) ? "has expired" : "expires"} (${toCalendarDay(driver.license_expiry)}) before this trip.`, 400);
       }
-      if (["Suspended", "On Leave", "Off Duty"].includes(driver.driver_status)) {
-        return err(`Driver ${driver.first_name || ""} ${driver.last_name || ""} cannot be dispatched (status: ${driver.driver_status}).`, 400);
+      const dutyContext = await loadDriverScheduleContext([driver.driver_id]);
+      const dutyCheck = isDriverUnavailableFor(driver, new Date(), {
+        pickup: body.scheduled_departure, returnAt: body.scheduled_arrival, scheduleContext: dutyContext,
+      });
+      if (dutyCheck.unavailable) {
+        return err(dutyCheck.reason || "Driver is unavailable for this work window.", 400);
       }
     }
 
-    const k = Object.keys(body), v = Object.values(body);
     // Designated-driver enforcement: a pair that departs from the vehicle's
     // active custodian (migration 017) is refused unless that custodian is
     // provably unavailable. This is the same guard the assign endpoint applies —
     // a driver must not be dispatched in a different car than the one they are
     // assigned to. No force path here: a dispatcher who needs a substitution
     // reassigns the pairing or edits the dispatch afterward.
+    let dispatchEvidence;
     if (body.vehicle_id && body.driver_id) {
       const pairCheck = await validatePairAvailability({
-        request: { pickup_datetime: body.scheduled_departure ?? null },
+        request: { ...transportRequest, ...body, pickup_datetime: body.scheduled_departure ?? null, fleet_status: "Pending" },
         vehicleId: body.vehicle_id,
         driverId: body.driver_id,
-        now: body.scheduled_departure ? new Date(body.scheduled_departure) : new Date(),
+        allowReview: allowRadarReview,
       });
       if (!pairCheck.ok) {
         return err(
@@ -154,6 +162,8 @@ export async function POST(req) {
           409
         );
       }
+      dispatchEvidence = pairCheck.commitToken;
+      if (!body.scheduled_arrival && pairCheck.serviceEnd) body.scheduled_arrival = pairCheck.serviceEnd;
     }
 
     // Block double-booking: reject if this vehicle or driver already has an
@@ -171,7 +181,9 @@ export async function POST(req) {
         return err(`This ${who} is already dispatched (${c.dispatch_number || `#${c.dispatch_id}`}) during that time window.`, 409);
       }
     }
-    const { rows } = await query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    const k = Object.keys(body), v = Object.values(body);
+    const insert = db => db.query(`INSERT INTO dispatchschedules (${k.join(", ")}) VALUES (${k.map((_,i)=>`$${i+1}`).join(", ")}) RETURNING *`, v);
+    const { rows } = dispatchEvidence ? await commitDispatchEvidence(dispatchEvidence,insert) : await insert({ query });
     const p = []; if (rows[0]?.vehicle_id) p.push(syncVehicleStatus(rows[0].vehicle_id)); if (rows[0]?.driver_id) p.push(syncDriverStatus(rows[0].driver_id)); if (rows[0]?.status === "Scheduled" || rows[0]?.status === "In Progress") p.push(ensureTripForDispatch(rows[0].dispatch_id)); await Promise.all(p);
     await writeAudit(req, session, { action: "create", resource: "dispatchschedules", resourceId: rows[0]?.dispatch_id, newValues: rows[0] });
 

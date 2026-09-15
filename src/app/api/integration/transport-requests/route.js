@@ -157,8 +157,8 @@ const QUEUE_TAB_PREDICATES = {
   assigned: `tr.fleet_status = 'Assigned'`,
   completed: `tr.fleet_status = 'Completed'`,
   cancelled: `tr.fleet_status = 'Cancelled'`,
-  today: `(${QUEUE_NON_TERMINAL_NOT} AND (tr.pickup_datetime IS NULL OR tr.pickup_datetime::date = current_date))`,
-  upcoming: `(${QUEUE_NON_TERMINAL_NOT} AND tr.pickup_datetime IS NOT NULL AND tr.pickup_datetime::date <> current_date)`,
+  today: `(${QUEUE_NON_TERMINAL_NOT} AND (tr.pickup_datetime IS NULL OR (tr.pickup_datetime AT TIME ZONE 'Asia/Manila')::date <= (now() AT TIME ZONE 'Asia/Manila')::date))`,
+  upcoming: `(${QUEUE_NON_TERMINAL_NOT} AND tr.pickup_datetime IS NOT NULL AND (tr.pickup_datetime AT TIME ZONE 'Asia/Manila')::date > (now() AT TIME ZONE 'Asia/Manila')::date)`,
 };
 
 const QUEUE_TABS = ["today", "upcoming", "assigned", "inProgress", "completed", "cancelled"];

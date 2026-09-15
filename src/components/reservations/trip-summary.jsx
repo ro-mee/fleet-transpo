@@ -7,12 +7,12 @@ import { cn, formatDateTime, formatDistance, formatDuration } from "@/lib/utils"
 /**
  * A live "now" that ticks every 30s, so countdowns and "X ago" stay current.
  */
-export function useNow() {
+export function useNow(interval = 30_000) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
+    const id = setInterval(() => setNow(Date.now()), interval);
     return () => clearInterval(id);
-  }, []);
+  }, [interval]);
   return now;
 }
 

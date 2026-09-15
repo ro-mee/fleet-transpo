@@ -39,7 +39,7 @@ function driverName(driver) {
  * on an assigned pair; this reads the already-fetched candidate row to explain
  * why a suggestion is imperfect.
  */
-function vehicleRisks(vehicle, request) {
+export function vehicleRisks(vehicle, request) {
   const risks = [];
   const passengers = Number(request?.passenger_count) || 1;
   const seats = Number(vehicle?.seating_capacity) || 0;
@@ -53,7 +53,7 @@ function vehicleRisks(vehicle, request) {
     risks.push({ level: "low", message: "Exactly at capacity — no room for extra luggage." });
   }
 
-  const fuel = Number(vehicle?.fuel_level);
+  const fuel = vehicle?.fuel_level == null ? NaN : Number(vehicle.fuel_level);
   if (Number.isFinite(fuel)) {
     if (fuel < 25) {
       risks.push({ level: "high", message: `Fuel at ${fuel}% — refuel before departure.` });
@@ -297,9 +297,9 @@ export function shapePinnedPair({ vehicle, driver, request, score = null }) {
  * @returns {{
  *   generated_at: string,
  *   trip: object,
- *   pair: { recommended: object|null, alternate: object|null,
- *           candidates: object[], considered: number,
- *           none_reasons: Array<{vehicle_id:number, plate:string, reason:string}> },
+  *   pair: { recommended: object|null, alternate: object|null,
+  *           candidates: object[], considered: number,
+  *           none_reasons: Array<{vehicle_id:number, plate:string, reason:string, prefiltered?:boolean}> },
  *   vehicle: object, driver: object, narration: null
  * }}
  */
@@ -312,6 +312,7 @@ export function buildDispatchRecommendation({
   now = new Date(),
   returnAt,
   scheduleContext,
+  prefiltered = [],
 }) {
   const passengers = Number(request?.passenger_count) || 1;
   const trip = estimateForRequest(request);
@@ -349,6 +350,20 @@ export function buildDispatchRecommendation({
   // vehicle+driver for the window instead of being pinned to the runner-up.
   const candidatePairs = pairs.map((p) => toPairCandidate(p, request, trip));
 
+  // Vehicles the SQL pre-filter removed before scoring (status/capacity) carry
+  // no engine verdict, so they arrive with their reason attached and a flag so
+  // the panel and the Copilot can label them honestly as checked briefly
+  // rather than fully evaluated. Dedupe against engine-skipped rows by vehicle.
+  const seenSkipped = new Set(skipped.map((s) => Number(s.vehicle_id)));
+  const prefilteredSkipped = (prefiltered ?? [])
+    .filter((p) => !seenSkipped.has(Number(p.vehicle_id)))
+    .map((p) => ({
+      vehicle_id: p.vehicle_id,
+      plate: p.plate,
+      reason: p.reason,
+      prefiltered: true,
+    }));
+
   return {
     generated_at: new Date().toISOString(),
     trip: {
@@ -364,8 +379,12 @@ export function buildDispatchRecommendation({
       candidates: candidatePairs,
       considered: vehicles.length,
       // "Why no candidates" — distinct vehicle-level reasons the pairing engine
-      // skipped when it could not form a pair. Empty when a pair exists.
-      none_reasons: skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason })),
+      // skipped when it could not form a pair, plus pre-filtered vehicles the
+      // SQL candidate query removed before scoring (flagged, honestly brief).
+      none_reasons: [
+        ...skipped.map((s) => ({ vehicle_id: s.vehicle_id, plate: s.plate, reason: s.reason })),
+        ...prefilteredSkipped,
+      ],
     },
     vehicle: {
       recommended: vehicleCandidates[0] ?? null,

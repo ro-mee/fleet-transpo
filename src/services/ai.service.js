@@ -76,20 +76,6 @@ export async function scanDocumentWithAi(payload) {
 }
 
 // Reservations & Dispatch AI Recommendations Helpers
-export async function getAvailableVehiclesForReservation(reservationData = {}) {
-  const vehicles = await apiFetch(`/api/vehicles/available`);
-  const passengerCount = reservationData.passenger_count || 1;
-  const suitable = (vehicles || []).filter((v) => (v.seating_capacity || 4) >= passengerCount);
-  return suitable.map((v) => {
-    let score = 50; const reasons = [];
-    if (v.seating_capacity >= passengerCount + 2) { score += 15; reasons.push("Extra capacity available"); }
-    if ((v.fuel_level || 0) > 50) { score += 10; reasons.push("Sufficient fuel level"); }
-    if ((v.mileage || 0) < 50000) { score += 10; reasons.push("Low mileage vehicle"); }
-    if (v.next_service_date && new Date(v.next_service_date) > new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)) { score += 10; reasons.push("No upcoming service due"); }
-    return { vehicle: v, score: Math.min(score, 100), confidence: score / 100, reasons };
-  }).sort((a, b) => b.score - a.score);
-}
-
 export async function getAvailableDriversForDispatch() {
   const drivers = await apiFetch("/api/drivers?status=Available");
   const driverIds = (drivers || []).map((d) => d.driver_id);

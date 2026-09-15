@@ -51,8 +51,12 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
   });
 
   function mockRequest(body, role = "fleet_manager", employeeId = 888) {
+    // Real requirePermission sessions carry a FLAT `role` string (see
+    // resolveCurrentIdentity in lib/api/utils.js) — no `roles` object. An
+    // earlier version of this mock supplied `roles: { role_name }`, which made
+    // hasRole pass here while production denied every role, including admin.
     identitySpy = vi.spyOn(utils, "requirePermission").mockResolvedValue({
-      user: { role, employeeId, roles: { role_name: role } },
+      user: { role, employeeId },
     });
     return { json: async () => body };
   }
@@ -85,7 +89,9 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     
     const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql, values) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "In Progress" }] };
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: values[values.length - 1] }] };
+      // Server stamps completed_by from the session; the record id travels
+      // last in values, so don't read it off values[values.length - 1].
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 777 }] };
       return { rows: [] };
     });
 
@@ -146,7 +152,9 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     
     const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql, values) => {
       if (sql.includes("SELECT status")) return { rows: [{ status: "Scheduled" }] };
-      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: values[values.length - 1] }] };
+      // Same note as Test 2 & 3: completed_by comes from the session (555),
+      // not from the last values entry (the record id).
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed", completed_by: 555 }] };
       return { rows: [] };
     });
 
@@ -169,6 +177,51 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     // Ensure the query uses session employeeId
     expect(updateCall[1]).toContain(555); 
     expect(updateCall[1]).not.toContain(99999);
+  });
+
+  it("Test 9: pre-check SELECT uses only [id] (no untyped $1 params)", async () => {
+    const selectSpy = vi.spyOn(db, "query").mockImplementation(async (sql, values) => {
+      if (sql.includes("SELECT status")) return { rows: [{ status: "In Progress" }] };
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      return { rows: [] };
+    });
+
+    // Multi-field body like the real Edit dialog sends on Complete: before the
+    // fix, the SELECT carried all SET values and Postgres rejected the parse
+    // with "could not determine data type of parameter $1" (500 on every PUT).
+    const req = mockRequest(
+      { status: "Completed", cost: 1500, mileage_at_service: 45000, inspection_required: false },
+      "fleet_manager",
+      777
+    );
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(200);
+
+    const selectCall = selectSpy.mock.calls.find((c) => c[0].includes("SELECT status"));
+    expect(selectCall).toBeDefined();
+    expect(selectCall[1]).toEqual([maintenanceId]);
+
+    const updateCall = selectSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    expect(updateCall).toBeDefined();
+    // id goes last so every $n lines up with values[n-1]
+    expect(updateCall[1][updateCall[1].length - 1]).toBe(maintenanceId);
+    expect(updateCall[0]).toContain(`$${updateCall[1].length}`);
+  });
+
+  it("Test 10: flat-role driver session is denied by the completion guard", async () => {
+    // requirePermission resolves here (matrix bypassed by the mock) so the
+    // hasRole guard itself must reject. Before the hasRole fix this shape —
+    // the real production shape — denied EVERYONE, including admin.
+    vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) return { rows: [{ status: "In Progress" }] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ status: "Completed" }, "driver", 123);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toContain("Only a Fleet Manager or Admin");
   });
 
   it("Test 8: Unauthorized User", async () => {

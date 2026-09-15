@@ -12,6 +12,8 @@ import { resolveStartWindow } from "@/lib/scheduling/start-window";
 import { mergeDispatchPolicy } from "@/lib/dispatch-policy";
 import { driverBlockReason } from "@/lib/scheduling/driver-schedule";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
+import { validatePairAvailability } from '@/services/recommendation.service';
+import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 
 export async function PUT(req, { params }) {
   try {
@@ -84,7 +86,7 @@ export async function PUT(req, { params }) {
       )).rows[0]?.setting_value
     );
     const { rows: dispatchRows } = await query(
-      `SELECT scheduled_departure FROM dispatchschedules WHERE dispatch_id = $1 AND deleted_at IS NULL`,
+      `SELECT * FROM dispatchschedules WHERE dispatch_id = $1 AND deleted_at IS NULL`,
       [trip.dispatch_id]
     );
     const pickup = dispatchRows[0]?.scheduled_departure ?? null;
@@ -157,6 +159,19 @@ export async function PUT(req, { params }) {
 
     // Type-narrowed at the boundary before validation: Number() coerces `true`
     // to 1 and `[]` to 0, either of which would sail through as a reading.
+    let startEvidence = null;
+    if (trip.dispatch_id && trip.driver_id && trip.vehicle_id) {
+      const dispatch = dispatchRows[0];
+      if (!dispatch || Number(dispatch.driver_id) !== Number(trip.driver_id) || Number(dispatch.vehicle_id) !== Number(trip.vehicle_id))
+        return err('The assigned pair changed. Ask dispatch to review this trip.',409);
+      const request = await findRequestForDispatch(trip.dispatch_id);
+      const checked = await validatePairAvailability({
+        request:{...request,...dispatch,pickup_datetime:dispatch.scheduled_departure},
+        vehicleId:trip.vehicle_id,driverId:trip.driver_id,excludeTripId:Number(id),
+      });
+      if (!checked.ok) return err(checked.conflict?.message || 'Dispatch evidence must be rechecked before starting.',409);
+      startEvidence = checked.commitToken;
+    }
     const rawOdometer =
       typeof body.odometer === "number" || typeof body.odometer === "string" ? body.odometer : null;
     // Odometer is OPTIONAL at start — a driver may begin without a reading, in
@@ -174,8 +189,9 @@ export async function PUT(req, { params }) {
     // The trip row, its vehicle mileage and the dispatch are authoritative —
     // permanent facts that cannot be re-derived later, so they commit (or roll
     // back) together. The derived statuses run after COMMIT, best-effort.
-    const { rows } = await withTransaction(async (tx) => {
-      const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 RETURNING *`, [rawOdometer, id]);
+    const commitStart = startEvidence ? write => commitDispatchEvidence(startEvidence,write) : withTransaction;
+    const { rows } = await commitStart(async (tx) => {
+      const r = await tx.query(`UPDATE trips SET trip_status = 'Trip Started', start_time = NOW(), start_odometer = $1 WHERE trip_id = $2 AND trip_status = $3 RETURNING *`, [rawOdometer, id, trip.trip_status]);
       if (!r.rows[0]) throw new AuthError("Trip not found", 404);
       const txWrites = [];
       // Feed the odometer back into the vehicle. GREATEST is a second guard

@@ -60,7 +60,7 @@ export function getCachedRoute(origin, destination, opts = {}) {
     store.delete(key);
     return null;
   }
-  return { ...entry.value, provenance: "cached" };
+  return { ...entry.value, computedAt: new Date(entry.cachedAt).toISOString(), provenance: "cached" };
 }
 
 export function setCachedRoute(origin, destination, value, opts = {}) {

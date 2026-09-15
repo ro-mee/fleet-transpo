@@ -12,9 +12,8 @@ import { query } from "@/lib/db";
 // the operational narrative for one request, rendered to operators in the UI.
 // Both are written on transitions; they serve different readers.
 //
-// Best-effort, exactly like outbound delivery: a timeline write must NEVER
-// break the operation that triggered it. A missing timeline row is a cosmetic
-// gap; a rolled-back dispatch is an outage.
+// Best-effort by default. Validated assignment uses strict mode inside its
+// transaction so assignment and decision evidence commit together.
 
 /**
  * Append one event to a request's timeline.
@@ -37,11 +36,16 @@ export async function recordReservationEvent({
   session = null,
   description = null,
   metadata = null,
+  db = { query },
+  strict = false,
 }) {
-  if (!requestId || !eventType) return { recorded: false };
+  if (!requestId || !eventType) {
+    if (strict) throw new Error('Assignment audit requires a request and event type');
+    return { recorded: false };
+  }
 
   try {
-    const { rows } = await query(
+    const { rows } = await db.query(
       `INSERT INTO reservation_events
          (request_id, event_type, from_status, to_status, actor_id, actor_role, description, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -60,6 +64,7 @@ export async function recordReservationEvent({
     );
     return { recorded: true, eventId: rows[0]?.event_id };
   } catch (e) {
+    if (strict) throw e;
     // Never surface — the caller's operation already succeeded.
     console.warn("recordReservationEvent: failed to write timeline:", e?.message || e);
     return { recorded: false };

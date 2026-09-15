@@ -1,5 +1,6 @@
 import { calculateLtoRenewalSchedule } from "@/lib/lto-renewal";
 import { RISK } from "@/lib/ai/predictive-maintenance";
+import { DEFAULT_DISPATCH_POLICY } from '@/lib/dispatch-policy';
 
 /**
  * Rule-Based AI Engine
@@ -14,7 +15,7 @@ import { RISK } from "@/lib/ai/predictive-maintenance";
  */
 
 /** Proximity only ranks drivers for IMMEDIATE dispatch. Future-dated pickups get no bonus. */
-export function isProximityRelevant(pickupDatetime, now = new Date(), windowHrs = 3) {
+export function isProximityRelevant(pickupDatetime, now = new Date(), windowHrs = DEFAULT_DISPATCH_POLICY.shortNoticeHorizonMinutes / 60) {
   if (!pickupDatetime) return false;
   const t = new Date(pickupDatetime).getTime();
   const n = new Date(now).getTime();
@@ -280,7 +281,7 @@ export function scoreDispatchDrivers(drivers = []) {
     }
 
     // Nearest driver — only for IMMEDIATE dispatch windows (time-gated).
-    if (d._proximity_relevant !== false) {
+    if (d._proximity_relevant === true) {
       const prox = scoreProximity(d._pickup_distance_km);
       score += prox.points;
       if (prox.reason) reasons.push(prox.reason);

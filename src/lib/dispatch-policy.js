@@ -9,6 +9,8 @@
 import { normalizeTiers } from "@/lib/scheduling/departure-alerts";
 
 export const DEFAULT_DISPATCH_POLICY = {
+  shortNoticeHorizonMinutes: 90,
+  efficiencyTieMinutes: 10,
   // Minutes before pickup that separate the derived bands.
   criticalMinutes: 15, // ≤ this → Critical
   highMinutes: 30,     // ≤ this → High
@@ -50,6 +52,8 @@ export function mergeDispatchPolicy(stored) {
     ...DEFAULT_DISPATCH_POLICY,
     ...s,
   };
+  base.shortNoticeHorizonMinutes = POSITIVE_MINUTES(s.shortNoticeHorizonMinutes) ?? DEFAULT_DISPATCH_POLICY.shortNoticeHorizonMinutes;
+  base.efficiencyTieMinutes = POSITIVE_MINUTES(s.efficiencyTieMinutes) ?? DEFAULT_DISPATCH_POLICY.efficiencyTieMinutes;
   base.criticalMinutes = POSITIVE_MINUTES(s.criticalMinutes) ?? DEFAULT_DISPATCH_POLICY.criticalMinutes;
   base.highMinutes = POSITIVE_MINUTES(s.highMinutes) ?? DEFAULT_DISPATCH_POLICY.highMinutes;
   base.mediumMinutes = POSITIVE_MINUTES(s.mediumMinutes) ?? DEFAULT_DISPATCH_POLICY.mediumMinutes;
@@ -78,7 +82,7 @@ export function mergeDispatchPolicy(stored) {
 
 /** Validate an incoming threshold set; returns { ok, error? }. */
 export function validateDispatchPolicy(policy) {
-  for (const key of ["criticalMinutes", "highMinutes", "mediumMinutes"]) {
+  for (const key of ["criticalMinutes", "highMinutes", "mediumMinutes", "shortNoticeHorizonMinutes", "efficiencyTieMinutes"]) {
     const v = policy?.[key];
     if (v === undefined || v === null) continue;
     if (!Number.isFinite(Number(v)) || Number(v) <= 0) {

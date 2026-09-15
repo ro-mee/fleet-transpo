@@ -16,15 +16,16 @@ export async function getTransportRequest(id) {
 }
 
 // Commit a vehicle+driver pair to a request (Pending -> Scheduled -> Assigned).
-// Blocking conflicts return 409 unless `force` is set, which is recorded on the
-// timeline as an override.
-export async function assignResources(id, { vehicleId, driverId, force = false, overrideReason = null } = {}) {
+// Hard conflicts always return 409. Force records explicit manual review only
+// where the server permits it; a reason is required.
+export async function assignResources(id, { vehicleId, driverId, force = false, overrideReason = null, planToken = null } = {}) {
   const reason = typeof overrideReason === "string" ? overrideReason.trim().slice(0, 500) : "";
   return apiFetch(`/api/integration/transport-requests/${id}/assign`, {
     method: "PUT",
     body: {
       vehicle_id: vehicleId,
       driver_id: driverId,
+      ...(planToken ? { plan_token: planToken } : {}),
       ...(force ? { force: true } : {}),
       ...(force && reason ? { override_reason: reason } : {}),
     },

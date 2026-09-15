@@ -26,6 +26,7 @@ import { resolveCoordinates } from "@/lib/geo/distance";
 import { resolveRequestEstimate } from "@/services/route-resolver.service";
 import { evaluateRouteFeasibility } from "@/lib/scheduling/route-feasibility";
 import { DEFAULT_DISPATCH_POLICY } from "@/lib/dispatch-policy";
+import { GPS_FRESH_MS } from '@/lib/gps';
 
 export const DEADHEAD_SHORTLIST_LIMIT = 5;
 
@@ -65,20 +66,23 @@ export async function resolveDeadheadMinutes(origin, destination, opts = {}) {
   const d = toLatLng(destination);
   if (!o || !d) return { minutes: null, provenance: "unknown" };
 
-  const cacheOpts = { departAt: opts.departAt, maxAlternatives: 0 };
+  const cacheOpts = { departAt: opts.departAt, maxAlternatives: 0, ttlMs: opts.strict ? GPS_FRESH_MS : undefined };
   try {
     const cached = getCachedRoute(o, d, cacheOpts);
     if (cached?.durationMin != null) {
-      return { minutes: cached.durationMin, provenance: "cached" };
+      return { minutes: cached.durationMin, provenance: "cached", distanceKm: cached.distanceKm, computedAt: cached.computedAt };
     }
-    const live = await fetchTomTomRoute(o, d, { departAt: opts.departAt, maxAlternatives: 0 });
+    const remaining = opts.deadline == null ? 15000 : opts.deadline - Date.now();
+    if (remaining <= 0) return { minutes:null,provenance:'unknown' };
+    const live = await fetchTomTomRoute(o, d, { departAt: opts.departAt, maxAlternatives: 0, timeoutMs:remaining });
     if (live?.durationMin != null) {
       setCachedRoute(o, d, live, cacheOpts);
-      return { minutes: live.durationMin, provenance: "live", trafficDelayMin: live.trafficDelayMin ?? 0 };
+      return { minutes: live.durationMin, provenance: "live", trafficDelayMin: live.trafficDelayMin ?? 0, distanceKm: live.distanceKm, computedAt: new Date().toISOString() };
     }
   } catch {
     // fall through to the heuristic below
   }
+  if (opts.strict) return { minutes: null, provenance: 'unknown' };
   const km = haversineKm(o, d);
   const minutes = etaFromDistanceKm(km);
   return { minutes, provenance: minutes != null ? "fallback" : "unknown" };

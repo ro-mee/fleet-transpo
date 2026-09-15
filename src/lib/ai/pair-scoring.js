@@ -143,11 +143,11 @@ export function hasSubstituteForDate(vehicleId, date, substitutes) {
  */
 export function isDriverUnavailableFor(driver, now = new Date(), window, opts = {}) {
   const status = driver?.driver_status;
-  if (UNAVAILABLE_STATUSES.has(status)) {
+  if (UNAVAILABLE_STATUSES.has(status) && !(window?.scheduleContext?.schedules && window?.scheduleContext?.leave && window?.pickup && new Date(window.pickup) > now && [DRIVER_STATUS.OFF_DUTY, DRIVER_STATUS.ON_LEAVE].includes(status))) {
     return { unavailable: true, reason: `Driver is ${status}.`, duty: null };
   }
 
-  const licenseDays = daysUntil(driver?.license_expiry, now);
+  const licenseDays = daysUntil(driver?.license_expiry, window?.pickup ?? now);
   if (licenseDays !== null && licenseDays < 0) {
     return {
       unavailable: true,
@@ -478,7 +478,7 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
   }
 
   // Proximity (only meaningful for immediate dispatch).
-  if (driver?._proximity_relevant !== false) {
+  if (driver?._proximity_relevant === true) {
     const prox = scoreProximity(driver?._pickup_distance_km);
     score += prox.points;
     if (prox.reason) reasons.push(prox.reason);
@@ -489,7 +489,7 @@ export function scoreFleetPair({ vehicle, driver, designated, request, trip, pas
   const rating = Number(driver?.avg_guest_rating);
   if (Number.isFinite(rating) && rating > 0) reasons.push(`Guest rating ${rating.toFixed(1)}/5.`);
 
-  const estimatedPickupMinutes = Number.isFinite(Number(driver?._pickup_distance_km))
+  const estimatedPickupMinutes = driver?._pickup_distance_km != null && Number.isFinite(Number(driver._pickup_distance_km))
     ? Math.max(1, Math.round((Number(driver._pickup_distance_km) / 25) * 60))
     : null;
 
@@ -741,7 +741,7 @@ export function buildChecklist(pair, isTopRanked) {
 
   // Proximity — closest driver to pickup (only meaningful for immediate dispatch).
   const dist = Number(driver?._pickup_distance_km);
-  if (Number.isFinite(dist) && driver?._proximity_relevant !== false) {
+  if (Number.isFinite(dist) && driver?._proximity_relevant === true) {
     items.push({ text: dist <= 5 ? "Closest available vehicle" : `${dist} km from pickup`, pass: dist <= 5 });
   }
 
