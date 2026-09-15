@@ -389,6 +389,15 @@ CREATE TABLE drivers (
   license_image_url text,
   license_back_image_url text,
   suspension_reason varchar(50),
+  location_observed_at timestamptz,
+  location_received_at timestamptz,
+  location_accuracy_m numeric,
+  location_source text,
+  location_vehicle_id integer,
+  standby_tracking_enabled boolean DEFAULT false NOT NULL,
+  standby_session_family uuid,
+  standby_latitude numeric,
+  standby_longitude numeric,
   CONSTRAINT chk_driver_status CHECK (((driver_status)::text = ANY ((ARRAY['Available'::character varying, 'On Trip'::character varying, 'Off Duty'::character varying, 'On Leave'::character varying, 'Suspended'::character varying])::text[]))),
   CONSTRAINT drivers_pkey PRIMARY KEY (driver_id)
 );
@@ -1114,6 +1123,7 @@ ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_trip_id_fkey FOREIGN 
 ALTER TABLE driverincidents ADD CONSTRAINT driverincidents_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id);
+ALTER TABLE drivers ADD CONSTRAINT drivers_location_vehicle_id_fkey FOREIGN KEY (location_vehicle_id) REFERENCES vehicles(vehicle_id);
 ALTER TABLE drivers ADD CONSTRAINT drivers_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE employee_mfa ADD CONSTRAINT employee_mfa_employee_id_fkey FOREIGN KEY (employee_id) REFERENCES employees(employee_id) ON DELETE CASCADE;
 ALTER TABLE employees ADD CONSTRAINT employees_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
@@ -1213,6 +1223,7 @@ CREATE INDEX idx_app_errors_source ON public.app_errors USING btree (source, cre
 CREATE INDEX idx_attendance_date ON public.driverattendance USING btree (date);
 CREATE INDEX idx_attendance_driver ON public.driverattendance USING btree (driver_id);
 CREATE UNIQUE INDEX idx_attendance_driver_date ON public.driverattendance USING btree (driver_id, date);
+CREATE INDEX idx_attendance_open_driver ON public.driverattendance USING btree (driver_id, time_in DESC) WHERE ((time_in IS NOT NULL) AND (time_out IS NULL));
 CREATE INDEX idx_attendance_status ON public.driverattendance USING btree (status);
 CREATE INDEX idx_audit_created ON public.audit_logs USING btree (created_at);
 CREATE INDEX idx_audit_employee ON public.audit_logs USING btree (employee_id);
