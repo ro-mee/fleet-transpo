@@ -14,19 +14,22 @@ import { fonts } from "../lib/theme";
 
 export function LaunchScreen({ onComplete }) {
   const { colors } = useTheme();
-  const [reduceMotion, setReduceMotion] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(null);
   const [reveal] = useState(() => new Animated.Value(0));
   const [route] = useState(() => new Animated.Value(0));
   const [exit] = useState(() => new Animated.Value(1));
   const finished = useRef(false);
 
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(value => { if (mounted) setReduceMotion(value); })
+      .catch(() => { if (mounted) setReduceMotion(false); });
     const subscription = AccessibilityInfo.addEventListener(
       "reduceMotionChanged",
       setReduceMotion,
     );
-    return () => subscription?.remove();
+    return () => { mounted = false; subscription?.remove(); };
   }, []);
 
   const finish = useCallback(() => {
@@ -34,33 +37,40 @@ export function LaunchScreen({ onComplete }) {
     finished.current = true;
     Animated.timing(exit, {
       toValue: 0,
-      duration: reduceMotion ? 1 : 360,
+      duration: reduceMotion ? 1 : 240,
       easing: Easing.bezier(0.32, 0.72, 0, 1),
       useNativeDriver: true,
+      isInteraction: false,
     }).start(({ finished: completed }) => completed && onComplete(reduceMotion));
   }, [exit, onComplete, reduceMotion]);
 
   useEffect(() => {
-    Animated.parallel([
+    if (reduceMotion === null) return;
+    const entrance = Animated.parallel([
       Animated.timing(route, {
         toValue: 1,
-        duration: reduceMotion ? 1 : 1100,
-        delay: reduceMotion ? 0 : 180,
+        duration: reduceMotion ? 1 : 650,
+        delay: 0,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
         useNativeDriver: true,
+        isInteraction: false,
       }),
       Animated.timing(reveal, {
         toValue: 1,
-        duration: reduceMotion ? 1 : 820,
-        delay: reduceMotion ? 0 : 620,
+        duration: reduceMotion ? 1 : 450,
+        delay: reduceMotion ? 0 : 160,
         easing: Easing.bezier(0.16, 1, 0.3, 1),
         useNativeDriver: true,
+        isInteraction: false,
       }),
-    ]).start();
+    ]);
+    entrance.start();
+    return () => entrance.stop();
   }, [reduceMotion, reveal, route]);
 
   useEffect(() => {
-    const timer = setTimeout(finish, reduceMotion ? 850 : 6500);
+    if (reduceMotion === null) return;
+    const timer = setTimeout(finish, reduceMotion ? 150 : 2300);
     return () => clearTimeout(timer);
   }, [finish, reduceMotion]);
 
@@ -77,7 +87,7 @@ export function LaunchScreen({ onComplete }) {
     <Animated.View
       accessible
       accessibilityLabel="FleetOps loading"
-      style={[styles.root, { opacity: exit }]}
+      style={[styles.root, { opacity: exit, backgroundColor: colors.background }]}
     >
       <LinearGradient
         colors={[colors.background, colors.primaryContainer, colors.background]}
@@ -113,13 +123,13 @@ export function LaunchScreen({ onComplete }) {
           <View style={[styles.tick, styles.tickBottom, { backgroundColor: colors.secondary }]} />
           <View style={[styles.tick, styles.tickLeft, { backgroundColor: colors.secondary }]} />
         </Animated.View>
-        {!reduceMotion && (
+        {reduceMotion === false && (
           <LottieView
             autoPlay
             loop={false}
-            speed={1.2}
+            speed={2.5}
             source={require("../assets/car animation.json")}
-            onAnimationFinish={finish}
+            onAnimationFinish={(cancelled) => { if (!cancelled) finish(); }}
             onAnimationFailure={finish}
             pointerEvents="none"
             style={styles.car}
@@ -148,7 +158,7 @@ export function LaunchScreen({ onComplete }) {
               <Text style={[styles.wordmark, { color: colors.primary }]}>Ops</Text>
             </View>
           </View>
-          {!reduceMotion && (
+          {reduceMotion === false && (
             <Animated.View
               pointerEvents="none"
               style={[
@@ -168,9 +178,9 @@ export function LaunchScreen({ onComplete }) {
               ]}
             >
               <LottieView
-                autoPlay
-                loop
-                speed={0.9}
+                autoPlay={false}
+                loop={false}
+                progress={0.5}
                 source={require("../assets/PRt4x4Ds0p.json")}
                 colorFilters={[{ keypath: "Location", color: colors.primary }]}
                 style={styles.location}

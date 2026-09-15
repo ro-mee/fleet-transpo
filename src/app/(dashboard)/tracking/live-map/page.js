@@ -287,6 +287,13 @@ export default function LiveMapPage() {
     refetchInterval: 15000,
   });
 
+  const standbyQuery = useQuery({
+    queryKey: ["standby-locations"],
+    queryFn: () => apiFetch("/api/tracking/standby-locations"),
+    refetchInterval: 30000,
+    retry: 0,
+  });
+
   // Rescue missions (open incidents with a fleet responder assigned) — the
   // responder's counterpart to the trip feed, so a rescue shows on this map
   // exactly like a guest trip does.
@@ -526,16 +533,34 @@ export default function LiveMapPage() {
     [activeTrips]
   );
 
+  const standbyPositions = useMemo(() => {
+    if (standbyQuery.isError || !Array.isArray(standbyQuery.data)) return [];
+    return standbyQuery.data.filter((position) => new Date(position.expires_at).getTime() > now &&
+      isValidCoordinate(position.latitude, position.longitude) &&
+      !activeTrips.some((trip) => String(trip.driver_id) === String(position.driver_id) || String(trip.vehicle_id) === String(position.vehicle_id)));
+  }, [standbyQuery.data, standbyQuery.isError, activeTrips, now]);
+
   const mapLocations = useMemo(
-    () => locations.filter((location) => {
+    () => [...locations.filter((location) => {
       if (!isValidCoordinate(location?.latitude, location?.longitude)) return false;
       return location?.trip_id != null && activeTripIds.has(String(location.trip_id));
-    }),
-    [locations, activeTripIds]
+    }), ...standbyPositions],
+    [locations, activeTripIds, standbyPositions]
   );
 
+  // Fleet exceptions from already-loaded evidence only (no new endpoint):
+  // grounded/maintenance vehicles among the active fleet + live trips with
+  // an open-incident signal from the monitor. Honest scope note in the UI:
+  // this covers the active fleet, not the whole roster.
+  const fleetExceptions = useMemo(() => {
+    const groundedStatuses = new Set(["Under Maintenance", "Decommissioned", "Registration Expired"]);
+    const grounded = activeTrips.filter((trip) => groundedStatuses.has(trip?.vehicles?.vehicle_status));
+    const withIncident = monitorRows.filter((row) => row.suggestedActions?.includes("View Incident"));
+    return { grounded, withIncident };
+  }, [activeTrips, monitorRows]);
+
   const selectedHealth = getGpsHealth(selectedLocation?.recorded_at, now);
-  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || respondersQuery.isFetching || routeQuery.isFetching || monitorQuery.isFetching;
+  const isFetching = tripsQuery.isFetching || locationsQuery.isFetching || standbyQuery.isFetching || respondersQuery.isFetching || routeQuery.isFetching || monitorQuery.isFetching;
   const routePoints = routeQuery.data?.coordinates;
   const routeReady = Array.isArray(routePoints) && routePoints.length >= 2;
   const driverName = driverNameFor(activeTrip);
@@ -547,6 +572,7 @@ export default function LiveMapPage() {
     await Promise.all([
       tripsQuery.refetch(),
       locationsQuery.refetch(),
+      standbyQuery.refetch(),
       respondersQuery.refetch(),
       routeQuery.refetch(),
       monitorQuery.refetch(),
@@ -574,7 +600,7 @@ export default function LiveMapPage() {
               className="gap-1.5 rounded-full px-3 py-1 text-xs font-bold"
             >
               <span className={cn("h-1.5 w-1.5 rounded-full", gpsSummary.fresh ? "bg-success" : "bg-foreground-muted", gpsSummary.fresh && "animate-pulse")} />
-              {locationsQuery.isError ? "GPS feed unavailable" : activeTrips.length ? `${gpsSummary.fresh} fresh GPS` : "No active trips"}
+              {locationsQuery.isError ? "GPS feed unavailable" : `${gpsSummary.fresh} trip GPS / ${standbyPositions.length} standby`}
             </Badge>
             <Button
               variant="outline"
@@ -609,6 +635,10 @@ export default function LiveMapPage() {
           title="Unable to refresh GPS positions"
           description="Trip records remain visible, but their positions may be unavailable or outdated."
         />
+      )}
+      {standbyQuery.isError && (
+        <QueryErrorBanner query={standbyQuery} title="Unable to refresh standby positions"
+          description="Standby pins are hidden until the feed recovers." />
       )}
       {respondersQuery.isError && (
         <QueryErrorBanner
@@ -667,12 +697,12 @@ export default function LiveMapPage() {
                 Operations map
               </CardTitle>
               <span className="font-data text-xs text-foreground-muted">
-                {mapLocations.length} positioned
+                {mapLocations.length} positioned / {standbyPositions.length} standby
               </span>
             </CardHeader>
             <CardContent className="p-0">
               <div className="h-[min(640px,70vh)] min-h-[420px] bg-muted/20">
-                {locationsQuery.isLoading || tripsQuery.isLoading || respondersQuery.isLoading ? (
+                {locationsQuery.isLoading || tripsQuery.isLoading || respondersQuery.isLoading || standbyQuery.isLoading ? (
                   <div className="flex h-full items-center justify-center bg-hover/40" aria-busy="true">
                     <div className="w-full max-w-sm space-y-3 px-6">
                       <div className="h-4 w-32 animate-pulse rounded bg-muted" />
@@ -685,7 +715,7 @@ export default function LiveMapPage() {
                     <EmptyState
                       icon={Navigation}
                       title="No live positions"
-                      description="The live map will populate when a trip enters the operational tracking window or a rescue is dispatched."
+                      description="Positions appear when an on-duty standby driver shares fresh GPS, a trip enters tracking, or a rescue is dispatched."
                       variant="waiting"
                     />
                   </div>
@@ -1096,6 +1126,55 @@ export default function LiveMapPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden rounded-3xl border-0 bg-surface shadow-xs">
+            <CardHeader className="flex-row items-center justify-between border-b border-border/60 bg-muted/20 pb-3.5">
+              <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <CarFront className="h-4 w-4 text-primary" />
+                Available resources
+              </CardTitle>
+              <Badge variant="outline" className="rounded-full font-data text-[11px]">{standbyPositions.length}</Badge>
+            </CardHeader>
+            <CardContent className="p-0">
+              {standbyQuery.isError ? (
+                <p className="p-5 text-center text-xs text-foreground-muted">Standby feed unavailable — positions hidden until it recovers.</p>
+              ) : standbyPositions.length === 0 ? (
+                <p className="p-5 text-center text-xs text-foreground-muted">No verified standby resources right now.</p>
+              ) : (
+                <div className="max-h-[240px] divide-y divide-border/60 overflow-y-auto">
+                  {standbyPositions.map((position) => (
+                    <div key={position.tracking_id || position.driver_id} className="p-3.5">
+                      <p className="truncate font-data text-xs font-semibold text-foreground">
+                        {position.plate_number || "Standby vehicle"}
+                      </p>
+                      <p className="mt-0.5 truncate text-[11px] text-foreground-muted">
+                        {(position.driver_name || "Standby driver").trim()} · Standby · observed {formatGpsAge(position.recorded_at, now)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(fleetExceptions.grounded.length > 0 || fleetExceptions.withIncident.length > 0) && (
+                <div className="border-t border-border/60 p-3.5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground-muted">
+                    Fleet exceptions · active fleet only
+                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    {fleetExceptions.grounded.length > 0 && (
+                      <p className="text-xs text-foreground-secondary">
+                        {fleetExceptions.grounded.length} grounded vehicle{fleetExceptions.grounded.length === 1 ? "" : "s"} ({fleetExceptions.grounded.map((t) => t?.vehicles?.plate_number || `Trip #${t?.trip_id}`).join(", ")})
+                      </p>
+                    )}
+                    {fleetExceptions.withIncident.length > 0 && (
+                      <p className="text-xs text-foreground-secondary">
+                        {fleetExceptions.withIncident.length} live trip{fleetExceptions.withIncident.length === 1 ? "" : "s"} with an open incident
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </CardContent>

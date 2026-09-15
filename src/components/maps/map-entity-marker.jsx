@@ -252,7 +252,7 @@ function resolveBaseMarkerConfig(entity, context = {}) {
     type: "vehicle",
     id: entity.trip_id || entity.vehicle_id,
     title: plate,
-    status: "Idle",
+    status: entity.vehicle_status === "Standby" ? "Standby" : "Idle",
     tone: "slate",
     iconKey: "car",
     selected: isSelected,

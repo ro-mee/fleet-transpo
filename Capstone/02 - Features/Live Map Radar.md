@@ -5,108 +5,69 @@ tags: [feature, map, radar, mobile, ui, standby]
 source:
   - mobile/components/TomTomMap.js
   - mobile/app/(app)/(tabs)/map.js
-  - mobile/components/RadarPulse.jsx
-  - mobile/app/(app)/(tabs)/trips.js
-  - mobile/components/home/DriverHomeCards.jsx
-  - mobile/components/DriverSos.js
-last_verified: 2026-09-09
+  - mobile/components/CurvedPillTabBar.js
+  - mobile/lib/ambient-weather.js
+  - mobile/lib/standby-map.test.js
+last_verified: 2026-09-13
 related: ["[[Tracking]]", "[[Trips]]", "[[Mobile Architecture]]"]
 ---
 
-# Feature: Live Map Radar Mode & Proximity Coverage Map
+# Driver Live Map Standby
 
-## What it does
+## Vehicle Marker Integration: carlive.png (2026-09-13, implemented)
 
-When a driver opens the Live Map tab without an active trip assignment, the app operates in **Interactive Proximity + Dispatch Coverage Radar Mode**:
+Integrated `mobile/assets/images/carlive.png` as the vehicle marker on the live map (`mobile/components/TomTomMap.js`), replacing synthetic SVG cars, headlights glow overlays, and the car color customizer:
+- **Geometry & Sizing:** Asset is square (1254x1254) with a vertically centered car occupying 85.2% height (1068px) and 50.6% width (634px). Sized the container to 60px x 60px, yielding ~51px visible car height and ~30px visible width—directly within the 48–56px target so it anchors the radar without covering wave pulses.
+- **Rotation:** Front of vehicle points straight up (North = 0°); GPS heading rotation is preserved relative to the map bearing.
+- **Contrast & Styling:** Light mode uses a natural ground drop-shadow (`rgba(18, 38, 28, 0.28)`). Dark mode adds a subtle 1.5px pale mint contour outline (`drop-shadow(0 0 1.5px rgba(220, 245, 232, 0.60))`) and deeper ground shadow for sharp separation against dark tiles without noisy glow.
+- **Color Customization Removed:** Completely removed the car customizer modal, swatches, and click handler, reinforcing FleetOps' forest green brand identity and keeping the map interface dedicated to tracking.
+- **Resilient Asset Loading & Lifecycle Handshake:** Implemented async asset download with `expo-file-system` Base64 conversion and a persistent WebView handshake (`window.carMarkerImageUrl`, marker creation assignment, `MAP_READY` re-injection, and fallback checks on GPS ticks). Enables Android `allowFileAccess` permissions to guarantee instant, reliable rendering on cold app start without triggering redundant WebView DOM reloads.
 
-1. **Multi-Layered Concentric Depth Radar with High-Visibility Wave Pulse Layers**:
-   - Inspired directly by the "Radar Wave Pulse – Visibility Layers" design specification ([`media_1788952463286.jpg`](file:///C:/Users/Joseph%20T%20Lopez/.gemini/antigravity-ide/brain/36335d0f-ca22-46a1-afe9-48cdff1fd179/.user_uploaded/media_1788952463286.jpg)):
-   - **4 Visible Proximity Depth Tiers (GPU-Accelerated Ambient Terrain)**:
-     - **Zone 1 (Inner Proximity Tier, 130px)**: Immediate coverage (`1 km`). Harmonic 3.8s breathe.
-     - **Zone 2 (Mid-Range Tier, 210px)**: Nearby dispatch scope (`3 km`). Harmonic 5.4s breathe.
-     - **Zone 3 (Extended Range Tier, 290px)**: Extended dispatch scope (`5 km`). Harmonic 6.4s breathe.
-     - **Zone 4 (Outer Ambient Dispersion Tier, 370px)**: All-area coverage (`All`). Harmonic 8.1s breathe with multi-stop radial gradient falloff (replacing software `filter: blur` to eliminate CPU/GPU re-rasterization).
-   - **Central Vehicle Ambient Core (`.radar-core-glow`, 88px)**:
-     - Infographic Layer 1 token: `#A8FFE1` (pale radiant mint) with 70–90% opacity and 20px glow. Hardware-composited `transform: translate3d(0,0,0)` and `will-change: transform, opacity`.
-   - **3 Distinct, Defined Wave Pulse Rings (Continuous 60/120fps Wave Train)**:
-     - **Layer 2 – Inner Pulse (`.layer-inner`, 110px)**: Highest opacity (45–72%), sharp luminous `#5CFFDC` border (`1.5px solid rgba(92, 255, 220, 0.70)`), inner radial fill, and 14px halo. Emits at 0s.
-     - **Layer 3 – Middle Pulse (`.layer-middle`, 110px)**: Medium opacity (25–52%), wider `#00FFB3` border (`1.5px solid rgba(0, 255, 179, 0.50)`), inner radial fill, and 18px glow. Emits at 0.9s.
-     - **Layer 4 – Outer Pulse (`.layer-outer`, 110px)**: Low opacity (15–32%), soft `#00E5A8` border (`1.5px solid rgba(0, 229, 168, 0.32)`), smooth dispersion gradient, and 22px halo. Emits at 1.8s.
-     - **Smooth Organic Keyframes**: 2.7s continuous loop with exponential deceleration `cubic-bezier(0.22, 1, 0.36, 1)`. Fades in organically from `0%` (`scale(0.20), opacity: 0`) -> `12%` peak opacity -> expands outward -> cleanly dissolves to `0%` opacity at boundary. Eliminates 0% opacity popping and dead freeze gaps.
-     - **Compositing & Anti-Aliasing**: Isolated with `contain: layout paint;`, `will-change: transform, opacity;`, `-webkit-backface-visibility: hidden;`, and `transform: translate3d(0, 0, 0);` to eliminate sub-pixel border shimmer.
-   - **Vehicle Marker (Fleet Car)**:
-     - Top-down fleet vehicle marker with headlights glow (`car-headlights-glow`), customizable color swatch palette (`carCustomizer` modal on vehicle tap), and heading rotation (`updateCarRotation`).
-     - Pinned precisely to driver GPS coordinates; dynamically rotates to match vehicle heading and map bearing.
-     - Sits directly above the multi-layered radar field.
-   - **Emergency Incident Marker Parity on Mobile**:
-     - Standby emergency dispatch markers (`priority === 'emergency'`) render the exact web `.fleet-marker-pulse` element with `#ef4444` behind the emergency icon box for 1:1 parity with web incident markers.
+## PR 4.5 ? Connected standby radar (2026-09-13, implemented)
 
-2. **Top HUD Status Pill & Range Selector**:
-   - Clean top pill: `● RADAR | LIVE TRACKING`. Adapts automatically to app appearance settings (`dark` / `light`).
-   - Range Selector: `[ 1 km ] [ 3 km ] [ 5 km ] [ All ]` easing camera zoom (`15.5`, `14.2`, `13.0`, `11.8`) and dynamically scaling the radar pulse bloom up to 5 km.
+Standby now publishes through the global foreground poster after Profile duty check-in, using consented server-owned pairing and fresh accurate observations. Live Tracking is based on a server acknowledgement; missing/stale acknowledgement shows a paused state. Development-only anchored demo entities are excluded from production. The driver screen remains own-location only with its fixed 5 km visual circle and clay weather-above-nav layout. The existing dispatcher recommendation panel has a separately authorized, request-specific radar; scheduled planning never exposes current GPS. See [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]] for behavior, checks and device acceptance.
 
-3. **Strict Entity Visibility (Fleet Documentation Alignment)**:
-   - Eliminates arbitrary commercial establishments.
-   - Restricts visible map entities strictly to:
-     - **Nearest Gas Stations** (`type: 'gas_station'`): Partner fuel stations (Petron, Shell, Caltex, Cleanfuel) displaying fuel grades, distance, and ETA.
-     - **Nearest Fleet Drivers** (`type: 'driver'`): Active fleet vehicles with driver name, plate/model, and operational status (Available / En Route).
-     - **Official Dispatch Requests** (`type: 'assignment'`): Real pending trip requests assigned by dispatcher/admin from `/api/mobile/driver/trips`.
+## Current presentation ? 2026-09-13
 
-4. **Dispatcher-Only Acceptance Logic**:
-   - The driver can **only** accept bookings explicitly assigned by the dispatcher or admin (`selectedMarker.tripId`).
-   - Tapping Gas Stations shows station details with a `[ REPORT FUEL ]` shortcut (navigating to `/fuel-report?station=...`) and `[ DISMISS ]` — **no accept action**.
-   - Tapping Fleet Drivers shows driver/vehicle details with `[ DISMISS ]` — **no accept action**.
-   - Tapping an official dispatch request shows `[ VIEW DETAILS ]` and `[ ACCEPT ]`.
+When there is no active trip, the map shows **Live Tracking / Waiting for assignment**, a vehicle at the current GPS fix, and a fixed **5 km radius**. Missing GPS reads **Locating vehicle** and does not invent a vehicle at fallback coordinates; interrupted connectivity uses a neutral indicator and **Connection interrupted**.
 
-5. **Radar Pulse 5 km Maxed Scaling**:
-   - When set to 5 km or when zoomed out, the pulse expands dynamically (`baseScale` up to `2.55x`–`3.15x`) via `window.updateRadarBloomScale()`.
-   - Listens to map `zoom` events so the multi-layered pulse wave envelope smoothly covers the entire 5 km coverage perimeter.
+This replaces the former multi-tier radar, range selector, large standby dashboard, completed-trip count, quick actions and swipe-to-collapse sheet. Active-trip navigation and dispatch acceptance continue through their existing paths.
 
-6. **Interactive Radar Legend & Coverage Toggling**:
-   - Interactive badge at top-left: `● Your Vehicle`, `⛽ Nearest Gas Station`, `🚗 Fleet Drivers`, `📄 Dispatch Requests`.
-   - **Specific Coverage Toggling**: Drivers can tap any legend category to toggle its visibility on/off:
-     - Tapping **Nearest Gas Station** toggles all partner fuel station markers on the map/radar.
-     - Tapping **Fleet Drivers** toggles all active nearby fleet vehicle markers.
-     - Tapping **Dispatch Requests** toggles pending/scheduled dispatch assignment markers.
-     - Tapping **Your Vehicle** toggles the driver center vehicle puck and radar wave pulse bloom.
-   - **Visual Feedback & Controls**:
-     - Active layers render with full-color indicators and `eye-outline` icons.
-     - Inactive (hidden) layers dim (45% opacity) with strikethrough typography and `eye-off-outline` icons.
-     - Active layer counter badge in header (`3/4`, `2/4`) appears when any layer is hidden.
-     - Quick **"Show all layers"** button restores all categories with a single tap.
-     - Auto-dismisses `selectedMarker` if the currently inspected entity's category is toggled off.
-   - Floating recenter FAB with locate icon appears upon map drag and returns camera focus to the vehicle, dynamically lowering its position when the bottom sheet is collapsed.
+- The geographic boundary is a static, softly filled dashed circle around the driver. Its pixel diameter comes from projecting the existing circle geometry through the map, so zooming out shrinks the boundary instead of enlarging it. GPS changes update its scale at the current latitude.
+- Expanding radar pulse rings animate for **3.6 seconds** with a 1.8s staggered secondary ripple, ease-out, using a visible 1.5px border (`rgba(40, 95, 80, .75)` light, `rgba(92, 255, 220, .85)` dark) and radial wash gradient, fading smoothly at the 5 km boundary. Scaling `box-shadow` is omitted on large bloom elements to preserve mobile GPU fill-rate, with animations paused dynamically during touch interactions (`.map-interacting`). CSS uses compositor-only transform and opacity with hardware layer backface isolation. Reduced-motion preference disables the pulse and preserves the boundary. The former bright core, tiered glows and standby headlights are removed.
+- In-app indicator `RadarPulse.jsx` (Home empty state, Trips standby queue, SOS) similarly carries a 1.5px stroke and refined fill for clean, slightly visible scanning feedback without visual clutter.
+- Recenter fits the actual coverage bounds with room for the header and bottom surfaces, resets north-up/flat view and resumes following. The circle is a visual coverage radius, not a new server-side operating-area restriction.
+- Light maps retain the existing FleetOps styling with muted blue water, soft green land and quieter labels. Dark appearance still follows the app theme. Provider POI/transit/shield labels are hidden in standby.
+- Right-hand controls use existing **ClayCard** compact surfaces: direction/recenter, layers, locate. The layers legend is closed initially; optional station/driver layers start hidden. Assigned dispatch markers and their existing authorized accept/details actions remain available. Anchored optional station/driver data is development-only; no other-driver live feed was introduced in the driver app.
+- A compact **ClayCard** near the bottom-left shows real temperature, condition, place (or Local weather) and device-local day/date. It reuses **useAmbientWeather**; the hook also exposes the original weather payload for condition/place. No valid weather means no card, with no fabricated weather or loading surface.
+- Weather sits **16 dp above** the existing 64 dp navigation pill, using its exported safe-area bottom-offset calculation. Controls share the weather bottom anchor. The navigation remains pinned below the weather.
+- Navigation labels are **Home / Map / Trips / Profile**. The scan button, wave and center spacer are hidden while Map is selected; other tabs retain their existing scan action. Global SOS behavior is unchanged.
 
-7. **Full View Map (Swipe-Down Gestures)**:
-   - The Idle Dashboard Bottom Sheet supports swipe-down gestures via `PanResponder` and spring animation (`idlePanY`).
-   - **Collapsed Peek State**: Swiping down smoothly collapses the dashboard into a minimal ~44px bottom bar (`FULL MAP VIEW · SWIPE UP FOR DASHBOARD`), granting unobstructed full-screen view of the map and radar.
-   - **Expanded State**: Swiping up or tapping the peek bar smoothly springs the sheet back to normal view.
-   - **Redundant SOS Button Removed**: The extra coral SOS button in the bottom sheet was removed; the existing app header distress action and modal handle all emergency distress requests.
+## Performance Optimization (2026-09-13, implemented)
 
-## Architecture & Implementation
-
-### 1. Web-to-Native GPU-Accelerated Animation in `TomTomMap.js`
-- Exposed functions:
-  - `window.updateRadarCoverage(km)`: Eases camera zoom and triggers `window.updateRadarBloomScale()`.
-  - `window.updateRadarBloomScale()`: Dynamically calculates scale based on range and map zoom level, expanding the bloom container up to 5 km.
-  - `window.updateCarRotation(heading)`: Rotates the forward-pointing center puck to match vehicle heading.
-  - `window.renderRadarMarkers(markers, selectedKm)`: Groups markers into Euclidean clusters, styles `.priority-station` and `.priority-vehicle`, and binds tap events.
-  - `window.setVehicleVisible(visible)`: Toggles DOM visibility of the center vehicle marker and radar bloom container.
-  - `window.recenterRadar()`: Eases camera to driver location with north-up bearing.
-  - `window.applyFleetMapTheme(isDark)`: Switches body class and map layer styles.
-- Supported props:
-  - `showVehicleMarker`: controls visibility of the driver origin puck / radar bloom via `useEffect` injection.
-
-### 2. Standby Radar Interface in `map.js`
-- Manages `radarRadiusKm`, `coverageVisibility`, `selectedMarker`, `isPannedAway`, `legendExpanded`, `radarMarkers`, `filteredRadarMarkers`, and `isIdleCollapsed`.
-- `coverageVisibility`: tracks active state for `vehicle`, `gas_station`, `driver`, `assignment`.
-- `filteredRadarMarkers`: dynamically filters `radarMarkers` before feeding into `TomTomMap`, triggering instant map marker cluster updates.
-- Reads real active and pending driver trips from `/api/mobile/driver/trips`.
-- Restricts marker generation strictly to Gas Stations, Fleet Drivers, and Dispatch Requests.
-- Renders `selectedMarkerCard` with dispatcher-only accept actions and Fuel Report shortcuts.
-- Manages the swipe-down collapse mechanism for Full Map View.
+Resolved mobile map panning and idle lag ("medj laggyy") across Android WebViews:
+- **GPU Fill-Rate Protection:** Stripped GPU-saturating dynamic `box-shadow` calculations from the 1000px scaling radar bloom pulses, maintaining crisp 1.5px borders and smooth radial gradients with `translate3d(0, 0, 0)` and `-webkit-backface-visibility: hidden` layer isolation.
+- **Gesture Interaction Suspension:** Dynamically toggles `.map-interacting` on `dragstart`/`dragend` to suspend pulse animations (`animation-play-state: paused`) while the user is actively panning or zooming, dedicating 100% of GPU resources to 60fps gesture rendering.
+- **Prevented Redundant WebView Reloads:** Hoisted `cachedCarImage` at module level and removed `carImage` from `htmlContent` dependencies. Asset loads inject via `window.setCarMarkerImage` without re-creating the DOM or re-executing SDK scripts.
+- **RAF-Throttled Transform Calculations:** Throttled `zoom` and `rotate` map event listeners via `requestAnimationFrame` to eliminate DOM layout thrashing.
+- **React & Native Bridge Optimization:** Removed dead `setIsPannedAway` state setter which caused whole-screen re-renders on map touch; widened parked compass heading deadband to 10° to filter hand tremors; enabled Android WebView hardware acceleration (`androidHardwareAccelerationDisabled={false}`, `overScrollMode="never"`); and wrapped `TomTomMap` in `React.memo`.
 
 ## Verification
-- Unit test suite: all 96 test files (1,098 tests) passing (`npm run test:run`).
-- ESLint: zero errors, zero warnings across `mobile/app/(app)/(tabs)/map.js` and `mobile/components/TomTomMap.js`.
-- Verified native dev client running without errors.
+
+- ESLint: zero errors/warnings across touched files (`TomTomMap.js`, `map.js`, `RadarPulse.jsx`).
+- Mobile Vitest: **20 test suites, 121 tests passed** (`npx vitest run mobile/lib --no-cache`).
+- Android Expo export: **1,394 modules**, **5.14 MB Hermes bundle**, successful.
+- Native visual/device acceptance remains pending: automated checks verify bundle integrity, zero runtime errors, and test pass rates.
+
+
+## Web standby visibility fix - 2026-09-14
+
+The web Live Map previously consumed only active-trip GPS and rescue positions, so PR 4.5 standby publications were invisible there. It now polls the separately authorized GET /api/tracking/standby-locations feed every 15 seconds and merges verified standby pins into the existing operations map. Standby pins carry driver/plate identity, a Standby label, observation time and accuracy, without a fabricated trip or breadcrumb history. The map shows a standby count and removes expired pins or pins from a failed standby feed; active trips take precedence for the same driver/vehicle.
+
+The endpoint requires trips:read_all, uses private/no-store responses, and reuses standbyState, qualifiedGps and effectiveStandbyVehicle. Presence requires current attendance, consent, active session, tracking enabled, no active trip/rescue, a matching eligible vehicle and a fresh accurate observation from the current duty session. This explicitly adds operations-wide standby visibility; request-specific recommendation GPS relevance and generic API storage-field suppression remain unchanged. Foreground-only publication remains the current mobile scope. Per-driver eligibility checks are reused for the small fleet; batch schedule/pairing reads if polling cost becomes significant.
+
+Verified: 15 focused tests across four files; targeted ESLint; web production build (200 pages); route authorization audit (264 guarded methods, zero failures); new identity SQL executed successfully against the configured database. Real-device/browser acceptance remains pending.
+
+## Web operations workspace — v3 (2026-09-14, implemented)
+
+Standby poll moved to 30 s. New `Available resources` card (verified standby pins with observed age; expired/failed-feed hidden; active-trip precedence kept) kept separate from `Fleet exceptions · active fleet only` (grounded vehicles + monitor incident signals from already-loaded page data — the standby feed never represents unavailable vehicles). Map viewport is dispatcher-owned (manual pan/zoom sticks; Recenter/select re-fits); selected-trip corridor is stable pickup→destination geometry with a distinct dashed approach stub. See [[Tracking]] for the full record and verification (114 files / 1164 tests, build 201 pages, auth 266/266).

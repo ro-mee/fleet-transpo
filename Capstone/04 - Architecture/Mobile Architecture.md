@@ -30,13 +30,15 @@ Visible tab order = declaration order (2026-09-10: explicit `trips` entry added 
 | Route | Label | Visible |
 |---|---|---|
 | `index` | Home | yes |
-| `map` | Live Map | yes |
+| `map` | Map | yes |
 | `fuel_action` | (center scan FAB, no label) | yes |
 | `trips` | Trips (navigate icon) | yes |
 | `profile` | Profile | yes |
 | `history` | — (`href: null`) | no |
 | `notifications` | Alerts (via header bell) | no |
 | `vehicle` | — (`href: null`, via Profile) | no |
+
+**2026-09-13 Map presentation:** While Map is selected, the shared tab bar hides its scan button, wave and spacer, leaving Home / Map / Trips / Profile below the standby weather. Other tabs retain scan. The map shares the bar's bottom-offset function for safe-area separation.
 
 Shared tab language: icons 24px (focused/outline pairs), labels 11px `bodyMedium`, item height 48, equal `flex: 1` slots; scan FAB is a 56px raised circle (`raisedControl`) centered in its slot.
 
@@ -158,3 +160,21 @@ The map screen shows ONE calm banner while genuinely en route (gated to the en-r
 ## Related
 
 [[Authentication]] · [[Tracking]] · [[Token Rotation And Refresh Races]] · [[Trips]] · [[Architecture]] · [[Driver Management]]
+
+
+## PR 4.5 ? Context-aware dispatch (2026-09-13, implemented)
+
+The existing global poster now owns foreground standby publication as well as trip/rescue posting. Profile adds clay duty controls backed by driverattendance. Standby is self-only, consented, paired, checked-in, session-validated and never queued offline. A fresh server acknowledgement drives the standby Live Tracking header; local map movement alone does not. Background standby remains out of scope. The existing carlive.png WebView marker and clay weather/navigation layout remain intact.
+
+Verification and remaining device acceptance: [[PR 4.5 Context-Aware Dispatch Radar Implementation Plan#Implementation record ? 2026-09-13]]. Full suite: 1,140 passing tests; later focused checks: 37 passing tests; web build, Android export, route-auth audit and migration/query verification passed.
+
+
+## Launch animation and startup optimization - 2026-09-14
+
+The app previously played a five-second car Lottie at 1.2x, faded the launch overlay out over 360 ms, then faded/scaled the entire app in over another 620 ms. This could expose an empty intermediate frame and prolonged the opening sequence. The underlying navigator now stays rendered at its normal scale while one 240 ms native overlay fade reveals it. Touch and accessibility access to the underlying navigator remain disabled until launch completes.
+
+The existing car artwork now plays once at 2.5x (about two seconds), with a 2.3-second fallback timer. The dial and wordmark settle earlier; the secondary location-beacon artwork holds a static frame instead of running a second Lottie loop. Motion waits for the OS reduced-motion preference, which uses a 150 ms hold and effectively immediate transition. Completion is guarded against duplicate events, cancelled car animations do not complete launch, and entrance animations stop on cleanup. Auth, consent, fonts and data loading retain their existing guards.
+
+Direct imports load only the six font weights already used by the app. Verified Android export changed from 1,395 modules / 101 assets / 5.15 MB Hermes bundle to 1,373 modules / 79 assets / 5.13 MB; 22 unused font assets no longer enter the export. No typography or clay styling change and no dependency added.
+
+Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .

@@ -22,10 +22,15 @@ import { AppAlert } from '../../../components/AppAlert';
 import { useTheme } from "../../../lib/theme-context";
 import { useNotificationFeed } from "../../../context/notification-feed";
 import { TOUCH_TARGET } from "../../../lib/theme";
-import { SkeletonCard, ErrorNotice } from "../../../components/ui";
+import { ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
+import {
+  useSharedSkeletonPulse,
+  DriverHeroCardSkeleton,
+  DriverTripCardSkeleton,
+} from "../../../components/home/DriverHomeSkeletons";
 import {
   getIncidentDeadLetters,
   retryIncidentDeadLetters,
@@ -68,6 +73,7 @@ export default function Home() {
   const [activeStatuses, setActiveStatuses] = useState([]);
   const [driverProfile, setDriverProfile] = useState(null);
   const [loading, setLoading] = useState(true);
+  const skeletonPulse = useSharedSkeletonPulse(loading);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [actingOn, setActingOn] = useState(null);
@@ -114,13 +120,13 @@ export default function Home() {
     poster.weatherTripId != null && String(poster.weatherTripId) === String(activeTrip?.trip_id)
       ? poster.weather
       : null;
-  const { chip: rawWeatherChip } = useAmbientWeather(tripWeather);
+  const { chip: rawWeatherChip } = useAmbientWeather(tripWeather, driverId);
   // Stable chip identity: the hook builds a fresh object per call, which
   // would defeat the header memo below on every parent render.
   const weatherChip = useMemo(
     () => rawWeatherChip,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- field-wise identity; the object itself is always new
-    [rawWeatherChip?.icon, rawWeatherChip?.temperature, rawWeatherChip?.label]
+    [rawWeatherChip?.icon, rawWeatherChip?.temperature, rawWeatherChip?.label, rawWeatherChip?.isNight]
   );
 
   const load = useCallback(async () => {
@@ -430,7 +436,7 @@ export default function Home() {
             <SyncNote syncedAt={Math.min(tripsSyncedAt ?? Infinity, meSyncedAt ?? Infinity)} label="dashboard" />
           </View>
         ) : null}
-        {loading ? <SkeletonCard lines={4} /> : <DriverHeroCard
+        {loading ? <DriverHeroCardSkeleton pulse={skeletonPulse} /> : <DriverHeroCard
           upcoming={upcoming.length} capped={trips.length >= 50}
           completed={completed} vehicle={vehicle}
           confirmed={tripsSyncedAt != null} profileConfirmed={meSyncedAt != null}
@@ -478,7 +484,12 @@ export default function Home() {
 
         <HomeQuickActions actions={shortcuts} />
         {error ? <ErrorNotice message={error} onRetry={load} /> : null}
-        {loading ? <><SkeletonCard lines={4} /><SkeletonCard lines={4} /></> : (!activeTrip && upcoming.length === 0 ? <>
+        {loading ? (
+          <>
+            <AssignmentsHeading onPress={goTrips} title="Today’s Assignments" />
+            <DriverTripCardSkeleton pulse={skeletonPulse} />
+          </>
+        ) : (!activeTrip && upcoming.length === 0 ? <>
           {/* Preserved empty state — intentionally unchanged: heading, null
               cards, and all confirmed/offline/not-synced copy stay exactly as
               they were. Dynamic layout below only runs with trip data. */}

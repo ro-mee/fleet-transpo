@@ -21,6 +21,10 @@ function configFor(risk, entity = TRIP, context = {}) {
 }
 
 describe("resolveMarkerConfig monitor risk accent", () => {
+  it("labels standby presence without inventing a trip", () => {
+    expect(resolveMarkerConfig({ vehicle_id:2, vehicle_status:"Standby", plate_number:"TEST", recorded_at:new Date().toISOString() }))
+      .toMatchObject({ type:"vehicle", title:"TEST", status:"Standby", pulse:false });
+  });
   it("NORMAL — and no risk at all — keeps the premium phase marker untouched", () => {
     expect(configFor(null)).toMatchObject({ status: "On trip", tone: "green", pulse: false });
     expect(configFor("NORMAL")).toMatchObject({ status: "On trip", tone: "green", pulse: false });

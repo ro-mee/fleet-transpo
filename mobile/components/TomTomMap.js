@@ -1,8 +1,12 @@
-import React, { useRef, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useMemo, useState, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { Asset } from 'expo-asset';
+import * as FileSystem from 'expo-file-system';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../lib/theme-context';
 import { palettes } from '../lib/theme';
+
+let cachedCarImage = '';
 
 const TomTomMap = forwardRef(({ 
   origin, 
@@ -25,6 +29,45 @@ const TomTomMap = forwardRef(({
   onMapReady
 }, ref) => {
   const webViewRef = useRef(null);
+  const [carImage, setCarImage] = useState(cachedCarImage);
+  useEffect(() => {
+    let active = true;
+    async function loadCar() {
+      try {
+        const asset = await Asset.fromModule(require('../assets/images/carlive.png')).downloadAsync();
+        let base64 = '';
+        if (typeof FileSystem?.File !== 'undefined' && asset.localUri) {
+          try {
+            base64 = await new FileSystem.File(asset.localUri).base64();
+          } catch (_) {}
+        }
+        if (!base64 && asset.localUri && FileSystem?.readAsStringAsync) {
+          try {
+            base64 = await FileSystem.readAsStringAsync(asset.localUri, { encoding: FileSystem.EncodingType.Base64 });
+          } catch (_) {}
+        }
+        if (base64) {
+          cachedCarImage = 'data:image/png;base64,' + base64;
+        } else if (asset.localUri || asset.uri) {
+          cachedCarImage = asset.localUri || asset.uri;
+        }
+        if (active && cachedCarImage) {
+          setCarImage(cachedCarImage);
+          webViewRef.current?.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(cachedCarImage)}); true;`);
+        }
+      } catch (error) {
+        console.warn('Map car image could not load', error);
+      }
+    }
+    loadCar();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (carImage && webViewRef.current) {
+      webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(carImage)}); true;`);
+    }
+  }, [carImage]);
   const { colors, scheme } = useTheme();
 
   useImperativeHandle(ref, () => ({
@@ -77,6 +120,7 @@ const TomTomMap = forwardRef(({
   const safePickupLabel = escapeJsSingle(pickupLabel);
   const safeDropoffLabel = escapeJsSingle(dropoffLabel);
 
+  const hasOriginFix = origin?.lat != null && origin?.lng != null;
   const htmlContent = useMemo(() => {
     return `
       <!DOCTYPE html>
@@ -96,14 +140,17 @@ const TomTomMap = forwardRef(({
               .tt-popup-panel { background: ${colors.surface}; }
               .popup-title { font-family: system-ui, -apple-system, sans-serif; font-size: 11px; font-weight: 700; color: ${colors.onSurface}; margin: 0; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
               
-              .origin-marker-car { 
-                  width: 36px; 
-                  height: 72px; 
-                  background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="%23475569"/><stop offset="50%" stop-color="%23cbd5e1"/><stop offset="100%" stop-color="%23475569"/></linearGradient><linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="%230f172a"/><stop offset="100%" stop-color="%231e293b"/></linearGradient></defs><rect x="4" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="4" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="8" y="8" width="48" height="112" rx="16" fill="url(%23grad)"/><path d="M 14 40 L 50 40 L 46 90 L 18 90 Z" fill="%2394a3b8"/><path d="M 12 40 Q 32 28 52 40 L 50 48 L 14 48 Z" fill="url(%23glass)"/><path d="M 16 90 Q 32 100 48 90 L 46 84 L 18 84 Z" fill="url(%23glass)"/><path d="M 12 8 Q 16 6 20 8 L 20 12 L 12 12 Z" fill="%23fcd34d"/><path d="M 52 8 Q 48 6 44 8 L 44 12 L 52 12 Z" fill="%23fcd34d"/><rect x="12" y="116" width="14" height="4" rx="2" fill="%23ef4444"/><rect x="38" y="116" width="14" height="4" rx="2" fill="%23ef4444"/></svg>'); 
-                  background-size: contain; 
-                  background-repeat: no-repeat; 
-                  background-position: center; 
-                  filter: drop-shadow(0 6px 10px rgba(0,0,0,0.4)); 
+              .origin-marker-car {
+                  width: 60px; height: 60px; flex-shrink: 0;
+                  background-image: ${(cachedCarImage || carImage) ? `url('${cachedCarImage || carImage}')` : 'radial-gradient(circle, #70B991 0 6px, transparent 7px)'};
+                  background-size: contain; background-repeat: no-repeat; background-position: center;
+                  position: relative; z-index: 1;
+                  filter: drop-shadow(0 3px 5px rgba(18, 38, 28, 0.28));
+                  will-change: transform;
+                  transition: transform 0.2s cubic-bezier(0.2, 0.6, 0.35, 1);
+              }
+              .scheme-dark .origin-marker-car {
+                  filter: drop-shadow(0 0 1.5px rgba(220, 245, 232, 0.60)) drop-shadow(0 3px 6px rgba(0, 0, 0, 0.65));
               }
               .origin-marker-dot { align-items: center; justify-content: center; display: flex; flex-direction: column; position: relative; }
               .origin-dot-outer { width: 22px; height: 22px; border-radius: 11px; background: ${colors.primary}2e; display: flex; align-items: center; justify-content: center; position: absolute; top: -15px; }
@@ -180,290 +227,58 @@ const TomTomMap = forwardRef(({
               .overview-btn { display: none !important; }
               .recenter-btn { display: none !important; }
               
-              /* Car Customizer Modal */
-              .car-customizer-overlay { position: absolute; inset: 0; background: rgba(17,24,22,0.58); display: flex; align-items: flex-end; justify-content: center; z-index: 2000; padding: 16px; }
-              .car-customizer-modal { background: ${colors.surface}; padding: 24px; border-radius: 16px; width: 100%; max-width: 360px; box-shadow: 0 16px 40px rgba(22,37,31,0.24); font-family: system-ui, sans-serif; }
-              .car-customizer-modal h3 { margin: 0 0 6px 0; font-size: 20px; color: ${colors.onSurface}; text-align: left; }
-              .car-customizer-modal label { font-size: 13px; font-weight: 600; color: ${colors.onSurfaceVariant}; margin-bottom: 14px; display: block; text-align: left; }
-              .color-options { display: flex; gap: 12px; margin-bottom: 24px; justify-content: center; flex-wrap: wrap; }
-              .color-swatch { width: 48px; height: 48px; border-radius: 24px; cursor: pointer; box-shadow: 0 3px 10px rgba(22,37,31,0.14); border: 3px solid ${colors.surface}; outline: 1px solid ${colors.outlineVariant}; }
-              .color-swatch.active { outline: 3px solid ${colors.secondary}; outline-offset: 2px; }
-              .color-swatch:active { transform: scale(0.94); }
-              .customizer-close { width: 100%; min-height: 48px; padding: 14px; background: ${colors.primary}; color: ${colors.onPrimary}; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
 
-              /* Car Headlights Glow */
-              .car-headlights-glow {
-                  position: absolute;
-                  top: -6px;
-                  width: 32px;
-                  height: 24px;
-                  background: radial-gradient(ellipse at 50% 30%, rgba(253, 224, 71, 0.55) 0%, rgba(250, 204, 21, 0.18) 55%, transparent 80%);
-                  pointer-events: none;
-                  z-index: 1;
-              }
-
-              /* Radar Pulse Container */
-              .radar-pulse-container, .radar-winky-container {
-                  position: absolute;
-                  top: 50%;
-                  left: 50%;
+              /* Geographic coverage boundary and slightly visible radar pulse. */
+              .radar-pulse-container {
+                  position: absolute; top: 50%; left: 50%;
                   transform: translate3d(-50%, -50%, 0);
-                  width: 380px;
-                  height: 380px;
-                  display: flex;
-                  align-items: center;
-                  justify-content: center;
-                  pointer-events: none;
-                  z-index: 0;
-                  contain: layout paint;
-                  will-change: transform;
+                  pointer-events: none; z-index: 0;
+                  border-radius: 50%; border: 1.5px dashed rgba(61, 145, 99, .65);
+                  background: rgba(135, 210, 157, .16); box-sizing: border-box;
                   -webkit-backface-visibility: hidden;
                   backface-visibility: hidden;
-                  transition: transform 0.4s cubic-bezier(0.2, 0, 0, 1);
               }
-
-              /* Central Vehicle Ambient Glow Core (Infographic Layer 1: #A8FFE1, 70-90% Opacity) */
-              .radar-core-glow {
-                  position: absolute;
-                  width: 88px;
-                  height: 88px;
-                  border-radius: 50%;
-                  pointer-events: none;
-                  z-index: 1;
+              .standby-radar-pulse {
+                  position: absolute; inset: 0; border-radius: 50%;
+                  border: 1.5px solid rgba(40, 95, 80, .75);
+                  background: radial-gradient(circle, rgba(135, 210, 157, .24) 0%, rgba(135, 210, 157, .06) 65%, transparent 100%);
+                  animation: standbyRadarPulse 3.6s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
                   will-change: transform, opacity;
                   -webkit-backface-visibility: hidden;
                   backface-visibility: hidden;
                   transform: translate3d(0, 0, 0);
-                  animation: radarCoreBreathe 2.7s ease-in-out infinite alternate;
               }
-              .scheme-dark .radar-core-glow {
-                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.85) 0%, rgba(92, 255, 220, 0.48) 45%, rgba(0, 255, 179, 0.16) 70%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(92, 255, 220, 0.55);
-              }
-              .scheme-light .radar-core-glow {
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.75) 0%, rgba(40, 107, 84, 0.45) 45%, rgba(169, 200, 185, 0.18) 70%, transparent 100%);
-                  box-shadow: 0 0 18px rgba(40, 84, 72, 0.30);
-              }
-              @keyframes radarCoreBreathe {
-                  0% { transform: translate3d(0, 0, 0) scale(0.95); opacity: 0.88; }
-                  100% { transform: translate3d(0, 0, 0) scale(1.05); opacity: 1.0; }
-              }
-
-              /* Multi-Layered Concentric Proximity Depth Zones (Infographic Base Terrain) */
-              .radar-zone-layer {
-                  position: absolute;
-                  border-radius: 50%;
-                  border: none !important;
-                  outline: none !important;
-                  pointer-events: none;
-                  z-index: 0;
-                  will-change: transform;
-                  -webkit-backface-visibility: hidden;
-                  backface-visibility: hidden;
-                  transform: translate3d(0, 0, 0);
-              }
-
-              /* Dark Mode Concentric Depth Zones */
-              .scheme-dark .radar-zone-layer.zone-4 {
-                  width: 370px;
-                  height: 370px;
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.08) 0%, rgba(0, 229, 168, 0.04) 40%, rgba(0, 229, 168, 0.01) 75%, transparent 100%);
-                  animation: zoneBreathe4 8.1s ease-in-out infinite alternate;
-              }
-              .scheme-dark .radar-zone-layer.zone-3 {
-                  width: 290px;
-                  height: 290px;
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.14) 0%, rgba(0, 229, 168, 0.06) 65%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(0, 229, 168, 0.08);
-                  animation: zoneBreathe3 6.4s ease-in-out infinite alternate;
-              }
-              .scheme-dark .radar-zone-layer.zone-2 {
-                  width: 210px;
-                  height: 210px;
-                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.18) 0%, rgba(0, 255, 179, 0.08) 70%, transparent 100%);
-                  box-shadow: 0 0 16px rgba(0, 255, 179, 0.12);
-                  animation: zoneBreathe2 5.4s ease-in-out infinite alternate;
-              }
-              .scheme-dark .radar-zone-layer.zone-1 {
-                  width: 130px;
-                  height: 130px;
-                  background: radial-gradient(circle at 50% 50%, rgba(168, 255, 225, 0.26) 0%, rgba(92, 255, 220, 0.14) 65%, transparent 100%);
-                  box-shadow: 0 0 14px rgba(92, 255, 220, 0.16);
-                  animation: zoneBreathe1 3.8s ease-in-out infinite alternate;
-              }
-
-              /* Light Mode Concentric Depth Zones */
-              .scheme-light .radar-zone-layer.zone-4 {
-                  width: 370px;
-                  height: 370px;
-                  background: radial-gradient(circle at 50% 50%, rgba(120, 168, 149, 0.10) 0%, rgba(120, 168, 149, 0.04) 45%, rgba(220, 233, 227, 0.01) 75%, transparent 100%);
-                  animation: zoneBreathe4 8.1s ease-in-out infinite alternate;
-              }
-              .scheme-light .radar-zone-layer.zone-3 {
-                  width: 290px;
-                  height: 290px;
-                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.14) 0%, rgba(120, 168, 149, 0.06) 65%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(40, 84, 72, 0.07);
-                  animation: zoneBreathe3 6.4s ease-in-out infinite alternate;
-              }
-              .scheme-light .radar-zone-layer.zone-2 {
-                  width: 210px;
-                  height: 210px;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.18) 0%, rgba(64, 132, 114, 0.08) 70%, transparent 100%);
-                  box-shadow: 0 0 16px rgba(40, 84, 72, 0.10);
-                  animation: zoneBreathe2 5.4s ease-in-out infinite alternate;
-              }
-              .scheme-light .radar-zone-layer.zone-1 {
-                  width: 130px;
-                  height: 130px;
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 84, 72, 0.24) 0%, rgba(40, 107, 84, 0.12) 65%, transparent 100%);
-                  box-shadow: 0 0 14px rgba(40, 84, 72, 0.14);
-                  animation: zoneBreathe1 3.8s ease-in-out infinite alternate;
-              }
-
-              /* Zone Breathing Animations with hardware composited translate3d */
-              @keyframes zoneBreathe1 {
-                  0% { transform: translate3d(0, 0, 0) scale(0.97); }
-                  100% { transform: translate3d(0, 0, 0) scale(1.03); }
-              }
-              @keyframes zoneBreathe2 {
-                  0% { transform: translate3d(0, 0, 0) scale(0.97); }
-                  100% { transform: translate3d(0, 0, 0) scale(1.03); }
-              }
-              @keyframes zoneBreathe3 {
-                  0% { transform: translate3d(0, 0, 0) scale(0.96); }
-                  100% { transform: translate3d(0, 0, 0) scale(1.04); }
-              }
-              @keyframes zoneBreathe4 {
-                  0% { transform: translate3d(0, 0, 0) scale(0.95); }
-                  100% { transform: translate3d(0, 0, 0) scale(1.05); }
-              }
-
-              /* Distinct, Visible Radar Wave Pulse Layers (Infographic Specs) */
-              .radar-pulse-ring, .radar-pulse-disc, .radar-bloom-ripple {
-                  position: absolute;
-                  border-radius: 50%;
-                  pointer-events: none;
-                  z-index: 2;
-                  will-change: transform, opacity;
-                  -webkit-backface-visibility: hidden;
-                  backface-visibility: hidden;
-                  -webkit-transform-style: preserve-3d;
-                  transform-style: preserve-3d;
-                  transform: translate3d(0, 0, 0);
-              }
-
-              /* Dark Mode Wave Pulse Layers */
-              /* Layer 2 – Inner Pulse: #5CFFDC, Higher Opacity (45-70%), Sharper Edge */
-              .scheme-dark .radar-pulse-ring.layer-inner {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(92, 255, 220, 0.70);
-                  background: radial-gradient(circle at 50% 50%, rgba(92, 255, 220, 0.24) 0%, rgba(92, 255, 220, 0.08) 55%, transparent 85%);
-                  box-shadow: 0 0 14px rgba(92, 255, 220, 0.50), inset 0 0 10px rgba(92, 255, 220, 0.25);
-                  animation: pulseInnerWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-                  animation-delay: 0s;
-              }
-
-              /* Layer 3 – Middle Pulse: #00FFB3, Medium Opacity (25-45%), Stronger Glow */
-              .scheme-dark .radar-pulse-ring.layer-middle {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(0, 255, 179, 0.50);
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 255, 179, 0.18) 0%, rgba(0, 255, 179, 0.05) 60%, transparent 90%);
-                  box-shadow: 0 0 18px rgba(0, 255, 179, 0.40), inset 0 0 12px rgba(0, 255, 179, 0.16);
-                  animation: pulseMiddleWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-                  animation-delay: 0.9s;
-              }
-
-              /* Layer 4 – Outer Pulse: #00E5A8, Low Opacity (15-25%), Soft Gradient */
-              .scheme-dark .radar-pulse-ring.layer-outer {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(0, 229, 168, 0.32);
-                  background: radial-gradient(circle at 50% 50%, rgba(0, 229, 168, 0.12) 0%, rgba(0, 229, 168, 0.03) 70%, transparent 100%);
-                  box-shadow: 0 0 22px rgba(0, 229, 168, 0.28);
-                  animation: pulseOuterWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+              .standby-radar-pulse-2 {
                   animation-delay: 1.8s;
               }
-
-              /* Light Mode Wave Pulse Layers */
-              .scheme-light .radar-pulse-ring.layer-inner {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(40, 107, 84, 0.65);
-                  background: radial-gradient(circle at 50% 50%, rgba(40, 107, 84, 0.20) 0%, rgba(40, 107, 84, 0.06) 55%, transparent 85%);
-                  box-shadow: 0 0 12px rgba(40, 107, 84, 0.35), inset 0 0 8px rgba(40, 107, 84, 0.18);
-                  animation: pulseInnerWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-                  animation-delay: 0s;
+              .map-interacting .standby-radar-pulse {
+                  animation-play-state: paused !important;
               }
-              .scheme-light .radar-pulse-ring.layer-middle {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(40, 107, 84, 0.45);
-                  background: radial-gradient(circle at 50% 50%, rgba(64, 132, 114, 0.15) 0%, rgba(64, 132, 114, 0.04) 60%, transparent 90%);
-                  box-shadow: 0 0 16px rgba(40, 107, 84, 0.25), inset 0 0 10px rgba(64, 132, 114, 0.12);
-                  animation: pulseMiddleWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-                  animation-delay: 0.9s;
+              @keyframes standbyRadarPulse {
+                  0% { transform: scale(.08); opacity: 0; }
+                  15% { opacity: .72; }
+                  50% { opacity: .42; }
+                  80% { opacity: .18; }
+                  100% { transform: scale(1); opacity: 0; }
               }
-              .scheme-light .radar-pulse-ring.layer-outer {
-                  width: 110px;
-                  height: 110px;
-                  border: 1.5px solid rgba(120, 168, 149, 0.30);
-                  background: radial-gradient(circle at 50% 50%, rgba(169, 200, 185, 0.10) 0%, rgba(169, 200, 185, 0.02) 70%, transparent 100%);
-                  box-shadow: 0 0 20px rgba(120, 168, 149, 0.18);
-                  animation: pulseOuterWave 2.7s cubic-bezier(0.22, 1, 0.36, 1) infinite;
-                  animation-delay: 1.8s;
+              .radar-radius-label {
+                  position: absolute; bottom: calc(100% + 8px); left: 50%;
+                  transform: translateX(-50%); white-space: nowrap;
+                  padding: 5px 10px; border-radius: 14px;
+                  background: #f4faf5; color: #315640; font: 600 11px sans-serif;
+                  box-shadow: 0 3px 8px rgba(38, 70, 50, .12), inset 0 1px 1px white;
               }
-
-              /* Keyframes with Smooth Organic Fade-in & Continuous Dissipation */
-              @keyframes pulseInnerWave {
-                  0% {
-                      transform: translate3d(0, 0, 0) scale(0.20);
-                      opacity: 0;
-                  }
-                  12% {
-                      opacity: 0.72;
-                  }
-                  55% {
-                      opacity: 0.38;
-                  }
-                  100% {
-                      transform: translate3d(0, 0, 0) scale(1.45);
-                      opacity: 0;
-                  }
+              .scheme-dark .radar-pulse-container {
+                  border-color: rgba(92, 255, 220, .45);
+                  background: rgba(36, 95, 80, .18);
               }
-              @keyframes pulseMiddleWave {
-                  0% {
-                      transform: translate3d(0, 0, 0) scale(0.25);
-                      opacity: 0;
-                  }
-                  14% {
-                      opacity: 0.52;
-                  }
-                  60% {
-                      opacity: 0.24;
-                  }
-                  100% {
-                      transform: translate3d(0, 0, 0) scale(2.35);
-                      opacity: 0;
-                  }
+              .scheme-dark .standby-radar-pulse {
+                  border-color: rgba(92, 255, 220, .85);
+                  background: radial-gradient(circle, rgba(92, 255, 220, .26) 0%, rgba(92, 255, 220, .06) 65%, transparent 100%);
               }
-              @keyframes pulseOuterWave {
-                  0% {
-                      transform: translate3d(0, 0, 0) scale(0.30);
-                      opacity: 0;
-                  }
-                  16% {
-                      opacity: 0.32;
-                  }
-                  65% {
-                      opacity: 0.14;
-                  }
-                  100% {
-                      transform: translate3d(0, 0, 0) scale(3.25);
-                      opacity: 0;
-                  }
+              .scheme-dark .radar-radius-label { background: #233c30; color: #d1edda; box-shadow: 0 3px 8px #0003; }
+              @media (prefers-reduced-motion: reduce) {
+                  .standby-radar-pulse { animation: none; opacity: 0; }
               }
 
               /* Incident / Emergency Marker Pulse (1:1 Web .fleet-marker-pulse Parity) */
@@ -636,22 +451,6 @@ const TomTomMap = forwardRef(({
               <div id="etaDelay" class="eta-delay">⚠️ +-- min traffic</div>
           </div>
           
-          <!-- Car Customizer UI -->
-          <div id="carCustomizer" class="car-customizer-overlay" style="display: none;">
-              <div class="car-customizer-modal">
-                  <h3>Customize vehicle</h3>
-                  <label>Choose your map marker color</label>
-                  <div class="color-options">
-                      <div class="color-swatch active" data-color="forest" style="background: ${colors.primary};" onclick="window.setCarColor('forest')"></div>
-                      <div class="color-swatch" data-color="brass" style="background: ${colors.secondary};" onclick="window.setCarColor('brass')"></div>
-                      <div class="color-swatch" data-color="rust" style="background: ${colors.tertiary};" onclick="window.setCarColor('rust')"></div>
-                      <div class="color-swatch" data-color="silver" style="background: #cbd5e1;" onclick="window.setCarColor('silver')"></div>
-                      <div class="color-swatch" data-color="black" style="background: #334155;" onclick="window.setCarColor('black')"></div>
-                  </div>
-                  <button class="customizer-close" onclick="document.getElementById('carCustomizer').style.display = 'none';">Done</button>
-              </div>
-          </div>
-
           <script>
               tt.setProductInfo('fleetops', '1.0');
               
@@ -660,7 +459,7 @@ const TomTomMap = forwardRef(({
               window.ttMap = null;
               window.isFollowing = true;
               
-              window.carColor = 'forest';
+
 
               window.createGeoJsonCircle = function(centerLng, centerLat, radiusInMeters, points) {
                   if (!points) points = 64;
@@ -691,103 +490,55 @@ const TomTomMap = forwardRef(({
               window.radarMarkerInstances = [];
               window.currentMarkersData = [];
 
-              window.updateRadarCirclePositions = function(carLng, carLat) {
-                  if (!window.ttMap) return;
-                  const innerSrc = window.ttMap.getSource('radar-inner-source');
-                  const outerSrc = window.ttMap.getSource('radar-outer-source');
-                  if (!innerSrc || !outerSrc) return;
-
-                  let outerRadius = 3000;
-                  const km = window.currentRadarKm || 3;
-                  if (km <= 1) outerRadius = 2000;
-                  else if (km <= 3) outerRadius = 3000;
-                  else if (km <= 5) outerRadius = 5000;
-                  else outerRadius = 8000;
-
-                  innerSrc.setData(window.createGeoJsonCircle(carLng, carLat, 1000));
-                  outerSrc.setData(window.createGeoJsonCircle(carLng, carLat, outerRadius));
+              window.updateRadarCirclePositions = function() {
+                  window.updateRadarBloomScale();
               };
 
               window.updateRadarBloomScale = function() {
                   const bloom = document.getElementById('radarBloomContainer');
-                  if (!bloom || !window.ttMap) return;
-                  const km = window.currentRadarKm || 3;
-                  const zoom = window.ttMap.getZoom();
-
-                  // Base scale per km range:
-                  // 1 km: ~0.95x
-                  // 3 km: ~1.40x
-                  // 5 km: ~2.55x (scaling up to 5 km boundary at maxed)
-                  // >5 km / All: ~3.15x
-                  let baseScale = 1.0;
-                  if (km <= 1) baseScale = 0.95;
-                  else if (km <= 3) baseScale = 1.40;
-                  else if (km <= 5) baseScale = 2.55;
-                  else baseScale = 3.15;
-
-                  // Scale up dynamically as user zooms out so the 5 km perimeter remains visually covered
-                  if (zoom < 14.2) {
-                      const zoomDiff = 14.2 - zoom;
-                      baseScale = baseScale * (1 + zoomDiff * 0.45);
-                  } else if (zoom > 15.0 && km > 1) {
-                      const zoomInDiff = zoom - 15.0;
-                      baseScale = Math.max(0.85, baseScale / (1 + zoomInDiff * 0.35));
-                  }
-
-                  bloom.style.transform = 'translate3d(-50%, -50%, 0) scale(' + baseScale.toFixed(2) + ')';
+                  const map = window.ttMap;
+                  if (!bloom || !map || !window.originMarker) return;
+                  const center = window.originMarker.getLngLat();
+                  const edge = window.createGeoJsonCircle(center.lng, center.lat, window.currentRadarKm * 1000).geometry.coordinates[0][0];
+                  const a = map.project(center);
+                  const b = map.project(edge);
+                  const diameter = 2 * Math.hypot(b.x - a.x, b.y - a.y);
+                  bloom.style.width = diameter + 'px';
+                  bloom.style.height = diameter + 'px';
               };
 
-              window.updateRadarCoverage = function(km, carLng, carLat) {
-                  if (!window.ttMap) return;
+              window.updateRadarCoverage = function(km) {
                   window.currentRadarKm = km;
-                  const cLng = carLng !== undefined ? carLng : (window.currentCarLng !== undefined ? window.currentCarLng : ${origin?.lng ?? 'null'});
-                  const cLat = carLat !== undefined ? carLat : (window.currentCarLat !== undefined ? window.currentCarLat : ${origin?.lat ?? 'null'});
-
-                  let zoomLevel = 14.2;
-                  if (km <= 1) zoomLevel = 15.5;
-                  else if (km <= 3) zoomLevel = 14.2;
-                  else if (km <= 5) zoomLevel = 13.0;
-                  else zoomLevel = 11.8;
-                  window.currentRadarZoom = zoomLevel;
-
-                  if (cLng !== null && cLat !== null) {
-                      window.updateRadarCirclePositions(cLng, cLat);
-                      if (window.isFollowing) {
-                          window.ttMap.easeTo({
-                              center: [cLng, cLat],
-                              zoom: zoomLevel,
-                              duration: 600
-                          });
-                      }
-                  }
-
+                  if (window.isFollowing) window.recenterRadar();
                   window.updateRadarBloomScale();
-
-                  if (window.currentMarkersData && window.renderRadarMarkers) {
-                      window.renderRadarMarkers(window.currentMarkersData, km);
-                  }
               };
 
               window.recenterRadar = function() {
-                  if (!window.ttMap) return;
+                  const map = window.ttMap;
+                  if (!map || !window.originMarker) return;
                   window.isFollowing = true;
-                  const targetLng = window.currentCarLng !== undefined ? window.currentCarLng : ${origin?.lng ?? 'null'};
-                  const targetLat = window.currentCarLat !== undefined ? window.currentCarLat : ${origin?.lat ?? 'null'};
-                  if (targetLng !== null && targetLat !== null) {
-                      window.ttMap.easeTo({
-                          center: [targetLng, targetLat],
-                          zoom: window.currentRadarZoom || 14.2,
-                          duration: 700,
-                          pitch: 0,
-                          bearing: 0
-                      });
-                  }
+                  const center = window.originMarker.getLngLat();
+                  const bounds = new tt.LngLatBounds();
+                  window.createGeoJsonCircle(center.lng, center.lat, window.currentRadarKm * 1000).geometry.coordinates[0].forEach(p => bounds.extend(p));
+                  const height = map.getContainer().clientHeight;
+                  map.fitBounds(bounds, { padding: { top: height * .22, bottom: height * .32, left: 54, right: 54 }, bearing: 0, pitch: 0, duration: 0 });
+                  window.currentRadarZoom = map.getZoom();
+                  window.updateRadarBloomScale();
               };
 
               window.setVehicleVisible = function(visible) {
                   if (window.originMarker) {
                       const el = window.originMarker.getElement();
                       if (el) el.style.display = visible ? 'flex' : 'none';
+                  }
+              };
+
+              window.carMarkerImageUrl = ${JSON.stringify(cachedCarImage || carImage || '')};
+              window.setCarMarkerImage = function(imgUrl) {
+                  window.carMarkerImageUrl = imgUrl || '';
+                  const el = document.getElementById('carInnerIcon');
+                  if (el && imgUrl) {
+                      el.style.backgroundImage = 'url("' + imgUrl + '")';
                   }
               };
 
@@ -938,23 +689,6 @@ const TomTomMap = forwardRef(({
                   });
               };
 
-              window.generateCarSvg = function(color) {
-                  let baseColor, lightColor;
-                  switch(color) {
-                      case 'forest': baseColor = '%23285448'; lightColor = '%23a9c8b9'; break;
-                      case 'brass': baseColor = '%238a632c'; lightColor = '%23d2a765'; break;
-                      case 'rust': baseColor = '%239d4f3f'; lightColor = '%23e0a08e'; break;
-                      case 'red': baseColor = '%23b91c1c'; lightColor = '%23ef4444'; break;
-                      case 'blue': baseColor = '%231d4ed8'; lightColor = '%233b82f6'; break;
-                      case 'silver': baseColor = '%23475569'; lightColor = '%23cbd5e1'; break;
-                      case 'black': baseColor = '%230f172a'; lightColor = '%23334155'; break;
-                      case 'white': baseColor = '%23e2e8f0'; lightColor = '%23ffffff'; break;
-                      default: baseColor = '%23475569'; lightColor = '%23cbd5e1';
-                  }
-                  
-                  return \`url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 128"><defs><linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="\${baseColor}"/><stop offset="50%" stop-color="\${lightColor}"/><stop offset="100%" stop-color="\${baseColor}"/></linearGradient><linearGradient id="glass" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="%230f172a"/><stop offset="100%" stop-color="%231e293b"/></linearGradient></defs><rect x="4" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="24" width="8" height="20" rx="3" fill="%23000"/><rect x="4" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="52" y="84" width="8" height="20" rx="3" fill="%23000"/><rect x="8" y="8" width="48" height="112" rx="16" fill="url(%23grad)"/><path d="M 14 40 L 50 40 L 46 90 L 18 90 Z" fill="\${lightColor}"/><path d="M 12 40 Q 32 28 52 40 L 50 48 L 14 48 Z" fill="url(%23glass)"/><path d="M 16 90 Q 32 100 48 90 L 46 84 L 18 84 Z" fill="url(%23glass)"/><path d="M 12 8 Q 16 6 20 8 L 20 12 L 12 12 Z" fill="%23fcd34d"/><path d="M 52 8 Q 48 6 44 8 L 44 12 L 52 12 Z" fill="%23fcd34d"/><rect x="12" y="116" width="14" height="4" rx="2" fill="%23ef4444"/><rect x="38" y="116" width="14" height="4" rx="2" fill="%23ef4444"/></svg>')\`;
-              };
-
               window.updateCarRotation = function(heading) {
                   if (heading === undefined) {
                       if (window.getRouteBearing && window.currentCarLng) {
@@ -971,22 +705,6 @@ const TomTomMap = forwardRef(({
                   }
               };
 
-              window.updateCarIcon = function() {
-                  const el = document.getElementById('carInnerIcon');
-                  if (el) {
-                      el.style.backgroundImage = window.generateCarSvg(window.carColor);
-                      el.style.width = '36px';
-                  }
-              };
-
-              window.setCarColor = function(color) {
-                  window.carColor = color;
-                  document.querySelectorAll('.color-swatch').forEach(swatch => {
-                      swatch.classList.toggle('active', swatch.dataset.color === color);
-                  });
-                  window.updateCarIcon();
-              };
-              
               window.showOverview = function() {
                   window.isFollowing = false;
                   document.getElementById('recenterBtn').style.display = 'flex';
@@ -1422,11 +1140,11 @@ const TomTomMap = forwardRef(({
                         const isDark = forceDark !== undefined ? forceDark : ${scheme === 'dark'};
                         document.body.className = isDark ? 'scheme-dark' : 'scheme-light';
                         const bgCol = isDark ? '${palettes.dark.background}' : '${palettes.light.background}';
-                        const waterCol = isDark ? '${palettes.dark.surfaceVariant}' : '${palettes.light.surfaceVariant}';
-                        const parkCol = isDark ? '${palettes.dark.surfaceContainerLow}' : '${palettes.light.surfaceContainerLow}';
+                        const waterCol = isDark ? '${palettes.dark.surfaceVariant}' : ${radarMode} ? '#CBE4EA' : '${palettes.light.surfaceVariant}';
+                        const parkCol = isDark ? '${palettes.dark.surfaceContainerLow}' : ${radarMode} ? '#DFEADF' : '${palettes.light.surfaceContainerLow}';
                         const bldgCol = isDark ? '${palettes.dark.surfaceContainerHigh}' : '${palettes.light.surfaceContainerHigh}';
                         const roadCol = isDark ? '${palettes.dark.surfaceBright}' : '${palettes.light.surfaceBright}';
-                        const textCol = isDark ? '${palettes.dark.onSurface}' : '${palettes.light.onSurface}';
+                        const textCol = isDark ? '${palettes.dark.onSurface}' : ${radarMode} ? '#788982' : '${palettes.light.onSurface}';
                         const haloCol = isDark ? '${palettes.dark.surface}' : '${palettes.light.surface}';
 
                         const layers = map.getStyle().layers || [];
@@ -1449,6 +1167,7 @@ const TomTomMap = forwardRef(({
                                         map.setPaintProperty(layer.id, 'line-color', roadCol);
                                     }
                                 } else if (layer.type === 'symbol') {
+                                    if (${radarMode} && /poi|transit|shield/.test(id)) map.setLayoutProperty(layer.id, 'visibility', 'none');
                                     map.setPaintProperty(layer.id, 'text-color', textCol);
                                     map.setPaintProperty(layer.id, 'text-halo-color', haloCol);
                                     map.setPaintProperty(layer.id, 'text-halo-width', 1.25);
@@ -1458,20 +1177,36 @@ const TomTomMap = forwardRef(({
                     };
                     
                     map.on('dragstart', () => {
+                        document.body.classList.add('map-interacting');
                         if (window.swoopTimeout) clearTimeout(window.swoopTimeout);
                         window.isFollowing = false;
                         if (window.ReactNativeWebView) {
                             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'MAP_DRAGGED' }));
                         }
-                        if (${showCarIcon}) {
+                        if (${showCarIcon} && !${radarMode}) {
                             document.getElementById('recenterBtn').style.display = 'flex';
                         }
                     });
-                    map.on('rotate', () => {
-                        if (window.updateCarRotation) window.updateCarRotation();
+                    map.on('dragend', () => {
+                        document.body.classList.remove('map-interacting');
                     });
+                    let rotateRaf = null;
+                    map.on('rotate', () => {
+                        if (!rotateRaf) {
+                            rotateRaf = requestAnimationFrame(() => {
+                                rotateRaf = null;
+                                if (window.updateCarRotation) window.updateCarRotation();
+                            });
+                        }
+                    });
+                    let zoomRaf = null;
                     map.on('zoom', () => {
-                        if (window.updateRadarBloomScale) window.updateRadarBloomScale();
+                        if (!zoomRaf) {
+                            zoomRaf = requestAnimationFrame(() => {
+                                zoomRaf = null;
+                                if (window.updateRadarBloomScale) window.updateRadarBloomScale();
+                            });
+                        }
                     });
 
                     if (${showCarIcon}) {
@@ -1482,7 +1217,7 @@ const TomTomMap = forwardRef(({
                         } else {
                             document.getElementById('navHeader').style.display = 'none';
                         }
-                        document.getElementById('overviewBtn').style.display = 'flex';
+                        document.getElementById('overviewBtn').style.display = ${radarMode} ? 'none' : 'flex';
                     }
 
                     map.on('load', () => {
@@ -1503,45 +1238,37 @@ const TomTomMap = forwardRef(({
                         // valid origin/GPS coordinate.
                         if (!hasOrigin) return;
 
-                        // Origin Marker (radar-aware: bloom + headlights in radar mode)
+                        // Origin Marker (carlive.png: 60x60 canvas, ~51px visible car, centered GPS anchor)
                         const originEl = document.createElement('div');
                         if (${showCarIcon} || ${radarMode}) {
                             originEl.className = 'origin-marker-container' + (${radarMode} ? ' radar-origin-mode' : '');
-                            originEl.style.width = '44px';
-                            originEl.style.height = '76px';
+                            originEl.style.width = '60px';
+                            originEl.style.height = '60px';
                             originEl.style.display = 'flex';
                             originEl.style.alignItems = 'center';
                             originEl.style.justifyContent = 'center';
-                            originEl.style.pointerEvents = 'auto';
+                            originEl.style.pointerEvents = 'none';
                             originEl.style.position = 'relative';
-                            originEl.onclick = function() {
-                                document.getElementById('carCustomizer').style.display = 'flex';
-                            };
 
                             if (${radarMode}) {
                                 const bloomWrap = document.createElement('div');
                                 bloomWrap.className = 'radar-pulse-container';
                                 bloomWrap.id = 'radarBloomContainer';
-                                bloomWrap.innerHTML = '<div class="radar-zone-layer zone-4"></div>' +
-                                    '<div class="radar-zone-layer zone-3"></div>' +
-                                    '<div class="radar-zone-layer zone-2"></div>' +
-                                    '<div class="radar-zone-layer zone-1"></div>' +
-                                    '<div class="radar-core-glow"></div>' +
-                                    '<div class="radar-pulse-ring layer-outer"></div>' +
-                                    '<div class="radar-pulse-ring layer-middle"></div>' +
-                                    '<div class="radar-pulse-ring layer-inner"></div>';
+                                bloomWrap.innerHTML = '<div class="standby-radar-pulse"></div><div class="standby-radar-pulse standby-radar-pulse-2"></div>';
+                                const radiusLabel = document.createElement('span');
+                                radiusLabel.className = 'radar-radius-label';
+                                radiusLabel.textContent = window.currentRadarKm + ' km radius';
+                                originEl.appendChild(radiusLabel);
                                 originEl.appendChild(bloomWrap);
                             }
 
-                            const headlights = document.createElement('div');
-                            headlights.className = 'car-headlights-glow';
-                            originEl.appendChild(headlights);
-                            
                             const carInner = document.createElement('div');
                             carInner.className = 'origin-marker-car';
                             carInner.id = 'carInnerIcon';
+                            if (window.carMarkerImageUrl) {
+                                carInner.style.backgroundImage = 'url("' + window.carMarkerImageUrl + '")';
+                            }
                             originEl.appendChild(carInner);
-                            window.updateCarIcon();
 
                             const initHeading = ${origin?.heading ?? 0};
                             if (initHeading) {
@@ -1563,6 +1290,8 @@ const TomTomMap = forwardRef(({
                             .setLngLat([originLng, originLat])
                             ${!showCarIcon && !radarMode ? '.setPopup(originPopup)' : ''}
                             .addTo(map);
+
+                        if (${radarMode}) window.recenterRadar();
 
                         if (!${showVehicleMarker}) {
                             originEl.style.display = 'none';
@@ -1802,7 +1531,7 @@ const TomTomMap = forwardRef(({
       </html>
     `;
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [colors, scheme, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
+  }, [colors, scheme, radarMode, hasOriginFix, destAddress, dropoffLabel, pickupLabel, scrollEnabled, showCarIcon, autoSwoop, destination?.lat, destination?.lng]);
 
   // When GPS 'origin' updates, inject javascript to move the car without reloading the map!
   // Last camera center: the marker + rotation update on every fix (cheap),
@@ -1825,6 +1554,13 @@ const TomTomMap = forwardRef(({
         if (window.originMarker) {
           let finalLng = ${origin.lng};
           let finalLat = ${origin.lat};
+          
+          if (window.carMarkerImageUrl) {
+              const carEl = document.getElementById('carInnerIcon');
+              if (carEl && !carEl.style.backgroundImage) {
+                  carEl.style.backgroundImage = 'url("' + window.carMarkerImageUrl + '")';
+              }
+          }
           
           if (window.getSnappedPosition) {
               const snap = window.getSnappedPosition(finalLng, finalLat);
@@ -1883,6 +1619,11 @@ const TomTomMap = forwardRef(({
         scrollEnabled={false}
         showsVerticalScrollIndicator={false}
         showsHorizontalScrollIndicator={false}
+        allowFileAccess={true}
+        allowFileAccessFromFileURLs={true}
+        allowUniversalAccessFromFileURLs={true}
+        androidHardwareAccelerationDisabled={false}
+        overScrollMode="never"
         onMessage={(event) => {
           try {
             const data = JSON.parse(event.nativeEvent.data);
@@ -1891,7 +1632,13 @@ const TomTomMap = forwardRef(({
             }
             // MAP_READY must fire even when the caller passes no onRouteData
             // (the idle map) — otherwise the loading overlay never lifts.
-            if (data.type === 'MAP_READY' && onMapReady) onMapReady();
+            if (data.type === 'MAP_READY') {
+              const activeCar = cachedCarImage || carImage;
+              if (activeCar && webViewRef.current) {
+                webViewRef.current.injectJavaScript(`if(window.setCarMarkerImage) window.setCarMarkerImage(${JSON.stringify(activeCar)}); true;`);
+              }
+              if (onMapReady) onMapReady();
+            }
             if (data.type === 'MARKER_TAPPED' && onMarkerPress) {
               onMarkerPress(data.marker);
             }
@@ -1907,7 +1654,7 @@ const TomTomMap = forwardRef(({
 
 TomTomMap.displayName = "TomTomMap";
 
-export default TomTomMap;
+export default React.memo(TomTomMap);
 
 const styles = StyleSheet.create({
   container: {

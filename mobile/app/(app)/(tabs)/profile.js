@@ -1,5 +1,7 @@
 import { moderateScale } from '../../../lib/scaling';
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import { useFocusEffect } from '@react-navigation/native';
+import { api } from '../../../lib/api';
 import {
   ScrollView,
   StyleSheet,
@@ -67,6 +69,22 @@ export default function Profile() {
   const { profile: serverProfile } = useDriverProfile();
 
   const [logoutModal, setLogoutModal] = useState(false);
+  const [duty, setDuty] = useState(null);
+  const [dutyBusy, setDutyBusy] = useState(false);
+  const [dutyError, setDutyError] = useState(null);
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    api.get('/api/mobile/driver/duty').then(value => { if (active) setDuty(value); })
+      .catch(() => { if (active) setDutyError('Duty status unavailable. Try again when connected.'); });
+    return () => { active = false; };
+  }, []));
+  async function toggleDuty() {
+    setDutyBusy(true); setDutyError(null);
+    try {
+      setDuty(await api.post('/api/mobile/driver/duty', { active: !duty?.checkedIn }, { queueOnFailure: false }));
+    } catch (error) { setDutyError(error.message); }
+    finally { setDutyBusy(false); }
+  }
   const currentUser = serverProfile || user;
   const driverName =
     currentUser?.firstName && currentUser?.lastName
@@ -133,6 +151,13 @@ export default function Profile() {
         </ClayCard>
 
         <Section title="Account" rows={ACCOUNT_ROWS} colors={colors} type={type} onNavigate={router.push} />
+        <ClayCard variant="compact" style={styles.section}>
+          <Text style={[type.titleMd, { color: colors.onSurface }]}>{duty?.checkedIn ? 'On duty' : 'Driver duty'}</Text>
+          <Text style={[type.caption, { color: colors.onSurfaceVariant, marginVertical: 8 }]}>
+            {dutyError || 'Standby location is shared while checked in and the app is open.'}
+          </Text>
+          <ClayButton label={duty?.checkedIn ? 'End duty' : 'Start duty'} onPress={toggleDuty} loading={dutyBusy} />
+        </ClayCard>
         <Section title="Privacy & Security" rows={PRIVACY_SECURITY_ROWS} colors={colors} type={type} onNavigate={router.push} />
         <Section title="General" rows={GENERAL_ROWS} colors={colors} type={type} onNavigate={router.push} />
 

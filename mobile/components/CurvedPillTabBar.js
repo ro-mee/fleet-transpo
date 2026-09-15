@@ -33,7 +33,7 @@ const CONTAINER_PAD_TOP = 16;
  * - Gesture nav (Android/iOS): cleanly drops down closer to the gesture bar
  * - Zero insets (older screens/desktop): tight 10dp gap
  */
-function getDynamicBottomOffset(insetsBottom) {
+export function getDynamicBottomOffset(insetsBottom) {
   if (!insetsBottom || insetsBottom <= 0) return 10;
   if (insetsBottom >= 40) return insetsBottom + 4;
   return Math.max(Math.round(insetsBottom * 0.55), 10);
@@ -87,7 +87,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
     },
     {
       routeName: "map",
-      label: "Live Map",
+      label: "Map",
       activeIcon: "map",
       inactiveIcon: "map-outline",
     },
@@ -108,6 +108,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
   // Resolve currently active tab
   const currentRoute = state?.routes ? state.routes[state.index] : null;
   const activeRouteName = currentRoute ? currentRoute.name : "index";
+  const isMap = activeRouteName === "map";
 
   const handleTabPress = (routeName) => {
     if (!navigation || !state) {
@@ -220,7 +221,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
         </View>
 
         {/* Center empty spacer slot for elevated scan button */}
-        <View style={styles.centerSlot} pointerEvents="none" />
+        {!isMap && <View style={styles.centerSlot} pointerEvents="none" />}
 
         {/* Right cluster: Trips & Profile */}
         <View style={styles.tabCluster}>
@@ -230,15 +231,15 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
       </View>
 
       {/* Seamless mathematical S-curve clay wave (92dp compact width, lowered 10dp peak) */}
-      <Image
+      {!isMap && <Image
         source={isDark ? waveDark : waveLight}
         style={styles.waveImage}
         resizeMode="stretch"
         pointerEvents="none"
-      />
+      />}
 
       {/* Center Action Button (Scan) - lowered so it sits nestled gently in the cradle */}
-      <View style={styles.centerBtnPositioner} pointerEvents="box-none">
+      {!isMap && <View style={styles.centerBtnPositioner} pointerEvents="box-none">
         <Pressable
           onPress={handleScanPress}
           accessibilityRole="button"
@@ -262,7 +263,7 @@ export const CurvedPillTabBar = memo(function CurvedPillTabBar({
             <Ionicons name="scan-outline" size={25} color="#FFFFFF" />
           </LinearGradient>
         </Pressable>
-      </View>
+      </View>}
     </View>
   );
 });

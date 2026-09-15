@@ -196,3 +196,69 @@ Verified safe by audit (key parity already held): DriverSos `sosEdges`/`chipEdge
 ### Verification
 
 Targeted ESLint clean on the four touched files; mobile Vitest 16 files / 113 tests passed (new key-parity suite included); `expo export --platform android` passed (5.06 MB). No layout, spacing, content, navigation, or business-logic changes; light and dark visual recipes byte-identical to before wherever keys already matched. **The repeated Light → Dark → Light → Dark → Light cycle on the Profile tab (header, Account / Privacy & Security / General cards, Sign Out, icon tiles) requires a native device and remains pending this session.** No commit created.
+
+## Home Claymorphic Loading Skeleton & Performance Optimization — 2026-09-13
+
+Owner request: Analyze and optimize the loading skeleton on the mobile Home screen (`mobile/app/(app)/(tabs)/index.js`) to eliminate lag and stutter, while crafting faithful 1:1 claymorphic placeholder skeletons matching the loaded cards.
+
+### Problems Addressed
+1. **Lag & JS Bridge Contention:** Standard skeleton implementations instantiate a separate `Animated.loop` timer for each placeholder block. With ~15-20 skeleton elements across Hero and Trip cards, 15+ concurrent animation clocks caused continuous JS-to-Native bridge traffic, leading to frame drops (30-45fps) and UI freezing during concurrent network requests.
+2. **Cumulative Layout Shift (CLS):** The previous generic `<SkeletonCard lines={4} />` stood at ~95dp. When `DriverHeroCard` (~245dp) and `DriverTripCard` (~370dp) finished fetching, the page experienced an abrupt 150-275dp layout jump.
+3. **Aesthetic Disconnect:** The old generic wireframe skeleton had flat rectangular gray lines that clashed with the warm ivory (`#F5F2EC`) and molded clay aesthetic.
+
+### Implementation Details
+- **Master Pulse Clock (`useSharedSkeletonPulse` in `mobile/components/home/DriverHomeSkeletons.jsx`):**
+  - A single hoisted master `Animated.Value` drives all skeleton opacities screen-wide (`0.38 <-> 0.78` over 850ms ease-in-out).
+  - Uses `useNativeDriver: true`, offloading all pulse ticks to the native rendering thread. Slashes bridge messaging by >90%.
+  - Respects OS accessibility preferences via `AccessibilityInfo.isReduceMotionEnabled()`. When enabled, animation stops and holds a steady, pleasant resting opacity (0.55).
+  - Automatically cleans up and unmounts loop animations when `loading` becomes false.
+  - Adheres to React 19 rules (using lazy state initialization `useState(() => new Animated.Value(0.38))` rather than render-phase ref access).
+- **Lightweight Hardware-Accelerated Primitive (`ClaySkeleton`):**
+  - Uses `renderToHardwareTextureAndroid={true}` for zero-re-rasterization GPU layer caching.
+  - Automatically theme-adapted: `#D8E2DC` on light ivory mode, `#22332A` on dark forest slate.
+- **Content-Matched Clay Skeletons:**
+  - `DriverHeroCardSkeleton`: 1:1 exact structural replica of `DriverHeroCard` (~245dp height). Includes eyebrow date and subtitle skeleton, side-by-side pale mint clay KPI panels with squircle icon badges, and assigned vehicle bar with vehicle icon squircle.
+  - `DriverTripCardSkeleton`: 1:1 exact structural replica of `DriverTripCard` (~370dp height). Includes status pill, departure time, origin/destination stop nodes with vertical route track line, route map preview placeholder, and action CTA button.
+  - Preserves exact outer clay materials (`clayShade`, `compactShade`, `clayTile`) and shadow profiles.
+- **Home Screen Integration (`mobile/app/(app)/(tabs)/index.js`):**
+  - Connected `DriverHeroCardSkeleton` and `DriverTripCardSkeleton` using `skeletonPulse`.
+  - Maintained `AssignmentsHeading` ("Today’s Assignments") above the trip card skeleton to keep visual hierarchy continuous.
+  - Preserved all trip details workflows, action gates, offline handling, and modals intact without modification.
+
+### Verification
+- ESLint: Clean (0 errors, 0 warnings on `DriverHomeSkeletons.jsx` and `mobile/app/(app)/(tabs)/index.js`).
+- Unit Tests: All 21 Vitest test suites (123 tests) passing.
+- Android Hermes Export: Passed (`1,395 modules`, 5.15 MB bundle) with zero build errors.
+
+### Removal of Box Shadow Artifacts on Curved Skeleton Cards — 2026-09-13
+Owner report: The loading skeleton card is curved (`borderRadius: 28`), but Android was drawing a dark rectangular box shadow with sharp 90-degree corners protruding from the bottom-left and bottom-right corners (`media_1789308289313.png`: "remove the shadow thingyy kasi naka curved diba not box naman").
+- **Root Cause**: Two contributing factors in React Native Android:
+  1. `renderToHardwareTextureAndroid={true}` on the View forces Android to render the component into a hardware texture layer. When Android's RenderNode calculates elevation for hardware layers, it falls back to the bounding rectangle, casting a solid rectangular shadow.
+  2. Spreading `mats.clayShade` applies `elevation: 7` alongside unequal top/bottom borders (`borderTopWidth: 2`, `borderBottomWidth: 3`), which triggers `outline.setRect()` instead of `outline.setRoundRect()` in Android's `ReactViewBackgroundDrawable`.
+- **Fix**:
+  - Removed all outer drop shadows and elevation (`elevation: 0`, `shadowOpacity: 0`, `mats.clayShade`) from `DriverHeroCardSkeleton` (`heroShell`) and `DriverTripCardSkeleton` (`styles.trip`).
+  - Added `overflow: 'hidden'` to `styles.heroShell` (radius 28) and `styles.trip` (radius 24) to ensure strictly curved silhouettes.
+  - Removed `renderToHardwareTextureAndroid={true}` from all skeleton containers and `ClaySkeleton` bars, relying exclusively on `useNativeDriver: true` for GPU opacity modulation.
+  - Removed shadow declarations from inner KPI and vehicle skeleton panels, retaining clean pastel tinted surfaces (`#E5EEE7`, `#F3F7F4`).
+- **Verification**: ESLint 0 errors / 0 warnings; all 21 Vitest test suites (123 tests) passing.
+
+### AssignmentsHeading & View Full Schedule Typography Refinement — 2026-09-13
+Owner request: Adjust font sizes of "Today's Assignments" and "View Full Schedule" on the mobile Home screen ("paki ayos yung font size ng today's assignment and view full schedule").
+- **Changes**:
+  - In `DriverHomeCards.jsx` (`AssignmentsHeading`):
+    - Title: replaced bulky 20px `titleLg` with scaled 17px (`moderateScale(17)` / 22px lineHeight, `PlusJakartaSans-SemiBold`, `letterSpacing: -0.2`) in `colors.onSurface`.
+    - Action link ("View Full Schedule"): refined from 14px to scaled 13px (`moderateScale(13)` / 18px lineHeight, `PlusJakartaSans-SemiBold`) in `colors.primary`.
+    - Chevron icon resized to 14px with tight 3px gap and 6px hitSlop for comfortable touch accessibility.
+    - Prevents text truncation / ellipsis on narrow 360-390dp screens while establishing clean visual hierarchy between section title and secondary action.
+- **Verification**: ESLint 0 errors / 0 warnings; all 21 Vitest test suites (123 tests) passing.
+
+
+## Launch animation and startup optimization - 2026-09-14
+
+The app previously played a five-second car Lottie at 1.2x, faded the launch overlay out over 360 ms, then faded/scaled the entire app in over another 620 ms. This could expose an empty intermediate frame and prolonged the opening sequence. The underlying navigator now stays rendered at its normal scale while one 240 ms native overlay fade reveals it. Touch and accessibility access to the underlying navigator remain disabled until launch completes.
+
+The existing car artwork now plays once at 2.5x (about two seconds), with a 2.3-second fallback timer. The dial and wordmark settle earlier; the secondary location-beacon artwork holds a static frame instead of running a second Lottie loop. Motion waits for the OS reduced-motion preference, which uses a 150 ms hold and effectively immediate transition. Completion is guarded against duplicate events, cancelled car animations do not complete launch, and entrance animations stop on cleanup. Auth, consent, fonts and data loading retain their existing guards.
+
+Direct imports load only the six font weights already used by the app. Verified Android export changed from 1,395 modules / 101 assets / 5.15 MB Hermes bundle to 1,373 modules / 79 assets / 5.13 MB; 22 unused font assets no longer enter the export. No typography or clay styling change and no dependency added.
+
+Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .

@@ -1,19 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { Animated, AppState, Easing } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState, View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
-import {
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-} from "@expo-google-fonts/plus-jakarta-sans";
-import {
-  IBMPlexMono_500Medium,
-  IBMPlexMono_600SemiBold,
-} from "@expo-google-fonts/ibm-plex-mono";
+import { PlusJakartaSans_400Regular } from "@expo-google-fonts/plus-jakarta-sans/400Regular";
+import { PlusJakartaSans_500Medium } from "@expo-google-fonts/plus-jakarta-sans/500Medium";
+import { PlusJakartaSans_600SemiBold } from "@expo-google-fonts/plus-jakarta-sans/600SemiBold";
+import { PlusJakartaSans_700Bold } from "@expo-google-fonts/plus-jakarta-sans/700Bold";
+import { IBMPlexMono_500Medium } from "@expo-google-fonts/ibm-plex-mono/500Medium";
+import { IBMPlexMono_600SemiBold } from "@expo-google-fonts/ibm-plex-mono/600SemiBold";
 // ^ Plus Jakarta Sans keeps the mobile interface warm, polished, and highly legible;
 //   IBM Plex Mono remains reserved for operational data.
 import { AuthProvider } from "../lib/auth";
@@ -31,22 +27,16 @@ import { completeLaunch } from "../lib/launch";
 // fallback typeface. Hidden in the effect below once fonts are ready.
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
-function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
+function ThemedApp({ showLaunch, onLaunchDone }) {
   const { scheme, colors } = useTheme();
   return (
     <ErrorBoundary>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
-      <Animated.View
-        style={{
-          flex: 1,
-          opacity: appEntrance,
-          transform: [{
-            scale: appEntrance.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.985, 1],
-            }),
-          }],
-        }}
+      <View
+        style={{ flex: 1 }}
+        pointerEvents={showLaunch ? "none" : "auto"}
+        accessibilityElementsHidden={showLaunch}
+        importantForAccessibility={showLaunch ? "no-hide-descendants" : "auto"}
       >
         <Stack
           screenOptions={{
@@ -54,7 +44,7 @@ function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
             contentStyle: { backgroundColor: colors.background },
           }}
         />
-      </Animated.View>
+      </View>
       {/* Premium alert overlay — above everything, below nothing */}
       <AppAlertHost />
       {/* Heads-up banners + toasts for the 3-tier notification system */}
@@ -73,7 +63,6 @@ function ThemedApp({ appEntrance, showLaunch, onLaunchDone }) {
  */
 export default function RootLayout() {
   const [showLaunch, setShowLaunch] = useState(true);
-  const [appEntrance] = useState(() => new Animated.Value(0));
   const [loaded, error] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -99,16 +88,10 @@ export default function RootLayout() {
     initPush().catch(() => { });
   }, []);
 
-  const handleLaunchDone = (reduceMotion) => {
+  const handleLaunchDone = useCallback(() => {
     setShowLaunch(false);
     completeLaunch();
-    Animated.timing(appEntrance, {
-      toValue: 1,
-      duration: reduceMotion ? 1 : 620,
-      easing: Easing.bezier(0.16, 1, 0.3, 1),
-      useNativeDriver: true,
-    }).start();
-  };
+  }, []);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextAppState) => {
@@ -136,7 +119,6 @@ export default function RootLayout() {
       <SettingsProvider>
         <ThemeProvider>
           <ThemedApp
-            appEntrance={appEntrance}
             showLaunch={showLaunch}
             onLaunchDone={handleLaunchDone}
           />

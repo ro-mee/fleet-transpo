@@ -1,11 +1,18 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
-import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking } from 'react-native';
+import { StyleSheet, View, Text, Animated, PanResponder, Dimensions, Pressable, ScrollView, AppState, Linking, Image } from 'react-native';
 import LottieView from "lottie-react-native";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from 'expo-location';
 import TomTomMap from "../../../components/TomTomMap";
+import { METEOCON_ASSETS } from "../../../components/WeatherChip";
 import { api, wasQueued } from "../../../lib/api";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAmbientWeather } from "../../../lib/ambient-weather";
 import { useAuth } from "../../../lib/auth";
+import { resolveDriverId } from "../../../lib/offline-cache";
+import { ClayCard } from "../../../components/clay/ClayCard";
+import { useConnectivity } from "../../../lib/connectivity-context";
+import { getDynamicBottomOffset } from "../../../components/CurvedPillTabBar";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET, statusColors } from "../../../lib/theme";
 import { clayMaterials } from "../../../lib/clay";
@@ -332,10 +339,25 @@ function getOperationalRadarMarkers(userLocation, pendingTrips) {
 export default function MapTab() {
   const router = useRouter();
   const { colors, scheme, type } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { status: connectivity } = useConnectivity();
   const { user } = useAuth();
+  const driverId = resolveDriverId(user);
+  const { chip: rawWeatherChip, weather: weatherDetails } = useAmbientWeather(null, driverId);
+  // Stable chip identity: the hook builds a fresh object per call, which
+  // would re-render the standby card on every parent render (same memo
+  // discipline as the Home header chip).
+  const weather = useMemo(
+    () => rawWeatherChip,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- field-wise identity; the object itself is always new
+    [rawWeatherChip?.icon, rawWeatherChip?.temperature, rawWeatherChip?.label, rawWeatherChip?.isNight]
+  );
+  // Same Meteocons art as the Home chip (the model now carries semantic keys,
+  // not Ionicons names) — hoisted so no new object is built inside the JSX.
+  const weatherArt = weather ? METEOCON_ASSETS[weather.icon] : null;
+  const standbyBottom = getDynamicBottomOffset(insets.bottom) + 64 + 16;
   
   const [activeTrip, setActiveTrip] = useState(null);
-  const [todayStats, setTodayStats] = useState({ completed: 0 });
   const [driverLocation, setDriverLocation] = useState(null);
   const [loading, setLoading] = useState(true);
   const [permissionDenied, setPermissionDenied] = useState(false);
@@ -348,17 +370,16 @@ export default function MapTab() {
   const [now, setNow] = useState(NOW_AT_LOAD);
   const mapRef = useRef(null);
 
-  const [radarRadiusKm, setRadarRadiusKm] = useState(3);
-  const [legendExpanded, setLegendExpanded] = useState(true);
-  const [, setIsPannedAway] = useState(false);
+  const radarRadiusKm = 5;
+  const [legendExpanded, setLegendExpanded] = useState(false);
   const [selectedMarker, setSelectedMarker] = useState(null);
   const [nearbyTrips, setNearbyTrips] = useState([]);
   const [recentNotification, setRecentNotification] = useState(null);
   const [acceptingTripId, setAcceptingTripId] = useState(null);
   const [coverageVisibility, setCoverageVisibility] = useState({
     vehicle: true,
-    gas_station: true,
-    driver: true,
+    gas_station: false,
+    driver: false,
     assignment: true,
   });
 
@@ -408,40 +429,6 @@ export default function MapTab() {
   const [isMinimized, setIsMinimized] = useState(false);
 
   const isExpandedRef = useRef(false);
-
-  // Idle Bottom Sheet Animation State (Supports swipe-down for Full Map View)
-  const IDLE_SHEET_COLLAPSED_OFFSET = 188; // leaves a sleek ~44px peek bar
-  const [idlePanY] = useState(() => new Animated.Value(0));
-  const [isIdleCollapsed, setIsIdleCollapsed] = useState(false);
-  const isIdleCollapsedRef = useRef(false);
-
-  const snapIdleSheet = useCallback((collapsed) => {
-    isIdleCollapsedRef.current = collapsed;
-    setIsIdleCollapsed(collapsed);
-    Animated.spring(idlePanY, {
-      toValue: collapsed ? IDLE_SHEET_COLLAPSED_OFFSET : 0,
-      tension: 50,
-      friction: 8,
-      useNativeDriver: true,
-    }).start();
-  }, [idlePanY]);
-
-  const idlePanResponder = useRef(
-    // eslint-disable-next-line react-hooks/refs -- RN gesture responder reads live drag refs
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => false,
-      onMoveShouldSetPanResponder: (evt, gestureState) => Math.abs(gestureState.dy) > 5,
-      onPanResponderRelease: (evt, gestureState) => {
-        if (gestureState.dy > 30 || gestureState.vy > 0.4) {
-          snapIdleSheet(true);
-        } else if (gestureState.dy < -30 || gestureState.vy < -0.4) {
-          snapIdleSheet(false);
-        } else {
-          snapIdleSheet(isIdleCollapsedRef.current);
-        }
-      },
-    })
-  ).current;
 
   const snapTo = useCallback((expanded) => {
     isExpandedRef.current = expanded;
@@ -584,10 +571,6 @@ export default function MapTab() {
       }
       prevTripIdsRef.current = currentIds;
       
-      // Completed-trip count for the idle dashboard.
-      setTodayStats({
-        completed: (data || []).filter(t => t.trip_status === 'Completed').length
-      });
     } catch (e) {
       console.warn("Could not load trip for map", e);
     } finally {
@@ -621,7 +604,7 @@ export default function MapTab() {
   const radarGridLat = driverLocation?.lat != null ? Number(driverLocation.lat).toFixed(4) : null;
   const radarGridLng = driverLocation?.lng != null ? Number(driverLocation.lng).toFixed(4) : null;
   const radarMarkers = useMemo(() => {
-    if (!driverLocation) return [];
+    if (!driverLocation || !__DEV__) return [];
     return getOperationalRadarMarkers(driverLocation, nearbyTrips);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- quantized grid only; identity churns per fix
   }, [radarGridLat, radarGridLng, nearbyTrips]);
@@ -753,11 +736,11 @@ export default function MapTab() {
               const compassHeading = headingObj.trueHeading >= 0 ? headingObj.trueHeading : headingObj.magHeading;
               if (compassHeading == null || compassHeading < 0) return;
 
-              // Only propagate meaningful changes (>= 5 degrees).
+              // Only propagate meaningful changes (>= 10 degrees).
               const last = lastCompassHeading.current;
               let delta = last == null ? 999 : Math.abs(compassHeading - last) % 360;
               if (delta > 180) delta = 360 - delta;
-              if (delta < 5) return;
+              if (delta < 10) return;
               lastCompassHeading.current = compassHeading;
 
               setDriverLocation(prev => {
@@ -922,7 +905,7 @@ export default function MapTab() {
   ), [isPending, destLat, destLng]);
   const handleMapReady = useCallback(() => setMapReady(true), []);
   const handleMarkerPress = useCallback((marker) => setSelectedMarker(marker), []);
-  const handleMapDragged = useCallback(() => setIsPannedAway(true), []);
+  const handleMapDragged = useCallback(() => {}, []);
 
   // Permission denied — an honest dead-end with a way out, not a loader that
   // never resolves.
@@ -968,19 +951,11 @@ export default function MapTab() {
 
   // If no active trip, show driver live map in Proximity & Coverage Radar Mode
   if (!activeTrip) {
-    const rangeLabel = radarRadiusKm === 1 
-      ? "Active within 1 km" 
-      : radarRadiusKm === 3 
-        ? "Active within 3 km range" 
-        : radarRadiusKm === 5 
-          ? "Active within 5 km range" 
-          : "Monitoring all available areas";
-
     return (
       <View style={[styles.container, { backgroundColor: rTheme.background }]}>
         <TomTomMap 
           ref={mapRef}
-          origin={driverLocation ? { lat: driverLocation.lat, lng: driverLocation.lng, heading: driverLocation.heading } : { lat: 14.6, lng: 121.0 }}
+          origin={driverLocation}
           destination={null}
           scrollEnabled={true}
           showCarIcon={true}
@@ -1011,54 +986,18 @@ export default function MapTab() {
           </View>
         )}
         
-        {/* Top HUD: Status Pill & Distance Filter */}
-        <View style={styles.topHudContainer} pointerEvents="box-none">
-          <View style={[styles.radarStatusPill, mats.clayPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder, shadowColor: colors.shadow }]}>
-            <View style={[styles.radarLiveDot, { backgroundColor: rTheme.primary }]} />
-            <Text style={[styles.radarStatusText, { color: rTheme.pillText }]}>RADAR</Text>
-            <View style={[styles.radarDivider, { backgroundColor: rTheme.topBarBorder }]} />
-            <Text style={[styles.radarSubText, { color: rTheme.pillSubtext }]}>LIVE TRACKING</Text>
+        <View style={[styles.standbyHeader, { top: insets.top + 16 }]} pointerEvents="none">
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={[styles.standbyLiveDot, { backgroundColor: poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error && connectivity === 'online' ? colors.primary : colors.outline }]} />
+            <Text style={[type.titleLg, { color: colors.onSurface }]}>
+              {!driverLocation ? 'Locating vehicle' : connectivity !== 'online' ? 'Connection interrupted' : poster.standbyObservedAt && now - new Date(poster.standbyObservedAt).getTime() <= 90000 && !poster.error ? 'Live Tracking' : 'Tracking paused'}
+            </Text>
           </View>
-
-          <View style={[styles.rangeFilterContainer, mats.clayPill, { backgroundColor: rTheme.topBarBg, borderColor: rTheme.topBarBorder, shadowColor: colors.shadow }]}>
-            {[
-              { label: '1 km', value: 1 },
-              { label: '3 km', value: 3 },
-              { label: '5 km', value: 5 },
-              { label: 'All', value: 10 },
-            ].map((opt) => {
-              const isSelected = radarRadiusKm === opt.value;
-              return (
-                <Pressable
-                  key={opt.label}
-                  onPress={() => {
-                    setRadarRadiusKm(opt.value);
-                    mapRef.current?.setRadarRadius(opt.value);
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Set radar radius to ${opt.label}`}
-                  style={[
-                    styles.rangeFilterBtn,
-                    isSelected && { backgroundColor: rTheme.activeRangeBg },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.rangeFilterText,
-                      { color: isSelected ? rTheme.activeRangeText : rTheme.inactiveRangeText },
-                      isSelected && { fontFamily: fonts.bodyBold, fontWeight: '700' },
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+          <Text style={[type.caption, { color: colors.onSurfaceVariant, marginTop: 5 }]}>Waiting for assignment</Text>
         </View>
 
         {/* Collapsible Interactive Radar Legend */}
-        <View style={[styles.legendCard, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
+        {legendExpanded && <View style={[styles.legendCard, { top: insets.top + 92 }, mats.compactShade, { backgroundColor: rTheme.legendBg, borderColor: rTheme.legendBorder, shadowColor: colors.shadow }]}>
           <Pressable 
             onPress={() => setLegendExpanded(!legendExpanded)} 
             style={styles.legendHeaderRow}
@@ -1169,31 +1108,19 @@ export default function MapTab() {
               )}
             </View>
           )}
-        </View>
+        </View>}
 
-        {/* Floating Recenter Radar FAB */}
-        <Pressable
-          onPress={() => {
-            mapRef.current?.recenter();
-            setIsPannedAway(false);
-          }}
-          accessibilityRole="button"
-          accessibilityLabel="Recenter radar on vehicle"
-          style={({ pressed }) => [
-            styles.recenterRadarFab,
-            mats.clayTile,
-            {
-              backgroundColor: rTheme.fabBg,
-              borderColor: rTheme.fabBorder,
-              shadowColor: colors.shadow,
-              bottom: isIdleCollapsed ? 80 : 330,
-              opacity: pressed ? 0.85 : 1,
-              transform: [{ scale: pressed ? 0.95 : 1 }],
-            },
-          ]}
-        >
-          <Ionicons name="locate" size={20} color={rTheme.fabIcon} />
-        </Pressable>
+        <View style={[styles.standbyControls, { bottom: standbyBottom }]}>
+          <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Recenter on vehicle">
+            <Ionicons name="navigate-outline" size={21} color={colors.onSurface} />
+          </ClayCard>
+          <ClayCard variant="compact" style={styles.standbyControl} onPress={() => setLegendExpanded(!legendExpanded)} accessibilityLabel="Map layers" accessibilityState={{ expanded: legendExpanded }}>
+            <Ionicons name="layers-outline" size={21} color={colors.onSurface} />
+          </ClayCard>
+          <ClayCard variant="compact" style={styles.standbyControl} onPress={() => mapRef.current?.recenter()} accessibilityLabel="Locate my vehicle">
+            <Ionicons name="locate-outline" size={21} color={colors.onSurface} />
+          </ClayCard>
+        </View>
 
         {/* Compact Interactive Assignment / Station / Driver Card */}
         {selectedMarker && (
@@ -1204,7 +1131,7 @@ export default function MapTab() {
               backgroundColor: rTheme.cardBg, 
               borderColor: rTheme.cardBorder,
               shadowColor: colors.shadow,
-              bottom: isIdleCollapsed ? 76 : 300,
+              bottom: standbyBottom + 70,
             }
           ]}>
             <View style={styles.markerCardTopRow}>
@@ -1342,134 +1269,19 @@ export default function MapTab() {
           </View>
         )}
 
-        {/* Idle Dashboard Bottom Sheet (Swipe down for Full Map View) */}
-        <Animated.View 
-          style={[
-            styles.idleSheet, 
-            mats.clayShade,
-            { 
-              backgroundColor: rTheme.sheetBg, 
-              borderColor: rTheme.sheetBorder,
-              shadowColor: colors.shadow,
-              transform: [{ translateY: idlePanY }],
-            }
-          ]}
-        >
-          {/* Touch and drag zone for collapsing / expanding the sheet */}
-          {/* eslint-disable-next-line react-hooks/refs -- spreading the once-created responder's handlers */}
-          <View {...idlePanResponder.panHandlers}>
-            <Pressable 
-              onPress={() => snapIdleSheet(!isIdleCollapsedRef.current)}
-              accessibilityRole="button"
-              accessibilityLabel={isIdleCollapsed ? "Expand dashboard" : "Collapse for full map view"}
-              hitSlop={12}
-            >
-              <View style={[styles.dragHandle, { backgroundColor: rTheme.sheetHandle }]} />
-              {isIdleCollapsed && (
-                <View style={styles.collapsedPeekRow}>
-                  <Ionicons name="chevron-up" size={16} color={rTheme.primary} />
-                  <Text style={[styles.collapsedPeekText, { color: rTheme.textSecondary }]}>
-                    FULL MAP VIEW · SWIPE UP FOR DASHBOARD
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-          </View>
-          
-          <View style={[styles.idleHeaderRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
-            <View style={[styles.idleAvatar, mats.clayTile, { backgroundColor: colors.primary, borderColor: colors.surfaceContainerLow, shadowColor: colors.shadow }]}>
-              <Ionicons name="person" size={22} color={colors.onPrimary} />
+        <View style={[styles.standbyWeather, { bottom: standbyBottom }]} pointerEvents="none">
+          {weather && <ClayCard variant="compact" style={styles.standbyWeatherCard} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            {weatherArt && <Image source={weatherArt} resizeMode="contain" accessible={false} style={{ width: 26, height: 26 }} />}
+            <View style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto', minWidth: 0 }}>
+              <Text style={[type.labelLg, { color: colors.onSurface }]}>{weather.temperature}</Text>
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]} numberOfLines={1}>{weatherDetails?.label}</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[type.cardTitle, { color: rTheme.textPrimary }]}>
-                Good day, {user?.firstName || user?.name?.split(' ')[0] || 'Jack'}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                <Ionicons name="shield-checkmark" size={14} color={rTheme.primary} />
-                <Text style={[type.caption, { color: rTheme.textSecondary }]}>
-                  On Duty • Ready for assignments
-                </Text>
-              </View>
+            <View style={{ flexGrow: 0, flexShrink: 1, flexBasis: 'auto', minWidth: 0, borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: colors.outlineVariant, paddingLeft: 10 }}>
+              <Text style={[type.caption, { color: colors.onSurface }]} numberOfLines={1}>{weatherDetails?.placeName || 'Local weather'}</Text>
+              <Text style={[type.caption, { color: colors.onSurfaceVariant }]} numberOfLines={1}>{new Date(now).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}</Text>
             </View>
-          </View>
-
-          {/* Polling Heartbeat Badge */}
-          <Pressable 
-            onPress={() => loadTrip()}
-            style={[styles.heartbeatRow, mats.compactShade, { backgroundColor: rTheme.pollingBg, borderColor: rTheme.pollingBorder, shadowColor: colors.shadow, opacity: isIdleCollapsed ? 0 : 1 }]}
-            accessibilityRole="button"
-            accessibilityLabel="Refresh dispatch queue"
-          >
-            <View style={[styles.pulseDotSmall, { backgroundColor: rTheme.warning }]} />
-            <Text style={[type.caption, { color: rTheme.textSecondary, flex: 1 }]}>
-              Auto-polling dispatch queue • {rangeLabel}
-            </Text>
-          </Pressable>
-
-          {/* Standby Fast Actions */}
-          <View style={[styles.idleActionsRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
-            <Pressable
-              onPress={() => router.push('/trips')}
-              accessibilityRole="button"
-              accessibilityLabel="View trip schedule"
-              style={({ pressed }) => [
-                styles.idleActionBtn,
-                mats.clayCta,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
-              ]}
-            >
-              <Ionicons name="calendar-outline" size={20} color={rTheme.actionBtnIcon} />
-              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Schedule</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => router.push('/inspection')}
-              accessibilityRole="button"
-              accessibilityLabel="Pre-trip inspection"
-              style={({ pressed }) => [
-                styles.idleActionBtn,
-                mats.clayCta,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
-              ]}
-            >
-              <Ionicons name="clipboard-outline" size={20} color={rTheme.actionBtnIcon} />
-              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Inspection</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => router.push('/profile/vehicle')}
-              accessibilityRole="button"
-              accessibilityLabel="Assigned vehicle"
-              style={({ pressed }) => [
-                styles.idleActionBtn,
-                mats.clayCta,
-                { backgroundColor: rTheme.actionBtnBg, borderColor: rTheme.actionBtnBorder, shadowColor: colors.shadow, opacity: pressed ? 0.8 : 1 }
-              ]}
-            >
-              <Ionicons name="car-outline" size={20} color={rTheme.actionBtnIcon} />
-              <Text style={[type.caption, { color: rTheme.actionBtnText }]}>Vehicle</Text>
-            </Pressable>
-          </View>
-          
-          {/* Bottom Row: Completed Trips Today (full width, redundant SOS removed) */}
-          <View style={[styles.bottomSheetActionsRow, { opacity: isIdleCollapsed ? 0 : 1 }]}>
-            <Pressable
-              onPress={() => router.push('/trips')}
-              style={[styles.completedTripsRow, mats.compactShade, { backgroundColor: rTheme.completedRowBg, borderColor: rTheme.completedRowBorder, shadowColor: colors.shadow, flex: 1 }]}
-              accessibilityRole="button"
-              accessibilityLabel="View completed trips today"
-            >
-              <View style={styles.statIconRow}>
-                <Ionicons name="checkmark-circle" size={18} color={rTheme.warning} />
-                <Text style={[styles.statLabel, { color: rTheme.textSecondary }]}>COMPLETED TRIPS TODAY</Text>
-              </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                <Text style={[type.headlineMd, { color: rTheme.textPrimary }]}>{todayStats.completed}</Text>
-                <Ionicons name="chevron-forward" size={16} color={rTheme.textSecondary} />
-              </View>
-            </Pressable>
-          </View>
-        </Animated.View>
+          </ClayCard>}
+        </View>
 
       </View>
     );
@@ -2050,6 +1862,12 @@ export default function MapTab() {
 }
 
 const styles = StyleSheet.create({
+  standbyHeader: { position: 'absolute', left: 20, right: 20 },
+  standbyLiveDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#FFFFFFB3' },
+  standbyControls: { position: 'absolute', right: 16, gap: 10 },
+  standbyControl: { width: 48, height: 48, borderRadius: 24, padding: 0, alignItems: 'center', justifyContent: 'center' },
+  standbyWeatherCard: { maxWidth: 280, padding: 10 },
+  standbyWeather: { position: 'absolute', left: 16, right: 80, alignItems: 'flex-start' },
   container: {
     flex: 1,
   },
@@ -2069,11 +1887,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
-  },
-  permTitle: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 18,
-    textAlign: 'center',
   },
   permMessage: {
     fontFamily: fonts.body,
@@ -2095,225 +1908,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  statusPill: {
-    position: 'absolute',
-    top: 56,
-    alignSelf: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  statusPillText: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 12,
-    letterSpacing: 0.8,
-  },
-  topHudContainer: {
-    position: 'absolute',
-    top: 52,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    zIndex: 10,
-  },
-  radarStatusPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
   radarLiveDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-  },
-  radarStatusText: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 11,
-    letterSpacing: 0.8,
-  },
-  radarDivider: {
-    width: 1,
-    height: 12,
-    marginHorizontal: 2,
-  },
-  radarSubText: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 10,
-    letterSpacing: 0.6,
-  },
-  rangeFilterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 3,
-    borderRadius: 20,
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  rangeFilterBtn: {
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 14,
-  },
-  rangeFilterText: {
-    fontSize: 11,
-    fontFamily: fonts.bodySemiBold,
-  },
-  recenterRadarFab: {
-    position: 'absolute',
-    bottom: 330,
-    right: 16,
-    width: 48,
-    height: 48,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 4,
-    zIndex: 10,
-  },
-  idleSheet: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: 20,
-    paddingBottom: 36,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    borderTopWidth: 1,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  idleHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    marginBottom: 14,
-  },
-  idleAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  idleGreeting: {
-    fontFamily: fonts.displaySemiBold || fonts.bodySemiBold,
-    fontSize: 17,
-    letterSpacing: -0.2,
-  },
-  idleSubtext: {
-    fontFamily: fonts.body,
-    fontSize: 12,
-  },
-  heartbeatRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 12,
-  },
-  pulseDotSmall: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  heartbeatText: {
-    fontFamily: fonts.body,
-    fontSize: 11,
-    flex: 1,
-  },
-  idleActionsRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  idleActionBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 9,
-    borderRadius: 18,
-    borderWidth: 1,
-  },
-  idleActionText: {
-    fontFamily: fonts.bodySemiBold,
-    fontSize: 12,
-  },
-  statBoxCompact: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 14,
-    borderWidth: 1,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  statBox: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  statIconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statLabel: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 11,
-    letterSpacing: 0.6,
-  },
-  statValue: {
-    fontFamily: fonts.displayBold || fonts.bodySemiBold,
-    fontSize: 20,
-    letterSpacing: -0.5,
   },
   toastBanner: {
     position: 'absolute',
@@ -2404,19 +2002,6 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: 4,
   },
-  legendRingSolid: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1.5,
-  },
-  legendRingDashed: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1.5,
-    borderStyle: 'dashed',
-  },
   legendLabel: {
     fontFamily: fonts.body,
     fontSize: 11,
@@ -2468,17 +2053,6 @@ const styles = StyleSheet.create({
   markerCardCloseBtn: {
     padding: 4,
   },
-  markerCardTitle: {
-    fontFamily: fonts.displayBold || fonts.bodySemiBold,
-    fontSize: 16,
-    letterSpacing: -0.2,
-    marginBottom: 2,
-  },
-  markerCardSubtitle: {
-    fontFamily: fonts.body,
-    fontSize: 13,
-    marginBottom: 10,
-  },
   markerCardMetaRow: {
     flexDirection: 'row',
     gap: 16,
@@ -2521,33 +2095,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.dataBold || fonts.bodySemiBold,
     fontSize: 12,
     letterSpacing: 0.6,
-  },
-  bottomSheetActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  completedTripsRow: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  collapsedPeekRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingTop: 4,
-  },
-  collapsedPeekText: {
-    fontFamily: fonts.dataSemiBold || fonts.bodySemiBold,
-    fontSize: 10,
-    letterSpacing: 0.8,
   },
   bottomSheet: {
     position: "absolute",
@@ -2618,11 +2165,6 @@ const styles = StyleSheet.create({
     marginBottom: 3,
     letterSpacing: 0.5,
   },
-  locationName: {
-    fontFamily: fonts.displaySemiBold || fonts.bodySemiBold,
-    fontSize: 17,
-    letterSpacing: -0.2,
-  },
   divider: {
     height: 1,
     width: '100%',
@@ -2634,11 +2176,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexShrink: 0,
     minWidth: 70,
-  },
-  headerEtaValue: {
-    fontFamily: fonts.displayBold || fonts.bodySemiBold,
-    fontSize: 22,
-    letterSpacing: -0.5,
   },
   headerDistValue: {
     fontFamily: fonts.data || fonts.body,

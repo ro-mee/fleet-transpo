@@ -41,6 +41,8 @@ export const CACHE_KEYS = {
   BALANCES: "balances",
   /** GET /api/driver/me (Home + profile header) */
   DRIVER_ME: "driver:me",
+  /** GET /api/mobile/driver/weather — last-good ambient chip payload (instant paint) */
+  AMBIENT_WEATHER: "weather:ambient",
 };
 
 /** Per-trip detail key: `trip:{id}` (dynamic, enumerated by prefix on clear). */
@@ -58,6 +60,7 @@ const STATIC_KEYS = [
   CACHE_KEYS.LEAVES,
   CACHE_KEYS.BALANCES,
   CACHE_KEYS.DRIVER_ME,
+  CACHE_KEYS.AMBIENT_WEATHER,
 ];
 
 /**

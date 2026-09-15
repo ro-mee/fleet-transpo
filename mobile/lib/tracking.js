@@ -32,6 +32,7 @@ let posterStatus = {
   weather: null,
   weatherTripId: null,
   activeTripId: null,
+  standbyObservedAt: null,
 };
 const statusListeners = new Set();
 
@@ -69,12 +70,17 @@ export function useActiveTripGpsPoster(enabled) {
   const { settings } = useSettings();
 
   useEffect(() => {
-    if (!enabled || !settings.locationTracking) return;
+    if (!enabled || !settings.locationTracking) {
+      publishStatus({ standbyObservedAt: null });
+      if (enabled) api.post('/api/mobile/driver/standby-location', { enabled: false }, { queueOnFailure: false }).catch(() => {});
+      return;
+    }
 
     let cancelled = false;
     let interval = null;
     let tripId = null;
     let responderIncidentId = null;
+    let standbyEnabled = false;
     let lastTripFetch = 0;
 
     publishStatus({ error: null });
@@ -133,7 +139,7 @@ export function useActiveTripGpsPoster(enabled) {
         }
       };
 
-      const tick = async () => {
+      const runTick = async () => {
         if (cancelled || AppState.currentState.match(/background|inactive/)) return;
         const now = Date.now();
         if (now - lastTripFetch >= TRIP_REFRESH_MS) {
@@ -141,8 +147,23 @@ export function useActiveTripGpsPoster(enabled) {
           await findActiveTrip();
           await findResponderMission();
         }
-        if (!tripId && !responderIncidentId) return;
         try {
+          if (!tripId && !responderIncidentId) {
+            const duty = await api.get('/api/mobile/driver/duty');
+            if (cancelled) return;
+            if (!duty?.checkedIn || duty.busy) {
+              publishStatus({ standbyObservedAt: null });
+              return;
+            }
+            if (!standbyEnabled) {
+              await api.post('/api/mobile/driver/standby-location', { enabled:true }, { queueOnFailure:false });
+              standbyEnabled = true;
+              if (cancelled) {
+                await api.post('/api/mobile/driver/standby-location', { enabled:false }, { queueOnFailure:false }).catch(() => {});
+                return;
+              }
+            }
+          } else publishStatus({ standbyObservedAt: null });
           const loc = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced,
           });
@@ -186,7 +207,7 @@ export function useActiveTripGpsPoster(enabled) {
                 weatherTripId: tripId,
               });
             }
-          } else {
+          } else if (responderIncidentId) {
             // Never queued offline — a stale replayed fix must not overwrite
             // the live position driving the rescue status.
             await api.post(
@@ -197,6 +218,12 @@ export function useActiveTripGpsPoster(enabled) {
               },
               { queueOnFailure: false }
             );
+          } else {
+            const res = await api.post('/api/mobile/driver/standby-location', {
+              latitude: loc.coords.latitude, longitude: loc.coords.longitude,
+              accuracy: loc.coords.accuracy, recorded_at: new Date(loc.timestamp).toISOString(),
+            }, { queueOnFailure: false });
+            if (!cancelled) publishStatus({ standbyObservedAt: res?.observedAt ?? null });
           }
           // The trip branch already published the full payload above; this
           // second publish is only for the responder path (which has none).
@@ -208,6 +235,12 @@ export function useActiveTripGpsPoster(enabled) {
           if (!cancelled) publishStatus({ error: "Location not sent. Retrying." });
         }      };
 
+      let ticking = false;
+      const tick = async () => {
+        if (ticking) return;
+        ticking = true;
+        try { await runTick(); } finally { ticking = false; }
+      };
       await tick();
       if (cancelled) return;
       interval = setInterval(tick, POST_INTERVAL_MS);
