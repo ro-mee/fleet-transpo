@@ -43,7 +43,7 @@ This raw browser DOM exception was displayed directly in the login screen error 
 ## Resolution
 
 1. **Avatar URL Sanitization (`src/lib/auth.js`)**:
-   - Added `isSafeAvatarUrl(url)` requiring remote HTTP/HTTPS URLs ≤ 512 characters.
+   - Added `isSafeAvatarUrl(url)` requiring remote HTTP/HTTPS URLs ≤ 512 characters, exported at module scope so it is accessible to both `authorize` and `callbacks.jwt` (resolving `ReferenceError: isSafeAvatarUrl is not defined` which was causing HTTP 500 crashes during NextAuth credential login).
    - Strictly rejected `data:` base64 strings and oversized payloads from `user.avatarUrl` and `token.avatarUrl`, keeping JWT cookies under ~1 KB.
    - Removed `license_image_url` from avatar fallback.
    - Cleaned the raw base64 data URLs from `employees.avatar_url` in PostgreSQL.
@@ -64,8 +64,9 @@ This raw browser DOM exception was displayed directly in the login screen error 
 7. **Safe Status Polling in `src/app/(auth)/login/page.js`**:
    - Checked `res.ok` before parsing `/api/auth/login-status` and appended `.catch(() => ({}))`.
 8. **Verification**:
+   - `src/lib/auth.test.js` (5/5 passed).
    - `src/services/auth.service.test.js` (3/3 passed).
    - `src/lib/auth/return-to.test.js` (8/8 passed).
    - `src/security-boundaries.test.js` (10/10 passed).
-   - Full Vitest suite passing (105 test files, 1138 tests).
+   - Full Vitest suite passing (137 test files, 1319 tests).
    - `npm run verify:auth` passing (261/261 routes guarded).

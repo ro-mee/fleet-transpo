@@ -8,6 +8,13 @@ import { writeAudit } from "@/lib/audit";
 import { consumeFactor } from "@/lib/auth/mfa";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
 
+export function isSafeAvatarUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
+  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
+  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
+}
+
 export const authOptions = {
   providers: [
     Credentials({
@@ -98,13 +105,6 @@ export const authOptions = {
             throw new Error("MFA_INVALID");
           }
         }
-
-function isSafeAvatarUrl(url) {
-  if (!url || typeof url !== "string") return false;
-  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
-  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
-  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
-}
 
         let driverStatus = null;
         let driverFaceImageUrl = null;
