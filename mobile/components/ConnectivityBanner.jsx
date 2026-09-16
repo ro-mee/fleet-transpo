@@ -28,6 +28,7 @@ import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 import { useConnectivity } from "../lib/connectivity-context";
 import { formatLastSynced } from "../lib/offline-cache";
+import { useCoachMarks, CoachMarkTarget } from "./coachmarks";
 
 function pickVisual({ status, phase, pendingCount, gpsRecording, lastSuccessAt }) {
   const queued = Number(pendingCount) > 0 ? Number(pendingCount) : 0;
@@ -115,9 +116,16 @@ export function ConnectivityBanner() {
   const { status, phase, pendingCount, gpsRecording, lastSuccessAt } = useConnectivity();
   const { colors } = useTheme();
   const insets = useSafeAreaInsets();
+  const { triggerMilestone } = useCoachMarks();
   const [reduceMotion, setReduceMotion] = useState(false);
   const [opacity] = useState(() => new Animated.Value(0));
   const [translateY] = useState(() => new Animated.Value(-8));
+
+  useEffect(() => {
+    if (status === "offline") {
+      triggerMilestone("offline");
+    }
+  }, [status, triggerMilestone]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
@@ -149,36 +157,38 @@ export function ConnectivityBanner() {
 
   return (
     <View style={[styles.shell, { paddingTop: insets.top, backgroundColor: colors.background }]}>
-      <Animated.View
-        style={[
-          styles.banner,
-          {
-            backgroundColor: tone.container,
-            borderColor: tone.border,
-            opacity,
-            transform: [{ translateY }],
-          },
-        ]}
-        accessibilityRole="alert"
-        accessibilityLabel={`${visual.title}${visual.subtitle ? `. ${visual.subtitle}` : ""}`}
-      >
-        <Ionicons name={visual.icon} size={18} color={tone.icon} style={styles.icon} />
-        <View style={styles.textCol}>
-          <Text style={[styles.title, { color: tone.title }]} numberOfLines={1}>
-            {visual.title}
-          </Text>
-          {visual.subtitle ? (
-            <Text style={[styles.subtitle, { color: tone.sub }]} numberOfLines={2}>
-              {visual.subtitle}
+      <CoachMarkTarget targetId="offline.banner">
+        <Animated.View
+          style={[
+            styles.banner,
+            {
+              backgroundColor: tone.container,
+              borderColor: tone.border,
+              opacity,
+              transform: [{ translateY }],
+            },
+          ]}
+          accessibilityRole="alert"
+          accessibilityLabel={`${visual.title}${visual.subtitle ? `. ${visual.subtitle}` : ""}`}
+        >
+          <Ionicons name={visual.icon} size={18} color={tone.icon} style={styles.icon} />
+          <View style={styles.textCol}>
+            <Text style={[styles.title, { color: tone.title }]} numberOfLines={1}>
+              {visual.title}
             </Text>
-          ) : null}
-        </View>
-        {visual.badge ? (
-          <View style={[styles.badge, { borderColor: tone.border }]}>
-            <Text style={[styles.badgeText, { color: tone.title }]}>{visual.badge}</Text>
+            {visual.subtitle ? (
+              <Text style={[styles.subtitle, { color: tone.sub }]} numberOfLines={2}>
+                {visual.subtitle}
+              </Text>
+            ) : null}
           </View>
-        ) : null}
-      </Animated.View>
+          {visual.badge ? (
+            <View style={[styles.badge, { borderColor: tone.border }]}>
+              <Text style={[styles.badgeText, { color: tone.title }]}>{visual.badge}</Text>
+            </View>
+          ) : null}
+        </Animated.View>
+      </CoachMarkTarget>
     </View>
   );
 }

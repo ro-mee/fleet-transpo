@@ -46,7 +46,6 @@ const PRIVACY_SECURITY_ROWS = [
 ];
 
 const GENERAL_ROWS = [
-  { title: "Driver Academy & Guide", icon: "school-outline", route: "/guide" },
   { title: "Help Center", icon: "help-circle-outline", route: "/profile/help" },
   { title: "About FleetOps", icon: "information-circle-outline", route: "/profile/about" },
   { title: "Settings", icon: "settings-outline", route: "/settings" },

@@ -1,35 +1,8 @@
-import { Tabs, Redirect, useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
-import { useAuth } from "../../../lib/auth";
-import { resolveDriverId } from "../../../lib/offline-cache";
-import { getGuideProgress, calculateProgress } from "../../../lib/driver-guide";
+import { Tabs } from "expo-router";
 import { CurvedPillTabBar } from "../../../components/CurvedPillTabBar";
 import { DriverSos } from "../../../components/DriverSos";
 
 export default function TabsLayout() {
-  const { user } = useAuth();
-  const driverId = resolveDriverId(user);
-  const [guideDone, setGuideDone] = useState(true);
-
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      getGuideProgress(driverId)
-        .then((res) => {
-          if (!active) return;
-          const p = calculateProgress(res?.completedMissions || []);
-          setGuideDone(p.isComplete);
-        })
-        .catch(() => {});
-      return () => {
-        active = false;
-      };
-    }, [driverId])
-  );
-
-  if (!guideDone) {
-    return <Redirect href="/guide" />;
-  }
   return (
     <>
       <Tabs

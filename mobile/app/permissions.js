@@ -20,8 +20,6 @@ import {
   requestAppPermission,
 } from "../lib/permissions";
 import { useAuth } from "../lib/auth";
-import { resolveDriverId } from "../lib/offline-cache";
-import { getGuideProgress, calculateProgress } from "../lib/driver-guide";
 
 function PermissionCard({ icon, title, description, state }) {
   const { colors, type } = useTheme();
@@ -51,7 +49,6 @@ export default function PermissionsScreen() {
   const { user } = useAuth();
   const { colors, type } = useTheme();
   const permissions = listAppPermissions();
-  const driverId = resolveDriverId(user);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -76,18 +73,13 @@ export default function PermissionsScreen() {
           setStatuses((prev) => ({ ...prev, [entry.key]: result }));
         }
       }
-      const progress = calculateProgress((await getGuideProgress(driverId)).completedMissions);
-      if (progress.isComplete) {
-        router.replace("/");
-      } else {
-        router.replace("/guide");
-      }
+      router.replace("/");
     } catch (e) {
       setError(e.message || "Something went wrong while requesting permissions.");
     } finally {
       setLoading(false);
     }
-  }, [permissions, router, driverId]);
+  }, [permissions, router]);
 
   return (
     <View style={[styles.flex, { backgroundColor: colors.background }]}>

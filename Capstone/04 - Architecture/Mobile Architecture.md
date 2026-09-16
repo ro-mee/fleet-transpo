@@ -204,23 +204,24 @@ Direct imports load only the six font weights already used by the app. Verified 
 
 Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .
 
-## Driver Academy & Interactive In-App Guide (2026-09-16, implemented)
+## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
 
-Introduced a dedicated hands-on interactive training simulator for drivers (`mobile/app/(app)/guide.js`) replacing passive text-only FAQs with interactive practice missions before real-world dispatch:
-- **Mandatory Training Gate (Absolute Requirement)**: All drivers—both newly created accounts and existing drivers who have not completed the 6 tutorial missions—are strictly locked to `/guide` upon login. 
-  - `mobile/app/(app)/_layout.js` enforces a root perimeter guard: uncertified drivers attempting to access any route other than `/guide` are redirected to `/guide`, and active GPS tracking is gated until certified.
-  - `mobile/app/(app)/(tabs)/_layout.js` provides secondary defense-in-depth, redirecting any uncertified session back to `/guide`.
-  - `mobile/app/login.js` and `mobile/app/permissions.js` route directly to `/guide` if `!progress.isComplete`.
-  - `mobile/app/(app)/guide.js` intercepts the back action: uncertified drivers cannot escape back to the dashboard and may only choose between continuing training or signing out.
-  - `mobile/lib/driver-guide.js` isolates progress per `driverId` (`getGuideStorageKey(driverId)` -> `@fleetops_driver_guide_progress_${driverId}`), ensuring shared devices never leak completed stamps to new driver accounts.
-- **Interactive Simulator (`mobile/components/guide/DriverGuideModal.jsx`)**: Zero-risk sandbox modal providing real interactive component simulations:
-  1. *Pre-Trip Inspection*: Practice answering the 7-item vehicle roadworthiness checklist (tires, brakes, dashboard warning lights, cabin) and learn fault escalation.
-  2. *Swipe Gesture Masterclass*: Practice sliding the real `SwipeButton` across the 48% threshold for route start, pickup arrival, and trip finalization to eliminate accidental taps.
-  3. *Trip Lifecycle & Odometer*: Navigating pickup/drop-off, understanding geofence arrival, logging ending odometer via interactive quick-increment buttons (`interactive_odometer`, preset buttons `+18 km`, `+35 km`, `+72 km` with live calculated distance delta), and selecting detour override reasons (`interactive_override`, choosing between traffic reroute, road repair, or passenger stop with dispatch note acknowledgment).
-  4. *Fuel & Receipt Scanner*: Interactive camera viewfinder simulation (`interactive_fuel_scan`) featuring framing corner brackets (dynamically glowing emerald during scan), mock printed receipt, native-driver looping laser sweep with trailing glow aura (`Animated.loop` with quad easing), viewfinder HUD scanning badge, and auto-extracted chip tags for Station, Liters, Total ₱, and Fuel Type.
-  5. *Emergency SOS & Hotlines*: Interacting with the draggable floating SOS medallion and dispatch hotline menu.
-  6. *Offline Resilience*: Underground tunnel simulator (`interactive_offline_sync`) demonstrating network signal drop, live amber banner transitions, local outbox milestone queuing, and automated background sync upon exiting the tunnel.
-- **Home Integration (`mobile/components/guide/DriverGuideCard.jsx`, `mobile/app/(app)/(tabs)/index.js`)**: Compact molded clay readiness card showing training completion percentage, resume CTA, and non-dismissible state while uncertified.
-- **Hub & Settings Entry Points**: Mounted dedicated `guide` stack screen in `mobile/app/(app)/_layout.js`, linked directly from Profile settings (`mobile/app/(app)/(tabs)/profile.js`) and Help & Support (`mobile/app/(app)/profile/help.js`).
-- **State & Storage (`mobile/lib/driver-guide.js`)**: Scoped per driver ID via AsyncStorage with progress calculations (`calculateProgress`), completion timestamps, and reset capabilities.
-- **Verification**: `mobile/lib/driver-guide.test.js` (7/7 passed), full Vitest suite passing (142 test files, 1341 tests), and `npm run verify:auth` passing (270/270 routes).
+Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`) to train drivers directly over live production screens without passive slide tours, simulations, mascots, or gamification:
+- **Core Principles**: "Guidance when needed, not guidance everywhere." "Teach the difficult decision or workflow, not the button the driver already understands." "ONE COACH MARK = ONE EXACT COMPONENT TARGET."
+- **Contextual Milestones**:
+  - *Welcome*: Single non-intrusive card on first authenticated dashboard launch.
+  - *Pre-Trip Inspection*: Spotlights Pass/Fail checks, mandatory remarks on Fail, and the 7/7 inspection completion requirement before trip start.
+  - *Trip Readiness*: Explains allowed start readiness window, pre-trip safety confirmed state, and dynamic Start Trip vs. Continue to Map CTA semantics.
+  - *Live Map*: Explains real-time mission target (Pickup vs. Drop-off confirmation) without making false turn-by-turn claims, live dispatch telemetry sharing, and trip progression slide control.
+  - *Fuel OCR*: Camera framing and mandatory extracted liters/amount verification.
+  - *Emergency SOS & Incident*: Explains stationary emergency assistance with immediate dispatch transmission, without requiring live emergency triggers to advance.
+  - *Offline Resilience*: Explains local caching and automated outbox synchronization on connection loss.
+- **Spotlight & Interactivity Architecture**:
+  - *Exact Component Targeting*: Spotlights wrap the smallest meaningful interactive component via `CoachMarkTarget` (e.g. `incident.category` on the type grid, `inspection.pass_fail` on check buttons), never parent screens or large cards.
+  - *Real 4-Scrim Passthrough*: Replaced React Native `<Modal>` with an absolute fill container (`pointerEvents="box-none"`) and 4 blocking scrim rectangles (`pointerEvents="auto"`). The spotlight hole is structurally unblocked (`pointerEvents="none"`) for `passthrough` steps, allowing drivers to interact directly with real native components (PASS/FAIL, Remarks TextInput, Category selection).
+  - *Protected Action Safeguard*: Protected buttons (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"`, with cutout `pointerEvents="auto"` so drivers advance with `[ Got it ]` without accidental execution.
+  - *Cross-Screen Stale Coordinate Rejection*: Targets are stamped with `route: pathname`. Missing, zero-sized, or cross-route targets suppress the overlay until properly mounted.
+  - *ScrollView Support*: Detects offscreen targets, auto-scrolls parent ScrollViews into the safe viewport, settles layout, and remeasures coordinates before presentation.
+  - *Visual Contour*: Subtle theme forest-green primary contour (`colors.primary`), 8dp padding, 1 restrained arrival pulse, and zero bright neon #00E676.
+- **State & Storage (`mobile/lib/coach-mark-storage.js`)**: Scoped per driver ID via AsyncStorage with versioned keys (`fleetops.guide.<key>.v<version>_<driverId>`). Reset available in **Profile $\rightarrow$ Help & Support $\rightarrow$ Reset In-App Tips**.
+- **Verification**: `mobile/lib/coach-marks.test.js` (24/24 passed), full Vitest suite passing (26 test files, 172 tests), clean ESLint across mobile files.

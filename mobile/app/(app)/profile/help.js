@@ -15,6 +15,8 @@ import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
 import { ClayCard, ClayTile, ClayButton } from "../../../components/clay";
+import { AppAlert } from "../../../components/AppAlert";
+import { useCoachMarks } from "../../../components/coachmarks";
 
 const FAQS = [
   {
@@ -61,6 +63,24 @@ export default function HelpCenter() {
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
+  const { resetTips } = useCoachMarks();
+
+  const handleResetTips = () => {
+    AppAlert.alert(
+      "Reset In-App Tips?",
+      "Contextual coach marks and workflow tips will appear again as you use the app.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset Tips",
+          onPress: async () => {
+            await resetTips();
+            AppAlert.alert("In-App Tips Reset", "Helpful tips will appear again as you use the app.");
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -76,21 +96,22 @@ export default function HelpCenter() {
           </Text>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>INTERACTIVE TRAINING</Text>
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>IN-APP GUIDANCE</Text>
         <ClayCard variant="standard" style={styles.trainingCard}>
           <View style={styles.trainingTop}>
-            <ClayTile icon="school" size={44} variant="primary" />
+            <ClayTile icon="bulb" size={44} variant="primary" />
             <View style={styles.trainingInfo}>
-              <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>Driver Academy</Text>
+              <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>In-App Guidance Tips</Text>
               <Text style={[styles.trainingSub, { color: colors.onSurfaceVariant }]}>
-                Hands-on simulator to practice inspections, swipe gestures, and emergency protocols before hitting the road.
+                FleetOps provides contextual tips and walkthroughs directly on real screens during vehicle inspections, live trips, fuel logging, and emergencies.
               </Text>
             </View>
           </View>
           <ClayButton
-            variant="primary"
-            label="Launch Interactive Guide"
-            onPress={() => router.push('/guide')}
+            variant="tonal"
+            label="Reset In-App Tips"
+            icon="refresh"
+            onPress={handleResetTips}
             style={{ width: '100%', marginTop: 8 }}
           />
         </ClayCard>

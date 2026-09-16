@@ -1,6 +1,6 @@
 import { moderateScale } from '../../lib/scaling';
-import { useEffect, useState } from "react";
-import { ScrollView, StyleSheet, Text, View, Pressable, TextInput,  } from 'react-native';
+import { useEffect, useState, useRef } from "react";
+import { ScrollView, StyleSheet, Text, View, Pressable, TextInput } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,6 +10,7 @@ import { api } from "../../lib/api";
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
+import { useCoachMarks, CoachMarkTarget } from "../../components/coachmarks";
 
 const CHECKLIST = [
   { id: "cabin", label: "Cabin Cleanliness & Sanitation" },
@@ -49,13 +50,29 @@ export default function PreShiftInspection() {
     return () => { cancelled = true; };
   }, [tripId]);
 
+  const { triggerMilestone, notifyInteraction } = useCoachMarks();
+  const scrollRef = useRef(null);
+
+  // Initial guidance: spotlight Pass / Fail on first inspection open
+  useEffect(() => {
+    triggerMilestone("pretrip");
+  }, [triggerMilestone]);
+
   const allAnswered = CHECKLIST.every((item) => statuses[item.id] !== null);
   const passCount = Object.values(statuses).filter((s) => s === "PASS").length;
   const failedCount = Object.values(statuses).filter((s) => s === "FAIL").length;
   const answeredCount = Object.values(statuses).filter(Boolean).length;
 
+  // Complete inspection guidance: triggered when all 7 items are answered
+  useEffect(() => {
+    if (allAnswered) {
+      triggerMilestone("pretrip_complete");
+    }
+  }, [allAnswered, triggerMilestone]);
+
   const setStatus = (id, val) => {
     setStatuses((prev) => ({ ...prev, [id]: val }));
+    notifyInteraction?.("inspection.pass_fail", { itemId: id, status: val });
   };
 
   // Leaving mid-checklist must not silently throw away answers.
@@ -141,7 +158,11 @@ export default function PreShiftInspection() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 120 }]}
+        ref={scrollRef}
+        contentContainerStyle={[
+          styles.scroll,
+          { paddingBottom: insets.bottom + 120 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Heading */}
@@ -186,90 +207,160 @@ export default function PreShiftInspection() {
                 <Text style={[type.labelLg, styles.checkItemLabel, { color: colors.onSurface }]}>
                   {idx + 1}. {item.label}
                 </Text>
-                <View style={styles.checkBtnRow}>
-                  {/* PASS button */}
-                  <Pressable
-                    onPress={() => setStatus(item.id, "PASS")}
-                    style={({ pressed }) => [
-                      styles.checkBtn,
-                      raised,
-                      {
-                        backgroundColor: isPass
-                          ? colors.secondaryContainer
-                          : colors.surfaceContainerHigh,
-                        borderColor: isPass ? colors.secondary : 'transparent',
-                        transform: [{ scale: pressed ? 0.97 : 1 }],
-                        opacity: pressed ? 0.9 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
-                      size={18}
-                      color={isPass ? colors.onSecondaryContainer : colors.onSurfaceVariant}
-                    />
-                    <Text
-                      style={[
-                        styles.checkBtnText,
-                        { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
-                      ]}
-                    >
-                      {item.passLabel || "PASS"}
-                    </Text>
-                  </Pressable>
+                {idx === 0 ? (
+                  <CoachMarkTarget id="inspection.pass_fail" targetId="inspection.pass_fail" radius={14} scrollRef={scrollRef}>
+                    <View style={styles.checkBtnRow}>
+                      {/* PASS button */}
+                      <Pressable
+                        onPress={() => setStatus(item.id, "PASS")}
+                        style={({ pressed }) => [
+                          styles.checkBtn,
+                          raised,
+                          {
+                            backgroundColor: isPass
+                              ? colors.secondaryContainer
+                              : colors.surfaceContainerHigh,
+                            borderColor: isPass ? colors.secondary : 'transparent',
+                            transform: [{ scale: pressed ? 0.97 : 1 }],
+                            opacity: pressed ? 0.9 : 1,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
+                          size={18}
+                          color={isPass ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[
+                            styles.checkBtnText,
+                            { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
+                          ]}
+                        >
+                          {item.passLabel || "PASS"}
+                        </Text>
+                      </Pressable>
 
-                  {/* FAIL button */}
-                  <Pressable
-                    onPress={() => setStatus(item.id, "FAIL")}
-                    style={({ pressed }) => [
-                      styles.checkBtn,
-                      raised,
-                      {
-                        backgroundColor: isFail
-                          ? colors.errorContainer
-                          : colors.surfaceContainerHigh,
-                        borderColor: isFail ? colors.error : 'transparent',
-                        transform: [{ scale: pressed ? 0.97 : 1 }],
-                        opacity: pressed ? 0.9 : 1,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? "close-circle" : "close-circle-outline"}
-                      size={18}
-                      color={isFail ? colors.onErrorContainer : colors.onSurfaceVariant}
-                    />
-                    <Text
-                      style={[
-                        styles.checkBtnText,
-                        { color: isFail ? colors.onErrorContainer : colors.onSurface },
+                      {/* FAIL button */}
+                      <Pressable
+                        onPress={() => setStatus(item.id, "FAIL")}
+                        style={({ pressed }) => [
+                          styles.checkBtn,
+                          raised,
+                          {
+                            backgroundColor: isFail
+                              ? colors.errorContainer
+                              : colors.surfaceContainerHigh,
+                            borderColor: isFail ? colors.error : 'transparent',
+                            transform: [{ scale: pressed ? 0.97 : 1 }],
+                            opacity: pressed ? 0.9 : 1,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? "close-circle" : "close-circle-outline"}
+                          size={18}
+                          color={isFail ? colors.onErrorContainer : colors.onSurfaceVariant}
+                        />
+                        <Text
+                          style={[
+                            styles.checkBtnText,
+                            { color: isFail ? colors.onErrorContainer : colors.onSurface },
+                          ]}
+                        >
+                          {item.failLabel || "FAIL"}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </CoachMarkTarget>
+                ) : (
+                  <View style={styles.checkBtnRow}>
+                    {/* PASS button */}
+                    <Pressable
+                      onPress={() => setStatus(item.id, "PASS")}
+                      style={({ pressed }) => [
+                        styles.checkBtn,
+                        raised,
+                        {
+                          backgroundColor: isPass
+                            ? colors.secondaryContainer
+                            : colors.surfaceContainerHigh,
+                          borderColor: isPass ? colors.secondary : 'transparent',
+                          transform: [{ scale: pressed ? 0.97 : 1 }],
+                          opacity: pressed ? 0.9 : 1,
+                        },
                       ]}
                     >
-                      {item.failLabel || "FAIL"}
-                    </Text>
-                  </Pressable>
-                </View>
+                      <Ionicons
+                        name={isPass ? "checkmark-circle" : "checkmark-circle-outline"}
+                        size={18}
+                        color={isPass ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                      />
+                      <Text
+                        style={[
+                          styles.checkBtnText,
+                          { color: isPass ? colors.onSecondaryContainer : colors.onSurface },
+                        ]}
+                      >
+                        {item.passLabel || "PASS"}
+                      </Text>
+                    </Pressable>
+
+                    {/* FAIL button */}
+                    <Pressable
+                      onPress={() => setStatus(item.id, "FAIL")}
+                      style={({ pressed }) => [
+                        styles.checkBtn,
+                        raised,
+                        {
+                          backgroundColor: isFail
+                            ? colors.errorContainer
+                            : colors.surfaceContainerHigh,
+                          borderColor: isFail ? colors.error : 'transparent',
+                          transform: [{ scale: pressed ? 0.97 : 1 }],
+                          opacity: pressed ? 0.9 : 1,
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={item.failLabel === "WARNING" ? "warning-outline" : isFail ? "close-circle" : "close-circle-outline"}
+                        size={18}
+                        color={isFail ? colors.onErrorContainer : colors.onSurfaceVariant}
+                      />
+                      <Text
+                        style={[
+                          styles.checkBtnText,
+                          { color: isFail ? colors.onErrorContainer : colors.onSurface },
+                        ]}
+                      >
+                        {item.failLabel || "FAIL"}
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
 
                 {/* Remarks input when failed */}
                 {isFail && (
-                  <TextInput
-                    placeholder="Describe issue (e.g. Low tire pressure, broken bulb)..."
-                    placeholderTextColor={colors.outline}
-                    value={remarks[item.id] || ""}
-                    maxLength={1000}
-                    onChangeText={(text) =>
-                      setRemarks((prev) => ({ ...prev, [item.id]: text }))
-                    }
-                    style={[
-                      styles.remarkInput,
-                      {
-                        borderColor: colors.error + '60',
-                        color: colors.onSurface,
-                        backgroundColor: colors.surfaceContainerLowest,
-                      },
-                    ]}
-                    multiline
-                  />
+                  <CoachMarkTarget id="inspection.remarks" targetId="inspection.remarks" radius={12} scrollRef={scrollRef}>
+                    <TextInput
+                      placeholder="Describe issue (e.g. Low tire pressure, broken bulb)..."
+                      placeholderTextColor={colors.outline}
+                      value={remarks[item.id] || ""}
+                      maxLength={1000}
+                      onChangeText={(text) =>
+                        setRemarks((prev) => ({ ...prev, [item.id]: text }))
+                      }
+                      style={[
+                        styles.remarkInput,
+                        {
+                          borderColor: colors.error + '60',
+                          color: colors.onSurface,
+                          backgroundColor: colors.surfaceContainerLowest,
+                        },
+                      ]}
+                      multiline
+                    />
+                  </CoachMarkTarget>
                 )}
               </ClayCard>
             );
@@ -288,16 +379,18 @@ export default function PreShiftInspection() {
           },
         ]}
       >
-        <ClayButton
-          label={submitting ? "SUBMITTING..." : allAnswered ? "COMPLETE INSPECTION" : `COMPLETE ALL ITEMS (${answeredCount}/${CHECKLIST.length})`}
-          variant="primary"
-          size="lg"
-          icon={allAnswered ? "checkmark-circle-outline" : "lock-closed-outline"}
-          iconPosition="right"
-          disabled={!allAnswered || submitting}
-          loading={submitting}
-          onPress={handleSubmit}
-        />
+        <CoachMarkTarget id="inspection.complete" targetId="inspection.complete" radius={16} scrollRef={scrollRef}>
+          <ClayButton
+            label={submitting ? "SUBMITTING..." : allAnswered ? "COMPLETE INSPECTION" : `COMPLETE ALL ITEMS (${answeredCount}/${CHECKLIST.length})`}
+            variant="primary"
+            size="lg"
+            icon={allAnswered ? "checkmark-circle-outline" : "lock-closed-outline"}
+            iconPosition="right"
+            disabled={!allAnswered || submitting}
+            loading={submitting}
+            onPress={handleSubmit}
+          />
+        </CoachMarkTarget>
       </View>
     </View>
   );

@@ -21,6 +21,7 @@ import SwipeButton from "../../../components/SwipeButton";
 import { AppAlert } from '../../../components/AppAlert';
 import { usePosterStatus, monitorBannerFor } from "../../../lib/tracking";
 import { FilledButton, TonalButton } from "../../../components/ui";
+import { useCoachMarks, CoachMarkTarget } from "../../../components/coachmarks";
 import {
   startBackgroundTracking,
   stopBackgroundTracking,
@@ -340,6 +341,7 @@ export default function MapTab() {
   const router = useRouter();
   const { colors, scheme, type } = useTheme();
   const insets = useSafeAreaInsets();
+  const { triggerMilestone } = useCoachMarks();
   const { status: connectivity } = useConnectivity();
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
@@ -577,6 +579,12 @@ export default function MapTab() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!loading && activeTrip && isGpsTrackedTrip(activeTrip)) {
+      triggerMilestone("live_trip");
+    }
+  }, [loading, activeTrip, triggerMilestone]);
 
   useFocusEffect(useCallback(() => {
     focusedRef.current = true;
@@ -1400,62 +1408,66 @@ export default function MapTab() {
                 <View style={[styles.locationIconWrapper, mats.clayTile, { backgroundColor: colors.surfaceContainerLow, borderColor: colors.outlineVariant, shadowColor: colors.shadow }]}>
                   <Ionicons name="location-sharp" size={20} color={colors.primary} />
                 </View>
-                <View style={styles.locationTextWrapper}>
-                  <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
-                    {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
-                    {!preDeparture && isPending && "PICK UP LOCATION"}
-                    {(isDriverAccepted && !preDeparture) && "EN ROUTE TO PICKUP"}
-                    {isState1 && "EN ROUTE TO PICKUP"}
-                    {isState2 && "ARRIVED AT PICKUP"}
-                    {isState3 && "EN ROUTE TO DESTINATION"}
-                    {isState4 && "ARRIVED AT DESTINATION"}
-                  </Text>
-                  <Text style={[type.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
-                    {preDeparture
-                      ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
-                      : destName}
-                  </Text>
-                </View>
+                <CoachMarkTarget targetId="map.current_target" style={{ flex: 1 }}>
+                  <View style={styles.locationTextWrapper}>
+                    <Text style={[styles.locationIndicator, { color: colors.onSurfaceVariant }]}>
+                      {preDeparture && `NEXT TRIP · ${pickupAt || "TBD"}`}
+                      {!preDeparture && isPending && "PICK UP LOCATION"}
+                      {(isDriverAccepted && !preDeparture) && "EN ROUTE TO PICKUP"}
+                      {isState1 && "EN ROUTE TO PICKUP"}
+                      {isState2 && "ARRIVED AT PICKUP"}
+                      {isState3 && "EN ROUTE TO DESTINATION"}
+                      {isState4 && "ARRIVED AT DESTINATION"}
+                    </Text>
+                    <Text style={[type.cardTitle, { color: colors.onSurface }]} numberOfLines={1}>
+                      {preDeparture
+                        ? `${activeTrip.origin || "Pickup"} → ${activeTrip.destination || "Destination"}`
+                        : destName}
+                    </Text>
+                  </View>
+                </CoachMarkTarget>
                 
                 {/* ETA & Distance or Contextual Info */}
-                <View style={styles.headerStatsRight}>
-                  {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
-                    <>
-                      <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
-                        <Text style={[type.headlineMd, { color: colors.primary }]}>
-                          {routeData 
-                            ? Math.ceil(routeData.travelTimeInSeconds / 60) 
-                            : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
-                        </Text>
-                        <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
-                      </View>
-                      
-                      {routeData?.trafficDelayInSeconds > 0 && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: colors.error + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
-                          <Ionicons name="warning" size={10} color={colors.error} />
-                          <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: colors.error }}>
-                            +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
+                <CoachMarkTarget targetId="map.telemetry">
+                  <View style={styles.headerStatsRight}>
+                    {preDeparture ? null : (isPending || isDriverAccepted || isState1 || isState3) ? (
+                      <>
+                        <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 2 }}>
+                          <Text style={[type.headlineMd, { color: colors.primary }]}>
+                            {routeData 
+                              ? Math.ceil(routeData.travelTimeInSeconds / 60) 
+                              : (activeTrip.estimated_duration ? Math.ceil(activeTrip.estimated_duration) : "--")}
                           </Text>
+                          <Text style={{ fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.primary, marginBottom: 2 }}> min</Text>
                         </View>
-                      )}
+                        
+                        {routeData?.trafficDelayInSeconds > 0 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: -4, marginBottom: 4, backgroundColor: colors.error + '1A', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8 }}>
+                            <Ionicons name="warning" size={10} color={colors.error} />
+                            <Text style={{ fontFamily: fonts.dataSemiBold, fontSize: 10, color: colors.error }}>
+                              +{Math.ceil(routeData.trafficDelayInSeconds / 60)} min
+                            </Text>
+                          </View>
+                        )}
 
-                      <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
-                        {routeData 
-                          ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" 
-                          : (activeTrip.estimated_distance ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : "-- km")}
-                      </Text>
-                    </>
-                  ) : (
-                    <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                      <Text style={[type.cardTitle, { color: colors.primary }]}>
-                        {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
-                      </Text>
-                      <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
-                        {isState2 ? 'Waiting at pickup' : 'Ready for drop-off'}
-                      </Text>
-                    </View>
-                  )}
-                </View>
+                        <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant }]}>
+                          {routeData 
+                            ? (routeData.lengthInMeters / 1000).toFixed(1) + " km" 
+                            : (activeTrip.estimated_distance ? Number(activeTrip.estimated_distance).toFixed(1) + " km" : "-- km")}
+                        </Text>
+                      </>
+                    ) : (
+                      <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                        <Text style={[type.cardTitle, { color: colors.primary }]}>
+                          {activeTrip.passenger_count || 1} {activeTrip.passenger_count === 1 ? 'Guest' : 'Guests'}
+                        </Text>
+                        <Text style={[styles.headerDistValue, { color: colors.onSurfaceVariant, marginTop: 4, maxWidth: 80, textAlign: 'right' }]} numberOfLines={2}>
+                          {isState2 ? 'Waiting at pickup' : 'Ready for drop-off'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </CoachMarkTarget>
               </View>
 
               <View style={[styles.divider, { backgroundColor: colors.outlineVariant }]} />
@@ -1520,153 +1532,135 @@ export default function MapTab() {
               </View>
             </Pressable>
           ) : (
-            <SwipeButton
-              title={
-                // Single clock gate: label AND disabled state both derive from
-                // earliest_start/windowOpen so they can never disagree.
-                (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
-                (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
-                (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
-                isState1 ? "ARRIVED AT PICKUP" :
-                isState2 ? "PICKED UP GUEST" :
-                isState3 ? "ARRIVED AT DESTINATION" :
-                isState4 ? "DROPPED OFF GUEST" : "SWIPE TO CONFIRM"
-              }
-              disabled={(isPending || isDriverAccepted) && preTripDone && !windowOpen}
-              busy={inFlight}
-              backgroundColor={colors.primary}
-              textColor={colors.onPrimary}
-              onSwipeSuccess={async () => {
-                if (inFlight) return;
-                setInFlight(true);
-                try {
-                  if (isPending || isDriverAccepted) {
-                    if (isPending) {
-                      // Optimistic: fire accept in the background so we don't
-                      // block the transition on a 1-2s network round-trip.
-                      api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).then((res) => {
-                        if (wasQueued(res)) announceSavedForSync();
-                      }).catch((e) => {
-                        AppAlert.alert("Error", e.message || "Could not accept trip");
-                      });
-                    }
-                    if (!preTripDone) {
-                        router.push({ pathname: "/inspection", params: { tripId: String(activeTrip.trip_id) } });
-                        return;
-                      }
-                      if (!windowOpen) return;
-                      const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
-                      if (wasQueued(startRes)) announceSavedForSync();
-                      loadTrip();
-                    } else if (isState1) {
-                      // Arrival gate: the server 409s ARRIVED AT PICKUP filed
-                      // from outside the pickup geofence. Pre-check first so
-                      // the driver gets Go Back / Proceed Anyway (with reason)
-                      // instead of a dead-end error. Fail-open: an unreadable
-                      // check proceeds — the PUT re-evaluates server-side.
-                      let pickupCheck = null;
-                      try {
-                        pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
-                      } catch {
-                        pickupCheck = null;
-                      }
-                      if (pickupCheck && pickupCheck.state === "outside") {
-                        offerOverride({
-                          title: "Too far from pickup",
-                          check: pickupCheck,
-                          placeKey: "pickup",
-                          placeFallback: activeTrip.origin || "the pickup point",
-                          action: "at-pickup",
+            <CoachMarkTarget targetId="map.trip_progression">
+              <SwipeButton
+                title={
+                  // Single clock gate: label AND disabled state both derive from
+                  // earliest_start/windowOpen so they can never disagree.
+                  (isPending || isDriverAccepted) && !preTripDone ? "START TRIP" :
+                  (isPending || isDriverAccepted) && preTripDone && !windowOpen ? `OPENS AT ${new Date(earliestStart).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }).toUpperCase()}` :
+                  (isPending || isDriverAccepted) && preTripDone && windowOpen ? "START ROUTE" :
+                  isState1 ? "ARRIVED AT PICKUP" :
+                  isState2 ? "PICKED UP GUEST" :
+                  isState3 ? "ARRIVED AT DESTINATION" :
+                  isState4 ? "DROPPED OFF GUEST" : "SWIPE TO CONFIRM"
+                }
+                disabled={(isPending || isDriverAccepted) && preTripDone && !windowOpen}
+                busy={inFlight}
+                backgroundColor={colors.primary}
+                textColor={colors.onPrimary}
+                onSwipeSuccess={async () => {
+                  if (inFlight) return;
+                  setInFlight(true);
+                  try {
+                    if (isPending || isDriverAccepted) {
+                      if (isPending) {
+                        // Optimistic: fire accept in the background so we don't
+                        // block the transition on a 1-2s network round-trip.
+                        api.put(`/api/trips/${activeTrip.trip_id}/accept`, { accept: true }).then((res) => {
+                          if (wasQueued(res)) announceSavedForSync();
+                        }).catch((e) => {
+                          AppAlert.alert("Error", e.message || "Could not accept trip");
                         });
-                        return;
                       }
-                      try {
-                        const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
-                        if (wasQueued(pickupRes)) announceSavedForSync();
-                      } catch (e) {
-                        // Check→PUT race (a new fix landed between the two
-                        // calls): surface the same override offer.
-                        if (e?.status === 409) {
+                      if (!preTripDone) {
+                          router.push({ pathname: "/inspection", params: { tripId: String(activeTrip.trip_id) } });
+                          return;
+                        }
+                        if (!windowOpen) return;
+                        const startRes = await api.put(`/api/trips/${activeTrip.trip_id}/start`, { odometer: Number(activeTrip.current_mileage) || undefined });
+                        if (wasQueued(startRes)) announceSavedForSync();
+                        loadTrip();
+                      } else if (isState1) {
+                        // Arrival gate: the server 409s ARRIVED AT PICKUP filed
+                        // from outside the pickup geofence. Pre-check first so
+                        // the driver gets Go Back / Proceed Anyway (with reason)
+                        // instead of a dead-end error. Fail-open: an unreadable
+                        // check proceeds — the PUT re-evaluates server-side.
+                        let pickupCheck = null;
+                        try {
+                          pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
+                        } catch {
+                          pickupCheck = null;
+                        }
+                        if (pickupCheck && pickupCheck.state === "outside") {
                           offerOverride({
                             title: "Too far from pickup",
-                            check: null,
+                            check: pickupCheck,
                             placeKey: "pickup",
                             placeFallback: activeTrip.origin || "the pickup point",
                             action: "at-pickup",
                           });
                           return;
                         }
-                        throw e;
-                      }
-                      loadTrip();
-                    } else if (isState2) {
-                      let pickupCheck = null;
-                      try {
-                        pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
-                      } catch {
-                        pickupCheck = null;
-                      }
-                      if (pickupCheck && pickupCheck.state === "outside") {
-                        offerOverride({
-                          title: "Too far from pickup",
-                          check: pickupCheck,
-                          placeKey: "pickup",
-                          placeFallback: activeTrip.origin || "the pickup point",
-                          action: "onboard",
-                        });
-                        return;
-                      }
-                      try {
-                        const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
-                        // En Route is the ungated mid-leg consequence of onboard.
-                        const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
-                        if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
-                      } catch (e) {
-                        if (e?.status === 409) {
+                        try {
+                          const pickupRes = await api.put(`/api/trips/${activeTrip.trip_id}/at-pickup`, {});
+                          if (wasQueued(pickupRes)) announceSavedForSync();
+                        } catch (e) {
+                          // Check→PUT race (a new fix landed between the two
+                          // calls): surface the same override offer.
+                          if (e?.status === 409) {
+                            offerOverride({
+                              title: "Too far from pickup",
+                              check: null,
+                              placeKey: "pickup",
+                              placeFallback: activeTrip.origin || "the pickup point",
+                              action: "at-pickup",
+                            });
+                            return;
+                          }
+                          throw e;
+                        }
+                        loadTrip();
+                      } else if (isState2) {
+                        let pickupCheck = null;
+                        try {
+                          pickupCheck = await api.get(`/api/trips/${activeTrip.trip_id}/pickup-check`);
+                        } catch {
+                          pickupCheck = null;
+                        }
+                        if (pickupCheck && pickupCheck.state === "outside") {
                           offerOverride({
                             title: "Too far from pickup",
-                            check: null,
+                            check: pickupCheck,
                             placeKey: "pickup",
                             placeFallback: activeTrip.origin || "the pickup point",
                             action: "onboard",
                           });
                           return;
                         }
-                        throw e;
-                      }
-                      loadTrip();
-                    } else if (isState3) {
-                      // Destination gate for ARRIVED AT DESTINATION, mirroring
-                      // the completion flow below.
-                      let destPreCheck = null;
-                      try {
-                        destPreCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
-                      } catch {
-                        destPreCheck = null;
-                      }
-                      if (destPreCheck && destPreCheck.state === "outside") {
-                        offerOverride({
-                          title: "Far from destination",
-                          check: destPreCheck,
-                          placeKey: "destination",
-                          placeFallback: activeTrip.destination || "the destination",
-                          action: "dropoff",
-                          needsEnroute: activeTrip.trip_status === "Passenger Onboard",
-                        });
-                        return;
-                      }
-                      try {
-                        let legRes = null;
-                        if (activeTrip.trip_status === "Passenger Onboard") {
-                          legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                        try {
+                          const onboardRes = await api.put(`/api/trips/${activeTrip.trip_id}/onboard`, {});
+                          // En Route is the ungated mid-leg consequence of onboard.
+                          const enrouteRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                          if (wasQueued(onboardRes) || wasQueued(enrouteRes)) announceSavedForSync();
+                        } catch (e) {
+                          if (e?.status === 409) {
+                            offerOverride({
+                              title: "Too far from pickup",
+                              check: null,
+                              placeKey: "pickup",
+                              placeFallback: activeTrip.origin || "the pickup point",
+                              action: "onboard",
+                            });
+                            return;
+                          }
+                          throw e;
                         }
-                        const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
-                        if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
-                      } catch (e) {
-                        if (e?.status === 409) {
+                        loadTrip();
+                      } else if (isState3) {
+                        // Destination gate for ARRIVED AT DESTINATION, mirroring
+                        // the completion flow below.
+                        let destPreCheck = null;
+                        try {
+                          destPreCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
+                        } catch {
+                          destPreCheck = null;
+                        }
+                        if (destPreCheck && destPreCheck.state === "outside") {
                           offerOverride({
                             title: "Far from destination",
-                            check: null,
+                            check: destPreCheck,
                             placeKey: "destination",
                             placeFallback: activeTrip.destination || "the destination",
                             action: "dropoff",
@@ -1674,128 +1668,148 @@ export default function MapTab() {
                           });
                           return;
                         }
-                        throw e;
-                      }
-                      loadTrip();
-                    } else if (isState4) {
-                      // Sum the GPS-accumulated km from both legs. If the watcher
-                      // never captured any (e.g. app was backgrounded the whole
-                      // time), fall back to the estimated route distance.
-                      let leg1 = distRef.current.leg1;
-                      let leg2 = distRef.current.leg2;
-                      let totalKm = leg1 + leg2;
-                      if (totalKm <= 0) {
-                        totalKm = Number(activeTrip.estimated_distance) || (routeData ? (routeData.lengthInMeters / 1000) : 0);
-                      }
+                        try {
+                          let legRes = null;
+                          if (activeTrip.trip_status === "Passenger Onboard") {
+                            legRes = await api.put(`/api/trips/${activeTrip.trip_id}/enroute`, {});
+                          }
+                          const dropRes = await api.put(`/api/trips/${activeTrip.trip_id}/dropoff`, {});
+                          if (wasQueued(legRes) || wasQueued(dropRes)) announceSavedForSync();
+                        } catch (e) {
+                          if (e?.status === 409) {
+                            offerOverride({
+                              title: "Far from destination",
+                              check: null,
+                              placeKey: "destination",
+                              placeFallback: activeTrip.destination || "the destination",
+                              action: "dropoff",
+                              needsEnroute: activeTrip.trip_status === "Passenger Onboard",
+                            });
+                            return;
+                          }
+                          throw e;
+                        }
+                        loadTrip();
+                      } else if (isState4) {
+                        // Sum the GPS-accumulated km from both legs. If the watcher
+                        // never captured any (e.g. app was backgrounded the whole
+                        // time), fall back to the estimated route distance.
+                        let leg1 = distRef.current.leg1;
+                        let leg2 = distRef.current.leg2;
+                        let totalKm = leg1 + leg2;
+                        if (totalKm <= 0) {
+                          totalKm = Number(activeTrip.estimated_distance) || (routeData ? (routeData.lengthInMeters / 1000) : 0);
+                        }
 
-                      // Re-fetch the LIVE vehicle mileage before computing the
-                      // odometer so the derived end reading is always >= the
-                      // server's current mileage (a stale base would otherwise be
-                      // rejected as "below recorded mileage"). In the normal case
-                      // live == loaded mileage, so distance = endOdo - startOdo
-                      // equals totalKm exactly. If another device advanced the
-                      // mileage mid-trip, the derived distance includes that extra
-                      // km — safe (never rejected), just slightly inflated.
-                      let freshMileage = null;
-                      try {
-                        const fresh = await api.get("/api/mobile/driver/trips");
-                        const ft = fresh?.find((t) => String(t.trip_id) === String(activeTrip.trip_id));
-                        freshMileage = ft ? Number(ft.current_mileage) : null;
-                      } catch {
-                        freshMileage = null;
+                        // Re-fetch the LIVE vehicle mileage before computing the
+                        // odometer so the derived end reading is always >= the
+                        // server's current mileage (a stale base would otherwise be
+                        // rejected as "below recorded mileage"). In the normal case
+                        // live == loaded mileage, so distance = endOdo - startOdo
+                        // equals totalKm exactly. If another device advanced the
+                        // mileage mid-trip, the derived distance includes that extra
+                        // km — safe (never rejected), just slightly inflated.
+                        let freshMileage = null;
+                        try {
+                          const fresh = await api.get("/api/mobile/driver/trips");
+                          const ft = fresh?.find((t) => String(t.trip_id) === String(activeTrip.trip_id));
+                          freshMileage = ft ? Number(ft.current_mileage) : null;
+                        } catch {
+                          freshMileage = null;
+                        }
+                        const startOdo = Number(freshMileage) || Number(activeTrip.current_mileage) || 0;
+                        const endOdo = startOdo + totalKm;
+                        const completeParams = {
+                          pickup: activeTrip.origin,
+                          destination: activeTrip.destination,
+                          duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
+                          distance: totalKm.toFixed(1) + " km",
+                          leg1: leg1.toFixed(1),
+                          leg2: leg2.toFixed(1),
+                          startOdo: Math.round(startOdo).toLocaleString(),
+                          endOdo: Math.round(endOdo).toLocaleString(),
+                          tripId: String(activeTrip.trip_id),
+                          rawDistanceKm: String(totalKm),
+                          rawStartOdo: String(startOdo),
+                          rawEndOdo: String(endOdo),
+                        };
+
+                        // PR #3 completion validation: ask the server whether the
+                        // trip's latest fix is inside the destination geofence
+                        // BEFORE showing the summary. Inside/unknown → existing
+                        // flow. Outside → Go Back / Complete Anyway (the reason
+                        // is captured on the summary screen and the PUT carries
+                        // the override). Fail-open: an unreadable check proceeds.
+                        let destCheck = null;
+                        try {
+                          destCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
+                        } catch {
+                          destCheck = null;
+                        }
+                        if (destCheck && destCheck.state === "outside") {
+                          const m = Number(destCheck.distance_m);
+                          const distanceText = Number.isFinite(m)
+                            ? (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
+                            : "an unknown distance";
+                          const destName = destCheck.destination || "the destination";
+                          AppAlert.alert(
+                            "Far from destination",
+                            `You appear to be ${distanceText} from ${destName}.`,
+                            [
+                              { text: "Go Back", style: "cancel" },
+                              {
+                                text: "Complete Anyway",
+                                onPress: () => router.push({
+                                  pathname: '/(app)/trip/complete',
+                                  params: {
+                                    ...completeParams,
+                                    needsOverride: "1",
+                                    farText: `You are completing ${distanceText} from ${destName}. A reason is required.`,
+                                  },
+                                }),
+                              },
+                            ],
+                            { type: "warning" }
+                          );
+                          return;
+                        }
+
+                        // Navigate to the summary, then run the completion API in the
+                        // background. Values match: the screen shows what was sent.
+                        router.push({
+                          pathname: '/(app)/trip/complete',
+                          params: completeParams,
+                        });
+
+                        // Clear the ref before the state update so a location
+                        // callback that lands during completion cannot count one
+                        // more fix for the finished trip. Stop any native task as
+                        // well; foreground completion normally has none running,
+                        // but this also closes a background/foreground race.
+                        activeTripRef.current = null;
+                        updateLegContext({ tripId: null, leg: null }).catch(() => {});
+                        stopBackgroundTracking().catch(() => {});
+                        setActiveTrip(null);
+
+                        api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
+                          distance: totalKm,
+                          start_odometer: startOdo,
+                          end_odometer: endOdo,
+                        }).then((res) => {
+                          if (wasQueued(res)) announceSavedForSync();
+                        }).catch((e) => {
+                          AppAlert.alert("Error", e.message || "Could not complete trip");
+                        });
                       }
-                      const startOdo = Number(freshMileage) || Number(activeTrip.current_mileage) || 0;
-                      const endOdo = startOdo + totalKm;
-                      const completeParams = {
-                        pickup: activeTrip.origin,
-                        destination: activeTrip.destination,
-                        duration: routeData ? Math.ceil(routeData.travelTimeInSeconds / 60) + " min" : "-- min",
-                        distance: totalKm.toFixed(1) + " km",
-                        leg1: leg1.toFixed(1),
-                        leg2: leg2.toFixed(1),
-                        startOdo: Math.round(startOdo).toLocaleString(),
-                        endOdo: Math.round(endOdo).toLocaleString(),
-                        tripId: String(activeTrip.trip_id),
-                        rawDistanceKm: String(totalKm),
-                        rawStartOdo: String(startOdo),
-                        rawEndOdo: String(endOdo),
-                      };
-
-                      // PR #3 completion validation: ask the server whether the
-                      // trip's latest fix is inside the destination geofence
-                      // BEFORE showing the summary. Inside/unknown → existing
-                      // flow. Outside → Go Back / Complete Anyway (the reason
-                      // is captured on the summary screen and the PUT carries
-                      // the override). Fail-open: an unreadable check proceeds.
-                      let destCheck = null;
-                      try {
-                        destCheck = await api.get(`/api/trips/${activeTrip.trip_id}/destination-check`);
-                      } catch {
-                        destCheck = null;
-                      }
-                      if (destCheck && destCheck.state === "outside") {
-                        const m = Number(destCheck.distance_m);
-                        const distanceText = Number.isFinite(m)
-                          ? (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toFixed(1)} km`)
-                          : "an unknown distance";
-                        const destName = destCheck.destination || "the destination";
-                        AppAlert.alert(
-                          "Far from destination",
-                          `You appear to be ${distanceText} from ${destName}.`,
-                          [
-                            { text: "Go Back", style: "cancel" },
-                            {
-                              text: "Complete Anyway",
-                              onPress: () => router.push({
-                                pathname: '/(app)/trip/complete',
-                                params: {
-                                  ...completeParams,
-                                  needsOverride: "1",
-                                  farText: `You are completing ${distanceText} from ${destName}. A reason is required.`,
-                                },
-                              }),
-                            },
-                          ],
-                          { type: "warning" }
-                        );
-                        return;
-                      }
-
-                      // Navigate to the summary, then run the completion API in the
-                      // background. Values match: the screen shows what was sent.
-                      router.push({
-                        pathname: '/(app)/trip/complete',
-                        params: completeParams,
-                      });
-
-                      // Clear the ref before the state update so a location
-                      // callback that lands during completion cannot count one
-                      // more fix for the finished trip. Stop any native task as
-                      // well; foreground completion normally has none running,
-                      // but this also closes a background/foreground race.
-                      activeTripRef.current = null;
-                      updateLegContext({ tripId: null, leg: null }).catch(() => {});
-                      stopBackgroundTracking().catch(() => {});
-                      setActiveTrip(null);
-
-                      api.put(`/api/trips/${activeTrip.trip_id}/complete`, {
-                        distance: totalKm,
-                        start_odometer: startOdo,
-                        end_odometer: endOdo,
-                      }).then((res) => {
-                        if (wasQueued(res)) announceSavedForSync();
-                      }).catch((e) => {
-                        AppAlert.alert("Error", e.message || "Could not complete trip");
-                      });
+                    } catch(e) {
+                      AppAlert.alert("Error", e.message || "Could not update trip");
+                    } finally {
+                      setInFlight(false);
                     }
-                  } catch(e) {
-                    AppAlert.alert("Error", e.message || "Could not update trip");
-                  } finally {
-                    setInFlight(false);
-                  }
-                }}
-              />
-            )}
+                  }}
+                />
+            </CoachMarkTarget>
+          )}
 
           {/* Expanded Content */}
           <ScrollView 

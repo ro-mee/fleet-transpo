@@ -18,7 +18,6 @@ import { fonts } from "../lib/theme";
 import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
 import { resolveDriverId } from "../lib/offline-cache";
-import { getGuideProgress, calculateProgress } from "../lib/driver-guide";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -49,12 +48,7 @@ export default function LoginScreen() {
         router.replace("/consent");
         return;
       }
-      const progress = calculateProgress((await getGuideProgress(driverId)).completedMissions);
-      if (progress.isComplete) {
-        router.replace("/");
-      } else {
-        router.replace("/guide");
-      }
+      router.replace("/");
     } catch (e) {
       if (e.message === "MFA_REQUIRED") {
         setMfaRequired(true);

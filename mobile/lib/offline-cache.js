@@ -41,6 +41,8 @@ export const CACHE_KEYS = {
   BALANCES: "balances",
   /** GET /api/driver/me (Home + profile header) */
   DRIVER_ME: "driver:me",
+  /** GET /api/fuel/requests (Fuel report approval status, driver-scoped) */
+  FUEL_REQUESTS: "fuel:requests",
   /** GET /api/mobile/driver/weather — last-good ambient chip payload (instant paint) */
   AMBIENT_WEATHER: "weather:ambient",
 };
@@ -60,6 +62,7 @@ const STATIC_KEYS = [
   CACHE_KEYS.LEAVES,
   CACHE_KEYS.BALANCES,
   CACHE_KEYS.DRIVER_ME,
+  CACHE_KEYS.FUEL_REQUESTS,
   CACHE_KEYS.AMBIENT_WEATHER,
 ];
 
