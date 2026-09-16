@@ -6,6 +6,8 @@ import { getAdminClient, query, withTransaction } from "@/lib/db";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { consumeFactor } from "@/lib/auth/mfa";
+import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
+import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
 
 export function isSafeAvatarUrl(url) {
@@ -36,6 +38,11 @@ export const authOptions = {
           throw new Error("Too many login attempts. Please try again in a minute.");
         }
 
+        const lockout = await checkAccountLockout(normalizedEmail);
+        if (!lockout.allowed) {
+          throw new Error(`ACCOUNT_LOCKED:${lockout.retryAfter}`);
+        }
+
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
@@ -60,6 +67,13 @@ export const authOptions = {
             resourceId: employee?.employee_id,
             newValues: { channel: "web" },
           });
+          const lockoutBucket = await recordFailedAttempt(normalizedEmail);
+          if (!lockoutBucket.allowed && lockoutBucket.remaining === 0) {
+            await raiseSecurityAlert(auditReq, {
+              type: "account_locked",
+              details: { channel: "web", failures: LOCKOUT_LIMIT, windowMinutes: 15 },
+            });
+          }
           return null;
         }
 
@@ -133,6 +147,8 @@ export const authOptions = {
         } catch {
           throw new Error("Unable to start a secure session.");
         }
+
+        await clearAccountLockout(normalizedEmail);
 
         await writeAudit(auditReq, null, {
           action: "login_success",

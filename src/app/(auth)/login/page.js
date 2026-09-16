@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useSyncExternalStore } from "react";
+import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -233,6 +233,23 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dismissedNotice, setDismissedNotice] = useState(false);
+  // Live lockout countdown (seconds). Set from /api/auth/login-status after a
+  // failed attempt; ticks 50, 49, 48… to 0 so the user sees exactly when retry
+  // is allowed again. Submit is blocked while it runs.
+  const [lockSeconds, setLockSeconds] = useState(0);
+  useEffect(() => {
+    if (lockSeconds <= 0) return;
+    const timer = setTimeout(() => {
+      setLockSeconds((s) => {
+        if (s <= 1) {
+          setError("The temporary lock has lifted — you can try signing in again.");
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [lockSeconds]);
   // Browser-only query param read without a hydration mismatch: the server
   // snapshot is false (matching SSR HTML, so no banner), and the client
   // snapshot reads the live URL. A lazy useState initializer would render
@@ -247,6 +264,8 @@ export default function LoginPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Frozen accounts wait out the visible countdown — no wasted attempts.
+    if (lockSeconds > 0) return;
     setError("");
 
     const values = { email, password };
@@ -275,17 +294,21 @@ export default function LoginPage() {
             setError("Two-factor authentication is temporarily unavailable. Try again later.");
             return;
           }
-          // NextAuth collapses every authorize() failure (including the IP
-          // throttle) into "CredentialsSignin", so a locked-out user would be
-          // told their password is wrong. Check the public throttle status and
-          // tell them the truth instead.
+          // NextAuth collapses every authorize() failure (wrong password, IP
+          // throttle, frozen account) into "CredentialsSignin", so without
+          // translation the user would stare at a cryptic code. Check the
+          // public throttle status (now account-aware) and speak plainly.
           try {
-            const res = await fetch("/api/auth/login-status");
+            const res = await fetch(`/api/auth/login-status?email=${encodeURIComponent(email)}`);
             if (res.ok) {
               const status = await res.json().catch(() => ({}));
               if (status?.locked) {
+                const secs = status.retryAfterSec || 60;
+                setLockSeconds(secs);
                 setError(
-                  `Too many login attempts from this network. Try again in ${status.retryAfterSec || 60}s.`
+                  status?.reason === "account"
+                    ? "Too many incorrect attempts. This account is temporarily locked for your protection."
+                    : "Too many login attempts from this network. Please wait a moment."
                 );
                 return;
               }
@@ -293,7 +316,7 @@ export default function LoginPage() {
           } catch {
             // Status check is best-effort — fall back to the generic message.
           }
-          setError(err.message || "Invalid email or password");
+          setError("Incorrect email or password. Please check and try again.");
         } finally {
           setLoading(false);
         }
@@ -453,7 +476,12 @@ export default function LoginPage() {
                           className="flex items-start gap-2.5 rounded-[0.9rem] bg-danger-bg px-3.5 py-3 text-sm text-danger"
                         >
                           <AlertCircle className="mt-px h-4 w-4 shrink-0" strokeWidth={2} />
-                          <span>{error}</span>
+                          <span>
+                            {error}
+                            {lockSeconds > 0 && (
+                              <> Try again in <strong className="tabular-nums">{lockSeconds}s</strong>.</>
+                            )}
+                          </span>
                         </div>
                       </motion.div>
                     )}
@@ -558,7 +586,7 @@ export default function LoginPage() {
 
 <Button
                     type="submit"
-                    disabled={loading}
+                    disabled={loading || lockSeconds > 0}
                     className="group relative h-14 w-full overflow-hidden rounded-full bg-foreground text-[15px] font-semibold text-surface transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] hover:bg-foreground/90 hover:shadow-[0_16px_32px_-16px_rgba(0,0,0,0.45)] active:scale-[0.985] disabled:opacity-70"
                   >
                     {!loading && <span>Sign in</span>}

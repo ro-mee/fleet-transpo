@@ -153,7 +153,10 @@ export const driverEditSchema = driverSchema;
 
 export const createUserSchema = z.object({
   email: z.string().trim().min(1, "Email address is required.").email("Please enter a valid email address."),
-  password: z.string().min(6, "Password must be at least 6 characters."),
+  password: z
+    .string()
+    .min(1, "Password is required.")
+    .refine((v) => isPassword(v), "Password must be 8+ characters with upper, lower, number, and a special character."),
   first_name: requiredString("First name", { max: 100 }).refine(
     (v) => PATTERNS.NAME.test(v.trim()),
     "First name must contain only letters."

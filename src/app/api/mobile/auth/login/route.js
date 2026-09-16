@@ -2,6 +2,8 @@ import bcrypt from "bcryptjs";
 import { query, withTransaction } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
+import { checkAccountLockout, recordFailedAttempt, clearAccountLockout } from "@/lib/auth/account-lockout";
+import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { writeAudit } from "@/lib/audit";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -48,6 +50,14 @@ export async function POST(req) {
       );
     }
 
+    const lockout = await checkAccountLockout(email);
+    if (!lockout.allowed) {
+      return new Response(
+        JSON.stringify({ error: `Too many failed attempts. Try again in ${lockout.retryAfter} seconds.` }),
+        { status: 429, headers: { "Content-Type": "application/json", "Retry-After": String(lockout.retryAfter) } }
+      );
+    }
+
     const { rows } = await query(
       `SELECT e.employee_id,
               e.email,
@@ -88,6 +98,14 @@ export async function POST(req) {
         resourceId: employee?.employee_id,
         newValues: { channel: "mobile" },
       });
+      const lockoutBucket = await recordFailedAttempt(email);
+      if (!lockoutBucket.allowed && lockoutBucket.remaining === 0) {
+        await raiseSecurityAlert(req, {
+          type: "account_locked",
+          employeeId: employee?.employee_id ?? null,
+          details: { channel: "mobile" },
+        });
+      }
       return err("Invalid email or password", 401);
     }
 
@@ -191,6 +209,8 @@ export async function POST(req) {
     } catch (cleanupError) {
       console.warn("Failed to prune old mobile refresh tokens:", cleanupError?.message || cleanupError);
     }
+
+    await clearAccountLockout(email);
 
     await writeAudit(req, null, {
       action: "login_success",

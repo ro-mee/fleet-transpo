@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkEdgeThrottle } from "@/lib/edge-throttle";
 
 // CORS lockdown for the API (Roadmap Phase 5, item 20).
 //
@@ -99,6 +100,16 @@ export function proxy(request) {
     return NextResponse.json(
       { error: "Forbidden: origin not allowed" },
       { status: 403, headers: { Vary: "Origin" } }
+    );
+  }
+
+  const forwarded = request.headers.get("x-forwarded-for");
+  const edgeIp = forwarded ? forwarded.split(",").pop().trim() : (request.headers.get("x-real-ip") || "unknown");
+  const edge = checkEdgeThrottle(edgeIp);
+  if (!edge.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down." },
+      { status: 429, headers: { "Retry-After": String(edge.retryAfter), Vary: "Origin" } }
     );
   }
 

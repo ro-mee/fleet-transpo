@@ -71,3 +71,7 @@ Verified: 15 focused tests across four files; targeted ESLint; web production bu
 ## Web operations workspace — v3 (2026-09-14, implemented)
 
 Standby poll moved to 30 s. New `Available resources` card (verified standby pins with observed age; expired/failed-feed hidden; active-trip precedence kept) kept separate from `Fleet exceptions · active fleet only` (grounded vehicles + monitor incident signals from already-loaded page data — the standby feed never represents unavailable vehicles). Map viewport is dispatcher-owned (manual pan/zoom sticks; Recenter/select re-fits); selected-trip corridor is stable pickup→destination geometry with a distinct dashed approach stub. See [[Tracking]] for the full record and verification (114 files / 1164 tests, build 201 pages, auth 266/266).
+
+## Editor-only TS noise fix — 2026-09-16
+
+VSCode reported `TS1128 Declaration or statement expected` at the tail of `mobile/components/TomTomMap.js` (and the earlier 180-error cascade on `DriverHomeCards.jsx`). Root cause is project config, not code: the repo's only `jsconfig.json` sits at the root with no `jsx` flag, so the TS server parsed mobile JSX without JSX support. Added editor-only `mobile/jsconfig.json` (`jsx: react-jsx`, `checkJs: false`) so `mobile/` is its own TS project. No runtime effect (Metro/ESLint ignore jsconfig). Verified: `tsc -p mobile/jsconfig.json` 0 errors, ESLint clean on `TomTomMap.js` + `DriverHomeCards.jsx`. Reload VSCode window to clear stale Problems.

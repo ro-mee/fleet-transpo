@@ -2,6 +2,7 @@ import { withTransaction } from "@/lib/db";
 import { ok, err, handleError } from "@/lib/api/utils";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
+import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   REFRESH_TOKEN_TTL_SECONDS,
@@ -205,6 +206,11 @@ export async function POST(req) {
         resource: "mobile_refresh_tokens",
         employeeId: rotated.employeeId,
         newValues: { family_revoked: true },
+      });
+      await raiseSecurityAlert(req, {
+        type: "token_replay",
+        employeeId: rotated.employeeId ?? null,
+        details: { channel: "mobile", family_id: rotated.familyId ?? null },
       });
       return err("Refresh token has been revoked or already used", 401);
     }
