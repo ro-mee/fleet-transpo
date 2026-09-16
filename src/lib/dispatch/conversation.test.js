@@ -52,3 +52,15 @@ it('keeps exclusions without claiming availability and excludes private storage'
  expect(evidenceSummary({...evidence,pairs:[]})).toContain('No driver scheduled');
  expect(evidenceSummary({...evidence,pairs:[],exclusions:[]})).toContain('does not prove');
 });
+it('answers timing/workload questions with supported values and labels future ETA honestly',()=>{
+ const p={vehicle_id:1,driver_id:2,driver:{driver_name:'Juan'},vehicle:{plate_number:'ABC'},checks:[{status:'verified'}],readiness:'VERIFIED',feasibility:{verdict:'SAFE',reasons:[]},
+   temporalContext:{horizon:'FUTURE'},scheduleEvidence:{usableSlackMinutes:85},workloadEvidence:{complete:true,serviceDate:'2026-09-18',completedTrips:0,activeTrips:0,scheduledTrips:2},
+   decisionEvidence:{explanation:'Both options have sufficient time; lighter workload decides.'},expectedRoute:{etaMinutes:12}};
+ const evidence=conversationEvidence({}, {pair:{candidates:[p],recommended:p}});
+ expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('85 minutes of usable preparation slack');
+ expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('0 completed, 0 active and 2 scheduled trips on 2026-09-18');
+ expect(evidenceSummary(evidence,'What is the ETA?')).toContain('this is not a live ETA');
+ expect(evidenceSummary(evidence,'What is the ETA?')).not.toContain('85 minutes');
+ const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
+ expect(evidenceSummary(blocked,'Why this option?')).toContain('cannot be assigned. Overlapping reservation.');
+});

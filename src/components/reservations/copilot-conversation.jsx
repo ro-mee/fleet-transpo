@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { Send, LoaderCircle, RotateCcw } from "lucide-react";
 import { formatDateTime, cn } from "@/lib/utils";
@@ -116,6 +116,7 @@ export function CopilotConversation({
   completed = false,
   children,
   reply,
+  selectedReply,
   onCommand,
 }) {
   const [messages, setMessages] = useState(() => getReservationMessages(requestId));
@@ -169,8 +170,9 @@ export function CopilotConversation({
       setDraft("");
     },
     onSuccess: (response, { requestId: targetId, selectedPair: selection, selectedPairLabel: selectionLabel, displayedEvaluatedAt: viewedAt, displayedOptions: options }) => {
-      const prompt = !selection && !currentSelection.current && options?.length
-        ? options.length === 2 ? '\n\nWhich would you like to choose: Option 1 or Option 2?' : '\n\nWould you like to choose Option 1?'
+      const choices = (response.choiceOptions ?? []).filter(index => options?.[index-1]);
+      const prompt = !selection && !currentSelection.current && choices.length
+        ? choices.length === 2 ? '\n\nWhich would you like to choose: Option 1 or Option 2?' : `\n\nWould you like to choose Option ${choices[0]}?`
         : '';
       const assistantMsg = {
         role: "assistant",
@@ -196,10 +198,11 @@ export function CopilotConversation({
     if (follow.current && log.current) {
       log.current.scrollTop = log.current.scrollHeight;
     }
-  }, [messages, send.isPending, reply, children]);
+  }, [messages, send.isPending, reply, selectedReply, children]);
 
   const submit = (message) => {
     if (!message.trim() || sending.current || disabled) return;
+    follow.current = true;
     const commandResult = onCommand?.(message);
     if (commandResult) {
       if (!commandResult.handled) setReservationMessages(requestId, previous => [...previous.slice(-28),
@@ -235,6 +238,12 @@ export function CopilotConversation({
     ? ["Why this pair?", "Any conflicts?", "Other options?"]
     : ["Why no match?", "What needs fixing?", "Other options?"];
 
+  // Keep the live review at its selection turn, never after subsequent Q&A.
+  // If memory was cleared/pruned, retain the review above the remaining messages.
+  const selectionTurn = selectedPair ? messages.findLastIndex(m =>
+    m.action === 'select-pair' && m.selectedPair?.vehicleId === selectedPair.vehicleId &&
+    m.selectedPair?.driverId === selectedPair.driverId) : -1;
+
   return (
     <section
       aria-label="Copilot conversation"
@@ -257,7 +266,7 @@ export function CopilotConversation({
             type="button"
             disabled={send.isPending}
             onClick={clearMemory}
-            className="text-[10px] text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none"
+            className="text-xs text-foreground-muted hover:text-danger hover:bg-hover px-1.5 py-0.5 rounded flex items-center gap-1 transition-colors cursor-pointer select-none"
             title="Clear conversation for this reservation"
           >
             <RotateCcw className="w-2.5 h-2.5" />
@@ -280,11 +289,12 @@ export function CopilotConversation({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-3 p-3"
       >
         {children}
+        {selectionTurn === -1 && selectedReply}
         {messages.length === 0 && !children && !reply && (
           <div className="flex items-start gap-2 max-w-[95%]">
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
               <img
-                src="/images/copilot-avatar.png"
+                src="/images/copilot-avatar-blinking.gif"
                 alt="Copilot"
                 className="w-full h-full object-cover select-none pointer-events-none"
               />
@@ -296,8 +306,8 @@ export function CopilotConversation({
         )}
 
         {messages.map((m, i) => (
+          <Fragment key={i}>
           <div
-            key={i}
             className={cn(
               "flex flex-col",
               m.role === "user" ? "items-end" : "items-start"
@@ -312,7 +322,7 @@ export function CopilotConversation({
                   {m.role === "assistant" && (
                     <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs mt-0.5">
                       <img
-                        src="/images/copilot-avatar.png"
+                        src="/images/copilot-avatar-blinking.gif"
                         alt="Copilot"
                         className="w-full h-full object-cover select-none pointer-events-none"
                       />
@@ -361,13 +371,15 @@ export function CopilotConversation({
                   </details>
                 )}
               </div>
+          {i === selectionTurn && selectedReply}
+          </Fragment>
         ))}
 
         {send.isPending && (
           <div role="status" className="flex items-center gap-2 max-w-[95%]">
             <div className="w-6 h-6 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs animate-pulse">
               <img
-                src="/images/copilot-avatar.png"
+                src="/images/copilot-avatar-blinking.gif"
                 alt="Copilot"
                 className="w-full h-full object-cover select-none pointer-events-none"
               />
