@@ -83,6 +83,12 @@ export function getAndClearReturnTo(role = null) {
     const saved = storage.getItem(RETURN_TO_KEY);
     storage.removeItem(RETURN_TO_KEY);
     if (isValidInternalPath(saved)) {
+      if (role === "driver") {
+        return saved.startsWith("/driver") ? saved : "/driver";
+      }
+      if (saved.startsWith("/driver")) {
+        return "/dashboard";
+      }
       return saved;
     }
   } catch {

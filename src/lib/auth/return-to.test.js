@@ -62,4 +62,20 @@ describe("returnTo open-redirect protection", () => {
     const defaultRoute = getAndClearReturnTo("driver");
     expect(defaultRoute).toBe("/driver");
   });
+
+  it("restricts drivers to driver routes, overriding foreign dashboard routes", () => {
+    saveReturnTo("/dashboard");
+    const driverRoute = getAndClearReturnTo("driver");
+    expect(driverRoute).toBe("/driver");
+
+    saveReturnTo("/driver/trips?filter=upcoming");
+    const allowedDriverRoute = getAndClearReturnTo("driver");
+    expect(allowedDriverRoute).toBe("/driver/trips?filter=upcoming");
+  });
+
+  it("prevents non-drivers from being redirected into driver-only portal", () => {
+    saveReturnTo("/driver");
+    const adminRoute = getAndClearReturnTo("admin");
+    expect(adminRoute).toBe("/dashboard");
+  });
 });

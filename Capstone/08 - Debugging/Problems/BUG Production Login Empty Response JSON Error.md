@@ -32,24 +32,40 @@ This raw browser DOM exception was displayed directly in the login screen error 
    In `node_modules/next-auth/react/index.js`, `signIn("credentials")` directly awaits `res.json()` on the response from `/api/auth/callback/credentials`. If the server, reverse proxy, or WAF returns a non-JSON body (e.g. 0-byte 403, 302, or 502), the error bubbles up unhandled.
 3. **Session Manager 401 Contamination (`src/context/session-manager.jsx`)**:
    When credentials failed or were throttled, NextAuth returned 401. The session manager's `window.fetch` interceptor did not exclude `/api/auth/callback/credentials` and called `cloned.json()`, triggering unhandled JSON parse rejections whenever 401s had no body.
-4. **Login Status Polling (`src/app/(auth)/login/page.js`)**:
-   `/api/auth/login-status` was read with an unguarded `await res.json()` on error paths without verifying `res.ok`.
+5. **Oversized Base64 Avatar URL in JWT Cookies (HTTP 431 & HTTP 494)**:
+   In `src/lib/auth.js`, `user.avatarUrl` was populated from `employees.avatar_url` or `drivers.license_image_url`. In the database, an employee record (`crypticalromes@gmail.com`) had a 57.5 KB base64 `data:image/jpeg;base64,...` string stored in `avatar_url`. NextAuth serialized this entire 57.5 KB string into the JWT session cookie, chunking it across 15+ cookies (`next-auth.session-token.0..15`) totaling >60 KB. Every subsequent request sent a massive `Cookie` header that blew past:
+   - Node.js local dev server's 16 KB max header limit: **`HTTP ERROR 431: Request Header Fields Too Large`**
+   - Vercel's edge proxy header limit: **`494 REQUEST_HEADER_TOO_LARGE`**
+   Because 431/494 errors abort the HTTP request before Next.js can handle it, login attempts and page loads failed completely.
+6. **Driver Login Web Redirection to `/dashboard`**:
+   `getAndClearReturnTo` in `src/lib/auth/return-to.js` restored any cached `sessionStorage` path without verifying role access. If a user previously navigated to `/` or `/dashboard` (which saved `/dashboard`), logging in as a driver redirected them to `/dashboard` where `NAV_ROLES["/dashboard"]` denies drivers with an "Access restricted" error.
 
 ## Resolution
 
-1. **Same-Origin & Deployment Awareness in `src/proxy.js`**:
+1. **Avatar URL Sanitization (`src/lib/auth.js`)**:
+   - Added `isSafeAvatarUrl(url)` requiring remote HTTP/HTTPS URLs ≤ 512 characters.
+   - Strictly rejected `data:` base64 strings and oversized payloads from `user.avatarUrl` and `token.avatarUrl`, keeping JWT cookies under ~1 KB.
+   - Removed `license_image_url` from avatar fallback.
+   - Cleaned the raw base64 data URLs from `employees.avatar_url` in PostgreSQL.
+2. **Role-Scoped Web Redirection (`src/lib/auth/return-to.js`)**:
+   - Enforced that `role === "driver"` always routes to `/driver` (or `/driver/*`), overriding foreign `/dashboard` paths.
+   - Blocked non-drivers from being redirected to `/driver`.
+3. **Driver Management API Guarding (`src/app/api/drivers/route.js`, `src/app/api/drivers/[id]/route.js`)**:
+   - Guarded `avatar_url` so uploaded license scans are not assigned to `employees.avatar_url` unless they are valid remote URLs.
+4. **Same-Origin & Deployment Awareness in `src/proxy.js`**:
    - `isAllowedOrigin(origin, request)` dynamically allows same-origin requests by validating against `request.nextUrl.origin`, `Host`, `X-Forwarded-Host`, and `X-Forwarded-Proto`.
    - Added support for `NEXTAUTH_URL` and `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL`.
    - Never return `null` body on API 403s; return structured JSON `{ error: "Forbidden: origin not allowed" }`.
-2. **Graceful Error Translation in `src/services/auth.service.js`**:
+5. **Graceful Error Translation in `src/services/auth.service.js`**:
    - Caught `SyntaxError` / `Unexpected end of JSON input` from `nextAuthSignIn` and surfaced a clean, actionable message: `"Authentication service returned an unexpected response. Please check your network and server configuration."`.
-3. **Scope and Safe-Text Interceptor in `src/context/session-manager.jsx`**:
+6. **Scope and Safe-Text Interceptor in `src/context/session-manager.jsx`**:
    - Scoped `isAppApiRequest` to ignore all `/api/auth/` routes except `/api/auth/profile`.
    - Changed cloned 401 handling to use `cloned.text()` with a safe `JSON.parse` wrapper to prevent empty-body parse crashes.
-4. **Safe Status Polling in `src/app/(auth)/login/page.js`**:
+7. **Safe Status Polling in `src/app/(auth)/login/page.js`**:
    - Checked `res.ok` before parsing `/api/auth/login-status` and appended `.catch(() => ({}))`.
-5. **Verification**:
-   - `src/services/auth.service.test.js` added and passing.
-   - `src/security-boundaries.test.js` updated with same-origin and 403 JSON tests (10/10 passing).
-   - Full Vitest test suite passing (105 test files, 1136 tests).
+8. **Verification**:
+   - `src/services/auth.service.test.js` (3/3 passed).
+   - `src/lib/auth/return-to.test.js` (8/8 passed).
+   - `src/security-boundaries.test.js` (10/10 passed).
+   - Full Vitest suite passing (105 test files, 1138 tests).
    - `npm run verify:auth` passing (261/261 routes guarded).

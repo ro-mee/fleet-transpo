@@ -99,19 +99,27 @@ export const authOptions = {
           }
         }
 
+function isSafeAvatarUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
+  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
+  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
+}
+
         let driverStatus = null;
         let driverFaceImageUrl = null;
         if (employee.roles?.role_name === "driver") {
           const { data: driverData } = await supabase
             .from("drivers")
-            .select("driver_status, face_image_url, license_image_url")
+            .select("driver_status, face_image_url")
             .eq("employee_id", employee.employee_id)
             .maybeSingle();
           driverStatus = driverData?.driver_status || null;
-          driverFaceImageUrl = driverData?.face_image_url || driverData?.license_image_url || null;
+          driverFaceImageUrl = driverData?.face_image_url || null;
         }
 
-        const avatarUrl = driverFaceImageUrl || employee.avatar_url || null;
+        const candidateAvatar = driverFaceImageUrl || employee.avatar_url || null;
+        const avatarUrl = isSafeAvatarUrl(candidateAvatar) ? candidateAvatar : null;
 
         const sessionId = randomUUID();
         const userAgent = auditReq.headers.get("user-agent") || null;
@@ -162,12 +170,12 @@ export const authOptions = {
         token.position = user.position;
         token.status = user.status;
         token.driverStatus = user.driverStatus;
-        token.avatarUrl = user.avatarUrl;
+        token.avatarUrl = isSafeAvatarUrl(user.avatarUrl) ? user.avatarUrl : null;
         token.authVersion = user.authVersion;
         token.sessionId = user.sessionId;
       }
       if (trigger === "update" && session?.avatarUrl !== undefined) {
-        token.avatarUrl = session.avatarUrl;
+        token.avatarUrl = isSafeAvatarUrl(session.avatarUrl) ? session.avatarUrl : null;
       }
       return token;
     },
