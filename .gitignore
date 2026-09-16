@@ -50,3 +50,6 @@ stitch_fleetops_driver_companion/
 
 # Obsidian local configuration
 Capstone/.obsidian/
+
+# agent scratch workspaces (subagent-driven development ledgers/briefs)
+.superpowers/
