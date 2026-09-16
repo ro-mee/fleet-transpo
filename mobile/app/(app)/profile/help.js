@@ -14,7 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { ClayCard, ClayTile } from "../../../components/clay";
+import { ClayCard, ClayTile, ClayButton } from "../../../components/clay";
 
 const FAQS = [
   {
@@ -75,6 +75,25 @@ export default function HelpCenter() {
             Contact dispatch directly or check our frequently asked questions.
           </Text>
         </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>INTERACTIVE TRAINING</Text>
+        <ClayCard variant="standard" style={styles.trainingCard}>
+          <View style={styles.trainingTop}>
+            <ClayTile icon="school" size={44} variant="primary" />
+            <View style={styles.trainingInfo}>
+              <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>Driver Academy</Text>
+              <Text style={[styles.trainingSub, { color: colors.onSurfaceVariant }]}>
+                Hands-on simulator to practice inspections, swipe gestures, and emergency protocols before hitting the road.
+              </Text>
+            </View>
+          </View>
+          <ClayButton
+            variant="primary"
+            label="Launch Interactive Guide"
+            onPress={() => router.push('/guide')}
+            style={{ width: '100%', marginTop: 8 }}
+          />
+        </ClayCard>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>CONTACT</Text>
         <ClayCard variant="standard" style={styles.sectionCard}>
@@ -146,6 +165,30 @@ const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: 30,
     overflow: "hidden",
+  },
+
+  trainingCard: {
+    padding: 16,
+    borderRadius: 24,
+    gap: 12,
+  },
+  trainingTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  trainingInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  trainingTitle: {
+    fontSize: 16,
+    fontFamily: fonts.displayBold,
+  },
+  trainingSub: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+    lineHeight: 18,
   },
 
   contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, minHeight: TOUCH_TARGET },

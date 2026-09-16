@@ -203,3 +203,24 @@ The existing car artwork now plays once at 2.5x (about two seconds), with a 2.3-
 Direct imports load only the six font weights already used by the app. Verified Android export changed from 1,395 modules / 101 assets / 5.15 MB Hermes bundle to 1,373 modules / 79 assets / 5.13 MB; 22 unused font assets no longer enter the export. No typography or clay styling change and no dependency added.
 
 Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .
+
+## Driver Academy & Interactive In-App Guide (2026-09-16, implemented)
+
+Introduced a dedicated hands-on interactive training simulator for drivers (`mobile/app/(app)/guide.js`) replacing passive text-only FAQs with interactive practice missions before real-world dispatch:
+- **Mandatory Training Gate (Absolute Requirement)**: All drivers—both newly created accounts and existing drivers who have not completed the 6 tutorial missions—are strictly locked to `/guide` upon login. 
+  - `mobile/app/(app)/_layout.js` enforces a root perimeter guard: uncertified drivers attempting to access any route other than `/guide` are redirected to `/guide`, and active GPS tracking is gated until certified.
+  - `mobile/app/(app)/(tabs)/_layout.js` provides secondary defense-in-depth, redirecting any uncertified session back to `/guide`.
+  - `mobile/app/login.js` and `mobile/app/permissions.js` route directly to `/guide` if `!progress.isComplete`.
+  - `mobile/app/(app)/guide.js` intercepts the back action: uncertified drivers cannot escape back to the dashboard and may only choose between continuing training or signing out.
+  - `mobile/lib/driver-guide.js` isolates progress per `driverId` (`getGuideStorageKey(driverId)` -> `@fleetops_driver_guide_progress_${driverId}`), ensuring shared devices never leak completed stamps to new driver accounts.
+- **Interactive Simulator (`mobile/components/guide/DriverGuideModal.jsx`)**: Zero-risk sandbox modal providing real interactive component simulations:
+  1. *Pre-Trip Inspection*: Practice answering the 7-item vehicle roadworthiness checklist (tires, brakes, dashboard warning lights, cabin) and learn fault escalation.
+  2. *Swipe Gesture Masterclass*: Practice sliding the real `SwipeButton` across the 48% threshold for route start, pickup arrival, and trip finalization to eliminate accidental taps.
+  3. *Trip Lifecycle & Odometer*: Navigating pickup/drop-off, understanding geofence arrival, logging ending odometer via interactive quick-increment buttons (`interactive_odometer`, preset buttons `+18 km`, `+35 km`, `+72 km` with live calculated distance delta), and selecting detour override reasons (`interactive_override`, choosing between traffic reroute, road repair, or passenger stop with dispatch note acknowledgment).
+  4. *Fuel & Receipt Scanner*: Interactive camera viewfinder simulation (`interactive_fuel_scan`) featuring framing corner brackets (dynamically glowing emerald during scan), mock printed receipt, native-driver looping laser sweep with trailing glow aura (`Animated.loop` with quad easing), viewfinder HUD scanning badge, and auto-extracted chip tags for Station, Liters, Total ₱, and Fuel Type.
+  5. *Emergency SOS & Hotlines*: Interacting with the draggable floating SOS medallion and dispatch hotline menu.
+  6. *Offline Resilience*: Underground tunnel simulator (`interactive_offline_sync`) demonstrating network signal drop, live amber banner transitions, local outbox milestone queuing, and automated background sync upon exiting the tunnel.
+- **Home Integration (`mobile/components/guide/DriverGuideCard.jsx`, `mobile/app/(app)/(tabs)/index.js`)**: Compact molded clay readiness card showing training completion percentage, resume CTA, and non-dismissible state while uncertified.
+- **Hub & Settings Entry Points**: Mounted dedicated `guide` stack screen in `mobile/app/(app)/_layout.js`, linked directly from Profile settings (`mobile/app/(app)/(tabs)/profile.js`) and Help & Support (`mobile/app/(app)/profile/help.js`).
+- **State & Storage (`mobile/lib/driver-guide.js`)**: Scoped per driver ID via AsyncStorage with progress calculations (`calculateProgress`), completion timestamps, and reset capabilities.
+- **Verification**: `mobile/lib/driver-guide.test.js` (7/7 passed), full Vitest suite passing (142 test files, 1341 tests), and `npm run verify:auth` passing (270/270 routes).
