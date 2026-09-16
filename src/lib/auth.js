@@ -6,7 +6,16 @@ import { getAdminClient, query, withTransaction } from "@/lib/db";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
 import { writeAudit } from "@/lib/audit";
 import { consumeFactor } from "@/lib/auth/mfa";
+import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
+import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
+
+function isSafeAvatarUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
+  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
+  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
+}
 
 export const authOptions = {
   providers: [
@@ -27,6 +36,11 @@ export const authOptions = {
         ]);
         if (!ipBucket.allowed || !accountBucket.allowed) {
           throw new Error("Too many login attempts. Please try again in a minute.");
+        }
+
+        const lockout = await checkAccountLockout(normalizedEmail);
+        if (!lockout.allowed) {
+          throw new Error(`ACCOUNT_LOCKED:${lockout.retryAfter}`);
         }
 
         const supabase = getAdminClient();
@@ -53,6 +67,13 @@ export const authOptions = {
             resourceId: employee?.employee_id,
             newValues: { channel: "web" },
           });
+          const lockoutBucket = await recordFailedAttempt(normalizedEmail);
+          if (!lockoutBucket.allowed && lockoutBucket.remaining === 0) {
+            await raiseSecurityAlert(auditReq, {
+              type: "account_locked",
+              details: { channel: "web", failures: LOCKOUT_LIMIT, windowMinutes: 15 },
+            });
+          }
           return null;
         }
 
@@ -99,13 +120,6 @@ export const authOptions = {
           }
         }
 
-function isSafeAvatarUrl(url) {
-  if (!url || typeof url !== "string") return false;
-  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
-  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
-  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
-}
-
         let driverStatus = null;
         let driverFaceImageUrl = null;
         if (employee.roles?.role_name === "driver") {
@@ -133,6 +147,8 @@ function isSafeAvatarUrl(url) {
         } catch {
           throw new Error("Unable to start a secure session.");
         }
+
+        await clearAccountLockout(normalizedEmail);
 
         await writeAudit(auditReq, null, {
           action: "login_success",
