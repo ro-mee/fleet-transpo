@@ -52,7 +52,8 @@ export async function GET(req) {
     // Drivers (name lives on employees)
     const drv = await query(
       `SELECT d.driver_id AS id, e.first_name || ' ' || e.last_name AS label,
-              d.driver_status AS subtitle, e.first_name
+              d.driver_status AS subtitle, e.first_name,
+              d.face_image_url, e.avatar_url
          FROM drivers d
          JOIN employees e ON e.employee_id = d.employee_id
         WHERE d.deleted_at IS NULL AND e.deleted_at IS NULL

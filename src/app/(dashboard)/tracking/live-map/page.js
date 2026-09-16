@@ -32,6 +32,7 @@ import {
   Siren,
 } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 
 const LiveLocationsMap = dynamic(
   () => import("@/components/maps/live-locations-map"),
@@ -773,10 +774,13 @@ export default function LiveMapPage() {
               ) : activeTrip ? (
                 <>
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-data text-base font-semibold text-foreground">{driverPlate}</p>
-                      <p className="mt-0.5 truncate text-xs text-foreground-secondary">{driverName}</p>
-                      <p className="mt-0.5 truncate text-xs font-semibold text-primary">{phaseSentenceFor(activeTrip, mapTarget)}</p>
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <DriverAvatar source={activeTrip.drivers} name={driverName} className="h-9 w-9 rounded-xl text-[11px]" />
+                      <div className="min-w-0">
+                        <p className="truncate font-data text-base font-semibold text-foreground">{driverPlate}</p>
+                        <p className="mt-0.5 truncate text-xs text-foreground-secondary">{driverName}</p>
+                        <p className="mt-0.5 truncate text-xs font-semibold text-primary">{phaseSentenceFor(activeTrip, mapTarget)}</p>
+                      </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       {/* Fleet summary risk while the detail evaluation loads,

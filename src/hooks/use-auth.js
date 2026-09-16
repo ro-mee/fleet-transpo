@@ -7,7 +7,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 function mapSessionToEmployee(session, profile) {
   if (!session?.user) return null;
   const u = session.user;
-  const photoUrl = profile?.avatar_url || profile?.face_image_url || u.avatarUrl || u.image || null;
+  const photoUrl = profile?.face_image_url || profile?.avatar_url || u.avatarUrl || u.image || null;
   return {
     employee_id: u.employeeId,
     user_id: u.employeeId,

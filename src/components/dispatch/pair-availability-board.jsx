@@ -27,6 +27,7 @@ import {
   RefreshCw,
   User,
 } from "lucide-react";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 
 function toInputValue(value) {
   const d = value instanceof Date ? value : new Date(value);
@@ -53,12 +54,6 @@ function fmtWindow(iso) {
     hour: "numeric",
     minute: "2-digit",
   }).format(d);
-}
-
-function initials(name, fallback) {
-  if (!name) return fallback;
-  const parts = String(name).split(" ").filter(Boolean);
-  return (parts.map((p) => p[0]).join("") || fallback).slice(0, 2).toUpperCase();
 }
 
 export function PairAvailabilityBoard({
@@ -517,13 +512,20 @@ function PairHead({ vehicle, badge }) {
 function DriverLine({ entry }) {
   return (
     <div className="mt-3 flex items-center gap-2.5 border-t border-border/40 pt-3">
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-[11px] font-bold text-primary">
-        {initials(entry.driver?.name, "DR")}
-      </div>
+      <DriverAvatar source={entry.driver} name={entry.driver?.name} className="h-8 w-8 rounded-xl text-[11px]" />
       <div>
         <p className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
           <User className="h-3.5 w-3.5 text-foreground-muted" aria-hidden="true" />
-          {entry.driver?.name || "—"}
+          {entry.driver?.driver_id ? (
+            <Link
+              href={`/drivers/${entry.driver.driver_id}`}
+              className="hover:text-primary hover:underline transition-colors"
+            >
+              {entry.driver?.name || "—"}
+            </Link>
+          ) : (
+            entry.driver?.name || "—"
+          )}
         </p>
         <p className="text-xs font-medium text-foreground-secondary">
           {entry.pairing_kind === "substitute" ? "Substitute" : "Designated pair"}
@@ -577,7 +579,11 @@ function BlockedCard({ vehicle, driver, badge, reason, action, clashes }) {
   return (
     <li className="rounded-3xl border border-border/60 bg-surface p-4 shadow-xs">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="flex min-w-0 items-center gap-2.5">
+          {driver?.driver_id || driver?.name ? (
+            <DriverAvatar source={driver} name={driver?.name} className="h-9 w-9 rounded-xl text-[11px]" />
+          ) : null}
+          <div className="min-w-0">
           <p className="text-sm font-bold text-foreground">
             {vehicle.plate_number || vehicle.vehicle_name}
             {vehicle.seating_capacity ? ` · ${vehicle.seating_capacity} pax` : ""}
@@ -587,6 +593,7 @@ function BlockedCard({ vehicle, driver, badge, reason, action, clashes }) {
             {vehicle.category_name ? ` · ${vehicle.category_name}` : ""}
             {driver?.name ? ` · ${driver.name}` : ""}
           </p>
+          </div>
         </div>
         {badge}
       </div>

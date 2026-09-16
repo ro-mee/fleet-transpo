@@ -10,7 +10,7 @@ source:
   - supabase/migrations/049_driver_work_schedule_and_leave.sql
   - src/lib/scheduling/driver-schedule.js
   - src/services/driver-schedule.service.js
-last_verified: 2026-08-15
+last_verified: 2026-09-16
 related: ["[[Mobile Architecture]]", "[[Fleet And Vehicles]]"]
 ---
 
@@ -60,6 +60,23 @@ An **allow-list**, not a deny-list. A driver can edit exactly four fields; anyth
 > sidebar user footer. NextAuth session propagation and `GET /api/auth/profile`
 > ensure live sync without requiring re-login. Mobile `DriverHomeHeader` also
 > reflects the uploaded face photo.
+>
+> **Full sweep (2026-09-16):** the same `face_image_url → avatar_url →
+> initials` chain now renders on EVERY staff surface that names a driver via
+> the shared `src/components/drivers/driver-avatar.jsx` (`resolveDriverPhotoUrl`
+> + `DriverAvatar`, broken-URL falls back to initials): incidents table +
+> responder line, document-expiry driver tab, trips table (now links to the
+> profile), fuel records + fuel-request review, assignments tables + picker,
+> leave board, reservations register + detail, dispatch board cards + detail +
+> calendar drawer, both availability boards, live-map selected mission,
+> dashboard coverage table, executive snapshot, command-palette results.
+> Every driver-bearing API now selects both photo columns additively
+> (trips, dispatch by-status/[id]/calendar/availability-pairs,
+> incidents + [id], documents/expiring, fuel + fuel-requests, assignments,
+> substitute schedules, leave list, transport-requests list/card/[id],
+> search) behind the existing `requirePermission` guards — RBAC unchanged,
+> driver role still excluded from roster reads. Verified: ESLint clean,
+> 180 tests pass, route-auth audit 270/270.
 
 `canUpdateLicenseScan()` used to enforce a 30-day re-upload window — removed 2026-08-25: re-upload is allowed anytime, gated instead by Gemini's authenticity/readability check. → [[ADR-012 Anytime Self-Service License Renewal]]
 

@@ -64,7 +64,10 @@ export default function IncidentsScreen() {
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
 
   useEffect(() => {
-    triggerMilestone("incident");
+    const task = InteractionManager.runAfterInteractions(() => {
+      triggerMilestone("incident");
+    });
+    return () => task?.cancel?.();
   }, [triggerMilestone]);
   
   useEffect(() => {
@@ -283,7 +286,7 @@ export default function IncidentsScreen() {
       </View>
 
       {/* Emergency Banner */}
-      <CoachMarkTarget targetId="incident.banner">
+      <CoachMarkTarget id="incident.banner" targetId="incident.banner" radius={10} padding={6}>
         <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
           <Ionicons name="radio-outline" size={16} color={colors.onError} />
           <Text style={[styles.emergencyText, { color: colors.onError }]}>

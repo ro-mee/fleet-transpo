@@ -27,6 +27,7 @@ import { downloadBlob } from "@/lib/export";
 import { apiFetch } from "@/lib/api/client";
 import { incidentTypeLabel, sortCandidateResponders } from "@/lib/incidents/resolution";
 import { ImageViewer } from "@/components/ui/image-viewer";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const IncidentMap = dynamic(() => import("@/components/maps/incident-map"), {
   ssr: false,
@@ -340,12 +341,9 @@ export default function IncidentsPage() {
         const d = row.driver;
         if (!d) return <span className="text-xs text-foreground-muted italic font-medium">—</span>;
         const name = `${d.first_name || ""} ${d.last_name || ""}`.trim();
-        const initials = [d.first_name?.[0], d.last_name?.[0]].filter(Boolean).join("").toUpperCase();
         return (
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-[11px] text-foreground border border-border/40 shadow-2xs sm:h-10 sm:w-10 sm:text-xs">
-              {initials || "DR"}
-            </div>
+            <DriverAvatar source={d} name={name} className="sm:h-10 sm:w-10 sm:text-xs h-8 w-8 text-[11px]" />
             <div className="min-w-0">
               <Link href={`/drivers/${d.driver_id}`} className="block truncate font-bold text-sm text-foreground hover:text-primary transition-colors" title={name}>
                 {name}
@@ -799,6 +797,11 @@ export default function IncidentsPage() {
                                   <Badge variant="info" className="gap-1 font-semibold">
                                     <Car className="h-3 w-3" /> Fleet Responder
                                   </Badge>
+                                  <DriverAvatar
+                                    source={detailIncident.responder}
+                                    name={`${detailIncident.responder.first_name || ""} ${detailIncident.responder.last_name || ""}`.trim()}
+                                    className="h-7 w-7 text-[10px]"
+                                  />
                                   <span className="text-xs font-bold text-foreground">
                                     {detailIncident.responder.first_name} {detailIncident.responder.last_name}
                                   </span>

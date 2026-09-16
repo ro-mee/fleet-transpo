@@ -24,6 +24,7 @@ export async function GET(req) {
     );
     const { rows: drivers } = await query(
       `SELECT d.driver_id, d.license_number, d.license_expiry, d.license_type,
+              d.face_image_url, e.avatar_url,
               COALESCE(e.first_name,'') AS first_name, COALESCE(e.last_name,'') AS last_name
          FROM drivers d
          LEFT JOIN employees e ON d.employee_id = e.employee_id
@@ -37,6 +38,8 @@ export async function GET(req) {
         driver_id: dr.driver_id,
         plate_number: null,
         vehicle: `${dr.first_name} ${dr.last_name}`.trim() || "Unknown Driver",
+        face_image_url: dr.face_image_url || null,
+        avatar_url: dr.avatar_url || null,
         document_type: "Driver License",
         document_number: dr.license_number,
         expiry_date: dr.license_expiry,

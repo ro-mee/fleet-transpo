@@ -297,11 +297,13 @@ BLOCKER  --------------------------------------------------   BLOCKER
 - Target hole: Uncovered and interactive for `passthrough`.
 
 ### ScrollView Support & Stale Measurement Prevention
-1. **Safe Viewport Check**: Targets inside ScrollViews are checked against the safe visible viewport (`insets.top + 40` to `SCREEN_HEIGHT - insets.bottom - 80`).
-2. **Auto-Scroll**: If clipped or offscreen, `CoachMarkTarget` calls `scrollRef.current.scrollTo()`, waits $320\text{ms}$ for layout to settle, and remeasures before rendering.
-3. **Route Stamping**: All registrations store `route: pathname`. If a target belongs to a different route, `activeTargetLayout` returns `null`.
-4. **Zero-Size Suppression**: If `width <= 0` or `height <= 0`, the coach mark does **not** display. It waits until layout completes.
-5. **Unregister on Unmount**: Calling `unregisterTarget(targetId)` on unmount guarantees stale coordinates cannot linger.
+1. **Safe Viewport Check & Active-Target Gating**: Targets inside ScrollViews are checked against the safe visible viewport (`insets.top + 40` to `SCREEN_HEIGHT - insets.bottom - 80`). Auto-scrolling via `scrollRef.current.scrollTo()` is strictly gated to `isCurrentActiveTarget === true` so inactive targets never scroll the viewport prematurely while earlier steps are active.
+2. **Auto-Scroll & Layout-Relative Measuring**: Uses `containerRef.current.measureLayout(scrollRef.current, ...)` when available to compute the exact ScrollView offset, scrolls smoothly, and waits $320\text{ms}$ for scroll animation to settle before committing final coordinates.
+3. **Android Transition & Window Settlement**: Guard against early $y \le 0$ measurement returns on Android during screen transition by deferring to `requestAnimationFrame` and `InteractionManager.runAfterInteractions()`.
+4. **Active Step Re-Measurement & Settling Ticks**: When a step activates or transitions (`currentStepIndex` changes), `CoachMarkTarget` fires an immediate measurement, an interaction-settled measurement, and staggered settling ticks ($80\text{ms}, 240\text{ms}, 480\text{ms}$) to guarantee dynamic async content changes (e.g. vehicle assignment loading) immediately update the spotlight coordinates.
+5. **Route Stamping**: All registrations store `route: pathname`. If a target belongs to a different route, `activeTargetLayout` returns `null`.
+6. **Zero-Size Suppression**: If `width <= 0` or `height <= 0`, the coach mark does **not** display. It waits until layout completes.
+7. **Unregister on Unmount**: Calling `unregisterTarget(targetId)` on unmount guarantees stale coordinates cannot linger across screen transitions.
 
 ---
 

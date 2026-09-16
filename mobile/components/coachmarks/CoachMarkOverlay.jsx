@@ -54,8 +54,8 @@ export function CoachMarkOverlay({
 
   const spotX = Math.max(0, rawX - pad);
   const spotY = Math.max(0, rawY - pad);
-  const spotW = Math.min(SCREEN_WIDTH - spotX, rawW + pad * 2);
-  const spotH = Math.min(SCREEN_HEIGHT - spotY, rawH + pad * 2);
+  const spotW = Math.max(0, Math.min(SCREEN_WIDTH - spotX, rawW + pad * 2));
+  const spotH = Math.max(0, Math.min(SCREEN_HEIGHT - spotY, rawH + pad * 2));
   const radius = targetLayout?.radius ?? 12;
 
   // Animated values for smooth bounds transitions and restrained arrival pulse
@@ -235,11 +235,17 @@ export function CoachMarkOverlay({
   const tooltipStyle = isTargetInLowerHalf
     ? {
         position: "absolute",
-        bottom: SCREEN_HEIGHT - spotY + 14,
+        bottom: Math.min(
+          SCREEN_HEIGHT - spotY + 14,
+          SCREEN_HEIGHT - safeTop - 200
+        ),
       }
     : {
         position: "absolute",
-        top: spotY + spotH + 14,
+        top: Math.max(
+          safeTop + 10,
+          Math.min(spotY + spotH + 14, SCREEN_HEIGHT - safeBottom - 180)
+        ),
       };
 
   // Interaction mode handling:

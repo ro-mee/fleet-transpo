@@ -24,7 +24,7 @@ const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-0
 const SELECT_REQUESTS = `
   SELECT r.*, t.trip_status,
          v.plate_number, v.vehicle_name, v.tank_capacity_l, v.fuel_efficiency_kmpl,
-         e.first_name, e.last_name
+         e.first_name, e.last_name, e.avatar_url, d.face_image_url
     FROM fuelrequests r
     LEFT JOIN trips t ON t.trip_id = r.trip_id
     JOIN vehicles v ON v.vehicle_id = r.vehicle_id

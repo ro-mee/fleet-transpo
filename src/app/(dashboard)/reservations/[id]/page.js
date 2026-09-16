@@ -25,6 +25,7 @@ import { DateTimePicker } from "@/components/ui/date-time-picker";
 import { FloatingField } from "@/components/ui/field";
 import { AlertCircle } from "lucide-react";
 import { ConflictChips } from "@/components/reservations/conflict-chips";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { AiRecommendationPanel } from "@/components/reservations/ai-recommendation-panel";
 import { useRoleAccess } from "@/hooks/use-role-access";
@@ -476,7 +477,25 @@ export default function ReservationDetailPage() {
                     ? `${vehicle.plate_number}${vehicle.model ? ` · ${vehicle.model}` : ""}`
                     : null}
                 </Field>
-                <Field icon={UserCheck} label="Assigned Driver">{driverName(driver)}</Field>
+                <Field icon={UserCheck} label="Assigned Driver">
+                  {driver ? (
+                    <span className="inline-flex items-center gap-2">
+                      <DriverAvatar source={driver} name={driverName(driver)} className="h-7 w-7 rounded-lg text-[10px]" />
+                      {driver.driver_id ? (
+                        <Link
+                          href={`/drivers/${driver.driver_id}`}
+                          className="hover:text-primary hover:underline transition-colors"
+                        >
+                          {driverName(driver)}
+                        </Link>
+                      ) : (
+                        driverName(driver)
+                      )}
+                    </span>
+                  ) : (
+                    driverName(driver)
+                  )}
+                </Field>
                 <Field label="Driver Phone">{driver?.phone}</Field>
                 <Field label="Reviewed By">
                   {reviewer

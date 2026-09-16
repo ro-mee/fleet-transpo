@@ -345,9 +345,9 @@ export function Sidebar() {
             )}
           >
             <Avatar className="h-7 w-7 shrink-0">
-              {employee?.avatar_url || employee?.face_image_url || employee?.image ? (
+              {employee?.face_image_url || employee?.avatar_url || employee?.image ? (
                 <AvatarImage
-                  src={employee.avatar_url || employee.face_image_url || employee.image}
+                  src={employee.face_image_url || employee.avatar_url || employee.image}
                   alt={employee ? `${employee.first_name} ${employee.last_name}` : "User"}
                   className="object-cover"
                 />

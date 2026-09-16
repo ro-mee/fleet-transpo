@@ -87,8 +87,8 @@ export async function GET(req) {
         [categoryId]
       ),
       query(
-        `SELECT d.driver_id, d.driver_status, d.license_expiry,
-                e.first_name, e.last_name
+        `SELECT d.driver_id, d.driver_status, d.license_expiry, d.face_image_url,
+                e.first_name, e.last_name, e.avatar_url
            FROM drivers d
            LEFT JOIN employees e ON e.employee_id = d.employee_id
           WHERE d.deleted_at IS NULL
@@ -306,6 +306,8 @@ function slimDriver(d) {
     driver_id: d.driver_id,
     name,
     driver_status: d.driver_status ?? null,
+    face_image_url: d.face_image_url ?? null,
+    avatar_url: d.avatar_url ?? null,
   };
 }
 

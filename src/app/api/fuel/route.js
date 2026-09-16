@@ -27,7 +27,9 @@ const FUEL_LIST_SELECT = `
   END AS vehicles,
   CASE WHEN d.driver_id IS NULL THEN NULL ELSE
     json_build_object('driver_id', d.driver_id, 'license_number', d.license_number,
-      'employees', json_build_object('first_name', e.first_name, 'last_name', e.last_name))
+      'face_image_url', d.face_image_url,
+      'employees', json_build_object('first_name', e.first_name, 'last_name', e.last_name,
+        'avatar_url', e.avatar_url))
   END AS drivers
 `;
 

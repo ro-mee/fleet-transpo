@@ -74,7 +74,8 @@ const TR_LIST_SELECT = `
     json_build_object('category_name', vc.category_name)
   END AS vehiclecategories,
   CASE WHEN d.driver_id IS NULL THEN NULL ELSE
-    json_build_object('driver_id', d.driver_id, 'first_name', de.first_name, 'last_name', de.last_name)
+    json_build_object('driver_id', d.driver_id, 'first_name', de.first_name, 'last_name', de.last_name,
+      'face_image_url', d.face_image_url, 'avatar_url', de.avatar_url)
   END AS drivers
 `;
 
@@ -128,7 +129,8 @@ const TR_CARD_SELECT = `
   END AS vehiclecategories,
   CASE WHEN d.driver_id IS NULL THEN NULL ELSE
     json_build_object('driver_id', d.driver_id, 'driver_status', d.driver_status,
-      'license_expiry', d.license_expiry, 'first_name', de.first_name, 'last_name', de.last_name)
+      'license_expiry', d.license_expiry, 'first_name', de.first_name, 'last_name', de.last_name,
+      'face_image_url', d.face_image_url, 'avatar_url', de.avatar_url)
   END AS drivers
 `;
 

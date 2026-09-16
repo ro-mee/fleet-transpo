@@ -18,6 +18,7 @@ import { getTripPerformanceWorkbook } from "@/services/report.service";
 import { formatTime, formatDuration } from "@/lib/utils";
 import { Route, Play, Download, Truck, Users, Clock, CheckCircle2, MapPin, TriangleAlert, Navigation } from "lucide-react";
 import { useRequireRole } from "@/lib/auth/role-guard";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { downloadBlob, exportToCSV } from "@/lib/export";
 
 const columnHelper = createColumnHelper();
@@ -114,14 +115,22 @@ export default function TripsPage() {
           const name =
             `${d.first_name?.split(" ")[0] || ""} ${d.last_name ? d.last_name.split(" ").pop()[0] + "." : ""}`.trim() ||
             "—";
-          const initials = [d.first_name?.[0], d.last_name?.[0]].filter(Boolean).join("").toUpperCase();
+          const fullName = `${d.first_name || ""} ${d.last_name || ""}`.trim();
           return (
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
-                {initials || "DR"}
-              </div>
+              <DriverAvatar source={d} name={fullName} />
               <div>
-                <p className="font-bold text-sm text-foreground">{name}</p>
+                {d.driver_id ? (
+                  <Link
+                    href={`/drivers/${d.driver_id}`}
+                    className="font-bold text-sm text-foreground hover:text-primary transition-colors"
+                    title={fullName}
+                  >
+                    {name}
+                  </Link>
+                ) : (
+                  <p className="font-bold text-sm text-foreground">{name}</p>
+                )}
                 <p className="text-xs text-foreground-muted font-medium">Assigned driver</p>
               </div>
             </div>

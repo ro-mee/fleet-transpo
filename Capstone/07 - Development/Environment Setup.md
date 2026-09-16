@@ -57,11 +57,15 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
-> **Expo Go + stale LAN IP (seen 2026-09-13).** `mobile/.env` holds a hardcoded
+> **Expo Go + stale LAN IP (seen 2026-09-13, recurred 2026-09-16).** `mobile/.env` holds a hardcoded
 > `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:3000`, but the PC's DHCP lease can
-> change (e.g. `.5` → `.248`). Symptom is a cluster of `Could not load fuel
-> requests: Network request failed` + `Could not load trip for map` WARNs — every
-> GET fails transport-level while the dev server is healthy. Fix: compare
+> change (e.g. `.5` → `.248`, then back `.248` → `.5` on 2026-09-16). Symptom is
+> `Network request failed. Check your connection (status 0)` — at login
+> (`POST /api/mobile/auth/login` never reaches the dev terminal) or as a cluster
+> of `Could not load fuel requests` + `Could not load trip for map` WARNs. Every
+> request fails transport-level while the dev server is healthy. Mobile `api.js`
+> throws this exact string only when `fetch()` threw twice without an HTTP
+> response, so it rules out 401/403/429/500 backend causes. Fix: compare
 > `ipconfig` IPv4 against `mobile/.env`, update the URL, restart Expo with
 > `npx expo start --clear` (Expo Go caches env), and confirm from the phone
 > browser that `http://<IP>:3000/api/mobile/driver/ref` responds before

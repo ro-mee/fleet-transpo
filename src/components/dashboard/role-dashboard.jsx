@@ -27,6 +27,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { getAuditLogs } from "@/services/audit.service";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { getDispatchesByStatus } from "@/services/dispatch.service";
 import {
   getDriverLeaveRequests,
@@ -748,10 +749,17 @@ function FleetManagerDashboard({ queries }) {
               <tbody className="divide-y divide-border/40">
                 {pairRows.slice(0, 10).map(({ assignment, driver, vehicle, substitute, coverage }) => {
                   const hasIssue = coverage !== "Current pair" && coverage !== "Substitute covering";
+                  const driverName = [driver?.employees?.first_name || assignment.first_name, driver?.employees?.last_name || assignment.last_name].filter(Boolean).join(" ") || `Driver #${assignment.driver_id}`;
+                  const driverPhoto = driver || assignment;
                   return (
                   <tr key={assignment.assignment_id} className="group hover:bg-hover/40 transition-colors">
                     <td className="px-5 py-4"><p className="font-semibold tabular-nums text-foreground">{vehicle?.plate_number || assignment.plate_number || "Unrecorded plate"}</p><StatusBadge status={vehicle?.vehicle_status || assignment.vehicle_status || "Unknown"} entity="vehicle" className="mt-1" /></td>
-                    <td className="px-5 py-4 font-medium text-foreground">{[driver?.employees?.first_name || assignment.first_name, driver?.employees?.last_name || assignment.last_name].filter(Boolean).join(" ") || `Driver #${assignment.driver_id}`}</td>
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-2.5">
+                        <DriverAvatar source={driverPhoto} name={driverName} className="h-8 w-8 rounded-xl text-[11px]" />
+                        <span className="font-medium text-foreground">{driverName}</span>
+                      </div>
+                    </td>
                     <td className="px-5 py-4"><StatusBadge status={driver?.driver_status || "Unknown"} entity="driver" /></td>
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">

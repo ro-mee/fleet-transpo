@@ -64,10 +64,12 @@ export async function GET(req, props) {
               rbe.first_name AS resolved_by_first_name,
               rbe.last_name AS resolved_by_last_name,
               CASE WHEN d.driver_id IS NULL THEN NULL ELSE
-                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
+                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name,
+                  'face_image_url', d.face_image_url, 'avatar_url', e.avatar_url)
               END AS driver,
               CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
-                json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name)
+                json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name,
+                  'face_image_url', rd.face_image_url, 'avatar_url', re.avatar_url)
               END AS responder
          FROM driverincidents i
          LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id

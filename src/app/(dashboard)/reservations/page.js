@@ -11,6 +11,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { getTransportRequests } from "@/services/transport.service";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
+import Link from "next/link";
 import { RESERVATION_LIFECYCLE as L } from "@/lib/constants";
 import { formatDate, formatTime, cn } from "@/lib/utils";
 import { exportToCSV } from "@/lib/export";
@@ -203,6 +205,10 @@ export default function ReservationsPage() {
         cell: (info) => {
           const r = info.row.original;
           const driver = r.drivers;
+          const driverShort = driver
+            ? `${driver.first_name?.split(" ")[0]} ${driver.last_name ? driver.last_name.split(" ").pop()[0] + "." : ""}`.trim()
+            : null;
+          const driverFull = driver ? [driver.first_name, driver.last_name].filter(Boolean).join(" ") : "";
           return (
             <div className="space-y-1 text-xs font-medium">
               <p className="flex items-center gap-1.5">
@@ -212,10 +218,24 @@ export default function ReservationsPage() {
                 </span>
               </p>
               <p className="flex items-center gap-1.5">
-                <UserCheck className="h-3.5 w-3.5 text-foreground-muted" />
-                <span className={driver ? "text-foreground-secondary font-semibold" : "text-foreground-muted"}>
-                  {driver ? `${driver.first_name?.split(" ")[0]} ${driver.last_name ? driver.last_name.split(" ").pop()[0] + "." : ""}`.trim() : "—"}
-                </span>
+                {driver ? (
+                  <DriverAvatar source={driver} name={driverFull} className="h-6 w-6 rounded-lg text-[10px]" />
+                ) : (
+                  <UserCheck className="h-3.5 w-3.5 text-foreground-muted" />
+                )}
+                {driver && driver.driver_id ? (
+                  <Link
+                    href={`/drivers/${driver.driver_id}`}
+                    className="text-foreground-secondary font-semibold hover:text-primary hover:underline transition-colors"
+                    title={driverFull}
+                  >
+                    {driverShort || "—"}
+                  </Link>
+                ) : (
+                  <span className={driver ? "text-foreground-secondary font-semibold" : "text-foreground-muted"}>
+                    {driverShort || "—"}
+                  </span>
+                )}
               </p>
             </div>
           );
