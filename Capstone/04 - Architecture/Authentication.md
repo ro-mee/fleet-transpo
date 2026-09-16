@@ -57,6 +57,8 @@ Role lands in the JWT claims for landing/UI purposes. API authorization does a
 live employee lookup before applying the route role list, so a stale claim cannot
 survive a disablement or demotion.
 
+**Production Edge & CORS Proxy Awareness:** `src/proxy.js` validates `Origin` headers on POST login requests against dynamic same-origin identifiers (`request.nextUrl.origin`, `Host`, `X-Forwarded-Host`) and deployment domains (`NEXT_PUBLIC_APP_URL`, `NEXTAUTH_URL`, `VERCEL_URL`). Non-OPTIONS 403 rejections return structured JSON `{ error: "Forbidden: origin not allowed" }` rather than empty null bodies to prevent client-side `Unexpected end of JSON input` syntax errors. `signIn` in `src/services/auth.service.js` translates any low-level JSON parser failures into user-friendly diagnostic guidance.
+
 ## Mobile: separate bearer JWT — CONFIRMED
 
 `jose`, HS256. Two token types with **different audiences**:

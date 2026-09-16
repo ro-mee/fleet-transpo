@@ -42,8 +42,11 @@ function isAppApiRequest(input) {
       urlStr = input.url;
     }
     if (!urlStr) return false;
-    // Exclude Next.js internals and NextAuth session/csrf checks
-    if (urlStr.includes("/_next/") || urlStr.includes("/api/auth/session") || urlStr.includes("/api/auth/csrf")) {
+    // Exclude Next.js internals and auth flow endpoints (except user profile)
+    if (
+      urlStr.includes("/_next/") ||
+      (urlStr.includes("/api/auth/") && !urlStr.includes("/api/auth/profile"))
+    ) {
       return false;
     }
     // Match relative or same-origin API routes
@@ -105,9 +108,17 @@ export function SessionManagerProvider({ children }) {
         try {
           const cloned = response.clone();
           cloned
-            .json()
-            .then((data) => {
-              dispatchSessionAuthError(data?.code || "SESSION_INVALID", data?.error);
+            .text()
+            .then((text) => {
+              if (!text || !text.trim()) {
+                dispatchSessionAuthError("SESSION_INVALID", "Unauthorized");
+                return;
+              }
+              let data = null;
+              try {
+                data = JSON.parse(text);
+              } catch {}
+              dispatchSessionAuthError(data?.code || "SESSION_INVALID", data?.error || "Unauthorized");
             })
             .catch(() => {
               dispatchSessionAuthError("SESSION_INVALID", "Unauthorized");

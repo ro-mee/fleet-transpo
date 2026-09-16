@@ -9,12 +9,26 @@ export async function createEmployeeAccount(payload) {
 }
 
 export async function signIn(email, password, { mfaCode = "" } = {}) {
-  const result = await nextAuthSignIn("credentials", {
-    email,
-    password,
-    totpCode: mfaCode,
-    redirect: false,
-  });
+  let result;
+  try {
+    result = await nextAuthSignIn("credentials", {
+      email,
+      password,
+      totpCode: mfaCode,
+      redirect: false,
+    });
+  } catch (err) {
+    if (
+      err?.name === "SyntaxError" ||
+      err?.message?.includes("Unexpected end of JSON input") ||
+      err?.message?.includes("Failed to execute 'json'")
+    ) {
+      throw new Error(
+        "Authentication service returned an unexpected response. Please check your network and server configuration."
+      );
+    }
+    throw err;
+  }
   if (result?.error) throw new Error(result.error);
   return result;
 }

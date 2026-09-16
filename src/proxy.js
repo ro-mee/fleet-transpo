@@ -10,21 +10,65 @@ import { NextResponse } from "next/server";
 // respond. Same-origin requests (no Origin header) are always allowed through —
 // matching how the browser treats them.
 
-function isAllowedOrigin(origin) {
+function isAllowedOrigin(origin, request) {
   if (!origin) return false;
 
-  let configured = "";
-  try {
-    configured = new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
-  } catch {
-    configured = "";
+  // 1. Configured NEXT_PUBLIC_APP_URL
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    try {
+      const configured = new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
+      if (configured && origin === configured) return true;
+    } catch {}
   }
-  if (configured && origin === configured) return true;
 
-  // In development, also allow standard local loopback and LAN origins if app URL is localhost/loopback
+  // 2. Configured NEXTAUTH_URL
+  if (process.env.NEXTAUTH_URL) {
+    try {
+      const nextAuthOrigin = new URL(process.env.NEXTAUTH_URL).origin;
+      if (nextAuthOrigin && origin === nextAuthOrigin) return true;
+    } catch {}
+  }
+
+  // 3. Vercel deployment URLs (production or preview)
+  const vercelEnvUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (vercelEnvUrl) {
+    try {
+      const urlStr = vercelEnvUrl.startsWith("http") ? vercelEnvUrl : `https://${vercelEnvUrl}`;
+      const vercelOrigin = new URL(urlStr).origin;
+      if (vercelOrigin && origin === vercelOrigin) return true;
+    } catch {}
+  }
+
+  // 4. Same-origin validation from request URL and headers
+  if (request) {
+    try {
+      const reqUrl = request.nextUrl || (request.url ? new URL(request.url) : null);
+      if (reqUrl?.origin && origin === reqUrl.origin) return true;
+
+      const forwardedHost = request.headers?.get?.("x-forwarded-host") || request.headers?.get?.("host");
+      if (forwardedHost) {
+        const forwardedProto =
+          request.headers?.get?.("x-forwarded-proto") ||
+          (reqUrl?.protocol ? reqUrl.protocol.replace(":", "") : "https");
+        const detectedOrigin = `${forwardedProto}://${forwardedHost}`;
+        if (origin === detectedOrigin) return true;
+
+        const parsedOrigin = new URL(origin);
+        const hostWithoutPort = forwardedHost.split(":")[0];
+        if (parsedOrigin.hostname === hostWithoutPort) {
+          if (parsedOrigin.protocol.startsWith(forwardedProto) || parsedOrigin.protocol === "https:") {
+            return true;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 5. In development, also allow standard local loopback and LAN origins if app URL is localhost/loopback
+  const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL || "";
   if (
     process.env.NODE_ENV !== "production" &&
-    (!configured || configured.includes("localhost") || configured.includes("127.0.0.1"))
+    (!configuredAppUrl || configuredAppUrl.includes("localhost") || configuredAppUrl.includes("127.0.0.1"))
   ) {
     try {
       const parsed = new URL(origin);
@@ -46,10 +90,16 @@ function isAllowedOrigin(origin) {
 
 export function proxy(request) {
   const origin = request.headers.get("origin");
-  const allowed = isAllowedOrigin(origin);
+  const allowed = isAllowedOrigin(origin, request);
 
   if (origin && !allowed) {
-    return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
+    }
+    return NextResponse.json(
+      { error: "Forbidden: origin not allowed" },
+      { status: 403, headers: { Vary: "Origin" } }
+    );
   }
 
   if (request.method === "OPTIONS") {

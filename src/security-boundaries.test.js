@@ -94,7 +94,7 @@ describe("security boundaries", () => {
     expect(await response.json()).toEqual({ error: "Internal server error" });
   });
 
-  it("allows only the configured browser origin", () => {
+  it("allows only the configured browser origin", async () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://fleet.example.com/app";
 
     const denied = proxy(new Request("https://fleet.example.com/api/vehicles", {
@@ -104,12 +104,32 @@ describe("security boundaries", () => {
     expect(denied.status).toBe(403);
     expect(denied.headers.get("access-control-allow-origin")).toBeNull();
 
+    // Disallowed origin on non-OPTIONS request returns JSON so client .json() does not throw Unexpected end of JSON
+    const deniedPost = proxy(new Request("https://fleet.example.com/api/auth/callback/credentials", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+    }));
+    expect(deniedPost.status).toBe(403);
+    const deniedJson = await deniedPost.json();
+    expect(deniedJson).toEqual({ error: "Forbidden: origin not allowed" });
+
     const allowed = proxy(new Request("https://fleet.example.com/api/vehicles", {
       method: "OPTIONS",
       headers: { Origin: "https://fleet.example.com" },
     }));
     expect(allowed.status).toBe(204);
     expect(allowed.headers.get("access-control-allow-origin")).toBe("https://fleet.example.com");
+
+    // In production, same-origin POST requests with Origin header (standard browser behavior) are allowed
+    const sameOriginPost = proxy(new Request("https://fleet.example.com/api/auth/callback/credentials", {
+      method: "POST",
+      headers: {
+        Origin: "https://fleet.example.com",
+        Host: "fleet.example.com",
+      },
+    }));
+    expect(sameOriginPost.status).toBe(200);
+    expect(sameOriginPost.headers.get("access-control-allow-origin")).toBe("https://fleet.example.com");
   });
 
   it("allows development loopback and LAN origins when configured for localhost", () => {
