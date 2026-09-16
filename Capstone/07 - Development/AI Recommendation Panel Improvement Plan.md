@@ -25,6 +25,10 @@ Verification:
 - Test launcher used `npx.cmd` because PowerShell blocks `npx.ps1`; Vitest required sandbox escalation for esbuild's directory resolution. Build ran successfully in the workspace.
 - Static rendering tests are not a substitute for desktop/mobile interaction acceptance. Real provider wording, visible polling behavior, network request counts, keyboard focus, and live assignment/reconciliation remain unverified in a browser.
 
+## Editor-only TS noise fix — 2026-09-16
+
+VSCode showed 57 problems on `src/components/reservations/ai-recommendation-panel.jsx` (`TS7016`/`TS7026`/`TS7006` family: missing `@types/react`, no `JSX.IntrinsicElements`, implicit-any params). Same root cause as the `TomTomMap.js` `TS1128`: the repo has no TypeScript setup, so these are editor noise — ESLint (the repo's real linter) was clean. Fixed in config only: root `jsconfig.json` gained `"jsx": "react-jsx"` + `"checkJs": false` and excludes `mobile` (which has its own jsconfig) and `node_modules`. No code or behavior change. Verified: `tsc -p jsconfig.json` reports zero errors under `src/` (only pre-existing Deno edge-function errors under `supabase/functions`, untouched), ESLint clean on the panel. Reload VSCode window to clear stale Problems.
+
 ## Outcome and scope
 
 Dispatchers should understand which pair they are reviewing, receive chat explanations about that same pair, and always see why confirmation is available or unavailable.
