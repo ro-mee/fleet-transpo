@@ -278,9 +278,16 @@ The spotlight area must be derived from the actual rendered target component via
   $$x = \text{target}.x - \text{padding}, \quad y = \text{target}.y - \text{padding}, \quad w = \text{target}.w + 2\cdot\text{padding}, \quad h = \text{target}.h + 2\cdot\text{padding}$$
 - **Padding**: 6–8dp breathing room ($8\text{dp}$ default).
 - **Corner Radius**: Derived from target when available, otherwise $12\text{--}16\text{dp}$.
-- **Contour**: Subtle border and glow derived from active theme primary token (`colors.primary`). **Zero bright neon `#00E676`.**
-- **Arrival Pulse**: One restrained pulse (`0.25 -> 0.85 -> 0.25`) upon arrival. **No continuous pulsing loop.**
+- **Dual-Ring Contour**: Crisp primary forest-green inner border (`borderWidth: 2`, `borderColor: colors.primary`) paired with an outer diffused aura ring (`borderWidth: 1.5`, `borderColor: rgba(74, 222, 128, 0.28)` in dark / `rgba(40, 84, 72, 0.20)` in light) creating a luminous, clean spotlight contour that renders reliably on both iOS and Android.
+- **Arrival Pulse**: One restrained pulse (`0.28 -> 0.90 -> 0.28`) using cubic ease-out (`Easing.out(Easing.cubic)`) on arrival. **No continuous pulsing loop.**
 - **Reduced Motion**: Respects `AccessibilityInfo.isReduceMotionEnabled()`.
+
+### Tactile Tooltip Card Architecture
+- **Claymorphic Elevation**: Molded card with specular top sheen (`borderTopColor: rgba(255, 255, 255, 0.95)` light / `rgba(255, 255, 255, 0.14)` dark), bottom shading, and soft ambient drop shadow.
+- **Harmonized Arrow**: Tooltip pointer triangle dynamically shares the exact background color of the card (`#FFFFFF` in light mode, `#17221D` in dark mode), eliminating edge color dissonance.
+- **Segmented Step Progress**: Multi-step guides feature an interactive segmented dot-and-pill track (`1 / N`) showing current position and remaining steps at a glance.
+- **Tactile CTAs**: Primary action buttons feature 40dp height, 12dp radius, subtle top edge highlight (`borderTopColor: rgba(255, 255, 255, 0.28)`), and spring-scale press feedback (`scale: 0.97`).
+- **Welcome Badge**: First-launch introduction features an authoritative compass tile (`compass-outline`), establishing an executive, polished tone with zero cartoonish mascots.
 
 ### Modal-less 4-Scrim Blocking Architecture
 

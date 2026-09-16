@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -6,6 +6,7 @@ import {
   Animated,
   AccessibilityInfo,
   BackHandler,
+  Easing,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../lib/theme-context";
@@ -140,16 +141,18 @@ export function CoachMarkOverlay({
           useNativeDriver: true,
         }).start();
 
-        // ONE restrained emphasis pulse on arrival
+        // ONE restrained emphasis pulse on arrival with cubic easing
         Animated.sequence([
           Animated.timing(pulseAnim, {
-            toValue: 0.85,
+            toValue: 0.90,
             duration: 320,
+            easing: Easing.out(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnim, {
-            toValue: 0.25,
-            duration: 380,
+            toValue: 0.28,
+            duration: 400,
+            easing: Easing.inOut(Easing.quad),
             useNativeDriver: true,
           }),
         ]).start();
@@ -336,7 +339,26 @@ export function CoachMarkOverlay({
             },
           ]}
         >
-          {/* Theme forest-green primary contour border & subtle glow */}
+          {/* Outer diffused aura ring */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              {
+                position: "absolute",
+                top: -3,
+                left: -3,
+                right: -3,
+                bottom: -3,
+                borderRadius: radius + 3,
+                borderWidth: 1.5,
+                borderColor: isDark
+                  ? "rgba(74, 222, 128, 0.28)"
+                  : "rgba(40, 84, 72, 0.20)",
+                opacity: pulseAnim,
+              },
+            ]}
+          />
+          {/* Inner crisp primary contour border & tactile focus */}
           <Animated.View
             pointerEvents="none"
             style={[
@@ -347,7 +369,7 @@ export function CoachMarkOverlay({
                 borderColor: colors.primary,
                 shadowColor: colors.primary,
                 shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.5,
+                shadowOpacity: 0.45,
                 shadowRadius: 6,
                 opacity: pulseAnim,
               },

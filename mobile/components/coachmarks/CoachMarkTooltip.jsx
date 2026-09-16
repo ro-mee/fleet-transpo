@@ -1,5 +1,6 @@
 import React from "react";
 import { StyleSheet, Text, View, Pressable } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../lib/theme";
 import { moderateScale } from "../../lib/scaling";
@@ -7,8 +8,8 @@ import { moderateScale } from "../../lib/scaling";
 /**
  * CoachMarkTooltip
  *
- * Molded clay card presenting the operational explanation and navigation
- * controls, with an arrow pointing toward the spotlight cutout.
+ * Tactile molded clay card presenting the operational explanation and navigation
+ * controls, with a synchronized arrow pointing toward the spotlight cutout.
  */
 export function CoachMarkTooltip({
   title,
@@ -29,33 +30,62 @@ export function CoachMarkTooltip({
 
   const showStepCounter = totalSteps > 1;
   const showBack = stepIndex > 0;
+  const isWelcome = arrowPosition === "none";
+
+  // Harmonized background color ensuring 100% arrow-to-card color continuity
+  const cardBg = isDark ? "#17221D" : "#FFFFFF";
 
   return (
     <View style={[styles.wrapper, style]}>
-      {/* Arrow pointing UP (when tooltip is below target) */}
+      {/* Arrow pointing UP (when tooltip is positioned below target) */}
       {arrowPosition === "top" && (
         <View
           style={[
             styles.arrowTop,
             {
-              left: Math.max(16, Math.min(arrowOffset - 8, 280)),
-              borderBottomColor: isDark ? "#222D28" : "#FFFFFF",
+              left: Math.max(16, Math.min(arrowOffset - 9, 280)),
+              borderBottomColor: cardBg,
             },
           ]}
         />
       )}
 
-      {/* Main Tooltip Card */}
+      {/* Main Tactile Tooltip Card */}
       <View
         style={[
           styles.card,
           {
-            backgroundColor: isDark ? "#1E2A24" : "#FFFFFF",
-            borderColor: isDark ? "rgba(166, 199, 184, 0.25)" : "rgba(40, 84, 72, 0.15)",
-            shadowColor: "#000000",
+            backgroundColor: cardBg,
+            borderColor: isDark ? "rgba(166, 199, 184, 0.20)" : "rgba(40, 84, 72, 0.12)",
+            borderTopColor: isDark ? "rgba(255, 255, 255, 0.14)" : "rgba(255, 255, 255, 0.95)",
+            borderBottomColor: isDark ? "rgba(0, 0, 0, 0.35)" : "rgba(40, 84, 72, 0.10)",
+            shadowColor: isDark ? "#000000" : "#1B4332",
           },
         ]}
       >
+        {/* First-Launch Welcome Header Badge */}
+        {isWelcome && (
+          <View
+            style={[
+              styles.welcomeBadge,
+              {
+                backgroundColor: isDark
+                  ? "rgba(74, 222, 128, 0.12)"
+                  : "rgba(40, 84, 72, 0.08)",
+                borderColor: isDark
+                  ? "rgba(74, 222, 128, 0.25)"
+                  : "rgba(40, 84, 72, 0.15)",
+              },
+            ]}
+          >
+            <Ionicons
+              name="compass-outline"
+              size={moderateScale(22)}
+              color={colors.primary}
+            />
+          </View>
+        )}
+
         {/* Title */}
         <Text style={[styles.title, { color: colors.onSurface }]}>{title}</Text>
 
@@ -65,9 +95,31 @@ export function CoachMarkTooltip({
         {/* Action Footer */}
         <View style={styles.footer}>
           {showStepCounter ? (
-            <Text style={[styles.stepCounter, { color: colors.outline }]}>
-              {stepIndex + 1} / {totalSteps}
-            </Text>
+            <View style={styles.stepBadge}>
+              <View style={styles.dotsRow}>
+                {Array.from({ length: totalSteps }).map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.progressDot,
+                      i === stepIndex
+                        ? [styles.progressDotActive, { backgroundColor: colors.primary }]
+                        : [
+                            styles.progressDotInactive,
+                            {
+                              backgroundColor: isDark
+                                ? "rgba(255, 255, 255, 0.20)"
+                                : "rgba(0, 0, 0, 0.12)",
+                            },
+                          ],
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.stepCounter, { color: colors.outline }]}>
+                {stepIndex + 1} / {totalSteps}
+              </Text>
+            </View>
           ) : (
             <View style={{ flex: 1 }} />
           )}
@@ -76,9 +128,14 @@ export function CoachMarkTooltip({
             {showBack && (
               <Pressable
                 onPress={onPrev}
+                hitSlop={8}
                 style={({ pressed }) => [
                   styles.secBtn,
-                  pressed && { opacity: 0.7 },
+                  pressed && {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.08)"
+                      : "rgba(40, 84, 72, 0.06)",
+                  },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Go back to previous tip"
@@ -92,9 +149,14 @@ export function CoachMarkTooltip({
             {canSkip && (
               <Pressable
                 onPress={onSkip}
+                hitSlop={8}
                 style={({ pressed }) => [
                   styles.secBtn,
-                  pressed && { opacity: 0.7 },
+                  pressed && {
+                    backgroundColor: isDark
+                      ? "rgba(255, 255, 255, 0.08)"
+                      : "rgba(40, 84, 72, 0.06)",
+                  },
                 ]}
                 accessibilityRole="button"
                 accessibilityLabel="Skip this guide"
@@ -107,10 +169,16 @@ export function CoachMarkTooltip({
 
             <Pressable
               onPress={onNext}
+              hitSlop={4}
               style={({ pressed }) => [
                 styles.primaryBtn,
-                { backgroundColor: colors.primary },
-                pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
+                {
+                  backgroundColor: colors.primary,
+                  borderColor: isDark
+                    ? "rgba(255, 255, 255, 0.16)"
+                    : "rgba(255, 255, 255, 0.32)",
+                },
+                pressed && { opacity: 0.90, transform: [{ scale: 0.97 }] },
               ]}
               accessibilityRole="button"
               accessibilityLabel={actionText}
@@ -123,14 +191,14 @@ export function CoachMarkTooltip({
         </View>
       </View>
 
-      {/* Arrow pointing DOWN (when tooltip is above target) */}
+      {/* Arrow pointing DOWN (when tooltip is positioned above target) */}
       {arrowPosition === "bottom" && (
         <View
           style={[
             styles.arrowBottom,
             {
-              left: Math.max(16, Math.min(arrowOffset - 8, 280)),
-              borderTopColor: isDark ? "#222D28" : "#FFFFFF",
+              left: Math.max(16, Math.min(arrowOffset - 9, 280)),
+              borderTopColor: cardBg,
             },
           ]}
         />
@@ -147,46 +215,78 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   card: {
-    borderRadius: 18,
+    borderRadius: moderateScale(18),
+    borderWidth: 1.2,
+    borderTopWidth: 1.8,
+    borderBottomWidth: 1.8,
+    padding: moderateScale(18),
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 9,
+  },
+  welcomeBadge: {
+    width: moderateScale(38),
+    height: moderateScale(38),
+    borderRadius: moderateScale(12),
     borderWidth: 1,
-    padding: moderateScale(16),
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: moderateScale(12),
   },
   title: {
     fontFamily: fonts.displayBold || fonts.bodySemiBold,
     fontSize: moderateScale(16),
     lineHeight: moderateScale(22),
-    letterSpacing: -0.2,
+    letterSpacing: -0.3,
     marginBottom: moderateScale(6),
   },
   body: {
     fontFamily: fonts.body,
     fontSize: moderateScale(13.5),
-    lineHeight: moderateScale(19),
-    marginBottom: moderateScale(14),
+    lineHeight: moderateScale(19.5),
+    marginBottom: moderateScale(16),
   },
   footer: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: moderateScale(4),
+    marginTop: moderateScale(2),
+  },
+  stepBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(8),
+  },
+  dotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(4),
+  },
+  progressDot: {
+    height: moderateScale(4),
+    borderRadius: moderateScale(2),
+  },
+  progressDotActive: {
+    width: moderateScale(14),
+  },
+  progressDotInactive: {
+    width: moderateScale(4),
   },
   stepCounter: {
     fontFamily: fonts.dataSemiBold || fonts.bodyMedium,
     fontSize: moderateScale(12),
-    letterSpacing: 0.5,
+    letterSpacing: 0.4,
   },
   btnRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: moderateScale(10),
+    gap: moderateScale(8),
   },
   secBtn: {
     minHeight: TOUCH_TARGET,
-    paddingHorizontal: moderateScale(10),
+    paddingHorizontal: moderateScale(12),
+    borderRadius: moderateScale(10),
     justifyContent: "center",
     alignItems: "center",
   },
@@ -195,11 +295,17 @@ const styles = StyleSheet.create({
     fontSize: moderateScale(13.5),
   },
   primaryBtn: {
-    minHeight: moderateScale(38),
-    paddingHorizontal: moderateScale(16),
-    borderRadius: 12,
+    minHeight: moderateScale(40),
+    paddingHorizontal: moderateScale(18),
+    borderRadius: moderateScale(12),
+    borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
   },
   primaryBtnText: {
     fontFamily: fonts.bodySemiBold,
@@ -232,3 +338,4 @@ const styles = StyleSheet.create({
 });
 
 export default CoachMarkTooltip;
+
