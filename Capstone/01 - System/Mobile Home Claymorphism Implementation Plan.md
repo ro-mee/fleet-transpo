@@ -5,6 +5,10 @@ Status: Implemented; automated checks and isolated component review completed. N
 
 ## Direction and scope
 
+### AssignmentsHeading syntax cleanup — 2026-09-16
+
+Resolved JSX syntax errors in `mobile/components/home/DriverHomeCards.jsx` caused by an unclosed `<View>` tag and duplicated `AssignmentsHeading` return block (kept the `headingRow`/`headingTitle` variant; removed the dead `type.titleLg` return). Cleaned duplicate import of `statusColorForTone` / `tripStatusTone` and removed trailing duplicate `empty`, `mapArt`, and outdated `scheduleLink` styles in `StyleSheet.create` (single `scheduleLink` at `minHeight: 40` now wins; no other component affected). Verified 2026-09-16: ESLint clean (0 errors) on `DriverHomeCards.jsx` and its caller `app/(app)/(tabs)/index.js`; no mobile test script exists (root Vitest is web-only), so no test run applies.
+
 ### Empty-state map scenery — 2026-09-12
 
 Owner request: put `mobile/assets/images/map.png` (3D clay map with pin, transparent) in the Next Trip empty state, center-right — position fixed per ui-ux-pro-max guidance (flexbox row over absolute overlay: `flexDirection: 'row'`, `alignItems: 'center'`, text `flex: 1` left, 112x90 art right, decorative `accessible={false}`, slight dim in dark mode). Follow-up optical-lift fix: the PNG is optically bottom-heavy (visible mass + transparent padding sit low), so `s.mapArt` gained layout-neutral `transform: [{ translateY: -20 }]` — vertical only, no horizontal shift, card/text/badge/typography/colors untouched (`-24` held as fallback pending device screenshot; long-term fix is cropping the PNG's transparent padding). Copy, handlers, and empty-state branching unchanged; current-card empty/radar untouched. Touched-file ESLint clean; Android export passed.

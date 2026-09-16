@@ -5,7 +5,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
 import { useSettings } from '../../lib/settings-context';
 import { homeTripAction } from '../../lib/home-trips';
-import { statusColorForTone, tripStatusTone } from '../../lib/theme';
 import { statusColorForTone, tripStatusTone, fonts } from '../../lib/theme';
 import { moderateScale } from '../../lib/scaling';
 import { QUICK_ACTION_PRESS } from '../../lib/quick-action-press.js';
@@ -223,10 +222,6 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
 });
 
 export const AssignmentsHeading = memo(function AssignmentsHeading({ onPress, title = 'Today’s Assignments' }) {
-  const { colors, type } = useTheme();
-  return <View style={[s.row, { justifyContent: 'space-between', flexWrap: 'nowrap' }]}>
-    <Text style={[type.titleLg, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
-    <Pressable onPress={onPress} accessibilityRole="button" accessibilityLabel="View full schedule" style={({ pressed }) => [s.scheduleLink, { flexShrink: 0 }, pressedStyle({ pressed })]}><Text style={[type.labelLg, { color: colors.primary }]}>View Full Schedule</Text><Ionicons name="chevron-forward" color={colors.primary} size={16} /></Pressable>
   const { colors } = useTheme();
   return <View style={[s.row, s.headingRow]}>
     <Text style={[s.headingTitle, { color: colors.onSurface }]} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
@@ -269,6 +264,5 @@ const s = StyleSheet.create({
   ctaPressed: { transform: [{ scale: 0.98 }], opacity: 0.94 },
   tripBody: { gap: 10 }, stop: { flexDirection: 'row', gap: 10 }, track: { width: 22, alignItems: 'center', paddingTop: 4 }, node: { width: 20, height: 20, borderRadius: 10, borderWidth: 2.5 }, line: { width: 2, flex: 1, marginBottom: -4 }, stopText: { flex: 1, minWidth: 0, paddingBottom: 12, gap: 2 },
   cta: { minHeight: 48, borderRadius: 18, padding: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 8 },
-  empty: { minHeight: 84, gap: 8, justifyContent: 'center', paddingVertical: 8 }, mapArt: { width: 112, height: 90, transform: [{ translateY: -20 }] }, scheduleLink: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 4 },
   empty: { minHeight: 84, gap: 8, justifyContent: 'center', paddingVertical: 8 }, mapArt: { width: 112, height: 90, transform: [{ translateY: -20 }] },
 });
