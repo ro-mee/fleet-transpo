@@ -112,6 +112,34 @@ describe("security boundaries", () => {
     expect(allowed.headers.get("access-control-allow-origin")).toBe("https://fleet.example.com");
   });
 
+  it("allows development loopback and LAN origins when configured for localhost", () => {
+    const originalEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "development";
+    process.env.NEXT_PUBLIC_APP_URL = "http://localhost:3000";
+
+    const localAllowed = proxy(new Request("http://localhost:3000/api/auth/session", {
+      method: "OPTIONS",
+      headers: { Origin: "http://127.0.0.1:3000" },
+    }));
+    expect(localAllowed.status).toBe(204);
+    expect(localAllowed.headers.get("access-control-allow-origin")).toBe("http://127.0.0.1:3000");
+
+    const lanAllowed = proxy(new Request("http://localhost:3000/api/auth/session", {
+      method: "OPTIONS",
+      headers: { Origin: "http://192.168.1.5:3000" },
+    }));
+    expect(lanAllowed.status).toBe(204);
+    expect(lanAllowed.headers.get("access-control-allow-origin")).toBe("http://192.168.1.5:3000");
+
+    const evilDenied = proxy(new Request("http://localhost:3000/api/auth/session", {
+      method: "OPTIONS",
+      headers: { Origin: "http://evil.com:3000" },
+    }));
+    expect(evilDenied.status).toBe(403);
+
+    process.env.NODE_ENV = originalEnv;
+  });
+
   it("rate-limit IP keys use the rightmost (proxy-added) x-forwarded-for hop", () => {
     const spoofable = { headers: new Headers({ "x-forwarded-for": "6.6.6.6, 10.0.0.9, 203.0.113.7" }) };
     expect(clientIp(spoofable)).toBe("203.0.113.7");

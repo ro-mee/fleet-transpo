@@ -10,19 +10,45 @@ import { NextResponse } from "next/server";
 // respond. Same-origin requests (no Origin header) are always allowed through —
 // matching how the browser treats them.
 
-function allowedOrigin() {
+function isAllowedOrigin(origin) {
+  if (!origin) return false;
+
+  let configured = "";
   try {
-    return new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
+    configured = new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
   } catch {
-    return "";
+    configured = "";
   }
+  if (configured && origin === configured) return true;
+
+  // In development, also allow standard local loopback and LAN origins if app URL is localhost/loopback
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (!configured || configured.includes("localhost") || configured.includes("127.0.0.1"))
+  ) {
+    try {
+      const parsed = new URL(origin);
+      const host = parsed.hostname;
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        host === "[::1]" ||
+        host.startsWith("192.168.") ||
+        host.startsWith("10.")
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
 }
 
 export function proxy(request) {
   const origin = request.headers.get("origin");
-  const allowed = allowedOrigin();
+  const allowed = isAllowedOrigin(origin);
 
-  if (origin && origin !== allowed) {
+  if (origin && !allowed) {
     return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
   }
 
@@ -35,14 +61,14 @@ export function proxy(request) {
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
-      "Access-Control-Allow-Origin": allowed,
+      "Access-Control-Allow-Origin": origin,
     };
     return new NextResponse(null, { status: 204, headers });
   }
 
   const response = NextResponse.next();
   if (origin) {
-    response.headers.set("Access-Control-Allow-Origin", allowed);
+    response.headers.set("Access-Control-Allow-Origin", origin);
     response.headers.set("Vary", "Origin");
   }
   return response;
