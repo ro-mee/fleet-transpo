@@ -374,3 +374,27 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   7. **Testing & Quality Assurance:**
      - Temporarily validated config resolution, Leaflet HTML escaping/DivIcon generation, and React rendering (15/15) before removing the feature-only test file as requested.
      - Final retained verification: `npm run lint:ci` clean, production build successful, and full Vitest suite `603/603` across 57 files.
+
+### Phase 11 — DESIGN.md re-sync (2026-09-17)
+
+- `DESIGN.md` (stale since 2026-08-31) re-synced against shipped web code
+  and kept web-only by owner decision: scope note points native work at
+  `mobile/lib/theme.js`, `mobile/components/clay/`, and the Mobile * plans.
+- Tokens: added `accent-navy` (`#0b132b`, AI Analyst identity only) and
+  `stat` 24px radius; recorded sky-squircle (Tailwind-native) and the
+  session-peach one-off (`#fff8f3`, do-not-reuse). Core palette, radii,
+  and type scale unchanged and confirmed against `globals.css`.
+- Components recorded: StatCard base vs interactive (`href` + aria-label +
+  focus ring), dashboard Panels + `FeedState`, Donut/Distribution/StatusBars
+  meters, `LivePulseBeacon`, `PageEntrance`, Operations 2x2, AI Analyst
+  card, map-entity-marker grammar + z-scale, CapsLock/session-expired/
+  lockout surfaces. New named rules: Partition-Only Donut,
+  No-Severity-Border, Honest Feed. Do/Don't deltas: `line-clamp-2` over
+  `truncate`, chart-tokens-only fills, no black donut slices.
+- `.impeccable/design.json` regenerated (new components, rules, navy meta,
+  page-entrance motion, web-only scope note).
+- Verified: repo design-parser parses `DESIGN.md` clean; `doctor --json`
+  reports no structural findings (only the commit-count re-read heuristic);
+  `detect` on the three newest components returns 5 advisories, 0 failures
+  — and `#0b132b` no longer flags. Deliberately NOT canonized (one-offs):
+  analyst `15px` narrative size, map selected-ring `rgba(37,99,235,*)`.

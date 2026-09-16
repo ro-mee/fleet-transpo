@@ -1490,7 +1490,15 @@ future developer/AI must know:
   (`globals.css`). Charts take hex mirrors from `src/lib/chart-tokens.js` —
   never declare private palettes. Chart heights use `chart-h-sm/md/lg`
   utilities. `docs/design-system.md` is canonical for the shipped visual
-  language (Inter-everywhere, ink primary).
+  language (Inter-everywhere, ink primary). `DESIGN.md` (re-synced
+  2026-09-17, web-only scope) records the component layer on top: StatCard
+  base/interactive variants, dashboard Panels + FeedState, DonutMeter
+  (partitions-only) / DistributionMeter / StatusBars, LivePulseBeacon,
+  PageEntrance, Operations 2x2 cards, AI Analyst card, map-entity-marker
+  grammar, CapsLock/session-expired/lockout surfaces, and the
+  Partition-Only-Donut / No-Severity-Border / Honest-Feed rules. Accent navy
+  `#0b132b` is scoped to the AI Analyst identity; session peach `#fff8f3`
+  is a one-off. Mobile Claymorphism stays in the Mobile * plans.
 
 **Behavior contracts**
 - Cancel of a transportation request ALWAYS goes through ConfirmDialog +
