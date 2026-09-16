@@ -281,12 +281,14 @@ export default function LoginPage() {
           // tell them the truth instead.
           try {
             const res = await fetch("/api/auth/login-status");
-            const status = await res.json();
-            if (status?.locked) {
-              setError(
-                `Too many login attempts from this network. Try again in ${status.retryAfterSec || 60}s.`
-              );
-              return;
+            if (res.ok) {
+              const status = await res.json().catch(() => ({}));
+              if (status?.locked) {
+                setError(
+                  `Too many login attempts from this network. Try again in ${status.retryAfterSec || 60}s.`
+                );
+                return;
+              }
             }
           } catch {
             // Status check is best-effort — fall back to the generic message.

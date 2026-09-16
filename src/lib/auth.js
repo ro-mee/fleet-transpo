@@ -32,7 +32,7 @@ export const authOptions = {
         const supabase = getAdminClient();
         const { data: employee, error } = await supabase
           .from("employees")
-          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, roles(role_name)")
+          .select("employee_id, email, password_hash, first_name, last_name, position, status, auth_version, roles(role_name), avatar_url")
           .eq("email", normalizedEmail)
           .eq("status", "Active")
           .is("deleted_at", null)
@@ -99,15 +99,27 @@ export const authOptions = {
           }
         }
 
+function isSafeAvatarUrl(url) {
+  if (!url || typeof url !== "string") return false;
+  // Strictly allow remote HTTP/HTTPS URLs under 512 characters.
+  // Never allow base64 data: URLs in session cookies (causes HTTP 431 / 494 header overflow).
+  return (url.startsWith("http://") || url.startsWith("https://")) && url.length <= 512;
+}
+
         let driverStatus = null;
+        let driverFaceImageUrl = null;
         if (employee.roles?.role_name === "driver") {
           const { data: driverData } = await supabase
             .from("drivers")
-            .select("driver_status")
+            .select("driver_status, face_image_url")
             .eq("employee_id", employee.employee_id)
             .maybeSingle();
           driverStatus = driverData?.driver_status || null;
+          driverFaceImageUrl = driverData?.face_image_url || null;
         }
+
+        const candidateAvatar = driverFaceImageUrl || employee.avatar_url || null;
+        const avatarUrl = isSafeAvatarUrl(candidateAvatar) ? candidateAvatar : null;
 
         const sessionId = randomUUID();
         const userAgent = auditReq.headers.get("user-agent") || null;
@@ -140,6 +152,8 @@ export const authOptions = {
           position: employee.position,
           status: employee.status,
           driverStatus,
+          avatarUrl,
+          image: avatarUrl,
           authVersion: employee.auth_version,
           sessionId,
         };
@@ -147,7 +161,7 @@ export const authOptions = {
     })
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger, session }) {
       if (user) {
         token.role = user.role;
         token.employeeId = user.employeeId;
@@ -156,8 +170,12 @@ export const authOptions = {
         token.position = user.position;
         token.status = user.status;
         token.driverStatus = user.driverStatus;
+        token.avatarUrl = isSafeAvatarUrl(user.avatarUrl) ? user.avatarUrl : null;
         token.authVersion = user.authVersion;
         token.sessionId = user.sessionId;
+      }
+      if (trigger === "update" && session?.avatarUrl !== undefined) {
+        token.avatarUrl = isSafeAvatarUrl(session.avatarUrl) ? session.avatarUrl : null;
       }
       return token;
     },
@@ -169,6 +187,8 @@ export const authOptions = {
       session.user.position = token.position;
       session.user.status = token.status;
       session.user.driverStatus = token.driverStatus;
+      session.user.avatarUrl = token.avatarUrl || null;
+      session.user.image = token.avatarUrl || null;
       session.user.authVersion = token.authVersion;
       session.user.sessionId = token.sessionId;
       return session;

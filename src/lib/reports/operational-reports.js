@@ -159,8 +159,10 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
   const [{ rows: drivers }, { rows: tripRows }, { rows: incidentRows }] = await Promise.all([
     query(
       `SELECT d.driver_id,
-              COALESCE(e.first_name, '') AS first_name,
-              COALESCE(e.last_name, '') AS last_name,
+               COALESCE(e.first_name, '') AS first_name,
+               COALESCE(e.last_name, '') AS last_name,
+               d.face_image_url,
+               e.avatar_url,
               COUNT(t.trip_id)::int AS total_trips,
               ROUND(AVG(t.customer_rating)::numeric, 1) AS rating,
               ROUND(AVG(t.smooth_driving_score)::numeric, 1) AS performance_score,
@@ -180,8 +182,8 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
            AND t.deleted_at IS NULL
            AND t.end_time >= $1::date
            AND t.end_time < ($2::date + 1)
-        WHERE d.deleted_at IS NULL
-        GROUP BY d.driver_id, e.first_name, e.last_name, d.driver_status`,
+         WHERE d.deleted_at IS NULL
+         GROUP BY d.driver_id, e.first_name, e.last_name, d.driver_status, d.face_image_url, e.avatar_url`,
       [from, to]
     ),
     query(
@@ -222,6 +224,8 @@ export async function getDriverPerformanceReport(from = DEFAULT_REPORT_FROM, to 
   const details = (drivers || []).map((row) => ({
     driver_id: row.driver_id,
     name: fullName(row),
+    face_image_url: row.face_image_url || null,
+    avatar_url: row.avatar_url || null,
     total_trips: Number(row.total_trips) || 0,
     rating: nullableNumber(row.rating),
     performance_score: nullableNumber(row.performance_score),

@@ -10,20 +10,96 @@ import { NextResponse } from "next/server";
 // respond. Same-origin requests (no Origin header) are always allowed through —
 // matching how the browser treats them.
 
-function allowedOrigin() {
-  try {
-    return new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
-  } catch {
-    return "";
+function isAllowedOrigin(origin, request) {
+  if (!origin) return false;
+
+  // 1. Configured NEXT_PUBLIC_APP_URL
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    try {
+      const configured = new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
+      if (configured && origin === configured) return true;
+    } catch {}
   }
+
+  // 2. Configured NEXTAUTH_URL
+  if (process.env.NEXTAUTH_URL) {
+    try {
+      const nextAuthOrigin = new URL(process.env.NEXTAUTH_URL).origin;
+      if (nextAuthOrigin && origin === nextAuthOrigin) return true;
+    } catch {}
+  }
+
+  // 3. Vercel deployment URLs (production or preview)
+  const vercelEnvUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  if (vercelEnvUrl) {
+    try {
+      const urlStr = vercelEnvUrl.startsWith("http") ? vercelEnvUrl : `https://${vercelEnvUrl}`;
+      const vercelOrigin = new URL(urlStr).origin;
+      if (vercelOrigin && origin === vercelOrigin) return true;
+    } catch {}
+  }
+
+  // 4. Same-origin validation from request URL and headers
+  if (request) {
+    try {
+      const reqUrl = request.nextUrl || (request.url ? new URL(request.url) : null);
+      if (reqUrl?.origin && origin === reqUrl.origin) return true;
+
+      const forwardedHost = request.headers?.get?.("x-forwarded-host") || request.headers?.get?.("host");
+      if (forwardedHost) {
+        const forwardedProto =
+          request.headers?.get?.("x-forwarded-proto") ||
+          (reqUrl?.protocol ? reqUrl.protocol.replace(":", "") : "https");
+        const detectedOrigin = `${forwardedProto}://${forwardedHost}`;
+        if (origin === detectedOrigin) return true;
+
+        const parsedOrigin = new URL(origin);
+        const hostWithoutPort = forwardedHost.split(":")[0];
+        if (parsedOrigin.hostname === hostWithoutPort) {
+          if (parsedOrigin.protocol.startsWith(forwardedProto) || parsedOrigin.protocol === "https:") {
+            return true;
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 5. In development, also allow standard local loopback and LAN origins if app URL is localhost/loopback
+  const configuredAppUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+  if (
+    process.env.NODE_ENV !== "production" &&
+    (!configuredAppUrl || configuredAppUrl.includes("localhost") || configuredAppUrl.includes("127.0.0.1"))
+  ) {
+    try {
+      const parsed = new URL(origin);
+      const host = parsed.hostname;
+      if (
+        host === "localhost" ||
+        host === "127.0.0.1" ||
+        host === "::1" ||
+        host === "[::1]" ||
+        host.startsWith("192.168.") ||
+        host.startsWith("10.")
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
 }
 
 export function proxy(request) {
   const origin = request.headers.get("origin");
-  const allowed = allowedOrigin();
+  const allowed = isAllowedOrigin(origin, request);
 
-  if (origin && origin !== allowed) {
-    return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
+  if (origin && !allowed) {
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, { status: 403, headers: { Vary: "Origin" } });
+    }
+    return NextResponse.json(
+      { error: "Forbidden: origin not allowed" },
+      { status: 403, headers: { Vary: "Origin" } }
+    );
   }
 
   if (request.method === "OPTIONS") {
@@ -35,14 +111,14 @@ export function proxy(request) {
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Access-Control-Max-Age": "86400",
       Vary: "Origin",
-      "Access-Control-Allow-Origin": allowed,
+      "Access-Control-Allow-Origin": origin,
     };
     return new NextResponse(null, { status: 204, headers });
   }
 
   const response = NextResponse.next();
   if (origin) {
-    response.headers.set("Access-Control-Allow-Origin", allowed);
+    response.headers.set("Access-Control-Allow-Origin", origin);
     response.headers.set("Vary", "Origin");
   }
   return response;

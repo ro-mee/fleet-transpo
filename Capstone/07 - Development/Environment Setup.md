@@ -57,6 +57,16 @@ npm run dev          # web, next dev
 cd mobile && npx expo start
 ```
 
+> **Expo Go + stale LAN IP (seen 2026-09-13).** `mobile/.env` holds a hardcoded
+> `EXPO_PUBLIC_API_URL=http://<PC-LAN-IP>:3000`, but the PC's DHCP lease can
+> change (e.g. `.5` → `.248`). Symptom is a cluster of `Could not load fuel
+> requests: Network request failed` + `Could not load trip for map` WARNs — every
+> GET fails transport-level while the dev server is healthy. Fix: compare
+> `ipconfig` IPv4 against `mobile/.env`, update the URL, restart Expo with
+> `npx expo start --clear` (Expo Go caches env), and confirm from the phone
+> browser that `http://<IP>:3000/api/mobile/driver/ref` responds before
+> debugging code. `mobile/.env` is gitignored — this fix is local-only.
+
 Tests: Vitest is installed; `npm run test:run -- --configLoader runner` passes **487/487 tests across 46 files**. The default config loader still hits a local Windows/esbuild permission error. → [[Testing]]
 
 ## Mobile APK builds — CONFIRMED 2026-09-06

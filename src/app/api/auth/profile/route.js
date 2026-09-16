@@ -5,6 +5,60 @@ import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePh
 import { writeAudit } from "@/lib/audit";
 import { revokeEmployeeSessions } from "@/lib/auth/sessions";
 
+export async function GET(req) {
+  try {
+    const session = await requireAuth(req, "*");
+    const employeeId = session.user.employeeId;
+
+    const { rows } = await query(
+      `SELECT e.employee_id,
+              e.email,
+              e.first_name,
+              e.last_name,
+              e.phone,
+              e.position,
+              e.status,
+              e.avatar_url,
+              r.role_name,
+              d.driver_id,
+              d.driver_status,
+              d.face_image_url,
+              d.license_image_url
+         FROM employees e
+         LEFT JOIN roles r   ON r.role_id = e.role_id
+         LEFT JOIN drivers d ON d.employee_id = e.employee_id AND d.deleted_at IS NULL
+        WHERE e.employee_id = $1
+          AND e.deleted_at IS NULL
+        LIMIT 1`,
+      [employeeId]
+    );
+
+    const emp = rows[0];
+    if (!emp) {
+      return err("Profile not found", 404);
+    }
+
+    const photoUrl = emp.face_image_url || emp.avatar_url || emp.license_image_url || null;
+
+    return ok({
+      employee_id: emp.employee_id,
+      email: emp.email,
+      first_name: emp.first_name,
+      last_name: emp.last_name,
+      phone: emp.phone,
+      position: emp.position,
+      status: emp.status,
+      role: emp.role_name,
+      driver_id: emp.driver_id || null,
+      driver_status: emp.driver_status || null,
+      avatar_url: photoUrl,
+      face_image_url: emp.face_image_url || null,
+    });
+  } catch (e) {
+    return handleError(e);
+  }
+}
+
 export async function PATCH(req) {
   try {
     const session = await requireAuth(req, "*");

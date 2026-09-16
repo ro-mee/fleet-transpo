@@ -336,7 +336,7 @@ export async function POST(req) {
           email: normalizeEmail(empEmail),
           phone: normalizePhone(phone) || null,
           position: position || "Driver",
-          avatar_url: license_image_url || null,
+          avatar_url: (license_image_url && typeof license_image_url === "string" && license_image_url.startsWith("http") && license_image_url.length <= 512) ? license_image_url : null,
           role_id: roleId,
           password_hash: passwordHash,
         })

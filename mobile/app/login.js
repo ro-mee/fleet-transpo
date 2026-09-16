@@ -6,6 +6,7 @@ import {
   View,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -145,6 +146,18 @@ export default function LoginScreen() {
             variant="primary"
             style={styles.loginBtn}
           />
+
+          {/* Recovery entry point — public forgot + admin-code reset flow */}
+          <Pressable
+            onPress={() => router.push("/forgot-password")}
+            accessibilityRole="link"
+            accessibilityLabel="Forgot password"
+            style={styles.forgotLink}
+          >
+            <Text style={[styles.forgotText, { color: colors.primary }]}>
+              Forgot password?
+            </Text>
+          </Pressable>
         </ClayCard>
 
         {/* Footer */}
@@ -201,6 +214,15 @@ const styles = StyleSheet.create({
   },
   loginBtn: {
     marginTop: moderateScale(8),
+  },
+  forgotLink: {
+    alignItems: "center",
+    paddingVertical: moderateScale(8),
+  },
+  forgotText: {
+    fontSize: moderateScale(14),
+    fontFamily: fonts.bodySemiBold,
+    lineHeight: moderateScale(20),
   },
   footer: {
     textAlign: "center",

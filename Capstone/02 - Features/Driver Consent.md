@@ -63,6 +63,30 @@ The mobile **License & Compliance** screen is the complete self-service renewal 
 
 → [[ADR-012 Anytime Self-Service License Renewal]]
 
+## Self-service face/profile photo — ADDED 2026-09-13
+
+The Profile tab avatar is no longer initials-only with a dead pencil badge.
+Tapping it offers **Take Photo** / **Gallery** (`expo-image-picker`, JPEG/PNG
+≤5MB, resized to ≤1400 px JPEG — the license-scan pipeline), then single-call
+`POST /api/driver/face-photo` (`{ file_url }` data URL) validates
+(magic-byte + SSRF guards), stores in the private `face-captures` bucket
+(migration 006), and writes a 10-year signed URL to the driver's OWN
+`drivers.face_image_url` (fuel-receipt URL convention — a 1-hour URL would rot
+in the column). Staff get the same never-silent in-app + push notification as
+license updates, worded to ask for an eyeball check since the photo is also
+the attendance face-verification reference.
+
+Deliberate non-goals: the **license-card scan is NOT reused as the avatar** —
+it is a document photo (wrong aspect, glare-prone) and compliance PII that
+should not become a widely-displayed avatar. There is **no AI face gate**
+(unlike license-scan's Gemini check) — quality control is staff review;
+a face-detection gate is the documented hardening if abuse appears. Uploads
+are never queued offline (base64 cannot replay honestly) — offline the driver
+gets the plain connection error. `PATCH /api/driver/me` needed no change:
+`face_image_url` was already in `DRIVER_SELF_EDITABLE_FIELDS`; the web driver
+page fallback chain (`face_image_url → avatar_url → license_image_url`) picks
+the photo up with zero web changes. Tests: `face-photo/route.test.js` (5).
+
 ## Consent records
 
 `driver_consents` (migration 017) records that a driver agreed to something — INFERRED: location tracking and personal-data handling, given the GPS feature. **TODO:** read the migration to confirm the consent types.

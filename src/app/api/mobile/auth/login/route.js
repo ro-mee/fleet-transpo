@@ -59,7 +59,9 @@ export async function POST(req) {
               r.role_name,
               d.driver_id,
               d.driver_status,
-              d.license_number
+              d.license_number,
+              e.avatar_url,
+              d.face_image_url
          FROM employees e
          LEFT JOIN roles r   ON r.role_id = e.role_id
          LEFT JOIN drivers d ON d.employee_id = e.employee_id
@@ -210,6 +212,7 @@ export async function POST(req) {
         phone: employee.phone,
         status: employee.driver_status,
         licenseNumber: employee.license_number,
+        avatarUrl: employee.face_image_url || employee.avatar_url || null,
       },
     });
   } catch (e) {

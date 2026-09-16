@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Image, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../lib/theme-context';
@@ -9,7 +9,7 @@ import { homeMaterials as clayMaterials } from './materials';
 
 // Memoized with the cards: stable weather object + callbacks from the
 // parent let the header skip poster/notification/clock ticks.
-export default memo(function DriverHomeHeader({ driverName, initial, weather, unreadCount, topInset, onProfile, onNotifications }) {
+export default memo(function DriverHomeHeader({ driverName, initial, photoUrl, weather, unreadCount, topInset, onProfile, onNotifications }) {
   const { colors, type, scheme } = useTheme();
   const { settings } = useSettings();
   const { width, fontScale } = useWindowDimensions();
@@ -23,9 +23,15 @@ export default memo(function DriverHomeHeader({ driverName, initial, weather, un
   const sheen = scheme === 'dark' ? ['rgba(255,253,252,0.10)', 'rgba(255,253,252,0)', 'rgba(0,0,0,0.22)'] : ['#FFFFFF24', '#FFFFFF00', '#00000016'];
   return <View style={[s.header, { paddingTop: topInset + 4, backgroundColor: colors.background }]}>
     <View style={[s.identity, stacked && { flexBasis: '100%' }]}>
-      <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1 }]}>
-        {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
-        <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24 }]}>{initial || 'D'}</Text>
+      <Pressable onPress={onProfile} accessibilityRole="button" accessibilityLabel="Open profile" style={({ pressed }) => [s.avatar, { ...s.raised, ...shadow, borderColor: colors.surfaceContainerLow, backgroundColor: colors.primary, opacity: pressed ? 0.8 : 1, overflow: 'hidden' }]}>
+        {photoUrl ? (
+          <Image source={{ uri: photoUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        ) : (
+          <>
+            {!settings.highContrast && Platform.OS !== 'android' && <LinearGradient pointerEvents="none" colors={sheen} style={[StyleSheet.absoluteFill, { borderRadius: 24 }]} />}
+            <Text style={[type.titleLg, { color: colors.onPrimary, fontSize: 20, lineHeight: 24 }]}>{initial || 'D'}</Text>
+          </>
+        )}
       </Pressable>
       <View style={s.copy}>
         <Text style={[type.titleLg, { fontSize: 18, lineHeight: 22 }]}>Hi, {driverName}</Text>

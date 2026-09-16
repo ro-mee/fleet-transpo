@@ -224,7 +224,9 @@ export async function PUT(req, { params }) {
     if (email !== undefined) employeePayload.email = normalizeEmail(email);
     if (phone !== undefined) employeePayload.phone = normalizePhone(phone) || null;
     if (position !== undefined) employeePayload.position = position || "Driver";
-    if (license_image_url !== undefined) employeePayload.avatar_url = license_image_url || null;
+    if (license_image_url !== undefined) {
+      employeePayload.avatar_url = (license_image_url && typeof license_image_url === "string" && license_image_url.startsWith("http") && license_image_url.length <= 512) ? license_image_url : null;
+    }
     employeePayload.updated_at = new Date().toISOString();
 
     // Update linked employee record

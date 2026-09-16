@@ -9,7 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { getInitials, cn } from "@/lib/utils";
 import { SIDEBAR_MODES, useSidebar } from "@/hooks/use-sidebar";
@@ -49,6 +49,7 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
   const role = employee?.roles?.role_name || "admin";
   const isDriver = role === "driver";
   const statusText = isDriver ? employee?.driver_status || "Available" : employee?.status || "Active";
+  const avatarUrl = employee?.avatar_url || employee?.face_image_url || employee?.image || employee?.image_url || null;
 
   let statusColor = "text-success";
   let statusBg = "bg-success";
@@ -76,6 +77,13 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
 
   const defaultContent = (
     <Avatar className="h-7 w-7">
+      {avatarUrl ? (
+        <AvatarImage
+          src={avatarUrl}
+          alt={name}
+          className="object-cover"
+        />
+      ) : null}
       <AvatarFallback className="bg-hover text-foreground-secondary text-[11px]">
         {employee ? getInitials(name) : "FF"}
       </AvatarFallback>
@@ -133,6 +141,13 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
         <div className="p-3 rounded-lg bg-hover/40 border border-border/60 flex items-center gap-3">
           <div className="relative shrink-0">
             <Avatar className="h-9 w-9">
+              {avatarUrl ? (
+                <AvatarImage
+                  src={avatarUrl}
+                  alt={name}
+                  className="object-cover"
+                />
+              ) : null}
               <AvatarFallback className="bg-hover text-foreground-secondary text-xs font-medium">
                 {employee ? getInitials(name) : "FF"}
               </AvatarFallback>

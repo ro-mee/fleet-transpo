@@ -31,6 +31,35 @@ const SessionManagerContext = createContext({
   staySignedIn: async () => {},
 });
 
+function isAppApiRequest(input) {
+  try {
+    let urlStr = "";
+    if (typeof input === "string") {
+      urlStr = input;
+    } else if (input instanceof URL) {
+      urlStr = input.href;
+    } else if (input && typeof input === "object" && "url" in input) {
+      urlStr = input.url;
+    }
+    if (!urlStr) return false;
+    // Exclude Next.js internals and auth flow endpoints (except user profile)
+    if (
+      urlStr.includes("/_next/") ||
+      (urlStr.includes("/api/auth/") && !urlStr.includes("/api/auth/profile"))
+    ) {
+      return false;
+    }
+    // Match relative or same-origin API routes
+    if (urlStr.startsWith("/api/")) return true;
+    if (typeof window !== "undefined" && urlStr.startsWith(window.location.origin + "/api/")) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function SessionManagerProvider({ children }) {
   const { user } = useAuth();
 
@@ -64,21 +93,32 @@ export function SessionManagerProvider({ children }) {
     setModalState("expired");
   }, []);
 
-  // 1. Global window.fetch 401 interceptor
+  // 1. Global window.fetch 401 interceptor (scoped to app API routes)
   useEffect(() => {
     if (typeof window === "undefined") return;
     const originalFetch = window.fetch;
 
+    if (window.__fleetops_fetch_intercepted) return;
+    window.__fleetops_fetch_intercepted = true;
+
     window.fetch = async function (...args) {
-      const response = await originalFetch.apply(this, args);
-      if (response.status === 401) {
+      const response = await originalFetch.apply(this || window, args);
+      if (response.status === 401 && isAppApiRequest(args[0])) {
         // Intercept 401 without consuming response body stream for the original caller
         try {
           const cloned = response.clone();
           cloned
-            .json()
-            .then((data) => {
-              dispatchSessionAuthError(data?.code || "SESSION_INVALID", data?.error);
+            .text()
+            .then((text) => {
+              if (!text || !text.trim()) {
+                dispatchSessionAuthError("SESSION_INVALID", "Unauthorized");
+                return;
+              }
+              let data = null;
+              try {
+                data = JSON.parse(text);
+              } catch {}
+              dispatchSessionAuthError(data?.code || "SESSION_INVALID", data?.error || "Unauthorized");
             })
             .catch(() => {
               dispatchSessionAuthError("SESSION_INVALID", "Unauthorized");
@@ -92,6 +132,7 @@ export function SessionManagerProvider({ children }) {
 
     return () => {
       window.fetch = originalFetch;
+      delete window.__fleetops_fetch_intercepted;
     };
   }, []);
 

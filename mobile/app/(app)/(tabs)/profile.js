@@ -1,8 +1,10 @@
 import { moderateScale } from '../../../lib/scaling';
 import { useCallback, useState } from "react";
 import { useFocusEffect } from '@react-navigation/native';
-import { api } from '../../../lib/api';
+import { api } from "../../../lib/api";
 import {
+  ActivityIndicator,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,6 +15,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { useAuth } from "../../../lib/auth";
 import { useDriverProfile } from "../../../lib/driver-profile";
 import { useTheme } from "../../../lib/theme-context";
@@ -20,6 +24,14 @@ import { fonts } from "../../../lib/theme";
 import { clayMaterials } from "../../../lib/clay";
 import ClayMenuRow from "../../../components/ClayMenuRow";
 import { ClayCard, ClayButton } from "../../../components/clay";
+import { AppAlert } from "../../../components/AppAlert";
+import { notify } from "../../../lib/notifications/notify";
+
+// Face-photo pipeline mirrors the license-scan upload in profile/license.js:
+// resize to a bounded JPEG data URL so the single POST /api/driver/face-photo
+// call carries the whole image (no multipart quirks), with the same 5MB cap.
+const FACE_MAX_WIDTH = 1400;
+const FACE_COMPRESS = 0.72;
 
 
 const ACCOUNT_ROWS = [
@@ -27,6 +39,7 @@ const ACCOUNT_ROWS = [
 ];
 
 const PRIVACY_SECURITY_ROWS = [
+  { title: "Change Password", icon: "key-outline", route: "/profile/change-password" },
   { title: "Privacy & Consent", icon: "lock-closed-outline", route: "/profile/privacy" },
   { title: "App Permissions", icon: "shield-checkmark-outline", route: "/profile/permissions" },
   { title: "Devices & Sessions", icon: "phone-portrait-outline", route: "/devices" },
@@ -66,9 +79,10 @@ export default function Profile() {
 
   // Cached /api/driver/me read — offline the tab falls back cached profile →
   // auth user, silently (the global offline banner is enough on Profile).
-  const { profile: serverProfile } = useDriverProfile();
+  const { profile: serverProfile, reload } = useDriverProfile();
 
   const [logoutModal, setLogoutModal] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [duty, setDuty] = useState(null);
   const [dutyBusy, setDutyBusy] = useState(false);
   const [dutyError, setDutyError] = useState(null);
@@ -100,6 +114,78 @@ export default function Profile() {
     .substring(0, 2)
     .toUpperCase();
 
+  // The avatar doubles as the attendance face-verification reference photo
+  // (drivers.face_image_url) — one upload serves both surfaces.
+  const facePhotoUrl = serverProfile?.license?.imageUrl || null;
+
+  const toFaceDataUrl = async (asset) => {
+    const context = ImageManipulator.manipulate(asset.uri);
+    if ((asset.width || 0) > FACE_MAX_WIDTH) context.resize({ width: FACE_MAX_WIDTH });
+    const rendered = await context.renderAsync();
+    const saved = await rendered.saveAsync({ compress: FACE_COMPRESS, format: SaveFormat.JPEG, base64: true });
+    if (!saved.base64) throw new Error("The image could not be processed.");
+    return `data:image/jpeg;base64,${saved.base64}`;
+  };
+
+  const uploadFacePhoto = useCallback(async (source) => {
+    if (uploadingPhoto) return;
+    try {
+      setUploadingPhoto(true);
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== "granted") {
+        AppAlert.alert(
+          "Permission Required",
+          source === "camera"
+            ? "Camera permission is required to take your profile photo."
+            : "Photo library permission is required to choose your profile photo."
+        );
+        return;
+      }
+      const options = { mediaTypes: ["images"], quality: 0.8 };
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+      if (result.canceled || !result.assets?.length) return;
+
+      const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > 5 * 1024 * 1024) {
+        AppAlert.alert("File Too Large", "Please select an image smaller than 5MB.");
+        return;
+      }
+      if (asset.mimeType && asset.mimeType !== "image/jpeg" && asset.mimeType !== "image/png") {
+        AppAlert.alert("Invalid Format", "Only JPEG and PNG images are allowed.");
+        return;
+      }
+
+      const dataUrl = await toFaceDataUrl(asset);
+      // Uploads are never queued (FormData/base64 cannot replay honestly) —
+      // offline the driver gets the plain connection error to retry later.
+      await api.post("/api/driver/face-photo", { file_url: dataUrl }, { queueOnFailure: false });
+      notify.toast({ message: "Profile photo updated successfully.", tone: "success" });
+      // Refresh cache + state so the new photo survives offline.
+      await reload();
+    } catch (e) {
+      AppAlert.alert("Upload Failed", e.message || "The photo could not be uploaded. Check your connection and try again.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  }, [uploadingPhoto, reload]);
+
+  const handleAvatarPress = useCallback(() => {
+    if (uploadingPhoto) return;
+    AppAlert.alert(
+      "Profile Photo",
+      "This photo also serves as your attendance face-verification reference. Choose a clear, front-facing photo.",
+      [
+        { text: "Take Photo", onPress: () => uploadFacePhoto("camera") },
+        { text: "Choose from Gallery", onPress: () => uploadFacePhoto("gallery") },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  }, [uploadingPhoto, uploadFacePhoto]);
+
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       <ScrollView
@@ -110,16 +196,34 @@ export default function Profile() {
         <ClayCard variant="compact" style={styles.identityCard}>
           <View style={styles.avatarContainer}>
 
-            <View
-              style={[
-                styles.avatarCircle,
-                { backgroundColor: colors.primaryContainer, borderTopColor: mats.clayTile.borderTopColor, borderBottomWidth: 2, borderBottomColor: mats.clayTile.borderBottomColor },
-              ]}
-            >
-              <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
-            </View>
-            <View
-              style={[
+            {facePhotoUrl ? (
+              <Image
+                source={{ uri: facePhotoUrl }}
+                style={styles.avatarImage}
+                resizeMode="cover"
+                accessibilityLabel="Driver profile photo"
+              />
+            ) : (
+              <View
+                style={[
+                  styles.avatarCircle,
+                  { backgroundColor: colors.primaryContainer, borderTopColor: mats.clayTile.borderTopColor, borderBottomWidth: 2, borderBottomColor: mats.clayTile.borderBottomColor },
+                ]}
+              >
+                <Text style={[type.headlineMd, styles.avatarInitials, { color: colors.onPrimaryContainer }]}>{initials}</Text>
+              </View>
+            )}
+            {uploadingPhoto ? (
+              <View style={[styles.avatarUploading, { backgroundColor: "rgba(0,0,0,0.45)" }]}>
+                <ActivityIndicator size="small" color="#fff" />
+              </View>
+            ) : null}
+            <Pressable
+              onPress={handleAvatarPress}
+              accessibilityRole="button"
+              accessibilityLabel={facePhotoUrl ? "Change profile photo" : "Add profile photo"}
+              accessibilityHint="Opens camera or gallery to update the photo used for your profile and attendance verification"
+              style={({ pressed }) => [
                 styles.editBadge,
                 {
                   backgroundColor: colors.surfaceContainerHigh,
@@ -132,11 +236,12 @@ export default function Profile() {
                   shadowOpacity: 0.12,
                   shadowRadius: 4,
                   elevation: 2,
+                  opacity: pressed ? 0.75 : 1,
                 },
               ]}
             >
               <Ionicons name="pencil" size={12} color={colors.onSurfaceVariant} />
-            </View>
+            </Pressable>
           </View>
           <View style={styles.identityText}>
             <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
@@ -265,6 +370,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderTopWidth: 2,
+  },
+  avatarImage: {
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(32),
+  },
+  avatarUploading: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: moderateScale(64),
+    height: moderateScale(64),
+    borderRadius: moderateScale(32),
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatarInitials: {
   },

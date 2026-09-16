@@ -123,6 +123,33 @@ export default function DriverProfilePage() {
         />
 
         <Card className="border-0 shadow-sm">
+          <CardContent className="flex items-center gap-4 pt-6">
+            {profile.license.imageUrl ? (
+              <img
+                src={profile.license.imageUrl}
+                alt={`${profile.firstName} ${profile.lastName}`}
+                className="h-16 w-16 shrink-0 rounded-2xl border border-border/60 object-cover shadow-sm"
+              />
+            ) : (
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-xl font-bold text-primary">
+                {`${profile.firstName?.[0] || ""}${profile.lastName?.[0] || ""}`.toUpperCase() || "DR"}
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="truncate text-lg font-bold text-foreground">
+                {profile.firstName} {profile.lastName}
+              </p>
+              <div className="mt-1">
+                <StatusBadge status={profile.driverStatus} entity="driver" />
+              </div>
+              <p className="mt-1.5 text-[11px] text-foreground-muted">
+                Update your photo anytime from the mobile app — it is also your attendance face-verification reference.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base font-semibold flex items-center gap-2">
               <IdCard className="w-4 h-4 text-primary" /> License &amp; Credentials
