@@ -137,6 +137,7 @@ function toVehicleCandidate(scored, request, trip) {
     vehicle_id: vehicle.vehicle_id,
     plate_number: vehicle.plate_number,
     vehicle_name: vehicle.vehicle_name,
+    image_url: vehicle.image_url ?? null,
     seating_capacity: vehicle.seating_capacity,
     fuel_level: vehicle.fuel_level,
     vehicle_status: vehicle.vehicle_status,

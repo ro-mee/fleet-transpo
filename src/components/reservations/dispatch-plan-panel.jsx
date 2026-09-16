@@ -44,7 +44,7 @@ export function DispatchPlanPanel({
           planInvalidReason={planHook?.invalidReason}
           onBusyChange={handleBusy}
           onAssigned={onAssigned}
-          alreadyAssigned={selectedRequest?.fleet_status === "Assigned"}
+          alreadyAssigned={['Assigned', 'In Progress', 'Completed', 'Cancelled'].includes(selectedRequest?.fleet_status)}
           planProposal={proposal}
           planToken={proposal ? plan?.planToken : null}
           planExpiresAt={plan?.expiresAt}
@@ -73,7 +73,7 @@ export function DispatchPlanPanel({
         <div className="flex items-center justify-between p-4 border-b border-border/80 bg-muted/20 shrink-0">
           <DialogTitle className="text-sm font-bold flex items-center gap-2.5 text-foreground">
             <div className="relative w-7 h-7 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-              <img src="/images/copilot-avatar.png" alt="Dispatch Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
+              <img src="/images/copilot-avatar-blinking.gif" alt="Dispatch Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
               <span className="absolute bottom-0 right-0 w-1.5 h-1.5 rounded-full bg-emerald-500 ring-1 ring-surface" aria-hidden="true" />
             </div>
             Dispatch Copilot
@@ -101,7 +101,7 @@ export function DispatchPlanPanel({
             onAssigned={(res) => {
               onAssigned?.(res);
             }}
-            alreadyAssigned={selectedRequest?.fleet_status === "Assigned"}
+            alreadyAssigned={['Assigned', 'In Progress', 'Completed', 'Cancelled'].includes(selectedRequest?.fleet_status)}
             planProposal={proposal}
             planToken={proposal ? plan?.planToken : null}
             planExpiresAt={plan?.expiresAt}

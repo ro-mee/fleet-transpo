@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
 import { CopilotConversation, setReservationMessages } from "./copilot-conversation";
-import { CopilotBubble, CopilotOptionFlow, PairTemporalFacts } from "@/components/reservations/copilot-option-flow";
+import { CopilotBubble, CopilotOptionFlow, SelectedPairSummary } from "@/components/reservations/copilot-option-flow";
 import { deriveOptions, optionKey as pairKey } from "@/components/reservations/copilot-options";
 import { useNow } from "@/components/reservations/trip-summary";
 import {
@@ -20,7 +20,17 @@ import { formatDateTime, cn } from "@/lib/utils";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { parseCopilotIntent } from '@/lib/dispatch/conversation';
 import {
+  AlertCircle,
+  ArrowUpRight,
+  Calendar,
+  CarFront,
+  Check,
+  CheckCircle2,
+  Clock,
   RefreshCw,
+  UserRound,
+  Users,
+  XCircle,
 } from "lucide-react";
 
 const pairLabel = (p) =>
@@ -29,6 +39,299 @@ const pairLabel = (p) =>
         p.driver?.driver_name || "Driver #" + p.driver_id
       }`
     : "No current selection";
+
+export function CopilotTripDetailsBubble({
+  requestId,
+  selectedRequest,
+  committedPair,
+  alreadyAssigned,
+}) {
+  const status =
+    selectedRequest?.fleet_status ||
+    (committedPair ? "Assigned" : alreadyAssigned ? "Assigned" : "Completed");
+  const isCompleted = status === "Completed";
+  const isCancelled = status === "Cancelled";
+  const isInProgress = status === "In Progress";
+
+  const driverName = selectedRequest?.drivers
+    ? [selectedRequest.drivers.first_name, selectedRequest.drivers.last_name]
+        .filter(Boolean)
+        .join(" ") ||
+      selectedRequest.drivers.driver_name ||
+      `Driver #${selectedRequest.drivers.driver_id}`
+    : committedPair?.driver?.driver_name || null;
+
+  const vehiclePlate =
+    selectedRequest?.vehicles?.plate_number ||
+    committedPair?.vehicle?.plate_number ||
+    null;
+  const vehicleModel =
+    selectedRequest?.vehicles?.model ||
+    committedPair?.vehicle?.vehicle_name ||
+    null;
+
+  const pickupLoc = selectedRequest?.pickup_location;
+  const dropoffLoc = selectedRequest?.dropoff_location;
+  const pickupRaw = selectedRequest?.pickup_datetime;
+  const formattedPickup =
+    pickupRaw && Number.isFinite(+new Date(pickupRaw))
+      ? new Intl.DateTimeFormat("en-PH", {
+          timeZone: "Asia/Manila",
+          dateStyle: "medium",
+          timeStyle: "short",
+        }).format(new Date(pickupRaw))
+      : null;
+
+  const guestName = selectedRequest?.guest_name;
+  const passengerCount = selectedRequest?.passenger_count;
+  const categoryName =
+    selectedRequest?.vehiclecategories?.category_name ||
+    selectedRequest?.service_types?.service_name ||
+    selectedRequest?.requested_vehicle_type;
+
+  return (
+    <CopilotBubble>
+      <div className="space-y-3">
+        {/* ── Top Header Row with Status & Live Dot ── */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span
+              className={cn(
+                "flex size-7 shrink-0 items-center justify-center rounded-lg ring-1 shadow-2xs",
+                isCompleted &&
+                  "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400 ring-emerald-500/25",
+                isCancelled &&
+                  "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20 dark:text-rose-400 ring-rose-500/25",
+                isInProgress &&
+                  "bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 ring-blue-500/25",
+                !isCompleted &&
+                  !isCancelled &&
+                  !isInProgress &&
+                  "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-400 ring-indigo-500/25"
+              )}
+            >
+              {isCompleted && <CheckCircle2 className="size-4" />}
+              {isCancelled && <XCircle className="size-4" />}
+              {isInProgress && <Clock className="size-4" />}
+              {!isCompleted && !isCancelled && !isInProgress && (
+                <Check className="size-4" />
+              )}
+            </span>
+            <div className="min-w-0">
+              <h4 className="text-sm font-bold tracking-tight text-foreground leading-none">
+                {isCompleted && "Trip Completed"}
+                {isCancelled && "Reservation Cancelled"}
+                {isInProgress && "Trip In Progress"}
+                {!isCompleted &&
+                  !isCancelled &&
+                  !isInProgress &&
+                  "Assignment Completed"}
+              </h4>
+              <p className="mt-1 text-[11px] text-foreground-muted truncate leading-none">
+                {selectedRequest?.reservation_number
+                  ? `Ref: ${selectedRequest.reservation_number}`
+                  : `Request #${requestId}`}
+              </p>
+            </div>
+          </div>
+
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 shrink-0",
+              isCompleted &&
+                "bg-emerald-100/80 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300 ring-emerald-500/20",
+              isCancelled &&
+                "bg-rose-100/80 text-rose-800 dark:bg-rose-950/50 dark:text-rose-300 ring-rose-500/20",
+              isInProgress &&
+                "bg-blue-100/80 text-blue-800 dark:bg-blue-950/50 dark:text-blue-300 ring-blue-500/20",
+              !isCompleted &&
+                !isCancelled &&
+                !isInProgress &&
+                "bg-indigo-100/80 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-300 ring-indigo-500/20"
+            )}
+          >
+            <span
+              className={cn(
+                "size-1.5 rounded-full",
+                isCompleted &&
+                  "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]",
+                isCancelled &&
+                  "bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.7)]",
+                isInProgress &&
+                  "bg-blue-500 shadow-[0_0_6px_rgba(59,130,246,0.7)] animate-pulse",
+                !isCompleted &&
+                  !isCancelled &&
+                  !isInProgress &&
+                  "bg-indigo-500 shadow-[0_0_6px_rgba(99,102,241,0.7)]"
+              )}
+            />
+            {status}
+          </span>
+        </div>
+
+        {/* ── Conversational Intro ── */}
+        <p className="text-xs text-foreground-secondary leading-relaxed">
+          {isCompleted &&
+            "This trip has already been completed. Here are the trip details:"}
+          {isCancelled &&
+            "This reservation was cancelled and is no longer open for assignment. Here are the details:"}
+          {isInProgress &&
+            "This trip is currently active and en route. Here are the trip details:"}
+          {!isCompleted &&
+            !isCancelled &&
+            !isInProgress &&
+            (committedPair
+              ? `${pairLabel(committedPair)} assigned to this reservation.`
+              : "The driver and vehicle have been assigned to this reservation.")}
+        </p>
+
+        {/* ── Cancellation Reason Alert (if cancelled) ── */}
+        {isCancelled && selectedRequest?.status_reason && (
+          <div className="rounded-xl border border-rose-200/80 bg-rose-50/60 dark:border-rose-900/40 dark:bg-rose-950/20 p-2.5 flex items-start gap-2.5 text-xs text-rose-900 dark:text-rose-200 shadow-2xs">
+            <AlertCircle className="size-4 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <span className="font-semibold block text-xs uppercase tracking-wider text-rose-700 dark:text-rose-300">
+                Cancellation Reason
+              </span>
+              <span className="mt-0.5 block leading-normal">
+                {selectedRequest.status_reason}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* ── Double-Bezel Hardware Card for Trip Details ── */}
+        {(pickupLoc ||
+          dropoffLoc ||
+          guestName ||
+          vehiclePlate ||
+          driverName ||
+          categoryName) && (
+          <div className="rounded-2xl border border-border/80 bg-muted/40 dark:bg-muted/10 p-1.5 shadow-xs">
+            <div className="rounded-xl border border-border/60 bg-surface/95 dark:bg-surface/85 backdrop-blur-xs p-3 space-y-3 shadow-[inset_0_1px_1px_rgba(255,255,255,0.06)]">
+              {/* Route Transit Stops Wayfinding */}
+              {(pickupLoc || dropoffLoc) && (
+                <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-2">
+                  <div className="flex items-start gap-2.5">
+                    <div className="flex flex-col items-center pt-1 shrink-0">
+                      <span className="size-2 rounded-full bg-emerald-500 ring-4 ring-emerald-500/20" />
+                      <div className="my-0.5 h-6 w-0.5 border-l border-dashed border-border" />
+                      <span className="size-2 rounded-full bg-rose-500 ring-4 ring-rose-500/20" />
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1.5 text-xs">
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-foreground-muted block leading-none">
+                          Pickup Location
+                        </span>
+                        <span className="mt-0.5 font-medium text-foreground break-words block leading-snug">
+                          {pickupLoc || "Pickup location"}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-foreground-muted block leading-none">
+                          Dropoff Destination
+                        </span>
+                        <span className="mt-0.5 font-medium text-foreground break-words block leading-snug">
+                          {dropoffLoc || "Dropoff location"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {formattedPickup && (
+                    <div className="flex items-center gap-1.5 border-t border-border/50 pt-2 text-[11px] text-foreground-secondary">
+                      <Calendar className="size-3 text-foreground-muted shrink-0" />
+                      <span className="font-medium text-foreground-muted">
+                        Pickup Schedule:
+                      </span>
+                      <span className="font-data font-semibold text-foreground">
+                        {formattedPickup}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Bento Mini-Grid: Passenger & Assigned Resource */}
+              <div
+                className={cn(
+                  "grid gap-2",
+                  vehiclePlate || driverName ? "grid-cols-2" : "grid-cols-1"
+                )}
+              >
+                {/* Guest Mini Card */}
+                <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-1">
+                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-foreground-muted">
+                    <UserRound className="size-3 text-foreground-muted" />
+                    <span>Guest</span>
+                  </div>
+                  <p className="text-xs font-semibold text-foreground truncate">
+                    {guestName || "Guest"}
+                  </p>
+                  {passengerCount != null && (
+                    <p className="text-[11px] text-foreground-secondary flex items-center gap-1">
+                      <Users className="size-3 text-foreground-muted shrink-0" />
+                      <span>
+                        {passengerCount} passenger
+                        {passengerCount === 1 ? "" : "s"}
+                      </span>
+                    </p>
+                  )}
+                </div>
+
+                {/* Resource Mini Card */}
+                {vehiclePlate || driverName ? (
+                  <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-foreground-muted">
+                      <CarFront className="size-3 text-foreground-muted" />
+                      <span>Resource</span>
+                    </div>
+                    {vehiclePlate && (
+                      <p className="font-data text-xs font-semibold text-foreground truncate">
+                        {vehiclePlate}
+                        {vehicleModel ? ` · ${vehicleModel}` : ""}
+                      </p>
+                    )}
+                    {driverName && (
+                      <p className="text-[11px] text-foreground-secondary truncate">
+                        {driverName}
+                      </p>
+                    )}
+                  </div>
+                ) : categoryName ? (
+                  <div className="rounded-lg border border-border/50 bg-background/50 dark:bg-background/20 p-2.5 space-y-1">
+                    <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-foreground-muted">
+                      <CarFront className="size-3 text-foreground-muted" />
+                      <span>Category</span>
+                    </div>
+                    <p className="text-xs font-semibold text-foreground truncate">
+                      {categoryName}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Modern Executive Button-in-Button CTA ── */}
+        {requestId && (
+          <div className="pt-0.5">
+            <Link
+              href={`/reservations/${requestId}`}
+              className="group flex w-full items-center justify-between rounded-xl border border-border/80 bg-surface hover:bg-muted/40 p-2.5 text-xs font-semibold text-foreground shadow-2xs hover:border-emerald-600/40 hover:shadow-xs transition-all duration-200"
+            >
+              <span className="truncate">View full reservation details</span>
+              <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-foreground-secondary group-hover:bg-primary group-hover:text-primary-foreground group-hover:translate-x-0.5 transition-all duration-200">
+                <ArrowUpRight className="size-3.5" />
+              </span>
+            </Link>
+          </div>
+        )}
+      </div>
+    </CopilotBubble>
+  );
+}
 
 export function AiRecommendationPanel({
   requestId,
@@ -78,11 +381,16 @@ export function AiRecommendationPanel({
   }
   useEffect(() => () => { selectionGeneration.current++; }, [requestId]);
 
+  const requestStatus = selectedRequest?.fleet_status;
+  const isTerminal = ['Completed', 'Cancelled'].includes(requestStatus);
+  const isAssignedOrActive = ['Assigned', 'In Progress'].includes(requestStatus) || alreadyAssigned;
+  const isClosed = isTerminal || isAssignedOrActive || !!committed;
+
   // Request-level recommendation query
   const query = useQuery({
     queryKey: ["reservation-recommendation", requestId, "decision"],
     queryFn: () => getRecommendation(requestId),
-    enabled: !!requestId && !alreadyAssigned && !committed,
+    enabled: !!requestId && !isClosed,
     staleTime: 0,
     refetchOnMount: "always",
     refetchOnWindowFocus: "always",
@@ -92,8 +400,8 @@ export function AiRecommendationPanel({
   });
 
   const rec = query.data;
-  const candidates = rec?.pair?.candidates ?? [];
-  const options = deriveOptions({
+  const candidates = isClosed ? [] : (rec?.pair?.candidates ?? []);
+  const options = isClosed ? [] : deriveOptions({
     candidates,
     recommended: (plan?.selectedPair ? rec?.pair?.recommended : planProposal?.pair ?? rec?.pair?.recommended) ?? null,
     proposalPair: planProposal?.pair ?? null,
@@ -116,15 +424,14 @@ export function AiRecommendationPanel({
     if (
       contextBoundary == null ||
       !Number.isFinite(contextBoundary) ||
-      alreadyAssigned ||
-      committed
+      isClosed
     )
       return;
     const delay = contextBoundary - Date.now();
     if (delay < 0 || delay > 30_000) return;
     const timer = setTimeout(() => { if (document.visibilityState === 'visible') refetch(); }, delay + 1);
     return () => clearTimeout(timer);
-  }, [contextBoundary, rec?.evaluatedAt, alreadyAssigned, committed, refetch]);
+  }, [contextBoundary, rec?.evaluatedAt, isClosed, refetch]);
 
   const planExpired =
     !!planProposal &&
@@ -218,7 +525,7 @@ export function AiRecommendationPanel({
     if (assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
     const operation = ++selectionGeneration.current;
     const key = pairKey(option.pair);
-    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:message || `Option ${option.index+1}`,at:Date.now()}]);
+    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:message || `Option ${option.index+1}`,at:Date.now(),action:'select-pair',selectedPair:{vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)}}]);
     setSelected(pairKey(option.pair));
     setPinnedKeys(options.map(o => pairKey(o.pair)));
     setFailure(null);
@@ -309,7 +616,7 @@ export function AiRecommendationPanel({
       >
         <div className="relative w-20 h-20 rounded-3xl p-1 bg-gradient-to-b from-emerald-500/20 to-emerald-600/5 border border-emerald-500/25 shadow-sm flex items-center justify-center">
           <img
-            src="/images/copilot-avatar.png"
+            src="/images/copilot-avatar-blinking.gif"
             alt="Dispatch Copilot Mascot"
             className="w-full h-full object-contain drop-shadow-md select-none pointer-events-none"
           />
@@ -358,12 +665,8 @@ export function AiRecommendationPanel({
   const actionSlot = pair ? (
     <CopilotBubble>
       <div id="copilot-option-result" tabIndex={-1} className="space-y-3">
-        <p className="text-xs text-foreground-secondary">Option {options.findIndex(o=>pairKey(o.pair)===selected)+1} selected</p>
-        <p className="font-semibold">{pairLabel(pair)}</p>
-        {selectionCheck?.pending ? <p role="status">I am double-checking this option against the current schedule and queue.</p> : <>
-          {pair.decisionEvidence?.explanation && <p>{pair.decisionEvidence.explanation}</p>}
-          <PairTemporalFacts pair={pair} now={now}/>
-          <ul className="space-y-1 text-xs text-foreground-secondary">{(pair.checks ?? []).map(c => <li key={c.id}>{c.label}: {c.status === 'verified' ? c.message || 'Verified' : c.message || 'Needs verification'}</li>)}</ul>
+        <SelectedPairSummary pair={pair} optionNumber={options.findIndex(o=>pairKey(o.pair)===selected)+1} pending={selectionCheck?.pending} now={now}/>
+        {!selectionCheck?.pending && <>
           {reasonSlot}
           <p id="dispatch-confirmation-status" role="status" className="text-xs text-foreground-secondary">{reviewCurrent ? 'I have rechecked this pairing. Shall I assign it? Type "Assign it" or use the button below.' : action.message}</p>
           {recovery}
@@ -421,7 +724,7 @@ export function AiRecommendationPanel({
             <div className="flex items-center gap-2.5">
               <div className="relative w-8 h-8 rounded-full overflow-hidden shrink-0 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
                 <img
-                  src="/images/copilot-avatar.png"
+                  src="/images/copilot-avatar-blinking.gif"
                   alt="Dispatch Copilot Avatar"
                   className="w-full h-full object-cover select-none pointer-events-none"
                 />
@@ -430,7 +733,7 @@ export function AiRecommendationPanel({
               <div>
                 <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5 leading-none">
                   Dispatch Copilot
-                  <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                  <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
                     {query.isFetching ? "Checking" : decision.stale ? "Stale" : query.isError ? "Unavailable" : "Evidence"}
                   </span>
                 </h2>
@@ -475,28 +778,31 @@ export function AiRecommendationPanel({
           requestId={requestId}
           selectedRequest={selectedRequest}
           planToken={queueMode ? effectivePlanToken : null}
-          hasPair={options.length > 0}
+          hasPair={!isClosed && options.length > 0}
           selectedPair={pair ? {vehicleId:Number(pair.vehicle_id),driverId:Number(pair.driver_id)} : null}
           selectedPairLabel={pair ? pairLabel(pair) : null}
           displayedOptions={options.map(o=>({vehicleId:Number(o.pair.vehicle_id),driverId:Number(o.pair.driver_id)}))}
           displayedEvaluatedAt={rec?.evaluatedAt ?? null}
-          disabled={busy || !canRecommend || alreadyAssigned || !!committed}
-          completed={alreadyAssigned || !!committed}
+          disabled={busy || !canRecommend || isClosed}
+          completed={isClosed}
           onCommand={handleCommand}
+          selectedReply={!isClosed && !assignment.isPending ? actionSlot : null}
           reply={<>
             {query.isLoading && <CopilotBubble><p role="status">I am checking the eligible pairs and their schedules.</p></CopilotBubble>}
             {query.isError && <CopilotBubble><p role="alert">I could not refresh the evidence. {query.error.message}</p>{recovery}</CopilotBubble>}
             {failure && <CopilotBubble><p role="alert">{failure.message}</p><ConflictBlock conflicts={failure.conflicts ?? []}/>{recovery}</CopilotBubble>}
             {assignment.isPending && <CopilotBubble><p role="status">Assigning {pairLabel(pair)}. I am revalidating availability and conflicts before saving.</p></CopilotBubble>}
-            {!alreadyAssigned && !committed && !assignment.isPending && actionSlot}
-            {(alreadyAssigned || committed) && <CopilotBubble>
-              <p className="font-semibold text-success">Assignment completed</p>
-              <p className="mt-1 text-xs">{pair ? pairLabel(pair) : 'The driver and vehicle'} assigned to this reservation.</p>
-              <Link className="mt-2 inline-block text-xs text-primary underline" href={'/reservations/'+requestId}>View reservation</Link>
-            </CopilotBubble>}
+            {isClosed && (
+              <CopilotTripDetailsBubble
+                requestId={requestId}
+                selectedRequest={selectedRequest}
+                committedPair={pair}
+                alreadyAssigned={alreadyAssigned}
+              />
+            )}
           </>}
         >
-          {!alreadyAssigned && !committed && !query.isLoading && flowNode}
+          {!isClosed && !query.isLoading && flowNode}
         </CopilotConversation>
       </div>
     </section>

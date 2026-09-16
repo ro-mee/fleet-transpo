@@ -497,15 +497,14 @@ export default function ReservationDetailPage() {
 
         {/* ── RIGHT COLUMN: AI Advisor & Timeline (5 Cols) ── */}
         <div className="lg:col-span-5 space-y-6">
-          {isAssignable(status) && (
-            <AiRecommendationPanel
-              requestId={requestId}
-              pickupAt={r.pickup_datetime}
-              canAssign={permissions.assign}
-              onAssigned={invalidate}
-              alreadyAssigned={status === L.ASSIGNED}
-            />
-          )}
+          <AiRecommendationPanel
+            requestId={requestId}
+            selectedRequest={r}
+            pickupAt={r.pickup_datetime}
+            canAssign={permissions.assign}
+            onAssigned={invalidate}
+            alreadyAssigned={['Assigned', 'In Progress', 'Completed', 'Cancelled'].includes(status)}
+          />
 
           <ReservationTimeline requestId={requestId} />
         </div>

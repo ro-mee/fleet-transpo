@@ -247,7 +247,7 @@ export default function UnifiedQueuePage() {
                 className="h-9 rounded-xl text-xs font-semibold pl-2"
               >
                 <div className="w-5 h-5 rounded-full overflow-hidden shrink-0 mr-1.5 border border-emerald-500/30 bg-emerald-500/10 shadow-2xs">
-                  <img src="/images/copilot-avatar.png" alt="Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
+                  <img src="/images/copilot-avatar-blinking.gif" alt="Copilot" className="w-full h-full object-cover select-none pointer-events-none" />
                 </div>
                 Open Copilot
               </Button>
