@@ -1,5 +1,21 @@
 # FleetOps — Fleet & Logistics Management System
 
+**Closed & terminal reservation trip details in Copilot chat (2026-09-16, implemented):** Suppressed recommendation fetching and option cards (`CopilotOptionFlow`) for reservations in `Completed`, `Cancelled`, `In Progress`, or `Assigned` statuses. Instead, Copilot renders an elevated modern `<CopilotTripDetailsBubble>` in the chat featuring an executive status header with glowing status indicators, double-bezel hardware container, transit route wayfinding stops (visual pickup/dropoff track), schedule & passenger metrics, assigned driver/vehicle bento mini-cards, cancellation callout (when cancelled), and a sleek button-in-button CTA linking to `/reservations/[id]`. Verified with targeted Vitest unit tests in `ai-recommendation-panel.test.js` (7/7 passed), full test suite (131 files / 1,284 tests passed), and Next.js production build. See `Capstone/07 - Development/Dispatch Copilot Scope and Conversation Audit.md`.
+
+**Direct card-click selection for Copilot option cards (2026-09-16, implemented):** Made recommendation cards in `CopilotOptionFlow` (`src/components/reservations/copilot-option-flow.jsx`) directly clickable to select that option (`onChoose(option)`). Added `role="button"`, keyboard navigation (`Enter`, `Space`), and hover/focus styles. Top header row (`Option X`, badge, `Pickup HH:MM`) is now direct-click selectable, and schedule/workload facts disclosure was decoupled into an inner `<details>` with `e.stopPropagation()`. Full test suite (131 files / 1,283 tests passed) and production build passed. See `Capstone/07 - Development/Dispatch Copilot Scope and Conversation Audit.md`.
+
+**Copilot option flow unified chat bubble presentation (2026-09-16, implemented):** Unified initial assignment discovery counts (*"I found X options for this reservation."*) and empty/blocked states (*"No eligible assignment is currently available."* + exclusion reasons) inside `<CopilotBubble>` message bubbles with Copilot's mascot avatar. Replaces raw, unstyled paragraph text with conversational speech bubbles for visual continuity from the initial checking state (*"I am checking the eligible pairs and their schedules."*). Verified with unit tests in `ai-recommendation-panel.test.js`, full test suite (131 files / 1,283 tests passed), ESLint, and Next.js production build. See `Capstone/07 - Development/Dispatch Copilot Scope and Conversation Audit.md`.
+
+**Blinking Copilot avatar activated (2026-09-16):** All eight UI avatar references now use `/images/copilot-avatar-blinking.gif`. Asset renamed and generator updated; verified references and 3-second infinite GIF loop. AI Advisory updated.
+
+**Copilot blink asset (2026-09-16):** Added `public/images/copilot-avatar-blink.gif`, a three-second loop with quick eye closure/reopening. Generated and verified with Python; all non-eye regions remain static. Pulse asset retained and AI Advisory updated.
+
+**Copilot pulse asset (2026-09-16):** Generated `public/images/copilot-avatar-pulse.gif` with Python: 60 frames, 3-second infinite loop, only detected eye pixels pulsing. Verified static pixels across decoded frames and inspected bright/dim previews. Source PNG and app asset references unchanged. Reproduction script and AI Advisory note added.
+
+**Reference Copilot option-card UI (2026-09-16):** Matched the supplied card structure and emerald/neutral treatments, two-column resource row, icons and full-width arrow buttons. Uses actual candidate data and vehicle photos with icon fallback; header disclosure retains temporal evidence. Ten focused tests, lint and the production build (201 pages) passed. Browser pixel comparison remains unavailable (no provider). AI Advisory updated; one file-scoped badge-color detector false positive was suppressed.
+
+**Copilot answer quality (2026-09-16):** Added direct-answer and trade-off guidance, question-specific evidence fallbacks, driver names, fresh-evidence choice prompts and suppression of stale/future live ETA aliases. Selection and assignment gates are unchanged. Background refresh does not create new chat messages. Twenty-nine focused tests, touched-source ESLint, 267 authorization checks and the production build (201 pages) passed. The small Clear memory label now uses the design system's 12px size. Updated AI Advisory; live-provider/browser acceptance remains unverified.
+
 **Copilot Analyze controls removed (2026-09-15):** Removed manual Analyze actions from the header, empty state and recovery UI. Option selection retains automatic queue analysis; Recheck reservation revalidates the selected pair. Seven focused tests and lint passed; Capstone notes updated.
 
 **Queue analysis summary removed (2026-09-15):** Removed the four analysis status cards and their evaluated-count/expiry/duplicate Analyze footer. Copilot analysis, validation and assignment guards remain intact. Queue-page ESLint passed; Capstone reservation and queue-flow notes updated.
@@ -1722,3 +1738,30 @@ dashboards, and `/trips/[id]`):
   - 20 test files / 121 tests passing (`npx vitest run mobile/lib --no-cache`).
   - 0 ESLint errors across touched components (`mobile/components/TomTomMap.js`, `mobile/app/(app)/(tabs)/map.js`, `mobile/components/RadarPulse.jsx`).
   - Production Android Hermes bundle export succeeded with 0 errors (`1,394 modules`, 5.14 MB).
+
+
+**Dispatch Copilot feature review (2026-09-16):** Documented proposed recovery guidance, verified change explanations, what-if simulation, downstream impact explanations and meaningful-change alerts in AI Advisory. Source/document review only; no application changes.
+
+
+## Copilot enhancement implementation plan - 2026-09-16
+
+Created [[Dispatch Copilot Decision Support Enhancement Plan]] in `Capstone/07 - Development/`: phased recovery guidance, verified change explanations, read-only simulation, queue impact and assigned-trip alerts. Includes source reuse, permissions, simulation/assignment separation, notification scheduler dependencies, acceptance cases and rollout gates. Status: proposed; documentation only, no application behavior changed.
+
+
+**Return-trip matching plan added (2026-09-16):** Extended [[Dispatch Copilot Decision Support Enhancement Plan]] with Phase 4B: bounded follow-on booking search from scheduled destination/release, full sequence feasibility, evidence-backed empty-travel comparison and separate explicit follow-on assignment review. Includes cross-midnight, missing evidence and concurrent-assignment acceptance cases. Documentation only; not implemented.
+
+
+## Selected Copilot option readability - 2026-09-16
+
+Reworked the selected-pair summary within the existing conversation: separate labeled vehicle/driver identity, prominent preparation slack, previous release time, service-date workload columns and temporal context. Schedule reasoning and verified checks use keyboard-accessible native disclosures; unresolved checks and schedule uncertainty stay visible. Repeated check-label prefixes are removed without changing evidence. Pending rechecks withhold old detail, future live ETA remains suppressed and existing assignment/review handlers are preserved. Raised existing 10px panel labels to the 12px design-system step.
+
+Verification: 15 focused component tests passed, touched-source ESLint passed and layout detector reported no findings. Live desktop/mobile visual inspection unavailable because the session has no browser provider.
+
+Production build also passed (201 pages).
+
+
+## Selected review conversation order fix - 2026-09-16
+
+The selected-pair summary previously rendered after all chat messages, causing bottom-follow scrolling to land on the summary instead of the newest question/answer. Selection messages now carry structured pair/action identity, and the live selected review renders immediately after the latest matching selection turn. Subsequent questions, answers and the typing indicator stay below it. Cleared/pruned history places the review above remaining messages; no duplicate review is created. Operational errors/assignment progress remain separate current replies and assignment guards are unchanged. Explicit commands also resume bottom-follow scrolling.
+
+Verification: 16 focused component tests and touched-source ESLint passed, including review ordering and pruned-history regression cases. Browser visual validation remains unavailable in this session.

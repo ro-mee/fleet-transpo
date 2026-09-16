@@ -34,6 +34,8 @@ passed; live read-only run against request 502 confirmed ABC-1234 in candidates
 and XYZ 5678 pre-filtered with "Vehicle status is Under Maintenance."
 (No live assignment was made.)
 
+Option flow opening status & exclusion presentation (2026-09-16): Initial option flow status and exclusion findings are now unified inside `<CopilotBubble>` message bubbles with Copilot's 3D avatar. When a reservation has no eligible pairings, instead of rendering raw, unstyled paragraph text, Copilot presents *"No eligible assignment is currently available."* and the specific exclusion reason (e.g., *"Vehicle status is Under Maintenance."*) inside a standard speech bubble, creating a seamless visual continuity from the initial checking state (*"I am checking the eligible pairs and their schedules."*). When eligible options are found, the count summary (*"I found X options for this reservation."*) is similarly presented in a `<CopilotBubble>`, with option cards rendered cleanly below. Verified with unit tests in `ai-recommendation-panel.test.js`, full test suite (131 files / 1,283 tests passed), and production build.
+
 Chat presentation refinement (2026-09-15): replies now request 2–4 conversational sentences by default, practical cause first, one next step, English/Filipino matching the question, and Philippine local pickup times. Avoid routine metadata dumps and repeated safety disclaimers; operational evidence rules remain unchanged. Plain-text normalization removes model bold markers. Chat follows the user's reference: left assistant/right user bubbles, immediate outgoing message, checking indicator, local-time message stamps, expandable evidence metadata, compact suggested chips and a bottom composer with send icon/character count. Enter sends; Shift+Enter creates a newline; IME composition does not accidentally send. Failed questions are restored for retry, duplicate sends are guarded, and new messages scroll within the chat without pulling users away from older messages. Five focused conversation tests passed; touched-source lint and production build checked. Browser appearance and live model wording still require manual acceptance because no browser provider was available in this session.
 
 The findings below describe the pre-fix source. Implemented date-scoped planning through the existing planner: panel and queue actions use the selected reservation's Manila service date and label it explicitly; today's scope includes overdue, other dates use their own midnight-to-midnight interval. Existing signed plan tokens now include window metadata. Scope-aware counts retain evaluated/total and dependency/partial indicators. No new snapshot or token mechanism.
@@ -123,3 +125,28 @@ are not selectable on requests).
 Reproduce Sep 15 Today=0 / Upcoming=2: explain exclusion before analysis; explicit Sep 16 analysis evaluates the two requests or reports its actual exclusions/partial result. “0 of 0” must never imply those two requests were checked. Recheck updates the selected request only. A no-pair state must show actual reasons and still allow chat.
 
 Exercise expired/failed plan validation, removed pair, rapid request switching, delayed chat responses, missing downstream evidence, provider failure and absent permissions. Natural typed questions should return grounded answers; requests to bypass safety must not create mutations. Confirmation and 409/network recovery must retain existing safeguards. Browser validation is required; no claim of successful live fixes is made in this audit.
+
+## Direct Card-Click Selection for Option Cards (Sept 16, 2026)
+
+- **UX Improvement**: Users can now select an option by clicking directly anywhere on the option card (header with radio circle, vehicle & driver information, or verification checks) or by pressing `Enter`/`Space` when focused, rather than having to scroll down to and click the `Choose Option X →` button.
+- **Implementation**:
+  - Attached `role="button"`, `tabIndex={disabled ? -1 : 0}`, `onClick={() => !disabled && onChoose(option)}`, and keyboard listeners (`Enter`, `Space`) directly to `<section data-copilot-message="true">` in `src/components/reservations/copilot-option-flow.jsx`.
+  - Added hover and focus-visible interactive styling (`cursor-pointer hover:border-emerald-600 hover:shadow-md focus-visible:outline-2 focus-visible:outline-emerald-600`).
+  - Decoupled the top header (`Option X`, badge, `Pickup HH:MM`) from `<summary>` so header clicks trigger option selection instead of accordion toggling.
+  - Relocated technical schedule & workload evidence disclosure inside `<details className="group mt-2" onClick={(e) => e.stopPropagation()}>` with label `Schedule & workload details`, ensuring detailed inspection does not trigger accidental selection.
+  - Retained explicit `<Button ... onClick={(e) => { e.stopPropagation(); if (!disabled) onChoose(option); }}>Choose Option X →</Button>` with event propagation stop to preserve existing flows and unit test assertions.
+
+## Closed & Terminal Reservation Trip Details in Copilot Chat (Sept 16, 2026)
+
+- **Problem**: When operators selected a Completed, Cancelled, or In Progress reservation in the reservation queue workspace or detail page, Copilot still evaluated candidate pairs and displayed option cards (`Option 1 [Recommended]` and `Option 2 [Alternative]`) to assign resources to an already finished or cancelled trip.
+- **Solution & Implementation**:
+  - Gated recommendation querying in `AiRecommendationPanel` (`src/components/reservations/ai-recommendation-panel.jsx`): computed `isClosed = isTerminal || isAssignedOrActive || !!committed`, disabling `getRecommendation` query and setting `candidates` / `options` to empty array when a reservation is Completed, Cancelled, In Progress, or Assigned.
+  - Suppressed `flowNode` (`CopilotOptionFlow`) when `isClosed` is true.
+  - Implemented `<CopilotTripDetailsBubble>` rendered in Copilot's chat thread:
+    - Displays executive status header with dedicated glowing status indicator and soft icon badge (`CheckCircle2`, `XCircle`, `Clock`, `Check`).
+    - Conversational assistant message explaining the status.
+    - Cancellation reason alert callout (`status_reason`) with alert icon when Cancelled.
+    - Double-bezel hardware container enclosing transit route wayfinding (visual vertical pickup/dropoff stops with connecting line), schedule pill, and two-column bento mini-cards for passenger and assigned vehicle/driver.
+    - Button-in-button interactive CTA to view full reservation details (`/reservations/[id]`).
+  - Updated `dispatch-plan-panel.jsx` and `reservations/[id]/page.js` to pass `alreadyAssigned` and `selectedRequest` accurately for all terminal and active statuses.
+  - Enhanced `<CopilotBubble>` with avatar ring enclosure and squircle bubble curvature.
