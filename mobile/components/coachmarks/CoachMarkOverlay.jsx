@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   StyleSheet,
   View,
@@ -67,6 +67,12 @@ export function CoachMarkOverlay({
   const [pulseAnim] = useState(() => new Animated.Value(0.25));
   const [tooltipOpacity] = useState(() => new Animated.Value(0));
   const [overlayFade] = useState(() => new Animated.Value(0));
+
+  // Edges of the animated box, for the two scrim rectangles that sit on the far
+  // side of the cutout. Derived once rather than inline, so a render does not
+  // build a fresh animated node every time.
+  const animRight = useMemo(() => Animated.add(animX, animW), [animX, animW]);
+  const animBottom = useMemo(() => Animated.add(animY, animH), [animY, animH]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled()
@@ -268,8 +274,12 @@ export function CoachMarkOverlay({
         style={[StyleSheet.absoluteFill, { opacity: overlayFade }]}
       >
         {/* ── Scrim 4 Rectangles: Surrounding the cutout ── */}
+        {/* Driven by the animated bounds above, not the raw measurements: a
+            target that re-measures while the mark is open (async data, a
+            keyboard shift, an auto-scroll settle) used to snap the spotlight to
+            its new position. */}
         {/* Top Blocker */}
-        <View
+        <Animated.View
           pointerEvents="auto"
           style={[
             styles.scrimRect,
@@ -277,18 +287,18 @@ export function CoachMarkOverlay({
               top: 0,
               left: 0,
               right: 0,
-              height: spotY,
+              height: animY,
               backgroundColor: scrimBg,
             },
           ]}
         />
         {/* Bottom Blocker */}
-        <View
+        <Animated.View
           pointerEvents="auto"
           style={[
             styles.scrimRect,
             {
-              top: spotY + spotH,
+              top: animBottom,
               left: 0,
               right: 0,
               bottom: 0,
@@ -297,44 +307,44 @@ export function CoachMarkOverlay({
           ]}
         />
         {/* Left Blocker */}
-        <View
+        <Animated.View
           pointerEvents="auto"
           style={[
             styles.scrimRect,
             {
-              top: spotY,
+              top: animY,
               left: 0,
-              width: spotX,
-              height: spotH,
+              width: animX,
+              height: animH,
               backgroundColor: scrimBg,
             },
           ]}
         />
         {/* Right Blocker */}
-        <View
+        <Animated.View
           pointerEvents="auto"
           style={[
             styles.scrimRect,
             {
-              top: spotY,
-              left: spotX + spotW,
+              top: animY,
+              left: animRight,
               right: 0,
-              height: spotH,
+              height: animH,
               backgroundColor: scrimBg,
             },
           ]}
         />
 
         {/* ── Spotlight Cutout: Structurally leaves target hole uncovered for passthrough ── */}
-        <View
+        <Animated.View
           pointerEvents={cutoutPointerEvents}
           style={[
             styles.spotlightCutout,
             {
-              left: spotX,
-              top: spotY,
-              width: spotW,
-              height: spotH,
+              left: animX,
+              top: animY,
+              width: animW,
+              height: animH,
               borderRadius: radius,
             },
           ]}
@@ -375,7 +385,7 @@ export function CoachMarkOverlay({
               },
             ]}
           />
-        </View>
+        </Animated.View>
 
         {/* ── Operational Tooltip Card ── */}
         <Animated.View

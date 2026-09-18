@@ -69,6 +69,10 @@ export default function FuelReport() {
   const cameraRef = useRef(null);
   const scanInFlight = useRef(false);
   const autoScanStarted = useRef(false);
+  // Lets CoachMarkTarget scroll a spotlighted control into the safe viewport
+  // before measuring — the verify step's fields sit below the fold on a small
+  // device, and an off-screen target would dim the page with nothing framed.
+  const scrollRef = useRef(null);
 
   useEffect(() => {
     if (cameraOpen && cameraPurpose === "scan") {
@@ -795,6 +799,7 @@ export default function FuelReport() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 80 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -986,7 +991,7 @@ export default function FuelReport() {
               </View>
             </View>
 
-            <CoachMarkTarget targetId="fuel.verify">
+            <CoachMarkTarget targetId="fuel.verify" scrollRef={scrollRef}>
               <View style={styles.fieldRow}>
                 <View style={[styles.fieldGroup, { flex: 1 }]}>
                   <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>VOLUME (L)</Text>

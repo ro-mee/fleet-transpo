@@ -1,4 +1,4 @@
-import React, { useRef, useCallback, useEffect } from "react";
+import React, { useRef, useCallback, useEffect, useState } from "react";
 import { View, Dimensions, Keyboard, InteractionManager } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { usePathname } from "expo-router";
@@ -40,6 +40,16 @@ export function CoachMarkTarget({
 }) {
   const effectiveId = id || targetId;
   const containerRef = useRef(null);
+  // Identity of THIS mount. A target id can be registered by more than one live
+  // instance (`inspection.remarks` mounts once per failed item), and the
+  // provider needs to tell them apart so an unmount removes only its own
+  // registration. Stable for the life of the component.
+  //
+  // useState rather than useRef: the token is read during render (it sits in two
+  // dep arrays), and reading a ref's `.current` during render is not allowed.
+  // A lazy initializer gives the same stable per-instance value, with the
+  // stability guaranteed by React rather than assumed.
+  const [token] = useState(() => Symbol("coach-mark-target"));
   const insets = useSafeAreaInsets();
   let pathname = "/";
   try {
@@ -72,7 +82,8 @@ export function CoachMarkTarget({
                 registerTarget(
                   effectiveId,
                   { x: rx, y: ry, width: rw, height: rh, radius, padding },
-                  pathname
+                  pathname,
+                  token
                 );
               }
             });
@@ -135,7 +146,8 @@ export function CoachMarkTarget({
                     radius,
                     padding,
                   },
-                  pathname
+                  pathname,
+                  token
                 );
               }
             });
@@ -154,7 +166,8 @@ export function CoachMarkTarget({
           radius,
           padding,
         },
-        pathname
+        pathname,
+        token
       );
     });
   }, [
@@ -166,6 +179,7 @@ export function CoachMarkTarget({
     scrollRef,
     pathname,
     isCurrentActiveTarget,
+    token,
   ]);
 
   // Re-measure when activeMilestone activates or changes
@@ -212,14 +226,16 @@ export function CoachMarkTarget({
     };
   }, [measureAndRegister]);
 
-  // Cleanup on unmount: immediately unregisters target so it cannot persist across screens
+  // Cleanup on unmount: immediately unregisters target so it cannot persist
+  // across screens. Scoped to this mount's token, so one of two instances
+  // sharing an id cannot delete the other's live registration.
   useEffect(() => {
     return () => {
       if (effectiveId) {
-        unregisterTarget(effectiveId);
+        unregisterTarget(effectiveId, token);
       }
     };
-  }, [effectiveId, unregisterTarget]);
+  }, [effectiveId, unregisterTarget, token]);
 
   const onLayout = useCallback(() => {
     if (isCurrentActiveTarget) {

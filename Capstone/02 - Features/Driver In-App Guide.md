@@ -5,6 +5,8 @@ tags: [feature, mobile, driver, guide, coachmarks, onboarding]
 source:
   - mobile/lib/coach-marks.js
   - mobile/lib/coach-mark-storage.js
+  - mobile/lib/motion-state.js
+  - mobile/lib/tracking.js
   - mobile/components/coachmarks/CoachMarkProvider.jsx
   - mobile/components/coachmarks/CoachMarkOverlay.jsx
   - mobile/components/coachmarks/CoachMarkTooltip.jsx
@@ -17,7 +19,7 @@ source:
   - mobile/app/(app)/incidents.js
   - mobile/components/DriverSos.js
   - mobile/lib/connectivity-state.js
-last_verified: 2026-09-16
+last_verified: 2026-09-18
 ---
 
 # Feature: Driver In-App Guidance & Contextual Coach Marks
@@ -307,10 +309,10 @@ BLOCKER  --------------------------------------------------   BLOCKER
 1. **Safe Viewport Check & Active-Target Gating**: Targets inside ScrollViews are checked against the safe visible viewport (`insets.top + 40` to `SCREEN_HEIGHT - insets.bottom - 80`). Auto-scrolling via `scrollRef.current.scrollTo()` is strictly gated to `isCurrentActiveTarget === true` so inactive targets never scroll the viewport prematurely while earlier steps are active.
 2. **Auto-Scroll & Layout-Relative Measuring**: Uses `containerRef.current.measureLayout(scrollRef.current, ...)` when available to compute the exact ScrollView offset, scrolls smoothly, and waits $320\text{ms}$ for scroll animation to settle before committing final coordinates.
 3. **Android Transition & Window Settlement**: Guard against early $y \le 0$ measurement returns on Android during screen transition by deferring to `requestAnimationFrame` and `InteractionManager.runAfterInteractions()`.
-4. **Active Step Re-Measurement & Settling Ticks**: When a step activates or transitions (`currentStepIndex` changes), `CoachMarkTarget` fires an immediate measurement, an interaction-settled measurement, and staggered settling ticks ($80\text{ms}, 240\text{ms}, 480\text{ms}$) to guarantee dynamic async content changes (e.g. vehicle assignment loading) immediately update the spotlight coordinates.
+4. **Active Step Re-Measurement & Settling Ticks**: When a step activates or transitions (`currentStepIndex` changes), `CoachMarkTarget` fires an immediate measurement, an interaction-settled measurement, and staggered settling ticks ($80\text{ms}, 240\text{ms}, 480\text{ms}$) to guarantee dynamic async content changes (e.g. vehicle assignment loading) immediately update the spotlight coordinates. The four scrim rectangles and the cutout are driven by **animated** bounds interpolated over $240\text{ms}$, so a re-measure while a mark is open *moves* the spotlight instead of snapping it.
 5. **Route Stamping**: All registrations store `route: pathname`. If a target belongs to a different route, `activeTargetLayout` returns `null`.
-6. **Zero-Size Suppression**: If `width <= 0` or `height <= 0`, the coach mark does **not** display. It waits until layout completes.
-7. **Unregister on Unmount**: Calling `unregisterTarget(targetId)` on unmount guarantees stale coordinates cannot linger across screen transitions.
+6. **Zero-Size AND Off-Screen Suppression**: If `width <= 0` or `height <= 0`, the coach mark does **not** display. A target measured entirely outside the safe viewport — above `insets.top + 40`, or beginning below `SCREEN_HEIGHT - insets.bottom - 80` — is rejected too: positive bounds are not enough, because a card scrolled out of view measures positively and the overlay would dim the whole screen with the cutout framing nothing. Only a box **entirely** outside is rejected; a partially visible target still presents, since auto-scroll is gated on `isCurrentActiveTarget` (independent of overlay visibility), so it scrolls in, re-registers at its settled position, and the mark appears then.
+7. **Unregister on Unmount, Scoped to the Registering Instance**: Every registration carries the token of the instance that made it. `unregisterTarget(targetId, token)` deletes only its own, so an unmount cannot remove a registration another live instance still holds. This matters because a target id may legitimately be live more than once — `inspection.remarks` mounts once per **failed** checklist item, so two FAILs register the same id twice. The newest live registration wins; when it unmounts, the survivor is promoted rather than the id going dark. A `__DEV__` warning fires when two live mounts register one id with conflicting bounds, since the spotlight would jump between them.
 
 ---
 
@@ -348,12 +350,25 @@ export function getCoachMarkStorageKey(key, version = 1, driverId = null) {
 
 1. **Driving Safety Lock**:
    When vehicle velocity $> 10 \text{ km/h}$ or moving transit is detected, all non-critical coach marks are suppressed until the vehicle is stationary.
+
+   **How it is actually decided** — derived in `mobile/lib/motion-state.js`, fed by the single GPS poster in `mobile/lib/tracking.js`:
+
+   - **Motion source**: the `coords.speed` that the 30 s poster already reads on every fix. `LocationObjectCoords.speed` is **metres per second**, so the $10\ \text{km/h}$ policy threshold is $10 / 3.6 = 2.78\ \text{m/s}$ — comparing against a bare `10` would move the gate to $36\ \text{km/h}$. No second GPS stream, no extra battery cost, and evidence is published on every fix regardless of whether the post succeeds or which branch (trip / responder / standby) it takes.
+   - **Sticky hold of 2 minutes**: once motion is seen, the lock holds for 2 minutes after the last *moving* fix. A stationary fix does **not** release it early. Positions arrive every ~30 s, so a latest-fix-only check would un-suppress the guide at a red light, in a traffic queue, in a tunnel, or through any GPS dropout — precisely when the driver is still driving.
+   - **Fail open on unknown**: no location permission, tracking disabled in Settings, or no fix yet all read as *stationary*, so the guide still works on a device that never grants location. The lock engages only on positive evidence, and a null speed neither starts nor ends a hold.
+   - **Read from the hook, never a prop**: `CoachMarkProvider` calls `useIsDriving()`. Suppression has two halves — a trigger is refused while moving, **and** a mark already on screen is dismissed the moment motion begins. A dimmed scrim left over the map as the driver pulls away is the real hazard, not merely the next mark appearing.
+   - **Abandoned, not completed**: a mark taken away by the lock is not written to `AsyncStorage`. A tip the driver never got to read returns once the vehicle is stationary; it is not burned unseen.
+   - **Re-checked after every await**: opening a mark reads storage asynchronously, so the lock is consulted again afterwards with a current reading — a gate that only checks before an await can be passed by a vehicle that starts moving during it.
 2. **Real Emergency Priority**:
    If an actual emergency interaction occurs, the real SOS action always takes priority and any active coach mark immediately stands aside.
 3. **Protected Action Guarantee**:
    SOS, Start Trip, Complete Inspection, Submit Incident, Submit Fuel, and Trip Progression swipe controls must **never** become tutorial-required actions.
 4. **No Production State Mutations**:
    Guides explain workflows; they never submit data, mutate trips, or create mock records.
+5. **One Guide at a Time**:
+   A trigger is refused while a guide is **on screen**, so two guides can never fight over the same moment. The race this removes: Home mounts and shows the Welcome card, then ~2 s later the SOS tip replaced it — so the greeting was never read *and* never marked complete, appearing only on a second launch. The same race let `pretrip_complete` cut off an open `pretrip_remarks`.
+
+   The guard is scoped to what is actually on screen, not merely to "a guide is active". A guide left behind by navigation — or one whose target never registered — is hidden, and blocking on it would strand the driver: an invisible guide offers nothing to dismiss, so every later guide would be refused. Either way the superseded guide is left **incomplete**, so it returns the next time its trigger fires.
 
 ---
 
@@ -377,9 +392,10 @@ Drivers can review contextual guidance at any time:
 - [x] **Protected Action Guarantee**: Critical actions (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"` and advance via `[ Got it ]` without accidental execution.
 - [x] **Emergency SOS Priority**: Real SOS immediately overrides and dismisses any active tutorial state.
 - [x] **State-Driven Progression**: State changes on real controls advance guidance via `notifyInteraction()` without mutating production state from the guide system.
-- [x] **ScrollView Safe Viewport**: Auto-scrolls parent ScrollViews to offscreen targets and settles layout before measuring.
-- [x] **Stale Target Rejection**: Target registrations stamped with `route: pathname`; cross-route or zero-sized targets suppress overlay presentation.
+- [x] **ScrollView Safe Viewport**: Auto-scrolls parent ScrollViews to offscreen targets and settles layout before measuring. Every scrollable target is given the `scrollRef` it needs: `inspection.*`, `incident.category`, `trip.readiness`, `trip.pretrip_requirement`, and `fuel.verify`. Targets outside a ScrollView (`trip.primary_action`, `fuel.viewfinder`, `map.*`, `incident.sos`, `offline.banner`) are fixed chrome and are on screen whenever they render.
+- [x] **Stale Target Rejection**: Target registrations stamped with `route: pathname`; cross-route, zero-sized, **or entirely off-screen** targets suppress overlay presentation.
 - [x] **Truthful Offline Copy**: Distinguishes Cached, Never Synced, Saved for Sync, and Server Confirmed.
-- [x] **Driving Safety Lock**: Guidance suppressed when vehicle is moving.
+- [x] **Driving Safety Lock**: Guidance suppressed above $10\ \text{km/h}$ — sticky for 2 minutes, failing open on unknown motion, and dismissing (abandoning, not completing) a mark already on screen when motion begins.
+- [x] **One Guide at a Time**: A trigger cannot pre-empt a guide that is on screen; the superseded guide stays incomplete and returns later.
 - [x] **Per-Driver Persistence**: Isolated per `driverId` and survives app cold starts.
-- [x] **Automated Test Coverage**: 24/24 tests in `mobile/lib/coach-marks.test.js` and 172/172 tests across all 26 mobile suites passing with 0 ESLint warnings.
+- [x] **Automated Test Coverage**: `mobile/lib/motion-state.test.js` (11 tests) covers the motion arithmetic and hold window; `mobile/lib/coach-marks.test.js` (39 tests) covers the definitions, storage, and — as source-text tripwires, since the RN component tree is outside `vitest.config.mjs`'s include list — the provider wiring for the safety lock, the one-guide-at-a-time guard, target ownership, and off-screen rejection. Both pass, and the full suite is green — **143 test files, 1,389 tests, verified 2026-09-18** (run as `npx vitest run --no-file-parallelism --maxWorkers=1`). What that does and does not prove: the tripwires catch a deletion or revert of the wiring, *not* a subtle rewrite of it, and nothing here executes the RN component tree — so the suite is happy even if `CoachMarkProvider` fails to render. ESLint has not been re-run. Manual device verification of the lock, the only thing that exercises the wiring end to end, remains outstanding.

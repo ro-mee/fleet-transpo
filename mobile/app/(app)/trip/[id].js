@@ -32,7 +32,7 @@ export default function TripDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
-  const { triggerMilestone } = useCoachMarks();
+  const { triggerMilestone, dismiss } = useCoachMarks();
   const mats = clayMaterials(scheme === "dark");
   const dark = scheme === "dark";
 
@@ -58,6 +58,11 @@ export default function TripDetailsScreen() {
   useEffect(() => {
     offlineRef.current = offline;
   }, [offline]);
+
+  // Lets CoachMarkTarget scroll a spotlighted control into the safe viewport
+  // before measuring — without it a target below the fold measures fine but off
+  // screen, and the guide would dim the page with nothing highlighted.
+  const scrollRef = useRef(null);
 
   // Tick every 30s so the "start in X min" / START ROUTE gate refreshes.
   useEffect(() => {
@@ -147,14 +152,26 @@ export default function TripDetailsScreen() {
   const isCompleted = trip?.trip_status === "Completed";
 
   useEffect(() => {
-    if (!loading && trip && !isTerminal) {
-      triggerMilestone("trip_readiness", { isContinue: !isPreStart });
-    }
+    // Pre-start only. All three steps of this milestone target controls that
+    // exist solely in the pre-start presentation — the readiness window, the
+    // pre-trip requirement line, and the accept/start button. Firing it for an
+    // underway trip spotlighted the "this trip is underway" line with copy about
+    // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
+    // overlay hid while the milestone stayed active and could never complete.
+    if (loading || !trip || isTerminal || !isPreStart) return;
+    triggerMilestone("trip_readiness");
   }, [loading, trip, isTerminal, isPreStart, triggerMilestone]);
 
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
+    // The guide explains how to start this trip and the driver just started it,
+    // so retire it now. Accepting flips this screen out of its pre-start
+    // presentation, which unmounts the controls every step targets — the overlay
+    // would hide with the milestone still active. Now that a milestone cannot be
+    // pre-empted, that would block every guide after it. Fire-and-forget: the
+    // storage write must not delay the accept/start call.
+    Promise.resolve(dismiss()).catch(() => {});
     setAccepting(true);
     try {
       let queued = false;
@@ -258,7 +275,7 @@ export default function TripDetailsScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {headerBar(() => router.back())}
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {offline && lastSynced != null ? (
           // Cached trip offline: one inline note under the header — the global
           // banner owns "You're offline", this says what THIS screen shows.
@@ -319,7 +336,7 @@ export default function TripDetailsScreen() {
             {isPreStart ? (
               ready.earliestStart != null ? (
                 <>
-                  <CoachMarkTarget targetId="trip.readiness">
+                  <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
                     <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
                       <View style={styles.pair}>
                         <Text style={type.caption}>EARLIEST START</Text>
@@ -335,7 +352,7 @@ export default function TripDetailsScreen() {
                       ) : null}
                     </View>
                   </CoachMarkTarget>
-                  <CoachMarkTarget targetId="trip.pretrip_requirement">
+                  <CoachMarkTarget targetId="trip.pretrip_requirement" scrollRef={scrollRef}>
                     <View style={{ gap: 8 }}>
                       <View
                         style={[
@@ -368,7 +385,7 @@ export default function TripDetailsScreen() {
                 </>
               ) : (
                 // No verified start window — say so instead of guessing one.
-                <CoachMarkTarget targetId="trip.readiness">
+                <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
                   <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
                     <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
                     <Text style={[type.supporting, { flexShrink: 1 }]}>
@@ -378,11 +395,12 @@ export default function TripDetailsScreen() {
                 </CoachMarkTarget>
               )
             ) : (
-              <CoachMarkTarget targetId="trip.readiness">
-                <Text style={type.supporting}>
-                  This trip is underway. Continue to the map to track the route and progress.
-                </Text>
-              </CoachMarkTarget>
+              /* Not a CoachMarkTarget: this is the underway branch, and
+                 `trip_readiness` is a pre-start milestone — see the trigger
+                 effect above. */
+              <Text style={type.supporting}>
+                This trip is underway. Continue to the map to track the route and progress.
+              </Text>
             )}
           </ClayCard>
         )}

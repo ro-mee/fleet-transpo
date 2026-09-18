@@ -13,14 +13,17 @@ export const COACH_MARK_MILESTONES = {
     key: "welcome",
     version: 1,
     route: "/",
-    title: "Welcome, Driver!",
-    body: "FleetOps will guide you through important actions when you need them.",
+    // Copy verbatim from Capstone: Driver In-App Guide §2. The card was
+    // paraphrasing it in both places, which is how the two drifted from the spec
+    // it claims to implement.
+    title: "Welcome to FleetOps!",
+    body: "We'll guide you through important actions as you use the app. Tips will appear only when they're relevant.",
     steps: [
       {
         id: "welcome.card",
         targetId: null, // Dialog/card presentation, no spotlight target
-        title: "Welcome, Driver!",
-        body: "FleetOps will guide you through important actions when you need them.",
+        title: "Welcome to FleetOps!",
+        body: "We'll guide you through important actions as you use the app. Tips will appear only when they're relevant.",
         actionText: "Got it",
         canSkip: true,
         interaction: "observe",
@@ -238,7 +241,8 @@ export const COACH_MARK_MILESTONES = {
         id: "offline.banner",
         targetId: "offline.banner",
         title: "Offline Mode",
-        body: "You can continue viewing saved trip information. Supported updates saved for sync will be sent automatically when you're back online.",
+        // Copy verbatim from Capstone: Driver In-App Guide §3.6.
+        body: "You can continue viewing saved trip information. Any updates you make will be saved locally and automatically synced when you're back online.",
         actionText: "Got it",
         canSkip: false,
         interaction: "observe",

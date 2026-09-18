@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
 
 vi.mock("@react-native-async-storage/async-storage", () => {
   const store = new Map();
@@ -435,6 +436,180 @@ describe("Coach Marks Configuration & Storage", () => {
       const isTargetInLowerHalfBottom = spaceBelowBottom < 190 && spaceAboveBottom >= spaceBelowBottom;
 
       expect(isTargetInLowerHalfBottom).toBe(true); // Tooltip goes above target
+    });
+  });
+});
+
+// The coach-mark subsystem is a React Native component tree, and
+// vitest.config.mjs includes only `src/**` and `mobile/lib/**` — nothing under
+// mobile/components or mobile/app. So the wiring below cannot be exercised
+// through a renderer here. It is asserted as source text instead, following the
+// `src/security-boundaries.test.js` pattern.
+//
+// Be honest about what that buys: these catch a deletion or a revert, not a
+// subtle rewrite. They are a tripwire, not a proof. The copy assertions in the
+// first block are exact, because copy is data and can be checked exactly.
+describe("Spec Alignment & Coach Mark Wiring", () => {
+  describe("Copy matches Capstone: Driver In-App Guide", () => {
+    it("uses the §2 first-launch introduction copy verbatim", () => {
+      const welcome = getMilestoneConfig("welcome");
+      const step = welcome.steps[0];
+
+      expect(step.title).toBe("Welcome to FleetOps!");
+      expect(step.body).toBe(
+        "We'll guide you through important actions as you use the app. Tips will appear only when they're relevant."
+      );
+
+      // The milestone-level copy duplicates its single step. Two copies that
+      // disagree is how the spec drift started, so hold them together.
+      expect(welcome.title).toBe(step.title);
+      expect(welcome.body).toBe(step.body);
+    });
+
+    it("uses the §3.6 offline copy verbatim", () => {
+      const offline = getMilestoneConfig("offline");
+
+      expect(offline.steps[0].title).toBe("Offline Mode");
+      expect(offline.steps[0].body).toBe(
+        "You can continue viewing saved trip information. Any updates you make will be saved locally and automatically synced when you're back online."
+      );
+    });
+  });
+
+  describe("Driving Safety Lock (§7.1) is fed by real evidence", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+    const tracking = readFileSync(new URL("./tracking.js", import.meta.url), "utf8");
+
+    it("takes motion from the hook, not from a prop nobody passes", () => {
+      // The regression: the provider accepted `isDriving = false` and its only
+      // call site passed `driverId` alone, so the lock could never engage.
+      expect(provider).toContain("export function CoachMarkProvider({ children, driverId })");
+      expect(provider).toContain("const isDriving = useIsDriving();");
+      expect(provider).not.toMatch(/isDriving\s*=\s*false/);
+    });
+
+    it("exposes isDriving on the context so screens can respect the lock", () => {
+      expect(provider).toMatch(/^\s*isDriving,$/m);
+    });
+
+    it("dismisses an open mark when motion starts, without burning it", () => {
+      expect(provider).toContain("if (isDriving) abandonActiveMilestone();");
+
+      // Abandoning must not write completion: a tip the driver never read has
+      // to come back once they are stationary.
+      const start = provider.indexOf("const abandonActiveMilestone = useCallback");
+      const end = provider.indexOf("// Triggering with driver isolation");
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      expect(provider.slice(start, end)).not.toContain("setCoachMarkCompleted");
+    });
+
+    it("re-checks the lock after its async storage read", () => {
+      // Reading coach-mark storage yields, and motion can begin during that
+      // window. A safety gate must not let a pre-await check stand.
+      expect(provider).toContain("if (isDrivingRef.current) return false;");
+      expect(provider).toContain("isDrivingRef.current = isDriving;");
+    });
+
+    it("publishes raw speed evidence from the one GPS poster", () => {
+      // coords.speed is metres per second; this is the raw reading, converted
+      // exactly once in motion-state.
+      expect(tracking).toContain("motionSpeedMs: loc.coords.speed ?? null");
+      expect(tracking).toContain("export function useIsDriving()");
+      expect(tracking).toContain("export function subscribePosterStatus(");
+      // The 30 s publish must not put the whole app tree into state — the coach
+      // mark provider wraps it.
+      expect(provider).toContain("useIsDriving");
+      expect(provider).not.toContain("usePosterStatus()");
+    });
+  });
+
+  describe("One guide at a time", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+
+    it("never lets a trigger pre-empt a guide that is on screen", () => {
+      expect(provider).toContain("if (overlayVisibleRef.current) return false;");
+      expect(provider).toContain("overlayVisibleRef.current = shouldShowOverlay;");
+      // Set synchronously, before the state lands, so ownership is not a render
+      // behind — that window is exactly where two triggers in one tick collide.
+      expect(provider).toContain("activeKeyRef.current = config.key;");
+    });
+
+    it("scopes the guard to the screen, so a hidden guide cannot wedge the app", () => {
+      // Blocking on "a milestone is active" rather than "a milestone is visible"
+      // would strand the driver: a guide left behind by navigation is hidden, so
+      // it offers nothing to dismiss, and every later guide would be refused.
+      expect(provider).toContain("if (activeKeyRef.current !== claimedBefore) return false;");
+    });
+
+    it("keeps triggerMilestone's identity off the active milestone", () => {
+      // Its identity is in the deps of most screens' trigger effects. Letting it
+      // change on every milestone transition would re-fire them, so the guard
+      // lives in a ref and `activeMilestoneKey` stays out of these deps.
+      expect(provider).toMatch(/\[driverId, isDriving\]\s*\);/);
+    });
+  });
+
+  describe("A spotlight can never point at nothing", () => {
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+    const target = readFileSync(
+      new URL("../components/coachmarks/CoachMarkTarget.jsx", import.meta.url),
+      "utf8"
+    );
+    const overlay = readFileSync(
+      new URL("../components/coachmarks/CoachMarkOverlay.jsx", import.meta.url),
+      "utf8"
+    );
+
+    it("rejects a target measured entirely outside the safe viewport", () => {
+      expect(provider).toContain("if (layout.y + layout.height <= minSafeY) return null;");
+      expect(provider).toContain("if (layout.y >= maxSafeY) return null;");
+    });
+
+    it("scopes unmount to the registering instance", () => {
+      // `inspection.remarks` mounts once per failed item. Before tokens, the
+      // unmount of either one deleted the other's live registration.
+      expect(target).toContain("unregisterTarget(effectiveId, token)");
+      expect(provider).toContain("if (!byToken.delete(token)) return;");
+    });
+
+    it("drives the scrim and cutout from the animated bounds", () => {
+      // These four values were animated for 240 ms and then never referenced in
+      // JSX, so a re-measuring target snapped the spotlight instead of moving it.
+      expect(overlay).toContain("left: animX,");
+      expect(overlay).toContain("top: animBottom,");
+      expect(overlay).toContain("left: animRight,");
+      expect(overlay).toContain("width: animW,");
+      expect(overlay).toContain("height: animH,");
+    });
+  });
+
+  describe("Trip Readiness is a pre-start milestone", () => {
+    const tripScreen = readFileSync(
+      new URL("../app/(app)/trip/[id].js", import.meta.url),
+      "utf8"
+    );
+
+    it("triggers only in the presentation its targets exist in", () => {
+      // Every step targets a control that only exists pre-start. Fired for an
+      // underway trip it spotlighted the wrong line and then left steps 2-3 with
+      // no target at all — overlay hidden, milestone active and unable to
+      // complete, which now also blocks every guide after it.
+      expect(tripScreen).toContain("if (loading || !trip || isTerminal || !isPreStart) return;");
+      expect(tripScreen).toContain('triggerMilestone("trip_readiness")');
+    });
+
+    it("retires the guide when the driver starts the trip", () => {
+      expect(tripScreen).toContain("Promise.resolve(dismiss()).catch(() => {});");
     });
   });
 });
