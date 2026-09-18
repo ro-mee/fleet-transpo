@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { validatePayload } from "@/lib/validation/helpers";
 import { query } from "@/lib/db";
 import { extractBearerToken, verifyAccessToken } from "@/lib/auth/mobile-token";
+import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
 import { rolesFor } from "@/lib/auth/permissions";
 import { omitStandbyStorage } from '@/lib/dispatch/location-relevance';
 import {
@@ -76,7 +77,7 @@ async function resolveCurrentIdentity(user, via = "session") {
     if (new Date(sessionRecord.expires_at).getTime() <= Date.now()) {
       throw new AuthError("Your session has expired.", 401, "SESSION_EXPIRED");
     }
-    const idleSeconds = Number(sessionRecord.idle_timeout_seconds) || 3600;
+    const idleSeconds = Number(sessionRecord.idle_timeout_seconds) || IDLE_TIMEOUT_SECONDS;
     const idleExpiresAt = new Date(sessionRecord.last_seen_at).getTime() + idleSeconds * 1000;
     if (Date.now() > idleExpiresAt) {
       throw new AuthError("Your session expired due to inactivity.", 401, "SESSION_IDLE_TIMEOUT");
@@ -90,17 +91,13 @@ async function resolveCurrentIdentity(user, via = "session") {
       idleExpiresAt: new Date(idleExpiresAt).toISOString(),
     };
 
-    if (new Date(sessionRecord.last_seen_at).getTime() < Date.now() - 5 * 60_000) {
-      try {
-        await query(
-          `UPDATE web_sessions SET last_seen_at = NOW()
-            WHERE session_id = $1 AND last_seen_at < NOW() - INTERVAL '5 minutes'`,
-          [user.sessionId]
-        );
-      } catch (error) {
-        console.warn("Failed to update web session activity:", error?.message || error);
-      }
-    }
+    // NOTE: identity resolution is deliberately READ-ONLY for session timing.
+    // It used to slide `last_seen_at` on any request older than 5 minutes,
+    // which meant the dashboard's polling (sidebar counts every 30s, live map
+    // every 15-30s, two queries with refetchIntervalInBackground) kept an
+    // untouched browser alive forever — the idle timeout never fired. Only
+    // POST /api/auth/heartbeat, which the client gates on real DOM activity,
+    // may move `last_seen_at`. Do not reintroduce a write here.
   }
 
   const { rows } = await query(

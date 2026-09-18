@@ -274,11 +274,15 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
 - **CORS lockdown:** `src/proxy.js` (Next 16 middleware) answers preflights only
   for the `NEXT_PUBLIC_APP_URL` origin and 403s every other cross-origin caller —
   fail-closed, no `*` (see §4.6).
-- **Authentication and session hardening** (migrations 087–089, 2026-09-02):
-  web sessions are server-backed with a 1-hour idle timeout and 12-hour absolute
+- **Authentication and session hardening** (migrations 087–089, 113, 2026-09-02 /
+  2026-09-18):
+  web sessions are server-backed with a 5-minute idle timeout and 12-hour absolute
   expiry; heartbeat activity, cross-tab session events, validated return-to
   redirects, TOTP MFA, and hashed recovery codes are shipped. Production requires
   distinct `MOBILE_JWT_SECRET` and dedicated `MFA_ENCRYPTION_KEY` secrets.
+  The idle deadline moves only through the human-gated `POST /api/auth/heartbeat`
+  — API traffic (including the dashboard's background polling) cannot extend a
+  session. See §"Session idle timeout" for the policy rationale.
   The password field Caps Lock warning UI matches the reference design with an
   upward speech-notch pointer, a coral "Aa" badge, and an active coral input border,
   also extended to Confirm New Password for live match/mismatch feedback.
@@ -928,11 +932,16 @@ places, so a migration has to be a safe no-op there.
 | 100 | `enable_rls_all.sql` | enables RLS across tables (still inert at runtime — §4.1) |
 | 101 | `incident_response_tracking.sql` | physical-rescue columns on incidents (response status/type/ETA, history via `incident_comments`) |
 | 102 | `incident_responder_tracking.sql` | links incidents to a GPS-tracked fleet responder driver (auto-advance Dispatched→En Route→Arrived) |
+| 113 | `session_idle_timeout_5min.sql` | reduces the `web_sessions.idle_timeout_seconds` **default** to 300 seconds. No backfill — pre-existing rows keep their recorded window (3600) until they roll off inside the 12-hour cap, so the deploy cannot mass-logout live sessions. The app passes the value explicitly on INSERT, so new logins get 300 immediately. See §12.9. |
 
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
 > app could not run against. They declare what already existed rather than
 > changing live — which is why every one is a no-op there.
+
+> This table is itemised only to 102, then jumps to 113. Migrations 103–112 exist
+> in `supabase/migrations/` and in the `schema_migrations` ledger but were never
+> written up here; `ls supabase/migrations/` is the authoritative list.
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
@@ -1207,7 +1216,7 @@ with a vehicle attached; the rule is now real and unit-tested
 
 ### Web sessions (NextAuth)
 - Credentials provider; bcrypt vs `employees.password_hash`; **IP/account rate limit 5/min**; JWT transport (`NEXTAUTH_SECRET`) identifies a server-backed `web_sessions` record. Role/employeeId/name remain in the token for UI landing, while every API request revalidates the live employee and session row.
-- Sessions expire after 12 hours absolutely or 1 hour idle (`idle_timeout_seconds`); `GET/POST /api/auth/heartbeat` updates the idle deadline only for verified activity. The session manager warns five minutes before either deadline, synchronizes tabs through `BroadcastChannel`, and preserves only validated internal return-to routes through re-authentication.
+- Sessions expire after 12 hours absolutely or 5 minutes idle (`idle_timeout_seconds`). The idle deadline moves **only** through `POST /api/auth/heartbeat`, which the client fires on real DOM activity (click/keydown/touch/pointer) and on explicit "Stay signed in"; `GET /api/auth/heartbeat` reads the deadlines without moving them. Identity resolution (`resolveCurrentIdentity`) is deliberately read-only for session timing — it must never slide `last_seen_at`, or background polling would keep an abandoned browser alive indefinitely (see `src/security-boundaries.test.js`). The session manager warns 60 seconds before idle expiry (5 minutes before the 12-hour cap), synchronizes tabs through `BroadcastChannel`, and preserves only validated internal return-to routes through re-authentication.
 - Registration is **admin-only**; public signup redirects to login. TOTP MFA is checked before a web session is created, and enabling/disabling MFA revokes existing sessions.
 
 ### Mobile tokens (separate system)
@@ -1587,15 +1596,19 @@ CORS lockdown via `src/proxy.js` (§4.6); anon access to `employees` revoked
 random `DSP-XXXX` dispatch numbers (044); seven pagination indexes (052);
 incident triage/grounding/maintenance integrity (081–086); auth-version
 invalidation and shared auth rate limits (087); server-backed web sessions and
-TOTP MFA (088); configurable web-session idle timeout (089).
+TOTP MFA (088); configurable web-session idle timeout (089); 5-minute idle
+timeout default (113).
 
-### 12.9 Auth lifecycle and session UX (migrations 087–089)
-Web authentication now records a server-backed session with a 12-hour absolute
-lifetime and 1-hour idle timeout. Live identity resolution checks session expiry,
-revocation, employee status, role, and `auth_version` before authorizing each API
-request. Human activity and the Stay signed in action use `/api/auth/heartbeat`;
-background polling does not extend the idle deadline. The browser session manager
-warns before idle or absolute expiry, coordinates failures/extensions/logout across
+### 12.9 Auth lifecycle and session UX (migrations 087–089, 113)
+Web authentication records a server-backed session with a 12-hour absolute
+lifetime and a 5-minute idle timeout. Live identity resolution checks session
+expiry, revocation, employee status, role, and `auth_version` before authorizing
+each API request. Human activity and the Stay signed in action use
+`POST /api/auth/heartbeat`; that route is the **only** writer of
+`web_sessions.last_seen_at`, so neither background polling nor any other API
+traffic can extend the idle deadline. The browser session manager slides the
+deadline as soon as real DOM activity occurs (throttled to one write per minute),
+warns 60 seconds before idle expiry, coordinates failures/extensions/logout across
 tabs, and returns users only to validated internal routes after re-authentication.
 TOTP enrollment and login MFA use encrypted per-employee secrets, a v9-compatible
 `otpauth` implementation, hashed single-use recovery codes, replay protection, and

@@ -219,19 +219,43 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
   an approximate physical location derived from the IP address using `geoip-lite`, 
   and accurately identifies the current device for both web (`sessionId`) and mobile (`familyId`) contexts.
 
-## Session idle timeout and expiration UX — CONFIRMED (2026-09-02)
+## Session idle timeout and expiration UX — CONFIRMED (2026-09-02, revised 2026-09-18)
 
-- **Idle timeout**: 1 hour (`last_seen_at + 3600s`). Migration `089_session_idle_timeout.sql` adds `web_sessions.idle_timeout_seconds` defaulting to `3600`.
+- **Idle timeout**: **5 minutes** (`last_seen_at + 300s`). Migration `089_session_idle_timeout.sql` added `web_sessions.idle_timeout_seconds` defaulting to `3600`; migration `113_session_idle_timeout_5min.sql` lowers the column default to `300`.
 - **Absolute expiration**: 12-hour hard maximum (`expires_at`), computed at login and never extended.
 - **Server authority**: `resolveCurrentIdentity()` independently validates both `expires_at > NOW()` and `last_seen_at + idle_timeout_seconds > NOW()`. Idle expiration throws `SESSION_IDLE_TIMEOUT` with HTTP 401; 12-hour expiration throws `SESSION_EXPIRED`; revoked sessions throw `SESSION_REVOKED`.
-- **5-minute activity throttle vs idle timeout**: The existing 5-minute threshold is strictly a database-write throttle for updating `last_seen_at`. It is not the idle timeout.
-- **Heartbeat & human activity**: `GET/POST /api/auth/heartbeat`. Frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`) and pings heartbeat at 5-minute intervals only if human activity occurred. Background polling (dispatch boards, notifications) does not touch the human-activity flag.
-- **Stay signed in**: Issues a `POST /api/auth/heartbeat` to slide `last_seen_at` and idle deadline by 1 hour; the 12-hour maximum remains unchanged.
-- **Warning UX**: A double-bezel modal appears at 5 minutes before idle expiry (55m of inactivity) and 5 minutes before absolute expiry (11h55m). Error toasts are suppressed (`setSuppressAuthToasts(true)`) while any session modal is open.
+- **Identity resolution is read-only for session timing** (2026-09-18): `resolveCurrentIdentity()` must never write `last_seen_at`. See "The idle timeout that wasn't" below.
+- **Single policy source**: `src/lib/auth/session-policy.js` holds the constants. It is dependency-free precisely so the `"use client"` session manager can import it — `lib/auth/sessions.js` pulls in `@/lib/db` and `geoip-lite` and cannot be imported from a client component, which is why the client used to keep its own hand-copied literals. `sessions.js` re-exports for existing server importers.
+- **Derived, not copied**: the warning window is 20% of the idle window capped at 5 minutes (60s at the current policy), and the heartbeat interval is half the idle window. Both are computed from `IDLE_TIMEOUT_SECONDS` so they cannot collide with it again (see below).
+- **Heartbeat & human activity**: `GET/POST /api/auth/heartbeat`. `POST` is the **only** writer of `last_seen_at`. The frontend monitors DOM events (`click`, `keydown`, `touchstart`, `pointerdown`) and slides the deadline as soon as activity occurs, throttled by `ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS` (60s) so typing does not produce a write per keystroke; a periodic tick at half the idle window is a backstop for missed events.
+- **Stay signed in**: Issues a forced `POST /api/auth/heartbeat` (bypassing the throttle, since the user explicitly asked) to slide `last_seen_at` and the idle deadline by 5 minutes; the 12-hour maximum remains unchanged.
+- **Warning UX**: A double-bezel modal appears 60 seconds before idle expiry and 5 minutes before absolute expiry (11h55m). Error toasts are suppressed (`setSuppressAuthToasts(true)`) while any session modal is open. The idle-warning primary action takes focus; the modal copy derives its duration from the policy constant rather than stating "1 hour".
 - **Multi-tab synchronization**: `BroadcastChannel("fleetops_session_bus")` broadcasts auth failures, session extensions, and explicit logouts across open tabs.
 - **Return-to-route protection**: `sessionStorage` preserves the user's current route across re-authentication, strictly validated against open-redirect and protocol vulnerabilities via `isValidInternalPath()`.
 - **Client fetch interceptor scoping (`SessionManagerProvider`)**: The global 401 interceptor in `src/context/session-manager.jsx` is strictly scoped via `isAppApiRequest()` to app `/api/` endpoints (excluding internal Next.js RSC payload requests, `_next`, and auth status checks like `/api/auth/session`). It guarantees a valid Window invocation context (`this || window`) and prevents duplicate nesting across StrictMode remounts via `window.__fleetops_fetch_intercepted`.
 - **CORS proxy development flexibility (`src/proxy.js`)**: In development (`NODE_ENV !== "production"`), `src/proxy.js` allows loopback (`localhost`, `127.0.0.1`, `::1`) and local LAN origins (`192.168.*`, `10.*`), echoing the allowed origin in `Access-Control-Allow-Origin` so dev traffic across different local addresses is not rejected with 403. Production remains strictly fail-closed to `NEXT_PUBLIC_APP_URL`.
+
+## The idle timeout that wasn't — FIXED (2026-09-18)
+
+For three weeks the dashboard advertised a 1-hour idle timeout that **could not fire**.
+
+`resolveCurrentIdentity()` (`src/lib/api/utils.js`) slid `web_sessions.last_seen_at` on **any** authenticated request whose `last_seen_at` was more than 5 minutes stale. That write was not gated on human activity. The dashboard polls constantly — `app-shell.jsx` hits four sidebar-count endpoints every 30s on *every* dashboard page, plus live map at 15–30s, dispatch plan at 10s, notifications at 15s, two of them with `refetchIntervalInBackground: true` so they keep going with the window minimized.
+
+Net effect: `last_seen_at` was refreshed roughly every 5.5 minutes by a browser nobody was touching, so `last_seen_at + 3600` never elapsed. **The effective web idle timeout was absent; only the 12-hour absolute cap ever fired.** The client's human-activity gate controlled the heartbeat POST only — it never constrained the server deadline, because the server was moving it anyway.
+
+This note previously claimed "Background polling (dispatch boards, notifications) does not touch the human-activity flag". That was true of the *client flag* and false about the *server deadline*, which is the one that matters. Worth remembering as a class of error: a security control can be defeated by an adapter layer that never appears in the same file as the control.
+
+**The fix** (three parts, all required):
+
+1. **Deleted the auto-slide.** `resolveCurrentIdentity()` is now read-only for session timing; `POST /api/auth/heartbeat` is the only writer of `last_seen_at`. Pinned by a structural guard in `src/security-boundaries.test.js` that reads the source and asserts no `UPDATE web_sessions SET last_seen_at` exists there.
+2. **Made the heartbeat reflect real activity.** The client used to only *sample* its activity flag every 5 minutes, so activity could be 5 minutes stale and the modal could fire at someone who was actively working. Activity now slides the deadline immediately, throttled to one write per minute.
+3. **Derived the dependent constants** from `IDLE_TIMEOUT_SECONDS` instead of hand-copying 300s into five places.
+
+**Why the naive change would have broken it.** Dropping `3600 → 300` without part 3 collides three separate 300s values: the client's `IDLE_WARNING_MS` would equal the whole timeout window (the modal appears at login and never dismisses, because the healthy branch requires `remainingIdle > 300000`), and the server's 5-minute slide throttle would sit exactly on the 5-minute idle deadline, making whether a poll is accepted or rejected a sub-second race. The invariant tests in `src/lib/auth/idle-session.test.js` exist to catch that class of collision.
+
+**Trade-off accepted.** 5 minutes is aggressive for operator work — a dispatcher on a live map or a manager on a long form can lose unsaved state (`saveReturnTo()` preserves the route, not the form). Mitigated by the 60s warning and the immediate slide on activity; reversal is one constant plus the migration default. Strict enforcement was chosen deliberately over a "slide on mutating requests" safety net, which would have been a near-free backstop but leaves an hour of read-only work counting as idle.
+
+→ [[Token Rotation And Refresh Races]] · [[Decision Log]]
 
 ## Login-first landing & client guard split — CONFIRMED (2026-09-05)
 

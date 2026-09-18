@@ -362,6 +362,18 @@ The planned security-settings work is now implemented and server-enforced:
 - Re-authentication restores the user's prior internal route via `isValidInternalPath()`-protected `sessionStorage`.
 - Focused tests in `src/lib/auth/idle-session.test.js` and `src/lib/auth/return-to.test.js` pass (12/12). Full suite passes **487/487 across 46 files**. `npm run verify:auth` reports **220/220 guarded methods**.
 
+## Idle timeout was not enforced — FOUND AND FIXED 2026-09-18
+
+**The finding.** Everything above was true except the part that mattered. `resolveCurrentIdentity()` (`src/lib/api/utils.js`) slid `web_sessions.last_seen_at` on any authenticated request older than 5 minutes, ungated by human activity. Because every dashboard page polls (sidebar counts at 30s via `app-shell.jsx`, live map at 15–30s, dispatch plan at 10s, notifications at 15s — two with `refetchIntervalInBackground: true`), `last_seen_at` was refreshed roughly every 5.5 minutes by an abandoned browser. The 1-hour idle deadline never elapsed; **only the 12-hour absolute cap was ever enforced.**
+
+The 2026-09-02 note's line "Background polling does not synthesize activity" was true of the client-side activity flag and false of the server deadline. The client flag gated only the heartbeat POST — the server was moving the deadline regardless.
+
+**The fix.** Deleted the auto-slide; `POST /api/auth/heartbeat` is now the sole writer of `last_seen_at`, and the client slides it on real DOM activity (throttled to one write/minute) rather than sampling a flag every 5 minutes. Constants moved to `src/lib/auth/session-policy.js` and the dependent values (warning window, heartbeat interval) are derived from `IDLE_TIMEOUT_SECONDS`. Idle timeout reduced to **5 minutes** (migration `113_session_idle_timeout_5min.sql`, no backfill).
+
+**Regression guards added:** a structural assertion in `src/security-boundaries.test.js` that `lib/api/utils.js` contains no `UPDATE web_sessions SET last_seen_at`, and derived-value invariants in `src/lib/auth/idle-session.test.js` (warning and heartbeat interval must stay strictly inside the idle window) — the checks that would have caught the three-way 300s collision a naive constant change produces.
+
+**Severity:** the exposure window was the 12-hour absolute cap, not 1 hour, on every polling page — including with the window minimized. Full details in [[Authentication]].
+
 ## Related
 
 [[Authentication]] · [[Why RLS Is Not A Boundary]] · [[Bugs]] · [[Current State]]

@@ -60,6 +60,19 @@ describe("security boundaries", () => {
     expect(source).not.toContain("useRequireRole(requiredRoles)");
   });
 
+  // The idle timeout is only real if `last_seen_at` moves solely through the
+  // human-gated heartbeat. resolveCurrentIdentity() used to slide it on any
+  // authenticated request older than 5 minutes, which meant the dashboard's
+  // background polling (sidebar counts every 30s, live map every 15-30s) kept
+  // an abandoned browser alive forever and the idle timeout never fired.
+  // Removing that write is the fix; this guard keeps it removed.
+  it("keeps identity resolution read-only for session timing", () => {
+    const source = readFileSync(new URL("./lib/api/utils.js", import.meta.url), "utf8");
+    expect(source).not.toMatch(/UPDATE\s+web_sessions\s+SET\s+last_seen_at/i);
+    // Only the heartbeat route may slide the deadline.
+    expect(source).not.toMatch(/last_seen_at\s*=\s*NOW\(\)/i);
+  });
+
   it("keeps employee response projections explicit", () => {
     const auditedRoutes = [
       "./app/api/fuel/route.js",

@@ -5,14 +5,45 @@ import {
   IDLE_WARNING_SECONDS,
   ABSOLUTE_WARNING_SECONDS,
 } from "./sessions";
+import {
+  ACTIVITY_HEARTBEAT_INTERVAL_SECONDS,
+  ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS,
+} from "./session-policy";
 import { AuthError, handleError } from "@/lib/api/utils";
 
 describe("Session idle timeout & expiration policy constants", () => {
-  it("enforces 1-hour idle timeout and 12-hour absolute maximum", () => {
-    expect(IDLE_TIMEOUT_SECONDS).toBe(3600); // 1 hour
+  it("enforces a 5-minute idle timeout and 12-hour absolute maximum", () => {
+    expect(IDLE_TIMEOUT_SECONDS).toBe(300); // 5 minutes
     expect(WEB_SESSION_TTL_SECONDS).toBe(43200); // 12 hours
-    expect(IDLE_WARNING_SECONDS).toBe(300); // 5-minute warning before idle expiry
+    expect(IDLE_WARNING_SECONDS).toBe(60); // 20% of the idle window
     expect(ABSOLUTE_WARNING_SECONDS).toBe(300); // 5-minute warning before 12h expiry
+  });
+});
+
+// The warning window, the heartbeat backstop, and the activity throttle used to
+// be independent 300s literals on the client. When the idle timeout was reduced
+// to 300s those literals silently became the ENTIRE timeout window: the
+// "Are you still there?" modal appeared at login and never dismissed, and the
+// heartbeat fired exactly at the deadline. These invariants are the regression
+// guard — they fail if any derived value is ever re-hardcoded past its bound.
+describe("Derived session policy invariants", () => {
+  it("keeps the warning window strictly inside the idle window", () => {
+    expect(IDLE_WARNING_SECONDS).toBeGreaterThan(0);
+    expect(IDLE_WARNING_SECONDS).toBeLessThan(IDLE_TIMEOUT_SECONDS);
+  });
+
+  it("keeps the heartbeat backstop strictly inside the idle window", () => {
+    expect(ACTIVITY_HEARTBEAT_INTERVAL_SECONDS).toBeGreaterThan(0);
+    expect(ACTIVITY_HEARTBEAT_INTERVAL_SECONDS).toBeLessThan(IDLE_TIMEOUT_SECONDS);
+  });
+
+  it("keeps the activity throttle from outlasting the warning window", () => {
+    expect(ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS).toBeGreaterThan(0);
+    expect(ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS).toBeLessThanOrEqual(IDLE_WARNING_SECONDS);
+  });
+
+  it("never lets the absolute warning exceed the absolute maximum", () => {
+    expect(ABSOLUTE_WARNING_SECONDS).toBeLessThan(WEB_SESSION_TTL_SECONDS);
   });
 });
 
@@ -78,16 +109,15 @@ describe("AuthError and handleError structured responses", () => {
 describe("Server-side idle deadline validation math", () => {
   it("detects idle timeout when last_seen_at is older than idle_timeout_seconds", () => {
     const now = Date.now();
-    const idleTimeoutSeconds = 3600; // 1 hour
 
-    // Active 30 minutes ago (within 1 hour)
-    const activeRecentLastSeen = new Date(now - 30 * 60 * 1000);
-    const activeRecentExpiry = activeRecentLastSeen.getTime() + idleTimeoutSeconds * 1000;
+    // Active halfway through the idle window — still valid.
+    const activeRecentLastSeen = new Date(now - (IDLE_TIMEOUT_SECONDS / 2) * 1000);
+    const activeRecentExpiry = activeRecentLastSeen.getTime() + IDLE_TIMEOUT_SECONDS * 1000;
     expect(now > activeRecentExpiry).toBe(false);
 
-    // Active 65 minutes ago (exceeded 1 hour idle)
-    const idleLastSeen = new Date(now - 65 * 60 * 1000);
-    const idleExpiry = idleLastSeen.getTime() + idleTimeoutSeconds * 1000;
+    // Idle for the whole window plus a minute — expired.
+    const idleLastSeen = new Date(now - (IDLE_TIMEOUT_SECONDS + 60) * 1000);
+    const idleExpiry = idleLastSeen.getTime() + IDLE_TIMEOUT_SECONDS * 1000;
     expect(now > idleExpiry).toBe(true);
   });
 
@@ -97,9 +127,9 @@ describe("Server-side idle deadline validation math", () => {
     const absoluteExpiresAt = new Date(now - 5 * 60 * 1000); // 5 minutes ago
     // Even if user was active 1 minute ago:
     const recentLastSeen = new Date(now - 60 * 1000);
-    const idleExpiresAt = recentLastSeen.getTime() + 3600 * 1000;
+    const idleExpiresAt = recentLastSeen.getTime() + IDLE_TIMEOUT_SECONDS * 1000;
 
-    // Idle would be valid (59 minutes remaining), but absolute is expired!
+    // Idle would be valid, but absolute is expired!
     const isIdleExpired = now > idleExpiresAt;
     const isAbsoluteExpired = now >= absoluteExpiresAt.getTime();
 
