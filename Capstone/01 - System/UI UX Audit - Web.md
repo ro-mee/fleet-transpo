@@ -398,3 +398,46 @@ Skills driving: impeccable (Operate), taste proxy (high-end-visual-design restra
   `detect` on the three newest components returns 5 advisories, 0 failures
   — and `#0b132b` no longer flags. Deliberately NOT canonized (one-offs):
   analyst `15px` narrative size, map selected-ring `rgba(37,99,235,*)`.
+
+### Phase 12 — Always-on session idle countdown (2026-09-18)
+
+- The idle timeout was only visible *inside* the expiry modal, which opens 60
+  seconds before expiry — so for the rest of the session a user had no way to
+  tell whether they were fresh or nearly gone, and the first signal was an
+  interrupting modal. Added `SessionCountdown` (`auth/session-countdown.jsx`)
+  as the first item in the `TopNav` `ml-auto` cluster, ahead of `ThemeToggle`.
+- Chip anatomy: 28px, `rounded-md`, hairline border, 12px `font-data
+  tabular-nums` digits and a `Timer` glyph. Neutral `border-border
+  bg-background/60 text-foreground-muted`; warning `border-warning/30
+  bg-warning/10` + **`text-warning-700`**, the AA-safe variant the Strict
+  Status Contrast Rule requires below 14px. No animation or pulse — it is a
+  readout, not a live beacon, so nothing needed a `prefers-reduced-motion` gate.
+- Accessibility: `<span role="timer">` (implicit `aria-live="off"`, so a value
+  changing every second is never announced), `aria-label` carrying the spoken
+  duration because a screen reader reads "4:32" as "four colon thirty-two", and
+  a static `title` stating the rule. Display-only by owner decision — no click
+  target, so it never competes with the modal's "Stay signed in".
+- Escalation threshold is **2×** the modal's warning window (120s, not 60s):
+  the modal's opaque backdrop covers the screen from 60s down, so a tone change
+  there would be unreachable. Derived as `IDLE_WARNING_SECONDS * 2` and pinned
+  by a unit-test invariant.
+- Placement carries no layout shift even though the file elsewhere reserves the
+  auth trigger's footprint: that cluster is `ml-auto` and right-anchored, so a
+  new first child extends it leftward into empty space and moves no sibling.
+- Ticking state lives in the chip, not the shell. `useSessionManager` had zero
+  consumers before this, so keeping the state local means `NotificationDropdown`,
+  `UserDropdown` and `ThemeToggle` keep their existing render frequency instead
+  of re-rendering once a second.
+- Verified: `npm run lint:ci` clean (0 errors, 0 warnings) and the full Vitest
+  suite green — **144 files / 1,400 tests**, including the new
+  `src/lib/auth/countdown.test.js` (11) covering `m:ss` padding, the zero clamp,
+  a legacy 3600s window rendering `59:59`, the spoken form, and the tone
+  boundary. The lint pattern to watch was `react-hooks/set-state-in-effect`
+  against the effect's zero-delay `setTimeout`: it did not fire, so the
+  restructure held without a suppression (an unnecessary `eslint-disable` would
+  itself have failed `--max-warnings 0`).
+- Not verified: everything that needs a signed-in browser — that the chip drains
+  and resets on click, that the modal's hero digits and the chip read the *same*
+  value at 60s, and that cross-tab extension moves the idle tab's chip. The run
+  above proves the module graph, the arithmetic and the lint gate, not the
+  wiring. Listed in the daily note's Next steps.

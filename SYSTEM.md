@@ -1626,7 +1626,10 @@ each API request. Human activity and the Stay signed in action use
 `web_sessions.last_seen_at`, so neither background polling nor any other API
 traffic can extend the idle deadline. The browser session manager slides the
 deadline as soon as real DOM activity occurs (throttled to one write per minute),
-warns 60 seconds before idle expiry, coordinates failures/extensions/logout across
+warns 60 seconds before idle expiry through the blocking modal, shows the remaining
+idle time continuously as a countdown chip in the top bar (a readout — it cannot
+extend the session, and it escalates its tone at 120s so the escalation is visible
+before the modal covers the screen), coordinates failures/extensions/logout across
 tabs, and returns users only to validated internal routes after re-authentication.
 TOTP enrollment and login MFA use encrypted per-employee secrets, a v9-compatible
 `otpauth` implementation, hashed single-use recovery codes, replay protection, and

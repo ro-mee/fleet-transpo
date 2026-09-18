@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
+import { formatCountdown } from "@/lib/auth/countdown";
 
 const EASE = [0.32, 0.72, 0, 1];
 
@@ -39,12 +40,9 @@ export function SessionExpiryModal({
   onSignInAgain,
   loading = false,
 }) {
-  const formattedCountdown = useMemo(() => {
-    const totalSec = Math.max(0, Math.floor(countdownSeconds));
-    const m = Math.floor(totalSec / 60);
-    const s = (totalSec % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
-  }, [countdownSeconds]);
+  // Shared with the always-on TopNav chip (`session-countdown.jsx`) so the modal
+  // and the chip can never show different numbers for the same deadline.
+  const formattedCountdown = useMemo(() => formatCountdown(countdownSeconds), [countdownSeconds]);
 
   const idleWindow = useMemo(() => formatIdleWindow(IDLE_TIMEOUT_SECONDS), []);
 

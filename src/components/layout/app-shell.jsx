@@ -23,6 +23,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserDropdown } from "@/components/ui/user-dropdown";
 import { NotificationDropdown } from "@/components/ui/notification-dropdown";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { SessionCountdown } from "@/components/auth/session-countdown";
 import { getInitials } from "@/lib/utils";
 import { useSidebar } from "@/hooks/use-sidebar";
 
@@ -512,6 +513,11 @@ export function TopNav() {
       </div>
 
       <div className="ml-auto flex shrink-0 items-center gap-2 px-6">
+        {/* First in the cluster so its appearance never shifts the actions to
+            its right: this div is `ml-auto` and therefore right-anchored, so
+            widening it moves only its own left edge, into empty space. */}
+        <SessionCountdown />
+
         <ThemeToggle />
 
         <NotificationDropdown />

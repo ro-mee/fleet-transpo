@@ -124,3 +124,9 @@ scope). Shipped since the August audit, all verified against source:
 - `ui/caps-lock-hint.jsx` + login lockout countdown + session-expired
   banner — quiet hint semantics (`aria-live`, never blocks submit),
   enumeration-safe lockout peek, peach one-off surface.
+- `auth/session-countdown.jsx` + `lib/auth/countdown.js` — always-on idle
+  readout in the `TopNav` cluster (`role="timer"`, `aria-live` off by
+  default), plus the shared `formatCountdown` / `formatCountdownSpoken` /
+  `countdownTone` used by both the chip and `session-expiry-modal.jsx`.
+  Ticking state is held in the chip, never in the shell, so the rest of
+  `TopNav` does not re-render once a second.
