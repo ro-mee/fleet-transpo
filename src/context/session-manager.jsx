@@ -267,6 +267,14 @@ export function SessionManagerProvider({ children }) {
   // 4. Initial server sync on mount (read authoritative timestamps)
   useEffect(() => {
     if (!user) return;
+    // The set-state-in-effect rule assumes a synchronous setState, but
+    // syncSession's first statement is `await fetch("/api/auth/heartbeat")` and
+    // every setState in it runs after that round trip — nothing here renders
+    // synchronously, so there is no cascade to protect against. Effects 5 and 6
+    // call the same function from a handler and an interval and are not flagged,
+    // which is the same reasoning. Kept in the effect body so the mount sync is
+    // immediate rather than deferred a tick.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void syncSession();
   }, [user, syncSession]);
 
