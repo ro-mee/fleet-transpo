@@ -942,7 +942,16 @@ places, so a migration has to be a safe no-op there.
 
 > This table is itemised only to 102, then jumps to 113. Migrations 103–112 exist
 > in `supabase/migrations/` and in the `schema_migrations` ledger but were never
-> written up here; `ls supabase/migrations/` is the authoritative list.
+> written up here; `npm run db:status` is the authoritative list.
+>
+> The ledger is authoritative rather than the directory, and as of 2026-09-18 the
+> two disagree: `113_maintenance_repairer_identity.sql`, `114_app_errors_rls.sql`
+> and `115_rls_gap_tables.sql` are recorded as applied with **no file on disk**,
+> and disk numbering stops at 113. `ls supabase/migrations/` therefore cannot tell
+> you whether a version is free. The 113 entry's effects are visible in the
+> refreshed `schema.sql` (`vehiclemaintenance.repair_completed_by` plus its FK, and
+> `inspection_required` now defaulting to `false`); 114 and 115 are RLS, which
+> `schema.sql` does not capture at all, so their effects remain uncharacterised.
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |

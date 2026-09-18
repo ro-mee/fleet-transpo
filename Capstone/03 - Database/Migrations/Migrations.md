@@ -34,7 +34,12 @@ SQL editor was found to silently target the wrong project. → [[ADR-008 Manual 
 
 Writing a new one:
 
-1. `ls supabase/migrations/` first — **do not reuse a number** (see below).
+1. `npm run db:status` first — **do not reuse a number** (see below).
+   `ls supabase/migrations/` is *not* enough: the ledger holds migrations whose
+   files are gone, so a version can be spent without ever appearing on disk. As
+   of 2026-09-18 that is `113_maintenance_repairer_identity.sql`,
+   `114_app_errors_rls.sql` and `115_rls_gap_tables.sql` — which is exactly how a
+   second 113 came to be written.
 2. Make it idempotent: `IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`,
    `DROP ... IF EXISTS`. The live DB is ahead of the files in places, so a
    migration must be a safe no-op there.
