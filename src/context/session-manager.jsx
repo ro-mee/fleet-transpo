@@ -13,6 +13,8 @@ import { signOut as nextAuthSignOut } from "next-auth/react";
 import { setSuppressAuthToasts, toast } from "@/components/ui/toast";
 import { saveReturnTo } from "@/lib/auth/return-to";
 import {
+  IDLE_TIMEOUT_SECONDS,
+  WEB_SESSION_TTL_SECONDS,
   IDLE_WARNING_SECONDS,
   ABSOLUTE_WARNING_SECONDS,
   ACTIVITY_HEARTBEAT_INTERVAL_SECONDS,
@@ -24,7 +26,7 @@ import {
   broadcastSessionExtended,
   broadcastSessionLogout,
 } from "@/lib/auth/session-bus";
-import { SessionExpiryModal } from "@/components/auth/session-expiry-modal";
+import { SessionTimeoutDialog } from "@/components/auth/session-timeout-dialog";
 
 // Derived from the shared policy module, never hand-written here. These used to
 // be independent 5-minute literals, which silently collided once the idle
@@ -162,7 +164,15 @@ export function SessionManagerProvider({ children }) {
       hasUserBeenActiveRef.current = false;
       if (data?.idleExpiresAt) {
         setIdleExpiresAt(new Date(data.idleExpiresAt).getTime());
-        setModalState((cur) => (cur === "idle_warning" ? null : cur));
+        setModalState((cur) =>
+          cur === "idle_warning" ||
+          cur === "warning" ||
+          cur === "critical" ||
+          cur === "extension-error" ||
+          cur === "extending"
+            ? null
+            : cur
+        );
         setSuppressAuthToasts(false);
         broadcastSessionExtended(data.idleExpiresAt);
       }
@@ -250,8 +260,16 @@ export function SessionManagerProvider({ children }) {
         if (event.idleExpiresAt) {
           const newIdleEpoch = new Date(event.idleExpiresAt).getTime();
           setIdleExpiresAt(newIdleEpoch);
-          // If this tab was in idle warning, dismiss it now that user confirmed in another tab
-          setModalState((cur) => (cur === "idle_warning" ? null : cur));
+          // If this tab was in warning/critical, dismiss it now that user confirmed in another tab
+          setModalState((cur) =>
+            cur === "idle_warning" ||
+            cur === "warning" ||
+            cur === "critical" ||
+            cur === "extension-error" ||
+            cur === "extending"
+              ? null
+              : cur
+          );
           setSuppressAuthToasts(false);
         }
       } else if (event.type === "SESSION_LOGOUT") {
@@ -335,14 +353,25 @@ export function SessionManagerProvider({ children }) {
 
       // Check idle warning threshold
       if (remainingIdle <= IDLE_WARNING_MS) {
-        setModalState("idle_warning");
-        setCountdownSeconds(Math.ceil(remainingIdle / 1000));
+        const remainingSec = Math.ceil(remainingIdle / 1000);
+        setCountdownSeconds(remainingSec);
         setSuppressAuthToasts(true);
+        setModalState((cur) => {
+          if (cur === "extending" || cur === "extension-error") return cur;
+          return remainingSec <= 60 ? "critical" : "warning";
+        });
         return;
       }
 
       // Both timers healthy
-      if (modalState === "idle_warning" || modalState === "absolute_warning") {
+      if (
+        modalState === "idle_warning" ||
+        modalState === "warning" ||
+        modalState === "critical" ||
+        modalState === "extension-error" ||
+        modalState === "extending" ||
+        modalState === "absolute_warning"
+      ) {
         setModalState(null);
         setSuppressAuthToasts(false);
       }
@@ -357,9 +386,18 @@ export function SessionManagerProvider({ children }) {
   // asked — an explicit click should never be throttled away.
   const handleStaySignedIn = async () => {
     setLoading(true);
+    setModalState("extending");
     try {
       const extended = await extendSession({ force: true });
-      if (extended) setModalState(null);
+      if (extended) {
+        setModalState(null);
+        setSuppressAuthToasts(false);
+        toast.success("Session extended");
+      } else {
+        setModalState("extension-error");
+      }
+    } catch {
+      setModalState("extension-error");
     } finally {
       setLoading(false);
     }
@@ -412,15 +450,17 @@ export function SessionManagerProvider({ children }) {
     >
       {children}
 
-      <SessionExpiryModal
-        isOpen={modalState !== null}
-        state={modalState}
-        countdownSeconds={countdownSeconds}
+      <SessionTimeoutDialog
+        state={modalState === null ? "hidden" : modalState}
+        remainingSeconds={countdownSeconds}
+        idleExtensionMinutes={Math.round(IDLE_TIMEOUT_SECONDS / 60)}
+        absoluteSessionLimitHours={Math.round(WEB_SESSION_TTL_SECONDS / 3600)}
         errorCode={errorCode}
-        onStaySignedIn={handleStaySignedIn}
+        isAbsoluteWarning={modalState === "absolute_warning"}
+        onExtendSession={handleStaySignedIn}
         onSignOut={handleSignOut}
         onSignInAgain={handleSignInAgain}
-        loading={loading}
+        onClose={modalState === "expired" ? undefined : handleStaySignedIn}
       />
     </SessionManagerContext.Provider>
   );
