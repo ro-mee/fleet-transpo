@@ -950,8 +950,16 @@ places, so a migration has to be a safe no-op there.
 > and disk numbering stops at 113. `ls supabase/migrations/` therefore cannot tell
 > you whether a version is free. The 113 entry's effects are visible in the
 > refreshed `schema.sql` (`vehiclemaintenance.repair_completed_by` plus its FK, and
-> `inspection_required` now defaulting to `false`); 114 and 115 are RLS, which
-> `schema.sql` does not capture at all, so their effects remain uncharacterised.
+> `inspection_required` now defaulting to `false`). 114 and 115 are RLS, which
+> `schema.sql` does not capture at all, so they were characterised against live
+> with `npm run verify:rls` instead — **114** enabled RLS on `app_errors` (created
+> by 103, i.e. after 100 had already swept the schema, so it started unprotected),
+> and **115** closed the remaining gap. All 58 tables in `public` now have RLS
+> enabled and none is SELECT-granted to `anon`/`authenticated` with RLS off.
+> The same probe counts **73 policies**, which are pre-existing Supabase-schema
+> policies rather than anything 100/114/115 added — so 100's "we intentionally do
+> NOT create explicit policies" deny-all posture holds only for the 25 tables that
+> carry no policy at all.
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
