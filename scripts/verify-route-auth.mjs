@@ -27,6 +27,11 @@ const PUBLIC_METHOD_ALLOWLIST = new Set([
   "POST mobile/auth/refresh/route.js",
   "POST auth/forgot-password/route.js",
   "GET auth/login-status/route.js",
+  // Unauthenticated liveness probe for the hosting platform's health check
+  // (HostForge Health stage). Fixed response, no DB, no env reads — see
+  // src/app/api/health/route.js. Adding any other method or logic here
+  // requires an intentional review.
+  "GET health/route.js",
   // Next.js returns 405 for these unused method slots; they never read data.
   "GET dispatch/[id]/cancel/route.js",
   "GET trips/[id]/cancel/route.js",
