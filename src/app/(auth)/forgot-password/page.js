@@ -19,6 +19,7 @@ export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [serverMessage, setServerMessage] = useState("");
   const [error, setError] = useState("");
   const { validate, fieldError, registerField } = useFormValidation(forgotSchema);
 
@@ -30,7 +31,14 @@ export default function ForgotPasswordPage() {
       onSuccess: async () => {
         setLoading(true);
         try {
-          await requestPasswordReset(email);
+          // The server owns the response wording: it reports a sent email
+          // when Resend is configured and the administrator path otherwise —
+          // identical whether or not the account exists (no enumeration).
+          const result = await requestPasswordReset(email);
+          setServerMessage(
+            result?.message ||
+              "If an account exists for that email, a reset link has been sent. It expires in 30 minutes."
+          );
           setSent(true);
         } catch (err) {
           setError(err.message);
@@ -55,8 +63,8 @@ export default function ForgotPasswordPage() {
               </div>
               <CardTitle className="text-xl">Request received</CardTitle>
               <CardDescription>
-                If an account exists for <strong>{email}</strong>, contact your FleetOps administrator to receive a
-                reset link — reset links are issued by administrators, not emailed automatically.
+                {serverMessage} If you use the mobile app, the same email carries a code you can paste on its
+                reset screen.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -87,7 +95,7 @@ export default function ForgotPasswordPage() {
           <CardHeader className="pb-4">
             <CardTitle className="text-xl">Forgot password</CardTitle>
             <CardDescription>
-              Enter your email — your FleetOps administrator can issue a reset link for your account
+              Enter your account email — we will send a reset link if an account exists for it
             </CardDescription>
           </CardHeader>
           <CardContent>

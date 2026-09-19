@@ -69,6 +69,7 @@
     "react-hook-form": "^7.82.0",
     "react-leaflet": "^5.0.0",
     "recharts": "^3.10.0",
+    "resend": "^6.28.1",
     "tailwind-merge": "^3.6.0",
     "zod": "^4.4.3",
     "zustand": "^5.0.14"

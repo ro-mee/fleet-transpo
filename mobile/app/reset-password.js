@@ -23,7 +23,8 @@ import {
 } from "../lib/password-validation";
 
 /**
- * Reset Password — consumes an administrator-issued one-time reset code.
+ * Reset Password — consumes a one-time reset code from the recovery email
+ * (or an administrator-issued one).
  *
  * Calls the public token mode of `POST /api/auth/reset-password` with
  * `{ token, newPassword }` — no session required, so `skipAuth: true`.
@@ -83,7 +84,7 @@ export default function ResetPasswordScreen() {
       } else if (e?.status === 400) {
         AppAlert.alert(
           "Invalid or Expired Code",
-          e?.message || "That reset code is invalid or has expired. Ask your administrator for a new one."
+          e?.message || "That reset code is invalid or has expired. Request a new link from the forgot-password screen."
         );
       } else {
         AppAlert.alert("Reset Failed", e?.message || "The password could not be reset. Please try again.");
@@ -116,7 +117,7 @@ export default function ResetPasswordScreen() {
           />
           <Text style={[styles.appName, { color: colors.primary }]}>New Password</Text>
           <Text style={[styles.tagline, { color: colors.onSurfaceVariant }]}>
-            Enter the reset code from your administrator
+            Enter the reset code from your email
           </Text>
         </View>
 

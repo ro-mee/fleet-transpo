@@ -20,11 +20,12 @@ import { AppAlert } from "../components/AppAlert";
 /**
  * Forgot Password — public pre-login recovery entry point for drivers.
  *
- * Calls the existing public `POST /api/auth/forgot-password`. There is no
- * email provider configured, so the server deliberately returns an identical
- * generic contact-admin message whether or not the email exists (no account
- * enumeration). This screen renders that message verbatim and points the
- * driver at the reset-code screen for the administrator-issued one-time code.
+ * Calls the existing public `POST /api/auth/forgot-password`. When email
+ * delivery is configured the server emails a 30-minute single-use reset link
+ * (plus a paste-able code for this app's reset screen); otherwise it returns
+ * the administrator path. Either way the message is identical whether or not
+ * the email exists (no account enumeration). This screen renders that message
+ * verbatim and keeps the reset-code screen one tap away.
  *
  * `skipAuth` (no session exists out here) and `queueOnFailure: false`
  * (a recovery request must never sit in the offline outbox).
@@ -55,7 +56,7 @@ export default function ForgotPasswordScreen() {
       AppAlert.alert(
         "Request Received",
         data?.message ||
-          "If an account exists for that email, contact your FleetOps administrator to receive a reset link."
+          "If an account exists for that email, a reset link has been sent. It expires in 30 minutes."
       );
     } catch (e) {
       if (isTransportFailure(e) || e?.status === 0) {
@@ -124,10 +125,11 @@ export default function ForgotPasswordScreen() {
             variant="primary"
           />
 
-          <View style={styles.infoRow}>
+            <View style={styles.infoRow}>
             <Ionicons name="information-circle-outline" size={16} color={colors.onSurfaceVariant} />
             <Text style={[styles.infoText, { color: colors.onSurfaceVariant }]}>
-              Have a reset code from your administrator? Enter it on the next screen.
+              Check your email for the reset link — it carries a code you can paste on the next screen if you are
+              resetting inside this app.
             </Text>
           </View>
 

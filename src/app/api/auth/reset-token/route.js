@@ -1,15 +1,16 @@
-import { query, withTransaction } from "@/lib/db";
+import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { writeAudit } from "@/lib/audit";
-import { createResetToken, hashResetToken } from "@/lib/auth/reset-token";
+import { issueResetToken } from "@/lib/auth/reset-token";
 
 /**
  * POST /api/auth/reset-token
  *
  * Issues a short-lived one-time reset link for administrator-assisted
  * recovery. The plaintext token is returned once to the authorized operator;
- * only its hash is stored in PostgreSQL. A future email provider can consume
- * the same token table without changing the reset endpoint.
+ * only its hash is stored in PostgreSQL. The self-service forgot-password
+ * endpoint mints from the same issuer, so both deliver the identical token
+ * shape without changing the reset endpoint.
  */
 export async function POST(req) {
   try {
@@ -34,27 +35,15 @@ export async function POST(req) {
       return err("Only a system administrator may reset a system administrator account.", 403);
     }
 
-    let origin;
+    let issued;
     try {
-      origin = new URL(process.env.NEXT_PUBLIC_APP_URL).origin;
-    } catch {
-      return err("Application URL is not configured", 500);
+      issued = await issueResetToken(employeeId);
+    } catch (e) {
+      if (e?.message === "Application URL is not configured") {
+        return err("Application URL is not configured", 500);
+      }
+      throw e;
     }
-
-    const token = createResetToken();
-    const tokenHash = hashResetToken(token);
-    await withTransaction(async (tx) => {
-      await tx.query(
-        `DELETE FROM password_reset_tokens
-          WHERE employee_id = $1 AND used_at IS NULL`,
-        [employeeId]
-      );
-      await tx.query(
-        `INSERT INTO password_reset_tokens (employee_id, token_hash, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '30 minutes')`,
-        [employeeId, tokenHash]
-      );
-    });
 
     await writeAudit(req, session, {
       action: "password_reset_issued",
@@ -64,7 +53,7 @@ export async function POST(req) {
     });
 
     return ok({
-      resetUrl: `${origin}/reset-password?token=${encodeURIComponent(token)}`,
+      resetUrl: issued.resetUrl,
       expiresInMinutes: 30,
     });
   } catch (e) {
