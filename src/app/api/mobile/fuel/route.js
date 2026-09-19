@@ -1,7 +1,11 @@
 import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { toCalendarDay } from "@/lib/dates";
-import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
+import {
+  isOwnedFuelReceiptUrl,
+  toStoredReceiptRef,
+  signFuelReceipt,
+} from "@/lib/fuel/receipt-storage";
 import { ACTIVE_FUEL_TRIP_STATUSES, fuelFulfillmentError, fuelTankCapacityError, fuelTypeMismatch } from "@/lib/fuel/request-policy";
 import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 import { authorizeCompanyCardForDriver } from "@/lib/auth/company-cards";
@@ -52,6 +56,13 @@ export async function POST(req) {
     if (!isOwnedFuelReceiptUrl(body.receipt_url, session.user.driverId)) {
       return err("The receipt photo is not a valid upload for this driver", 400);
     }
+    // The client echoes back the short-lived URL it was handed at upload. Reduce
+    // it to the object key here rather than trusting each client to send one —
+    // the column stores keys, and a URL written into it would rot within the
+    // hour. A value that is owned but canonicalises to nothing is a bug, not a
+    // pass-through: fail closed.
+    body.receipt_url = toStoredReceiptRef(body.receipt_url);
+    if (!body.receipt_url) return err("The receipt photo is not a valid upload for this driver", 400);
     if (typeof body.client_submission_id !== "string" || !/^[0-9a-z-]{16,64}$/i.test(body.client_submission_id)) {
       return err("client_submission_id is required", 400);
     }
@@ -278,7 +289,7 @@ export async function POST(req) {
       );
       return rows[0];
     });
-    return ok(record, 201);
+    return ok(await signFuelReceipt(record), 201);
   } catch (e) {
     if (e?.status) return err(e.message, e.status);
     if (e?.code === "23505") return err("This fuel request already has a receipt", 409);

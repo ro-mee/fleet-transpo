@@ -134,7 +134,7 @@ const VARIANT = {
   upcoming: { label: 'UPCOMING', isCurrent: false },
 };
 
-export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant }) {
+export const DriverTripCard = memo(function DriverTripCard({ trip, current, confirmed, offline, nowMs, canManage, busy, trackingText, onAction, onDetails, variant, interactivePreview = false }) {
   const { colors, type, scheme } = useTheme();
   const { width, fontScale } = useWindowDimensions();
   const { settings } = useSettings();
@@ -207,7 +207,8 @@ export const DriverTripCard = memo(function DriverTripCard({ trip, current, conf
           {trip.passenger_count != null ? <View style={s.row}><Ionicons name="people" size={16} color={accent} /><Text style={type.supporting}>{trip.passenger_count} {Number(trip.passenger_count) === 1 ? 'passenger' : 'passengers'}</Text></View> : null}
         </View>
         <View style={horizontal ? { width: '42%', gap: 12 } : { gap: 12 }}>
-          <TripMapPreview staticMode key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
+          {/* ponytail: one interactive route preview on Home; secondary cards stay static until native polyline rendering exists. */}
+          <TripMapPreview staticMode={!interactivePreview} key={`${trip.trip_id}:${trip.origin_latitude}:${trip.origin_longitude}:${trip.destination_latitude}:${trip.destination_longitude}:${offline}:${interactivePreview}`} trip={trip} offline={offline} airport={isCurrent && /\b(airport|NAIA)\b/i.test(trip.destination || '')} />
       <Pressable onPress={() => isCurrent && canManage && action !== 'Trip Details' ? onAction(trip) : onDetails(trip)} disabled={busy} accessibilityRole="button" accessibilityLabel={isCurrent && canManage ? action : 'Trip Details'} accessibilityState={{ disabled: !!busy, busy: !!busy }} style={({ pressed }) => [s.cta, raised, { backgroundColor: colors.primary, shadowColor: colors.shadow }, busy ? { opacity: 0.6 } : pressed ? s.ctaPressed : null]}>
         {busy ? <ActivityIndicator color={colors.onPrimary} /> : <Ionicons name={isCurrent && action !== 'Trip Details' ? 'play' : 'document-text-outline'} size={20} color={colors.onPrimary} />}
         <Text style={[type.labelLg, { color: colors.onPrimary }]}>{isCurrent && canManage ? action : 'Trip Details'}</Text>

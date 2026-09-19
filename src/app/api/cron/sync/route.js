@@ -2,6 +2,7 @@ import { ok, err, handleError } from "@/lib/api/utils";
 import { verifyServiceToken } from "@/lib/api/service-auth";
 import { syncAllVehicleStatuses, syncAllDriverStatuses, syncComplianceNotifications } from "@/services/status.service";
 import { syncStartWindowNotifications } from "@/services/start-window-notifications.service";
+import { syncAssignedTripAlerts } from "@/services/assigned-trip-scan.service";
 import { pruneAppErrors } from "@/lib/app-errors";
 import { recordSyncHeartbeat } from "@/lib/system-health";
 
@@ -35,7 +36,7 @@ async function runSync(req) {
   // pruneAppErrors never throws by contract, but it runs in its own isolated
   // step anyway: retention cleanup must never fail vehicle/driver/compliance
   // sync just because pruning had a bad day.
-  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult] = await Promise.all([
+  const [vehicleResult, driverResult, complianceResult, pruneResult, startWindowResult, assignedTripResult] = await Promise.all([
     syncAllVehicleStatuses(),
     syncAllDriverStatuses(),
     syncComplianceNotifications(),
@@ -57,6 +58,16 @@ async function runSync(req) {
         return { created: 0, pushes_attempted: 0, skipped: 0, errors: 1, stale_locations: 0 };
       }
     })(),
+    // Phase 5B: bounded upcoming-assignment scan. Isolated best-effort like
+    // the start-window step; never fails the sync. Requires the same external
+    // scheduler; an endpoint alone is not continuous monitoring.
+    (async () => {
+      try {
+        return await syncAssignedTripAlerts();
+      } catch {
+        return { created: 0, pushes_attempted: 0, scanned: 0, errors: 1 };
+      }
+    })(),
   ]);
 
   return ok({
@@ -67,6 +78,8 @@ async function runSync(req) {
     start_window_notifications_created: startWindowResult.created,
     start_window_pushes_attempted: startWindowResult.pushes_attempted,
     start_window_skipped: startWindowResult.skipped,
+    assigned_trip_alerts_created: assignedTripResult.created,
+    assigned_trip_alerts_scanned: assignedTripResult.scanned,
     // Driver positions older than 10 min (or of unknown age) still fed those
     // trips' ETAs — surfaced for acceptance testing, not an error.
     start_window_stale_locations: startWindowResult.stale_locations,

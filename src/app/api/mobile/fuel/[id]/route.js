@@ -1,7 +1,11 @@
 import { query, withTransaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
 import { toCalendarDay } from "@/lib/dates";
-import { isOwnedFuelReceiptUrl } from "@/lib/fuel/receipt-storage";
+import {
+  isOwnedFuelReceiptUrl,
+  toStoredReceiptRef,
+  signFuelReceipt,
+} from "@/lib/fuel/receipt-storage";
 import { fuelAllocationError } from "@/lib/fuel/request-policy";
 import { computeFuelFlags, detectDuplicateReceipt } from "@/lib/fuel/transaction-integrity";
 
@@ -49,6 +53,11 @@ export async function PUT(req, { params }) {
       return err("A receipt photo is required to verify the fuel report", 400);
     }
     if (!isOwnedFuelReceiptUrl(body.receipt_url, session.user.driverId)) return err("The receipt photo is not a valid upload for this driver", 400);
+    // Same canonicalisation as the create path: the column holds an object key,
+    // and the resubmit screen seeds its field from the record it just loaded —
+    // which the reader handed a short-lived URL for.
+    body.receipt_url = toStoredReceiptRef(body.receipt_url);
+    if (!body.receipt_url) return err("The receipt photo is not a valid upload for this driver", 400);
     if (body.liters !== undefined && (!Number.isFinite(Number(body.liters)) || Number(body.liters) <= 0)) return err("liters must be a positive number", 400);
     if (Number(body.liters) > 1000) return err("liters exceeds the maximum allowed per fuel report", 400);
     if (existing[0].fuel_request_id) {
@@ -180,7 +189,7 @@ export async function PUT(req, { params }) {
 
     if (!updatedRecord) return err("Fuel report is no longer rejected and cannot be resubmitted", 409);
 
-    return ok(updatedRecord);
+    return ok(await signFuelReceipt(updatedRecord));
   } catch (e) {
     return handleError(e);
   }

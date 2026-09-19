@@ -20,7 +20,7 @@ source:
   - mobile/app/reset-password.js
   - mobile/lib/password-validation.js
   - mobile/AGENTS.md
-last_verified: 2026-09-08
+last_verified: 2026-09-19
 ---
 
 # Mobile Architecture
@@ -50,13 +50,24 @@ Three separate documents describe these tabs differently, all wrong. → [[DOC M
 
 ## The API client is the most carefully-written file in the mobile app — CONFIRMED
 
-`mobile/lib/api.js`: `TIMEOUT_MS = 15000`, `MAX_RETRIES = 1`, and a **single-flight refresh promise**. From its docstring:
+`mobile/lib/api.js`: `TIMEOUT_MS = 30000`, `MAX_RETRIES = 1`, and a **single-flight refresh promise**. From its docstring:
 
 > *"Without this, a screen firing three requests at once on a stale token would run three refreshes; because refresh is single-use and rotating, the first would succeed and the other two would present an already-revoked token and log the driver out."*
 
 That is a precise description of a real race. The fix — one shared in-flight refresh promise that all callers await — is the standard solution, and the comment explains *why* it's needed rather than just what it does.
 
 → [[Token Rotation And Refresh Races]]
+
+## Local API reachability — CONFIRMED (2026-09-19)
+
+`EXPO_PUBLIC_API_URL` is bundled into the Expo client. For a physical phone,
+it must use the computer's current LAN IP and the running Next server's port
+(the local default is `3000`); `localhost` points back to the phone. The API
+server must be started separately from the repository root with `npm run dev`.
+After changing `.env`, reload Expo so the public variable is re-inlined. EAS
+preview/production profiles use the HTTPS deployment URL instead. A stale
+ignored mobile `.env` LAN address was verified to time out while the current
+address returned the API's normal HTTP response.
 
 ```mermaid
 sequenceDiagram
@@ -72,6 +83,24 @@ sequenceDiagram
     C-->>S1: retry with new token
     C-->>S2: retry with new token
 ```
+
+## Session management — CONFIRMED (2026-09-19)
+
+The mobile **Devices & Sessions** screen lists active web session IDs and
+mobile refresh-token families. A family ID, not an IP address, identifies a
+session: shared Wi-Fi, carrier NAT, and VPNs can put multiple devices behind
+the same public IP, so matching IPs must remain separate rows. The screen
+reports active sessions, uses `kind:id` keys, and sends `DELETE /api/auth/sessions`
+to revoke the selected session. Revoking the current mobile family is followed
+by local token/cache cleanup before returning to sign-in. The confirmation
+action uses the concise `Revoke` label.
+
+## Home route preview — CONFIRMED (2026-09-19)
+
+The primary Home assignment card uses the existing deferred TomTom WebView
+preview so the pickup-to-drop-off road line is rendered. Secondary assignment
+cards keep the native static-image preview to avoid mounting multiple WebViews;
+the interactive preview is limited to one card per Home render.
 
 ## GPS tracking — CONFIRMED
 
@@ -204,6 +233,13 @@ Direct imports load only the six font weights already used by the app. Verified 
 
 Verification: two runnable launch-lifecycle tests passed (completion races, bounded timing, native/non-interaction flags, cleanup, pending/reduced-motion preferences); targeted ESLint passed; final Android Hermes export passed. No connected adb device was available, so physical-device cold-start duration, frame rate and light/dark appearance have not been measured. These are configured animation timings and bundle measurements, not a claimed FPS improvement. Native splash acceptance should be checked in a release build per the Expo splash-screen documentation: https://docs.expo.dev/versions/v57.0.0/sdk/splash-screen/ .
 
+## Launch handoff follow-up - 2026-09-19
+
+The remaining opening hitch came from the car Lottie itself: `car animation.json` was a 512x512, five-second composition with about 588 KB of embedded raster data, decoded while the launch overlay mounted. The follow-up removes that Lottie from the launch path while retaining the native-driver dial, route-track, wordmark and static location beacon motion. The normal launch hold is now 1.1 seconds with a 180 ms exit fade; reduced motion remains a 150 ms handoff with immediate animation timings.
+
+The native splash now hides inside `ThemedApp` after the app shell commits, rather than immediately when fonts finish. This prevents an empty native-splash-to-app gap while `SettingsProvider` restores preferences. Notification channel setup is deferred until the launch overlay exits and pending interactions settle, so it no longer competes with the first frame.
+
+Verification: the full mobile library suite passed (22 files / 135 tests), targeted ESLint passed, and an Android export passed (1,376 modules, 79 assets, 4.58 MB Hermes bundle); the export no longer includes `car animation.json`. Physical-device cold-start duration and FPS still require a release-build device check.
 ## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
 
 Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`) to train drivers directly over live production screens without passive slide tours, simulations, mascots, or gamification:

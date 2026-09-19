@@ -1,9 +1,11 @@
 // Read-only probe (SELECT only, no writes) — what the RLS migrations actually did.
 //
-// Why this exists: migrations `114_app_errors_rls.sql` and `115_rls_gap_tables.sql`
-// are recorded as applied in the schema_migrations ledger, but neither file exists
-// on disk any more. And schema.sql cannot answer the question for them — it
-// captures no RLS at all (its only "POLICY" match is the `policy_version` column).
+// Why this exists: migrations `115_app_errors_rls.sql` and `116_rls_gap_tables.sql`
+// were first written as 113/114/115 and recorded in the schema_migrations ledger
+// under those names; a parallel 113 on origin forced a renumber to 115/116, so the
+// ledger rows under the old names read as missing-from-disk. And schema.sql cannot
+// answer the question for them — it captures no RLS at all (its only "POLICY"
+// match is the `policy_version` column).
 // The live database is the only place this is answerable.
 //
 // Background, from `100_enable_rls_all.sql`: that migration enabled RLS on 20
@@ -13,7 +15,7 @@
 //
 // The consequence: every table created AFTER 100 started with RLS *disabled*.
 // 103_app_errors.sql is the first of those, so `app_errors` and everything from
-// 104 onward are the candidate gap — which is what 114 and 115 should have closed.
+// 104 onward are the candidate gap — which is what 115 and 116 should have closed.
 //
 // Reports:
 //   1. every public table, and whether RLS is enabled on it
@@ -157,7 +159,7 @@ try {
 
   // --- 4. the exposure set ----------------------------------------------------
   // RLS off is only reachable from PostgREST if the role also has a grant. This
-  // is the intersection that actually matters, and the one 114/115 existed to
+  // is the intersection that actually matters, and the one 115/116 existed to
   // empty.
   const exposed = withoutRls.filter((t) => selectGranted.has(t.table_name));
   const ungranted = withoutRls.filter((t) => !selectGranted.has(t.table_name));
@@ -181,9 +183,9 @@ try {
     for (const t of ungranted) console.log(`    - ${t.table_name}`);
   }
 
-  // --- app_errors, the named target of 114 ------------------------------------
+  // --- app_errors, the named target of 115 ------------------------------------
   const appErrors = tables.find((t) => t.table_name === "app_errors");
-  console.log("\n=== app_errors (target of 114_app_errors_rls.sql) ===");
+  console.log("\n=== app_errors (target of 115_app_errors_rls.sql) ===");
   if (!appErrors) {
     console.log("  table not found in public");
   } else {

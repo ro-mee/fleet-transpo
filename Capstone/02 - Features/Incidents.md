@@ -82,7 +82,7 @@ disconnected duplicate report.
 
 | Rule | Where | Why |
 |---|---|---|
-| Maintenance clearance before release | `api/vehicle-maintenance/[id]/route.js` | Vehicles with critical incidents must pass a manager inspection before `Completed` status |
+| Maintenance completion requires separation of duties | `api/vehicle-maintenance/[id]/route.js` | Whoever declared the repair finished (`repair_completed_by`, migration 114) cannot approve its completion. **Not** a manager inspection — that gate was removed 2026-09-16 → [[Maintenance]] |
 | Strict State Machine | `api/incidents/[id]/route.js` | Incidents require `acknowledged_at` before resolution. Audit history via `incident_comments`. |
 | Incident Confidentiality | `api/incidents/route.js` | HR/Admin reports are shielded from general staff visibility based on role |
 | Dynamic SLAs | `api/driver/incidents/route.js`, `pg_cron` | `due_at` calculated server-side based on severity (Critical = 2h, Major = 24h). `pg_cron` idempotently processes breaches into `overdue_at` automatically. |
@@ -110,7 +110,40 @@ Closed 2026-09-04: automatic maintenance gates on the incident's own vehicle
 and rule-based category/severity; the mobile form offers all four severities
 including Critical; repairs carry both incident/work-order links and completing
 one notifies the reporting driver; expense claims are reviewed, not auto-booked;
-assistance requests are structured chips. Active trips are aborted and Guest Services notified. Managers must approve clearance.
+assistance requests are structured chips. Active trips are aborted and Guest Services notified. Completing a work order requires a Fleet Manager or Admin who did not perform the repair (`repair_completed_by`, migration 114 — the earlier "manager inspection/clearance" gate never had a writer and was removed 2026-09-16 → [[Maintenance]]).
+
+## Evidence photo references are host-checked — 2026-09-17
+
+The incident report endpoint accepted any absolute URL as a photo reference, so
+long as the *path* looked right: `new URL(value)` then `url.pathname.includes(…)`
+with **no host comparison**. `https://attacker.example/storage/v1/object/sign/incident-evidence/4/x.png`
+therefore passed. That is a stored URL, not a fetched one — the server never
+called out. The **reviewing staff browser** did: `(dashboard)/incidents/page.js`
+and `components/maps/incident-map.jsx` both bind the stored value straight to an
+`<img src>`, so every staff member who opened the incident leaked a request, their
+IP and their user agent to a host of the attacker's choosing. Found by the
+security assessment (SEC-UPLOAD-005, MEDIUM).
+
+- **Fixed on both sides of the boundary.** The write path
+  (`api/driver/incidents/route.js`) now requires the reference to pass the repo's
+  existing `isSafeRemoteMediaUrl` allowlist — the same guard `ai/scan-document`,
+  `license-scan` and `face-photo` already use — *and* to name this driver's
+  folder once it is known to be a fleet host. The bare object-path shape
+  (`<driverId>/<uuid>.png`) is still accepted unchanged, so current mobile builds
+  are unaffected.
+- **The staff read path re-checks too** (`lib/driver/incident-storage.js`).
+  Rows written before this fix can already hold arbitrary URLs, and the renderers
+  were deliberately left alone — the validator is the correct boundary, and
+  re-checking on read is what covers the rows already in the table. A reference
+  that fails the allowlist is dropped rather than returned.
+- The CSP's `img-src` was narrowed in the same pass (`next.config.mjs`, from a
+  bare `https:` to the fleet and map origins), so the request cannot leave the
+  browser even if a URL slips through again. See [[System]] §"Key environment
+  config".
+- Verified: `upload-storage.security.test.js` SEC-UPLOAD-005 — foreign host,
+  credentialed URL, cloud-metadata address and another driver's folder are all
+  refused, and the staff read path is asserted to re-check. Reverting the touched
+  files to `HEAD` produces the failures that close it.
 
 ## Manual QA checklist (needs two real sessions)
 

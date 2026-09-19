@@ -156,3 +156,34 @@ Net effect: ~120–130px shorter; on a typical 6.5-inch phone the identity card,
 **Row label size, owner follow-up ("letters too big")**: the 18px (`bodyLg`) menu row labels were the oversized element. `ClayMenuRow` (Profile sections + Personal Information hub) and the Settings rows dropped to 16px `bodyMd` — the standard list-row size; the driver name (20px semibold), section labels (12px caps), and Sign Out (14px semibold) stay as they were, and the other Profile-area screens already used 14–16px.
 
 Verified: targeted ESLint clean on all five touched files, mobile Vitest 14 files / 102 tests, `expo export --platform android` passed. On-device visual acceptance still pending. No commit created.
+
+## Profile photo picker bottom sheet redesign (2026-09-19, implemented)
+
+Date: 2026-09-19
+Status: Implemented; ESLint clean and all mobile tests passing (143/143).
+
+### Rationale & Problem
+
+Previously, pressing the avatar in `mobile/app/(app)/(tabs)/profile.js` invoked `AppAlert.alert("Update Profile Photo", ..., [Camera, Gallery, Cancel])`. This had critical UX issues on mobile:
+1. Native alert dialog buttons rendered horizontally side-by-side, causing text truncation ("Choose fr...", "Take Ph...") on Android and iOS devices.
+2. Both "Camera" and "Gallery" were rendered as identical primary-colored actions without tactile distinction or icon affordance.
+3. Only the small 22×22 edit pencil badge was pressable, leading to frequent missed taps when drivers attempted to touch the avatar circle.
+4. Camera and gallery captures did not enforce square 1:1 cropping (`allowsEditing: true, aspect: [1, 1]`), resulting in distorted or off-center profile photos.
+5. Lack of biometric facial guidance for attendance verification.
+
+### Solution
+
+Replaced the native `AppAlert.alert` with a dedicated tactile bottom sheet modal (`<Modal visible={photoModalVisible}>`):
+- **Expanded Touch Target**: Wrapped the full 64×64 avatar container and camera badge in a single unified `<Pressable>` with accessibility attributes.
+- **Tactile Claymorphic Sheet**: Elevated bottom card (`surfaceContainerLow`, `borderTopLeftRadius: 32`, `borderTopRightRadius: 32`, drag handle) with scrim backdrop dismissal.
+- **Informative Guidance Banner**: Raised `primaryContainer` notice explaining biometric attendance photo requirements (centered, well-lit, no sunglasses/hats).
+- **Vertical Action Rows**: Independent touchable cards (min-height ≥60dp) with raised clay forest icon tiles (`camera-outline`, `images-outline`), bold title, descriptive subtitles, and right navigation chevrons.
+- **1:1 Aspect Ratio Cropping**: Added `allowsEditing: true, aspect: [1, 1], quality: 0.85` in both `launchCameraAsync` and `launchImageLibraryAsync` calls.
+- **Clay Button Dismissal**: Full-width tonal `ClayButton` for "Cancel".
+
+### Verification
+
+- ESLint: 0 errors, 0 warnings on `mobile/app/(app)/(tabs)/profile.js`.
+- Mobile Vitest: 24 test files / 143 tests passed.
+- Full workspace tests: 171 test files / 1931 tests passed.
+

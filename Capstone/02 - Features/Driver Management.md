@@ -32,6 +32,74 @@ Unreadable or absent fields come back `null`, never guessed. If Gemini is unconf
 
 Model selection: env `GEMINI_DOCUMENT_MODEL` overrides, then a gemini-2.5/3.x model configured on the provider row, else `gemini-3.1-flash-lite` (the only model confirmed working + fast for this API key on 2026-08-22).
 
+## Licence image entry — URL paste removed 2026-09-18
+
+The admin driver forms (`drivers/new/page.js`, `drivers/[id]/edit/page.js`) each carried **two free-text inputs** — "Or paste Front/Back License Image URL..." — that accepted any string and bound anything starting with `http` straight to an `<img src>` preview on keystroke, with no host validation. All four are removed (47 lines, no additions). Upload, Gemini scan, rotate, the preview and the enlarge modal are unaffected: the value is still set programmatically by the upload path (`new:200/233`, `edit:101/225/260`), never by typing.
+
+**The paste inputs were only one of two ways in — the second is now closed too.** The write path accepted the field as well: `POST /api/drivers` destructured `license_image_url` from the request body and wrote it unvalidated, with the field absent from `validateBody` (`route.js:251`) entirely; the `employees.avatar_url` copy (`:339`) checked only `startsWith("http") && length <= 512`, a scheme check wearing a host check's clothing. `PUT /api/drivers/[id]` matched (`[id]/route.js:202, 228` — the export is **PUT**). So a direct API call could store a foreign host; removing the inputs was a UI change, and that distinction was the point.
+
+**Closed 2026-09-18 — SEC-UPLOAD-008 (MEDIUM).** Both schemas now carry `license_image_url` / `license_back_image_url` as a `mediaUrl` type, and both `avatar_url` copies route through the same rule. `isAllowedStoredImageRef` (`src/lib/validation/index.js`) accepts an inline base64 image or a URL on a fleet-controlled origin, and routes `data:` to the **strict** `isBase64DataUrl` — the guard alone returns true for any `data:image/` prefix (`remote-url.js:34`), which would admit `data:image/svg+xml,<svg …>`. The 512-char cap on the avatar copy is kept deliberately: it is why a multi-megabyte scan never lands in `employees.avatar_url`.
+
+The writer must already hold `drivers:create`/`update`, and the self-service route was always strict (`driver/me:219,253`), so a driver could never set a foreign host — the gap was defence-in-depth, with the CSP `img-src` narrowing as the only line behind it. `next.config.mjs` and this rule now draw from the **same** env-derived allow-list, so the browser-side and server-side lists cannot drift.
+
+A live census (40 driver rows) found **zero** stored licence references, so this never manifested in data. Full record, the fail-before caveat, and what stays open: → [[Bugs]] SEC-UPLOAD-008. **SEC-UPLOAD-003** (ten-year signed TTLs) and **SEC-UPLOAD-006** (`getPublicUrl` on the private `driver-licenses` bucket) remain open.
+
+## Licence media: the column holds an OBJECT KEY, not a URL — 2026-09-18
+
+**SEC-UPLOAD-006 is closed. SEC-UPLOAD-003 is PARTIALLY CLOSED** — both phases of
+the storage remediation landed on 2026-09-18. The code no longer mints or
+persists a long-lived URL; the ten-year tokens already sitting in
+`drivers.face_image_url` and `employees.avatar_url` (1 row each, measured) were
+**not** revoked, because revoking them is a production-data action that needs its
+own approval. See → [[Bugs]] for the full record and the census.
+
+The four media columns on a driver (`face_image_url`, `license_image_url`,
+`license_back_image_url`) and the `employees.avatar_url` mirror now hold a
+**bucket-qualified object key** — `driver-licenses/12/6f1c….jpg` — and the route
+mints a short-lived signed URL (1 hour) when it serializes the row. The four
+columns that bear a driver's face or licence are in **private** buckets, so a
+stored URL is a bearer credential written down; a key has no scheme, no host, no
+token and no expiry, so there is nothing to leak and nothing to revoke.
+
+| Piece | Where |
+|---|---|
+| The key format, and what a key may contain | `src/lib/storage/key-format.js` |
+| Resolve a key **or a legacy URL** to a fresh signed URL | `src/lib/storage/object-refs.js` |
+| Reduce an echoed value back to a key | `canonicalStoredRef` (same module) |
+| Sign a driver-shaped payload | `src/lib/drivers/media.js` |
+
+**Readers sign at the API boundary, so no UI component changed.**
+`drivers/route.js`, `drivers/[id]/route.js`, `auth/profile/route.js` and
+`driver/me/route.js` each resolve before responding, which covers every
+downstream consumer — `drivers/[id]/page.js:121`, the edit form, `use-auth`,
+`app-shell.jsx:348`, `user-dropdown.jsx:52`. They still receive a URL; it just
+expires now.
+
+**Two invariants a future edit must not break.** They are not obvious from
+either side alone, which is why they are written down here:
+
+1. **A legacy URL is RECOVERED, never passed through.** Both storage URL shapes
+   (`/object/public/…`, `/object/sign/…`) carry the object key in their path, so
+   the reader recovers the key and re-signs. Handing the URL back because its
+   host is allow-listed is exactly the bug: a `getPublicUrl` value's host *is*
+   the Supabase URL, and on a private bucket that URL authorizes nothing.
+   Unrecoverable → `null` **and a warning**, never passed and never silently
+   dropped.
+2. **The write path canonicalises.** The admin edit form seeds from the loaded
+   driver and submits it back on **every** save (`edit/page.js:116,295`), so
+   without `toStoredMediaRef` each save would persist whichever short-lived URL
+   the reader just minted — re-creating SEC-UPLOAD-003 through the read path.
+   `driver/me`'s `face_image_url` PATCH is canonicalised for the same reason.
+
+`employees.avatar_url` is the one column whose bucket cannot be assumed — it
+receives keys from both `face-captures` (the driver's own photo) and
+`driver-licenses` (the front-scan mirror). That is why stored values carry their
+bucket as a prefix, and why the reader treats a qualified prefix as
+authoritative over the column it was found in.
+
+`vehicle-images` is deliberately **not** in the key vocabulary: it is public by
+design (migration 050) and is read by URL, not signed.
+
 ## Consent and self-service visibility — CONFIRMED
 
 `src/lib/consent/driver-visibility.js`:

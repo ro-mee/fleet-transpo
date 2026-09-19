@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { v4 as uuidv4 } from "uuid";
 import { validateImage } from "@/lib/uploads/validator";
+import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 
 export async function storeIncidentPhoto(file, driverId) {
   if (!file || typeof file === "string") {
@@ -50,6 +51,13 @@ export async function storeIncidentPhoto(file, driverId) {
 /**
  * Resolve stored object paths only when an authorized detail view requests
  * them. Legacy signed URLs remain readable until their existing expiry.
+ *
+ * Legacy URLs are re-checked against the fleet-storage allowlist rather than
+ * passed through: rows written before the incident endpoint validated its input
+ * can hold any absolute URL, and both staff viewers bind whatever comes back to
+ * an <img src>, so the reviewing browser — not the server — would be the one
+ * calling the attacker's host. A reference that fails the allowlist is dropped
+ * rather than returned.
  */
 export async function getIncidentPhotoUrls(photoRefs, { expiresIn = 60 * 60 } = {}) {
   if (!Array.isArray(photoRefs) || photoRefs.length === 0) return [];
@@ -58,7 +66,7 @@ export async function getIncidentPhotoUrls(photoRefs, { expiresIn = 60 * 60 } = 
   for (const ref of photoRefs) {
     if (typeof ref !== "string" || !ref) continue;
     if (/^https?:\/\//i.test(ref)) {
-      urls.push(ref);
+      if (isSafeRemoteMediaUrl(ref)) urls.push(ref);
       continue;
     }
     const { data, error } = await supabase.storage

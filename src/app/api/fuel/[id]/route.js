@@ -3,6 +3,10 @@ import { requirePermission, parseBody, ok, err, errValidation, handleError } fro
 import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { writeAudit } from "@/lib/audit";
+import {
+  toStoredReceiptRef,
+  signFuelReceipt,
+} from "@/lib/fuel/receipt-storage";
 
 export async function GET(req, { params }) {
   try {
@@ -29,7 +33,7 @@ export async function GET(req, { params }) {
     );
 
     if (!rows.length) return err("Fuel record not found", 404);
-    return ok(rows[0]);
+    return ok(await signFuelReceipt(rows[0]));
   } catch (e) { return handleError(e); }
 }
 
@@ -73,6 +77,13 @@ export async function PUT(req, { params }) {
 
     const keys = Object.keys(body).filter((k) => WRITABLE.has(k));
     if (keys.length === 0) return err("No fields to update", 400);
+
+    // Same rule as the create path: the column holds an object key, so reduce
+    // whatever was sent and refuse a value that does not resolve.
+    if (body.receipt_url !== undefined && body.receipt_url !== null && body.receipt_url !== "") {
+      body.receipt_url = toStoredReceiptRef(body.receipt_url);
+      if (!body.receipt_url) return err("receipt_url is not a valid receipt reference", 400);
+    }
 
     if (body.odometer !== undefined) {
       const { rows: vehicleRows } = await query(
@@ -148,7 +159,7 @@ export async function PUT(req, { params }) {
       });
     }
 
-    return ok(rows[0]);
+    return ok(await signFuelReceipt(rows[0]));
   } catch (e) { return handleError(e); }
 }
 

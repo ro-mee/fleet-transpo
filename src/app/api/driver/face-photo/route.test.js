@@ -2,9 +2,14 @@
 //
 // Covers the driver self-service face/profile photo update: a camera/gallery
 // image arrives as a base64 data URL (the license-scan contract), is stored
-// in the private `face-captures` bucket, and the signed URL is written to the
+// in the private `face-captures` bucket, and the object KEY is written to the
 // driver's OWN face_image_url — the column backing both the profile avatar
 // and the attendance face-verification reference.
+//
+// The column holds a key and the RESPONSE carries a short-lived signed URL
+// (SEC-UPLOAD-003). It used to be the other way round — the ten-year signed
+// URL was what got persisted — which made the column a durable bearer
+// credential. The `not.toBe` assertion below is what pins that shut.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { POST } from "./route";
 import * as db from "@/lib/db";
@@ -61,7 +66,11 @@ describe("POST /api/driver/face-photo", () => {
     const update = querySpy.mock.calls.find(([sql]) => sql.includes("SET face_image_url"));
     expect(update).toBeDefined();
     // Session driver_id binds the row — the body can never choose the driver.
-    expect(update[1]).toEqual([body.face_image_url, 7]);
+    expect(update[1][1]).toBe(7);
+    // The row receives the object KEY, bucket-qualified and inside the
+    // driver's own folder — NOT the signed URL the response carries.
+    expect(update[1][0]).toMatch(/^face-captures\/7\/[0-9a-f-]{36}\.jpg$/);
+    expect(update[1][0]).not.toBe(body.face_image_url);
     expect(from).toHaveBeenCalledWith("face-captures");
   });
 

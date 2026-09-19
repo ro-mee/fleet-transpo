@@ -13,6 +13,8 @@ import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 
 export function LaunchScreen({ onComplete }) {
+  const launchHoldMs = 1100;
+  const exitDurationMs = 180;
   const { colors } = useTheme();
   const [reduceMotion, setReduceMotion] = useState(null);
   const [reveal] = useState(() => new Animated.Value(0));
@@ -37,7 +39,7 @@ export function LaunchScreen({ onComplete }) {
     finished.current = true;
     Animated.timing(exit, {
       toValue: 0,
-      duration: reduceMotion ? 1 : 240,
+      duration: reduceMotion ? 1 : exitDurationMs,
       easing: Easing.bezier(0.32, 0.72, 0, 1),
       useNativeDriver: true,
       isInteraction: false,
@@ -70,7 +72,7 @@ export function LaunchScreen({ onComplete }) {
 
   useEffect(() => {
     if (reduceMotion === null) return;
-    const timer = setTimeout(finish, reduceMotion ? 150 : 2300);
+    const timer = setTimeout(finish, reduceMotion ? 150 : launchHoldMs);
     return () => clearTimeout(timer);
   }, [finish, reduceMotion]);
 
@@ -123,18 +125,6 @@ export function LaunchScreen({ onComplete }) {
           <View style={[styles.tick, styles.tickBottom, { backgroundColor: colors.secondary }]} />
           <View style={[styles.tick, styles.tickLeft, { backgroundColor: colors.secondary }]} />
         </Animated.View>
-        {reduceMotion === false && (
-          <LottieView
-            autoPlay
-            loop={false}
-            speed={2.5}
-            source={require("../assets/car animation.json")}
-            onAnimationFinish={(cancelled) => { if (!cancelled) finish(); }}
-            onAnimationFailure={finish}
-            pointerEvents="none"
-            style={styles.car}
-          />
-        )}
       </View>
 
       <Animated.View
@@ -313,11 +303,6 @@ const styles = StyleSheet.create({
   },
   tickLeft: {
     left: -6,
-  },
-  car: {
-    position: "absolute",
-    width: 274,
-    height: 274,
   },
   locationBeacon: {
     marginLeft: 5,

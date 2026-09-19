@@ -45,9 +45,12 @@ describe("Final Adversarial Verification", () => {
   });
 
   it("Test 6: Unauthorized Manager Approval", async () => {
-    // Expected: Mechanic B cannot approve Mechanic A's work.
-    // Verified by code review: hasRole(['system_admin', 'admin', 'fleet_manager']) check
-    // combined with `beforeRow.created_by !== session.user.employeeId`.
+    // Expected: the person who performed the repair cannot approve its completion.
+    // Verified by code review + route.test.js Test 11/12: hasRole(['system_admin',
+    // 'admin', 'fleet_manager']) plus `beforeRow.repair_completed_by === session
+    // .user.employeeId` (migration 113). NOT created_by — that names whoever
+    // opened the ticket, which on an incident-sourced work order is the staff
+    // member who resolved the incident, not the mechanic.
     expect(true).toBe(true);
   });
 
@@ -59,7 +62,10 @@ describe("Final Adversarial Verification", () => {
 
   it("Test 8: Forged Approval Identity", async () => {
     // Expected: Client submitted manager_approved_by is stripped.
-    // Verified by code review: splice removes any approval fields from `sets` array.
+    // Verified by code review + route.test.js Test 14: FIELD_TO_COLUMN is an
+    // allowlist and no approval field appears in it, so a forged value never
+    // reaches the SET list. (An earlier `sets.splice` here was dead code and
+    // would have desynchronised `values` had it ever matched — removed.)
     expect(true).toBe(true);
   });
 

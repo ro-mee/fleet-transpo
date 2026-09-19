@@ -127,6 +127,13 @@ Comprehensive performance audit addressing owner report ("analyze why its so lag
 | 5 | **Mount-time duplicate render** | `app/(app)/(tabs)/index.js` | Initialized `nowMs` with `Date.now` and eliminated `setTimeout(tick, 0)` duplicate render on mount. |
 | 6 | **Unmemoized stop nodes** | `components/home/DriverHomeCards.jsx` | Memoized `stops` array inside `DriverTripCard` via `useMemo`. |
 
+**Route preview follow-up (2026-09-19):** Home's static-image optimization showed the
+pickup/drop-off map but could not draw the road route. The primary Home card now uses
+the existing deferred TomTom WebView route renderer (current trip, or first next trip
+when there is no active trip); secondary cards remain static so Home mounts at most one
+interactive preview. The official TomTom Static Image endpoint documents map-section
+parameters only, so a native route overlay remains a separate follow-up.
+
 **Verification:**
 - Vitest: 14 test files / 104 tests passed (`npm test -- mobile/lib`).
 - ESLint: 0 errors, 0 warnings across all touched files.
@@ -256,3 +263,15 @@ Plan: `docs/superpowers/plans/2026-09-10-quick-action-navigation-responsiveness.
 - **Verification 2026-09-10 (Task 6, clean HEAD worktree):** release bundle sanity `npx expo export --platform android` → 1,359 modules, 5.15 MB Hermes hbc, bundles clean (Task 6 clean-HEAD measurement, vs Round 5 baseline 1,364 modules / 5.13 MB recorded at :217 above; cwd: clean `HEAD` worktree `mobile/` — the main working tree has unrelated uncommitted hunks, incl. a broken `</ClayCard>` in `fuel-report.js`, that fail the bundler; that breakage is pre-existing WIP, not from Tasks 1–5). `npx vitest run mobile/lib` → 17 files / 107 tests PASS (incl. new `quick-action-press`, `prefetch-routes`, `home-revalidate` suites). ESLint `--max-warnings 0` on the 5 touched files → clean, no output.
 - **On-device timing PENDING:** no Android SDK/device in this environment (`adb` absent, no `ANDROID_HOME`/`ANDROID_SDK_ROOT`), so `expo run:android --variant release` was not attempted — nothing here is verified on-device. Procedure for a device pass: release build on a mid-range Android, 60 fps screen recording, count frames press-ripple → destination skeleton; targets: feedback same-frame (<50 ms perceived), skeleton <300 ms.
 - **Re-integrated & Enhanced 2026-09-12:** Re-wired the 4-route idle prefetch (`router.prefetch?.()`) and 30s deferred focus revalidation (`shouldRevalidateHome` + `runAfterInteractions`) into `index.js`, deferred network fetches on `work-schedule.js`, `incidents.js`, and `fuel-report.js` so native push transitions never wait on `api.get`, and added `LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut)` to `HomeQuickActions` for smooth panel expansion. Verified clean across ESLint and all 19 `mobile/lib` tests (117/117).
+
+## Changes Applied — Round 7 (2026-09-19, Launch Animation Startup Lag)
+
+The launch path was still hitching despite native-driver animations. Source inspection found the 512x512 car Lottie carried about 588 KB of embedded raster data and was decoded during the first overlay frame; the native splash also hid at font-ready time while the persisted settings provider could still render no shell.
+
+| File(s) | Change |
+|---|---|
+| `mobile/components/LaunchScreen.js` | Removed the heavy car Lottie from startup; kept the dial, route track, wordmark, and static location beacon. Reduced the normal hold to 1.1 s and exit fade to 180 ms; reduced-motion behavior remains intact. |
+| `mobile/app/_layout.js` | Hide the native splash after `ThemedApp` commits, preventing the blank handoff. Defer notification channel setup until the launch overlay exits and interactions settle. |
+| `mobile/lib/launch-animation.test.js` | Pin the shorter timing and prevent the removed car Lottie from returning to the launch path. |
+
+**Verification:** 22 mobile library test files / 135 tests passed; targeted ESLint passed; Android export succeeded with 1,376 modules, 79 assets and a 4.58 MB Hermes bundle, with no `car animation.json` asset. Physical-device FPS and cold-start acceptance remain pending; the export is a compile/bundle check, not an on-device FPS claim.

@@ -9,6 +9,7 @@ import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { loadDriverScheduleContext } from '@/services/driver-schedule.service';
 import { driverBlockReason } from '@/lib/scheduling/driver-schedule';
 import { buildRouteCacheKey } from '@/lib/routing/route-cache';
+import { toCalendarDay } from '@/lib/dates';
 import { dispatchDecision } from '@/lib/dispatch/decision';
 import { getDispatchPolicy } from '@/services/dispatch-settings.service';
 import { rankDispatchPairs } from '@/lib/dispatch/recommendation-ranking';
@@ -121,7 +122,14 @@ export async function evaluateDispatchCandidate({ request, vehicleId, driverId, 
   }
   const origin = dispatchContext.liveLocationUsed ? { lat: Number(fix.latitude), lng: Number(fix.longitude) } : preceding?.origin;
   const departAt = preceding?.availableAt ? new Date(Math.max(new Date(preceding.availableAt).getTime(),new Date(now).getTime())) : now;
-  if (origin && end) {
+  // The duty re-check covers the span the driver is committed, from release to
+  // trip end. driverBlockReason only knows ONE day's shift/break (the span-start
+  // day), so a multi-day span false-positives on that day's lunch break: RS-W3JU
+  // ran a Sat 9AM → Sun 8PM span against Saturday's 12-1PM break and withheld a
+  // driver whose Sun 8PM trip fits its own day. Only re-check same-day spans;
+  // the trip-day [pickup → arrival] check in detectRequestConflicts stays
+  // authoritative across days (Dispatch.md "Availability is decided by the window").
+  if (origin && end && toCalendarDay(departAt) === toCalendarDay(end)) {
     const ctx = await loadDriverScheduleContext([driverId]);
     const duty = driverBlockReason({ driverId,pickup:departAt,returnAt:end,ctx });
     if (duty?.blocked) {

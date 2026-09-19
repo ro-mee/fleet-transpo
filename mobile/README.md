@@ -13,10 +13,13 @@ login; the guest experience is not implemented yet.
 2. Run `npm install` from this folder.
 3. Apply `supabase/migrations/014_mobile_tokens.sql` to the database. Login
    fails without it — the table backs the refresh-token revocation list.
-4. Run `npm start`.
+4. Start the API from the repository root in a second terminal with
+   `npm run dev` (default port `3000`).
+5. Run `npm start` from `mobile`.
 
-Use your computer's LAN IP for `EXPO_PUBLIC_API_URL` when testing on a phone;
-`localhost` refers to the phone, not the computer.
+Use your computer's current LAN IP for `EXPO_PUBLIC_API_URL` when testing on a
+phone; `localhost` refers to the phone, not the computer. Reload Expo after
+changing `.env` so the value is re-inlined into the bundle.
 
 ## Structure
 

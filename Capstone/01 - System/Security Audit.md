@@ -8,7 +8,7 @@ source:
   - "src/lib/rate-limit.js"
   - "next.config.mjs"
   - "supabase/migrations/009_registration_policy.sql"
-last_verified: 2026-09-02
+last_verified: 2026-09-18
 ---
 
 # Security Audit
@@ -362,6 +362,95 @@ The planned security-settings work is now implemented and server-enforced:
 - Re-authentication restores the user's prior internal route via `isValidInternalPath()`-protected `sessionStorage`.
 - Focused tests in `src/lib/auth/idle-session.test.js` and `src/lib/auth/return-to.test.js` pass (12/12). Full suite passes **487/487 across 46 files**. `npm run verify:auth` reports **220/220 guarded methods**.
 
+## Live deployment assessment - 2026-09-18
+
+### Scope and safety
+
+- Target: `https://fleet-transpo.vercel.app` (public Vercel deployment).
+- Authorization: explicit user authorization for a non-destructive assessment.
+- Live actions were limited to `GET`, `HEAD`, and `OPTIONS` requests. No cookies,
+  credentials, form submissions, uploads, AI calls, `POST`, `PUT`, `PATCH`, or
+  `DELETE` requests were used. No production data was touched and no real
+  mutation occurred.
+- The live FleetMate model probe was not run because it writes temporary
+  `ailogs` rows, even though it cleans them up afterward.
+
+### Security test contract
+
+Trust boundaries are the Vercel web app, per-route `requireAuth()` guards, the
+separate mobile bearer-token surface, and Supabase PostgREST/anon access. The
+protected resources are employees, drivers, vehicles, trips, reservations,
+dispatch, evidence, GPS, uploads, maintenance, incidents, reports, and AI
+telemetry. The live pass covered public page/API behavior, unauthenticated
+rejection, malformed bearer rejection, CORS, security headers, public HTML
+secret patterns, route-presence drift, and the live database/anon contract.
+
+### Live results
+
+- `GET /api/vehicles`, `/api/trips`, `/api/system/health`, and
+  `/api/mobile/driver/me` returned `401` without a session.
+- Invalid bearer tokens returned `401` on both web and mobile-protected routes.
+- CORS rejected `https://evil.example` with `403`, allowed only
+  `https://fleet-transpo.vercel.app`, and returned `Vary: Origin`.
+- HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy`, and `Permissions-Policy` were present.
+- The public login HTML contained no matches for service-role/database/JWT/MFA
+  secrets, private-key blocks, password hashes, or credential-shaped `api_key`
+  fields. This does not prove that secrets are absent from every static bundle.
+- The live database contract passed: 59 relations classified, 58/59 with RLS,
+  zero unclassified or missing objects, zero contract violations, and the one
+  view (`driver_stats`) using `security_invoker`.
+- The anon probe found zero exposed relations. Its 49 `200 []` results were
+  resolved by the catalog check as RLS-deny-all; 10 relations explicitly
+  refused anon access.
+
+### Findings and deployment drift
+
+#### SEC-DEPLOY-001 - production CSP is behind the checked-in allowlist
+
+**Potential / LOW.** The live `Content-Security-Policy` still contains
+`img-src 'self' data: blob: https:`. The checked-in `next.config.mjs` narrows
+this to fleet storage, app, and known map origins, and the source also validates
+stored media references. The broad live header leaves a defense-in-depth gap for
+legacy or otherwise attacker-controlled image references, but no exploit was
+attempted and the source-side write guard limits demonstrated impact.
+
+**Remediation:** deploy the intended commit, then re-check the live CSP and
+perform a staging-only stored-media acceptance test.
+
+#### SEC-DEPLOY-002 - live deployment is missing newer local routes
+
+**INFO / release drift, not a confirmed vulnerability.** The local build emits
+`/api/integration/transport-requests/[id]/evidence`, `assigned-status`,
+`queue-impact`, `simulate`, and `return-matches`; the live deployment returned
+`404` for each while the parent request route returned `401`. This means the
+live security posture cannot be inferred from the current checked-in tree for
+those features.
+
+**Remediation:** verify the Vercel deployment commit/provenance and redeploy the
+approved tree before performing authenticated evidence or Copilot verification.
+
+### Local verification and limits
+
+- `npm run verify:auth`: 275/275 route methods guarded.
+- `npm run db:check`: 118 migration files valid.
+- `npm run build`: passed; 203 pages/routes emitted.
+- Targeted ESLint for the security assessment and route-auth audit: passed.
+- Full Vitest with the documented Windows workaround: 169 files passed and 2
+  files failed, with 1,909 passed and 5 failed tests. The five failures are
+  stale assessment assertions that still expect the former ten-year media URL
+  behavior and a face-photo test that still expects a URL to be persisted;
+  current source stores keys and signs on read. They were not silently changed.
+- Repository-wide `lint:ci` was blocked by generated `mobile/.expo` bundles,
+  not the touched security source; targeted lint passed.
+- Authenticated RBAC/IDOR, dispatch business rules, evidence references, GPS
+  ownership, uploads, MFA/reset, session revocation, race tests, and browser
+  rendering were not executed against production. They require approved test
+  accounts and preferably staging. Static/local coverage is not live proof.
+
+No Critical, High, or Medium vulnerability was confirmed in the tested scope.
+The live CSP drift remains a low-severity potential finding, and the route
+version drift remains an information-level release finding.
 ## Idle timeout was not enforced — FOUND AND FIXED 2026-09-18
 
 **The finding.** Everything above was true except the part that mattered. `resolveCurrentIdentity()` (`src/lib/api/utils.js`) slid `web_sessions.last_seen_at` on any authenticated request older than 5 minutes, ungated by human activity. Because every dashboard page polls (sidebar counts at 30s via `app-shell.jsx`, live map at 15–30s, dispatch plan at 10s, notifications at 15s — two with `refetchIntervalInBackground: true`), `last_seen_at` was refreshed roughly every 5.5 minutes by an abandoned browser. The 1-hour idle deadline never elapsed; **only the 12-hour absolute cap was ever enforced.**

@@ -5,13 +5,23 @@ import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
 import { query } from "@/lib/db";
+import { canonicalStoredRef, signedUrlFor } from "@/lib/storage/object-refs";
 import { v4 as uuidv4 } from "uuid";
 
-// Effectively-permanent signed URL: the same convention as fuel receipts
-// (storeFuelReceipt). drivers.face_image_url is rendered raw by the staff
-// driver page and the mobile avatar, so a 1-hour URL (the incident-photo
-// convention) would rot in the column within the hour.
-const FACE_URL_TTL_SECONDS = 60 * 60 * 24 * 365 * 10;
+const FACE_BUCKET = "face-captures";
+
+/**
+ * One hour.
+ *
+ * This used to be ten years because the URL was what got PERSISTED:
+ * `drivers.face_image_url` is rendered raw by the staff driver page, the mobile
+ * avatar and the app shell, so a short-lived URL would have rotted in the column
+ * within the hour (SEC-UPLOAD-003). The column holds the object KEY now and
+ * every reader signs per view, so this value only has to reach the client that
+ * just uploaded — the mobile app uses the response for its own avatar
+ * immediately.
+ */
+const FACE_URL_TTL_SECONDS = 60 * 60;
 
 /**
  * POST /api/driver/face-photo
@@ -20,9 +30,10 @@ const FACE_URL_TTL_SECONDS = 60 * 60 * 24 * 365 * 10;
  * POST /api/driver/license-scan contract): the mobile app sends the
  * camera/gallery image as a base64 data URL, the server validates it,
  * stores it in the private `face-captures` bucket (migration 006), and
- * writes the URL to the driver's own `face_image_url` — the same column
+ * writes the object KEY to the driver's own `face_image_url` — the same column
  * that backs the profile avatar AND the attendance face-verification
- * reference photo, so one upload serves both.
+ * reference photo, so one upload serves both. The response carries a
+ * short-lived signed URL for the client to display immediately.
  *
  * No AI gate (unlike license-scan): there is no face-detection infra in
  * the repo. Quality control is staff review via the notification below —
@@ -58,7 +69,7 @@ export async function POST(req) {
     const fileName = `${session.user.driverId}/${uuidv4()}.${validation.extension}`;
 
     const { error: uploadError } = await supabase.storage
-      .from("face-captures")
+      .from(FACE_BUCKET)
       .upload(fileName, validation.buffer, {
         contentType: validation.contentType,
         upsert: false,
@@ -69,19 +80,27 @@ export async function POST(req) {
       return err("Failed to securely store face photo.", 500);
     }
 
-    const { data: signedData, error: signedUrlError } = await supabase.storage
-      .from("face-captures")
-      .createSignedUrl(fileName, FACE_URL_TTL_SECONDS);
+    // The object KEY is what gets persisted — SEC-UPLOAD-003. Both columns below
+    // receive it, and readers (`signDriverMedia`, `/api/auth/profile`,
+    // `lib/auth.js`) turn it back into a short-lived URL on the way out.
+    // Bucket-qualified because `employees.avatar_url` also receives licence keys
+    // and so cannot infer its own bucket.
+    const storedRef = canonicalStoredRef(fileName, FACE_BUCKET) || fileName;
 
-    if (signedUrlError || !signedData?.signedUrl) {
-      console.error("Supabase face photo signed URL error:", signedUrlError);
+    // Signed BEFORE either write, so a signing failure cannot leave the row
+    // pointing at an object with no working reader.
+    const signedUrl = await signedUrlFor(FACE_BUCKET, storedRef, {
+      expiresIn: FACE_URL_TTL_SECONDS,
+    });
+    if (!signedUrl) {
+      console.error("Supabase face photo signed URL error: no signed URL returned");
       return err("Failed to generate URL for face photo.", 500);
     }
 
     await query(
       `UPDATE drivers SET face_image_url = $1, updated_at = NOW()
         WHERE driver_id = $2 AND deleted_at IS NULL`,
-      [signedData.signedUrl, session.user.driverId]
+      [storedRef, session.user.driverId]
     );
 
     // Keep the employee record's avatar_url in sync so the app shell and user dropdown
@@ -90,7 +109,7 @@ export async function POST(req) {
       await query(
         `UPDATE employees SET avatar_url = $1, updated_at = NOW()
           WHERE employee_id = $2 AND deleted_at IS NULL`,
-        [signedData.signedUrl, session.user.employeeId]
+        [storedRef, session.user.employeeId]
       );
     } else {
       await query(
@@ -100,7 +119,7 @@ export async function POST(req) {
           WHERE d.driver_id = $2
             AND d.employee_id = e.employee_id
             AND e.deleted_at IS NULL`,
-        [signedData.signedUrl, session.user.driverId]
+        [storedRef, session.user.driverId]
       );
     }
 
@@ -111,7 +130,7 @@ export async function POST(req) {
     return ok(
       {
         ok: true,
-        face_image_url: signedData.signedUrl,
+        face_image_url: signedUrl,
         driver_id: session.user.driverId,
       },
       201

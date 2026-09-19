@@ -18,8 +18,14 @@ export async function POST(req) {
     const file = formData.get(kind) || formData.get("receipt") || formData.get("image");
 
     try {
-      const { receiptUrl } = await storeFuelReceipt(file, session.user.driverId, folder);
-      return ok({ [`${kind}_url`]: receiptUrl }, 201);
+      const { receiptUrl, receiptPath } = await storeFuelReceipt(file, session.user.driverId, folder);
+      // Both shapes are returned for one release. `_url` is short-lived and is
+      // what current APKs preview and send to the scan endpoint; `_path` is the
+      // value that belongs in the record. The submit endpoints accept either and
+      // canonicalise the URL back to its key, so an already-installed client
+      // that only knows `_url` still stores a key — the app update is not
+      // required for the column to be right.
+      return ok({ [`${kind}_url`]: receiptUrl, [`${kind}_path`]: receiptPath }, 201);
     } catch (error) {
       return err(error.message || "Failed to upload image.", 400);
     }

@@ -242,6 +242,40 @@ Analysis overlays tentative trips on persisted commitments for both resources, i
 - Verified: `route-feasibility.test.js` (new `deadheadRequired:false` matrix + `unknownLegs`), `dispatch-radar.test.js` (scheduled-no-neighbors → SAFE/VERIFIED; unroutable-next → named UNKNOWN), updated `decision.test.js` + `queue-workspace.test.js`. Full suite 130 files / 1273 tests pass, ESLint clean, production build green.
 - **Uncommitted-tree sweep 2026-09-15:** no merge markers; fixed 2 lint errors (`copilot-conversation.test.js` children-prop, `dispatch-evidence.test.js` use-before-define); deleted dead `getAvailableVehiclesForReservation` (zero callers) and stray `debug.log`; all new services/routes verified wired (no orphans); no duplicate verdict logic (`dispatch-plan.service` reuses the shared engine).
 
+## The assign gate's ETA is server-derived — 2026-09-17
+
+The §4.8.3 travel+buffer gate at assign time used to be fed by the request body.
+`POST /api/integration/transport-requests/[id]/assign` read `body.travel` and
+built the ETA from it, which meant a caller who simply **omitted** `travel` skipped
+the gate, and one who sent a **low** `etaMinutes` cleared it. Neither left a trace,
+while the sanctioned `force: true` path demands a written `override_reason` and
+writes it to the timeline. Found by the security assessment (SEC-DISP-004, HIGH).
+
+- **The ETA is now derived server-side**, in `src/lib/scheduling/travel-signals.js`:
+  the previous commitment's **drop-off** to this request's **pickup**, through
+  `tomtomEtaMinutes`, falling back to a straight-line `etaFromDistanceKm`, else
+  UNKNOWN. The previous commitment's endpoint is the right origin — that is where
+  the resource actually finishes and starts travelling from — and unlike
+  last-known GPS it is always present when the gate matters.
+- **A caller-supplied estimate is a cross-check only.** Divergence past
+  `TRAVEL_ETA_DIVERGENCE_MIN` (15 min) raises a `TRAVEL_ETA_DIVERGENCE` WARNING
+  naming both numbers, surfaced on the success payload as `advisories`. It is
+  never the value the gate enforces. The legitimate manual-estimate capability
+  survives; its authority does not.
+- **Three outcomes, not two.** `TRAVEL_BUFFER_UNVERIFIED` (WARNING) fires when a
+  prior commitment exists but no ETA could be computed — visible, non-blocking.
+  The no-prior-commitment fail-open is **unchanged and still tested**: the gate
+  never fabricates a conflict from absent data. What changed is that "we could not
+  check" no longer looks identical to "we checked and it is fine".
+- The assign route's 409 filter reads `severity === "blocking"`, so both new
+  types inform the dispatcher without blocking. Both have `CONFLICT_LABEL`
+  entries, or the queue chips and dispatch board would render a raw key.
+- Verified: `conflicts-travel.test.js` (rewritten to assert the new contract),
+  `dispatch-business-logic.security.test.js` (forged low ETA, omitted `travel`,
+  divergence, within-tolerance, uncomputable route). Reverting the three touched
+  files to `HEAD` produces 8 failures — the fail-before half of the acceptance
+  rule.
+
 ## Related
 
 [[Dispatch State Machine]] · [[Trips]] · [[AI Advisory]] · [[UVVRP Number Coding]] · [[Feature Index]]

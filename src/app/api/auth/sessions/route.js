@@ -34,14 +34,14 @@ export async function DELETE(req) {
              WHERE family_id = $1 AND employee_id = $2 AND revoked_at IS NULL`,
           [id, employeeId]
         );
-    if (!result.rowCount) return err("Session not found or already signed out", 404);
+    if (!result.rowCount) return err("Session not found or already revoked", 404);
 
     await writeAudit(req, session, {
       action: "session_revoke",
       resource: kind === "web" ? "web_session" : "mobile_session",
       newValues: { session_id: id, kind },
     });
-    return ok({ message: "Session signed out", signInRequired: kind === "web" && id === session.user.sessionId });
+    return ok({ message: "Session revoked", signInRequired: kind === "web" && id === session.user.sessionId });
   } catch (error) {
     return handleError(error);
   }
@@ -68,7 +68,7 @@ export async function POST(req) {
       resource: "sessions",
       newValues: { current_session_preserved: true },
     });
-    return ok({ message: "Other sessions signed out" });
+    return ok({ message: "Other sessions revoked" });
   } catch (error) {
     return handleError(error);
   }

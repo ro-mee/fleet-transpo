@@ -1,6 +1,91 @@
 // Presentation of authoritative checks, never another eligibility/ranking engine.
 export const DECISION_LABELS = { ALL_CLEAR: 'Ready for confirmation', REVIEW_REQUIRED: 'Review required', BLOCKED: 'Blocked', INSUFFICIENT_DATA: 'Needs verification' };
 
+// Phase 1 — stable recovery reason codes. Advisory only: opening a record never
+// changes its status and an excluded vehicle is never selectable via recovery.
+export const RECOVERY_CODES = {
+  CAPACITY_MISMATCH: 'CAPACITY_MISMATCH',
+  VEHICLE_STATUS: 'VEHICLE_STATUS',
+  MAINTENANCE_CONFLICT: 'MAINTENANCE_CONFLICT',
+  PAIRING: 'PAIRING',
+  DRIVER_UNAVAILABLE: 'DRIVER_UNAVAILABLE',
+  LICENSE_EXPIRED: 'LICENSE_EXPIRED',
+  REGISTRATION_EXPIRED: 'REGISTRATION_EXPIRED',
+  INSURANCE_EXPIRED: 'INSURANCE_EXPIRED',
+  UVVRP_RESTRICTED: 'UVVRP_RESTRICTED',
+  SCHEDULE_CONFLICT: 'SCHEDULE_CONFLICT',
+  ROUTE_EVIDENCE: 'ROUTE_EVIDENCE',
+  REQUEST_EVIDENCE: 'REQUEST_EVIDENCE',
+  UNKNOWN: 'UNKNOWN',
+};
+
+// Allowlisted navigation targets. URLs are resolved in application code, never
+// from model prose.
+export const RECOVERY_RECORDS = ['vehicle', 'driver', 'maintenance', 'schedule', 'request'];
+
+function recoveryForCheckId(id, ctx = {}) {
+  switch (id) {
+    case 'capacity': return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Needs a larger vehicle', record: 'request', id: ctx.requestId ?? null, hint: 'This pair is too small; choose a larger vehicle class.' };
+    case 'maintenance': return { code: RECOVERY_CODES.MAINTENANCE_CONFLICT, fix: 'record', label: 'Check maintenance record', record: 'maintenance', id: ctx.vehicleId ?? null, hint: 'Complete or reschedule the service window for this vehicle.' };
+    case 'pairing': return { code: RECOVERY_CODES.PAIRING, fix: 'record', label: 'Check substitute schedule', record: 'schedule', id: ctx.vehicleId ?? null, hint: 'Add a dated substitute or confirm the custodian for the pickup date.' };
+    // `schedule` resolves to the DRIVER, and that is a dependency on the
+    // upstream candidate filters, not a property of this function. conflicts.js
+    // (:592) groups four conflict types into this one check — driver_unavailable
+    // and driver_conflict are driver-sourced, but vehicle_status and
+    // vehicle_conflict are not. Those two never reach a pair here: the SQL
+    // pre-filter in fetchCandidates drops grounded vehicles (they surface as
+    // prefiltered exclusions instead) and buildFleetPairRecommendations skips a
+    // vehicle whose `_schedule_load > 0` (pair-scoring.js:634/:645), which is
+    // also what conflicts.js:575 re-tests. A blocking `schedule` check on a pair
+    // is therefore always driverBlockReason's: approved leave, rest day, outside
+    // shift, during break. FM-VEH-007 freezes this, so widening either filter —
+    // or adding a vehicle-sourced type to conflicts.js:592 — fails the suite
+    // rather than silently mislabelling a vehicle fault as "Pick an available
+    // driver".
+    case 'schedule': return { code: RECOVERY_CODES.DRIVER_UNAVAILABLE, fix: 'choice', label: 'Pick an available driver', record: 'schedule', id: ctx.driverId ?? null, hint: 'This driver is unavailable for the window; choose an available driver.' };
+    case 'registration': return { code: RECOVERY_CODES.REGISTRATION_EXPIRED, fix: 'record', label: 'Renew vehicle registration', record: 'vehicle', id: ctx.vehicleId ?? null, hint: 'Renew the registration on the vehicle record.' };
+    case 'insurance': return { code: RECOVERY_CODES.INSURANCE_EXPIRED, fix: 'record', label: 'Renew vehicle insurance', record: 'vehicle', id: ctx.vehicleId ?? null, hint: 'Renew the insurance on the vehicle record.' };
+    case 'license': return { code: RECOVERY_CODES.LICENSE_EXPIRED, fix: 'record', label: 'Renew driver license', record: 'driver', id: ctx.driverId ?? null, hint: 'Renew the license on the driver record.' };
+    case 'incidents': return { code: RECOVERY_CODES.VEHICLE_STATUS, fix: 'record', label: 'Check incident record', record: 'vehicle', id: ctx.vehicleId ?? null, hint: 'Resolve the blocking incident for this vehicle.' };
+    case 'category': return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Check vehicle class', record: 'request', id: ctx.requestId ?? null, hint: 'Confirm the requested vehicle class.' };
+    case 'request': return { code: RECOVERY_CODES.REQUEST_EVIDENCE, fix: 'verify', label: 'Check reservation details', record: 'request', id: ctx.requestId ?? null, hint: 'Confirm pickup time and passenger count.' };
+    default: return { code: RECOVERY_CODES.UNKNOWN, fix: 'verify', label: 'Recheck this reservation', record: 'request', id: ctx.requestId ?? null, hint: 'Recheck to refresh the current evidence.' };
+  }
+}
+
+// Map one authoritative check to a single advisory recovery action.
+// Never classifies by display prose: check.id decides, message is evidence only.
+export function recoveryActionForCheck(check = {}, ctx = {}) {
+  if (!check || (check.status !== 'blocking' && check.status !== 'missing')) return null;
+  const base = recoveryForCheckId(check.id, ctx);
+  return { ...base, status: check.status, message: check.message ?? null };
+}
+
+// Fixable record issues first, then missing-evidence verification, then
+// choice-bound blockers (another vehicle/driver/date). Advisory order only.
+const FIX_ORDER = { record: 0, verify: 1, choice: 2 };
+export function sortRecoveryActions(actions = []) {
+  return [...actions].sort((a, b) => (FIX_ORDER[a?.fix] ?? 3) - (FIX_ORDER[b?.fix] ?? 3));
+}
+
+// Map a recorded exclusion (engine or pre-filtered) to advisory recovery.
+// Prefiltered rows carry plate + status/seats reason only.
+export function recoveryActionForExclusion(exclusion = {}, ctx = {}) {
+  const reason = String(exclusion?.reason ?? '');
+  const vehicleId = exclusion?.vehicleId ?? ctx.vehicleId ?? null;
+  if (/too small for/i.test(reason)) return { code: RECOVERY_CODES.CAPACITY_MISMATCH, fix: 'choice', label: 'Needs a larger vehicle', record: 'request', id: ctx.requestId ?? null, hint: 'Too small for this party; choose a larger vehicle class.', vehicleId };
+  if (/insurance/i.test(reason)) return { code: RECOVERY_CODES.INSURANCE_EXPIRED, fix: 'record', label: 'Renew vehicle insurance', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
+  if (/registration/i.test(reason)) return { code: RECOVERY_CODES.REGISTRATION_EXPIRED, fix: 'record', label: 'Renew vehicle registration', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
+  if (/license/i.test(reason)) return { code: RECOVERY_CODES.LICENSE_EXPIRED, fix: 'record', label: 'Renew driver license', record: 'driver', id: ctx.driverId ?? null, hint: reason, vehicleId };
+  if (/number-coding|coding restricted|uvvrp/i.test(reason)) return { code: RECOVERY_CODES.UVVRP_RESTRICTED, fix: 'choice', label: 'Coding-bound: another vehicle or date', record: 'vehicle', id: vehicleId, hint: 'Number coding is date-bound; this vehicle cannot serve that pickup day. Choose another vehicle or move the date.', vehicleId };
+  if (/status is/i.test(reason)) return { code: RECOVERY_CODES.VEHICLE_STATUS, fix: 'record', label: 'Check vehicle record', record: 'vehicle', id: vehicleId, hint: reason, vehicleId };
+  if (/maintenance/i.test(reason)) return { code: RECOVERY_CODES.MAINTENANCE_CONFLICT, fix: 'record', label: 'Check maintenance record', record: 'maintenance', id: vehicleId, hint: reason, vehicleId };
+  if (/substitute|pairing|custodian/i.test(reason)) return { code: RECOVERY_CODES.PAIRING, fix: 'record', label: 'Check substitute schedule', record: 'schedule', id: vehicleId, hint: reason, vehicleId };
+  if (/leave|schedule|shift|off duty|suspended/i.test(reason)) return { code: RECOVERY_CODES.DRIVER_UNAVAILABLE, fix: 'choice', label: 'Pick an available driver', record: 'schedule', id: ctx.driverId ?? null, hint: reason, vehicleId };
+  if (/route|location|gps|transfer|duration/i.test(reason)) return { code: RECOVERY_CODES.ROUTE_EVIDENCE, fix: 'verify', label: 'Verify route evidence', record: 'request', id: ctx.requestId ?? null, hint: reason, vehicleId };
+  return { code: RECOVERY_CODES.UNKNOWN, fix: 'verify', label: 'Recheck this reservation', record: 'request', id: ctx.requestId ?? null, hint: reason || 'No detailed reason recorded.', vehicleId };
+}
+
 // Fuel-level findings are engine records, never user-facing: dispatch never
 // refuses a pair for fuel, so fuel text is filtered out of every reason,
 // chip, warning and narration surface. Matches "Fuel at N%", "top-up",

@@ -11,6 +11,7 @@ import {
   View,
   Pressable,
   Modal,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -82,6 +83,7 @@ export default function Profile() {
   const { profile: serverProfile, reload } = useDriverProfile();
 
   const [logoutModal, setLogoutModal] = useState(false);
+  const [photoModalVisible, setPhotoModalVisible] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [duty, setDuty] = useState(null);
   const [dutyBusy, setDutyBusy] = useState(false);
@@ -143,7 +145,12 @@ export default function Profile() {
         );
         return;
       }
-      const options = { mediaTypes: ["images"], quality: 0.8 };
+      const options = {
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      };
       const result = source === "camera"
         ? await ImagePicker.launchCameraAsync(options)
         : await ImagePicker.launchImageLibraryAsync(options);
@@ -175,16 +182,8 @@ export default function Profile() {
 
   const handleAvatarPress = useCallback(() => {
     if (uploadingPhoto) return;
-    AppAlert.alert(
-      "Profile Photo",
-      "This photo also serves as your attendance face-verification reference. Choose a clear, front-facing photo.",
-      [
-        { text: "Take Photo", onPress: () => uploadFacePhoto("camera") },
-        { text: "Choose from Gallery", onPress: () => uploadFacePhoto("gallery") },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
-  }, [uploadingPhoto, uploadFacePhoto]);
+    setPhotoModalVisible(true);
+  }, [uploadingPhoto]);
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -194,8 +193,17 @@ export default function Profile() {
       >
         {/* Identity — compact horizontal clay card */}
         <ClayCard variant="compact" style={styles.identityCard}>
-          <View style={styles.avatarContainer}>
-
+          <Pressable
+            onPress={handleAvatarPress}
+            disabled={uploadingPhoto}
+            accessibilityRole="button"
+            accessibilityLabel={facePhotoUrl ? "Change profile photo" : "Add profile photo"}
+            accessibilityHint="Opens photo options to update your profile and attendance verification photo"
+            style={({ pressed }) => [
+              styles.avatarContainer,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.97 }] },
+            ]}
+          >
             {facePhotoUrl ? (
               <Image
                 source={{ uri: facePhotoUrl }}
@@ -218,12 +226,8 @@ export default function Profile() {
                 <ActivityIndicator size="small" color="#fff" />
               </View>
             ) : null}
-            <Pressable
-              onPress={handleAvatarPress}
-              accessibilityRole="button"
-              accessibilityLabel={facePhotoUrl ? "Change profile photo" : "Add profile photo"}
-              accessibilityHint="Opens camera or gallery to update the photo used for your profile and attendance verification"
-              style={({ pressed }) => [
+            <View
+              style={[
                 styles.editBadge,
                 {
                   backgroundColor: colors.surfaceContainerHigh,
@@ -236,13 +240,12 @@ export default function Profile() {
                   shadowOpacity: 0.12,
                   shadowRadius: 4,
                   elevation: 2,
-                  opacity: pressed ? 0.75 : 1,
                 },
               ]}
             >
-              <Ionicons name="pencil" size={12} color={colors.onSurfaceVariant} />
-            </Pressable>
-          </View>
+              <Ionicons name="camera" size={12} color={colors.onSurfaceVariant} />
+            </View>
+          </Pressable>
           <View style={styles.identityText}>
             <Text style={[type.titleLg, styles.profileName, { color: colors.onSurface }]}>{driverName}</Text>
             {currentUser?.status ? (
@@ -342,6 +345,123 @@ export default function Profile() {
             </View>
           </ClayCard>
         </View>
+      </Modal>
+
+      {/* Profile Photo Source Action Sheet */}
+      <Modal
+        visible={photoModalVisible}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        onRequestClose={() => setPhotoModalVisible(false)}
+      >
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setPhotoModalVisible(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close photo picker"
+        >
+          <Pressable style={styles.sheetContent} onPress={(e) => e.stopPropagation()}>
+            <ClayCard variant="standard" style={[styles.sheetCard, { backgroundColor: colors.surfaceContainerLow }]}>
+              {/* Drag Handle */}
+              <View style={[styles.dragHandle, { backgroundColor: colors.outlineVariant + '80' }]} />
+
+              {/* Header */}
+              <View style={styles.sheetHeader}>
+                <Text style={[type.titleLg, { color: colors.onSurface }]}>Profile Photo</Text>
+                <Text style={[type.bodySm, { color: colors.onSurfaceVariant, marginTop: 2 }]}>
+                  Update the photo used for your driver profile and attendance verification.
+                </Text>
+              </View>
+
+              {/* Guidance Notice Banner */}
+              <View style={[styles.guidanceBanner, { backgroundColor: colors.primaryContainer, borderColor: mats.clayTile.borderTopColor }]}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={colors.onPrimaryContainer} style={{ marginTop: 2 }} />
+                <Text style={[type.caption, { color: colors.onPrimaryContainer, flex: 1, lineHeight: 18 }]}>
+                  Please ensure your face is well-lit, centered, and clearly visible without sunglasses or hats.
+                </Text>
+              </View>
+
+              {/* Action Options */}
+              <View style={styles.sheetOptions}>
+                <Pressable
+                  onPress={() => {
+                    setPhotoModalVisible(false);
+                    uploadFacePhoto("camera");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take Photo with Camera"
+                  style={({ pressed }) => [
+                    styles.sheetOptionRow,
+                    {
+                      backgroundColor: colors.surfaceContainerLowest,
+                      borderColor: colors.outlineVariant + '40',
+                      opacity: pressed ? 0.8 : 1,
+                      transform: [{ scale: pressed ? 0.99 : 1 }],
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.sheetIconTile,
+                      mats.clayTile,
+                      { backgroundColor: colors.primaryContainer },
+                    ]}
+                  >
+                    <Ionicons name="camera-outline" size={22} color={colors.onPrimaryContainer} />
+                  </View>
+                  <View style={styles.sheetOptionText}>
+                    <Text style={[type.labelLg, { color: colors.onSurface }]}>Take Photo</Text>
+                    <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>Use camera for instant face capture</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setPhotoModalVisible(false);
+                    uploadFacePhoto("gallery");
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Choose from Photo Gallery"
+                  style={({ pressed }) => [
+                    styles.sheetOptionRow,
+                    {
+                      backgroundColor: colors.surfaceContainerLowest,
+                      borderColor: colors.outlineVariant + '40',
+                      opacity: pressed ? 0.8 : 1,
+                      transform: [{ scale: pressed ? 0.99 : 1 }],
+                    },
+                  ]}
+                >
+                  <View
+                    style={[
+                      styles.sheetIconTile,
+                      mats.clayTile,
+                      { backgroundColor: colors.primaryContainer },
+                    ]}
+                  >
+                    <Ionicons name="images-outline" size={22} color={colors.onPrimaryContainer} />
+                  </View>
+                  <View style={styles.sheetOptionText}>
+                    <Text style={[type.labelLg, { color: colors.onSurface }]}>Choose from Gallery</Text>
+                    <Text style={[type.caption, { color: colors.onSurfaceVariant }]}>Select from your existing photos</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceVariant} />
+                </Pressable>
+              </View>
+
+              {/* Cancel Button */}
+              <ClayButton
+                label="Cancel"
+                variant="tonal"
+                size="lg"
+                onPress={() => setPhotoModalVisible(false)}
+                style={{ alignSelf: "stretch", marginTop: 4 }}
+              />
+            </ClayCard>
+          </Pressable>
+        </Pressable>
       </Modal>
 
     </View>
@@ -478,4 +598,69 @@ const styles = StyleSheet.create({
   modalTitle: { },
   modalBody: { textAlign: "center", paddingHorizontal: moderateScale(8) },
   modalActions: { flexDirection: "row", gap: moderateScale(12), marginTop: moderateScale(8), alignSelf: "stretch" },
+
+  sheetBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(12, 18, 16, 0.6)",
+    justifyContent: "flex-end",
+  },
+  sheetContent: {
+    width: "100%",
+  },
+  sheetCard: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+    paddingHorizontal: moderateScale(20),
+    paddingTop: moderateScale(12),
+    paddingBottom: moderateScale(Platform.OS === "ios" ? 36 : 24),
+    gap: moderateScale(14),
+    borderWidth: 1,
+    borderBottomWidth: 0,
+  },
+  dragHandle: {
+    width: 38,
+    height: 4.5,
+    borderRadius: 3,
+    alignSelf: "center",
+    marginBottom: moderateScale(4),
+  },
+  sheetHeader: {
+    gap: moderateScale(4),
+  },
+  guidanceBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: moderateScale(10),
+    padding: moderateScale(12),
+    borderRadius: moderateScale(16),
+    borderWidth: 1,
+  },
+  sheetOptions: {
+    gap: moderateScale(10),
+  },
+  sheetOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: moderateScale(14),
+    padding: moderateScale(14),
+    borderRadius: moderateScale(20),
+    borderWidth: 1,
+    minHeight: moderateScale(60),
+  },
+  sheetIconTile: {
+    width: moderateScale(44),
+    height: moderateScale(44),
+    borderRadius: moderateScale(16),
+    alignItems: "center",
+    justifyContent: "center",
+    borderTopWidth: 1.5,
+    borderBottomWidth: 2,
+  },
+  sheetOptionText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
 });

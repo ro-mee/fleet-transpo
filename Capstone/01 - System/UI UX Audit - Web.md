@@ -124,11 +124,12 @@ impeccable (Operate critique + craft floor + mechanical detector), taste
   `/reservations/queue`, scheduled → `/dispatch`, in-progress/completed →
   `/trips`; System Admin cards → `/settings/users`, sessions →
   `/settings/security`.
-- Admin Operational Attention is now three-state: danger treatment only while a
-  real count exists, success-calm when all zeros, neutral while feeds resolve
-  (previously always danger-styled, a false alarm on a healthy operation).
+- Admin Operational Attention and Dispatcher Needs Attention now are per-cell styled:
+  individual cell backgrounds are red (`bg-danger/5`) when exceptions exist (>0) and
+  stay calm green (`bg-success/5`) when zero, preventing a single issue from turning all
+  unrelated healthy cells red. Unknown feeds remain neutral (`bg-hover/40`).
   Cells use severity-tinted icon chips with `aria-label`s; ping dots only on
-  real issues (`role-dashboard.jsx` AdminDashboard).
+  real issues (`role-dashboard.jsx` AdminDashboard & DispatcherDashboard).
 - System Admin failure banner lost its 4px colored `border-left` (craft-floor
   ban) in favor of a tinted icon chip + `role="alert"`.
 - `DistributionMeter` bar is now `role="img"` with a text summary; decorative

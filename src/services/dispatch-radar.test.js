@@ -8,6 +8,7 @@ vi.mock('@/lib/scheduling/driver-schedule',()=>({driverBlockReason:vi.fn(()=>nul
 vi.mock('@/services/route-resolver.service',()=>({resolveRouteEndpoints:vi.fn(async()=>({originLocation:{latitude:14.5,longitude:121},destinationLocation:{latitude:14.6,longitude:121}}))}));
 vi.mock('@/services/route-feasibility-context.service',()=>({resolveDeadheadMinutes:vi.fn(),provenanceOfEstimate:()=> 'snapshot'}));
 import { query } from '@/lib/db';
+import { driverBlockReason } from '@/lib/scheduling/driver-schedule';
 import { standbyState } from '@/services/standby.service';
 import { detectRequestConflicts } from '@/lib/scheduling/conflicts';
 import { resolveDeadheadMinutes } from '@/services/route-feasibility-context.service';
@@ -136,4 +137,26 @@ it('names the unverified turnaround dispatch instead of a generic planning warni
   expect(result.feasibility.verdict).toBe('UNKNOWN');
   expect(result.feasibility.reasons.join(' ')).toMatch(/Unverified turnaround before dispatch #21/);
   expect(result.feasibility.reasons.join(' ')).not.toMatch(/Scheduled planning/);
+});
+it('skips the release-to-end duty re-check when it spans calendar days (RS-W3JU)',async()=>{
+  // Driver freed days ago, trip the day after tomorrow: the [release → trip
+  // end] span covers an unrelated day's lunch break, so checking it against a
+  // single day's schedule false-positives. The trip-day check in
+  // detectRequestConflicts stays authoritative.
+  now=new Date('2026-09-19T09:00:00+08:00');
+  request={...request,pickup_datetime:new Date('2026-09-21T20:00:00+08:00').toISOString()};
+  query.mockImplementation(async sql=>({rows:String(sql).includes('FROM dispatchschedules')?[{dispatch_id:597,driver_id:1,vehicle_id:1,status:'Scheduled',scheduled_departure:new Date('2026-09-17T12:00:00+08:00'),scheduled_arrival:new Date('2026-09-17T12:09:00+08:00'),dropoff_location:'Makati',pickup_location:'NAIA'}]:[]}));
+  driverBlockReason.mockReturnValueOnce({blocked:true,reason:'During lunch/break (12:00 PM–1:00 PM).'});
+  const result=await evaluate({now});
+  expect((result.hardConflicts||[]).some(c=>c.type==='duty_window')).toBe(false);
+  expect(driverBlockReason).not.toHaveBeenCalled();
+});
+it('still applies the release-to-end duty re-check within one calendar day',async()=>{
+  now=new Date('2026-09-19T09:00:00+08:00');
+  request={...request,pickup_datetime:new Date('2026-09-19T14:00:00+08:00').toISOString()};
+  query.mockImplementation(async sql=>({rows:String(sql).includes('FROM dispatchschedules')?[{dispatch_id:598,driver_id:1,vehicle_id:1,status:'Scheduled',scheduled_departure:new Date('2026-09-19T07:00:00+08:00'),scheduled_arrival:new Date('2026-09-19T08:00:00+08:00'),dropoff_location:'Makati',pickup_location:'NAIA'}]:[]}));
+  driverBlockReason.mockReturnValueOnce({blocked:true,reason:'During lunch/break (12:00 PM–1:00 PM).'});
+  const result=await evaluate({now});
+  expect((result.hardConflicts||[]).some(c=>c.type==='duty_window')).toBe(true);
+  expect(result.feasibility.verdict).toBe('INFEASIBLE');
 });

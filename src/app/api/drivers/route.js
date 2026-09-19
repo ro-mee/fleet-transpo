@@ -1,7 +1,8 @@
 import bcrypt from "bcryptjs";
 import { query, getAdminClient } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
+import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
+import { signDriverMedia, signDriverMediaList, toStoredMediaRef } from "@/lib/drivers/media";
 import { ROLE_IDS } from "@/lib/constants";
 import { loadDriverTravelContext, driverCanTravel } from "@/lib/uvvrp/uvvrp.service";
 import { loadDriverScheduleContext } from "@/services/driver-schedule.service";
@@ -195,8 +196,7 @@ export async function GET(req) {
       const scheduleCtx = await loadDriverScheduleContext(data.map((d) => d.driver_id));
       const pickup = new Date(pickupAt);
       const returnDate = returnAt ? new Date(returnAt) : null;
-      return ok(
-        data.filter((d) => {
+      const filtered = data.filter((d) => {
           if (!driverCanTravel(d, ctx)) return false;
           const block = driverBlockReason({
             driverId: d.driver_id,
@@ -207,11 +207,12 @@ export async function GET(req) {
           if (block?.blocked) return false;
           d.schedule_warning = block?.warning ? block.reason : null;
           return true;
-        })
-      );
+      });
+      return ok(await signDriverMediaList(filtered));
     }
 
-    return ok(data);
+    // Media columns hold object keys; resolve them for the response.
+    return ok(await signDriverMediaList(data));
   } catch (e) {
     return handleError(e);
   }
@@ -255,6 +256,10 @@ export async function POST(req) {
       phone: { type: "phone", label: "Phone" },
       license_number: { required: true, type: "license", label: "License number", maxLength: 30 },
       license_expiry: { type: "date", label: "License expiry" },
+      // A stored scan reference binds to an <img src> for other staff, so it is
+      // held to the same allow-list the sibling media endpoints already apply.
+      license_image_url: { type: "mediaUrl", label: "License front scan" },
+      license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       birthdate: { type: "date", label: "Birthdate" },
       sex: { maxLength: 20, label: "Sex" },
@@ -267,6 +272,14 @@ export async function POST(req) {
     }
 
     const supabase = getAdminClient();
+
+    // Reduce the submitted scans to their STORED form (a bucket-qualified object
+    // key) before either the driver row or the employee avatar mirror is
+    // written — see `lib/drivers/media`. One canonical value feeds both, so they
+    // cannot disagree, and a client that echoes back a signed URL it was shown
+    // cannot plant one in a durable column.
+    const storedLicenceFront = toStoredMediaRef(license_image_url, "driver-licenses");
+    const storedLicenceBack = toStoredMediaRef(license_back_image_url, "driver-licenses");
 
     // Auto-generate placeholder email if none provided
     const empEmail =
@@ -336,7 +349,7 @@ export async function POST(req) {
           email: normalizeEmail(empEmail),
           phone: normalizePhone(phone) || null,
           position: position || "Driver",
-          avatar_url: (license_image_url && typeof license_image_url === "string" && license_image_url.startsWith("http") && license_image_url.length <= 512) ? license_image_url : null,
+          avatar_url: (storedLicenceFront && typeof storedLicenceFront === "string" && storedLicenceFront.length <= 512 && isAllowedStoredImageRef(storedLicenceFront)) ? storedLicenceFront : null,
           role_id: roleId,
           password_hash: passwordHash,
         })
@@ -376,8 +389,8 @@ export async function POST(req) {
         sex: sex || null,
         birthdate: birthdate || null,
         nationality: nationality || null,
-        license_image_url: license_image_url || null,
-        license_back_image_url: license_back_image_url || null,
+        license_image_url: storedLicenceFront ?? null,
+        license_back_image_url: storedLicenceBack ?? null,
         emergency_contact_name: emergency_contact_name || null,
         emergency_contact_phone: emergency_contact_phone || null,
         emergency_contact_address: emergency_contact_address || null,
@@ -426,7 +439,7 @@ export async function POST(req) {
     `;
 
     const { rows } = await query(fetchSql, [driverId]);
-    return ok(rows[0], 201);
+    return ok(await signDriverMedia(rows[0]), 201);
   } catch (e) {
     return handleError(e);
   }

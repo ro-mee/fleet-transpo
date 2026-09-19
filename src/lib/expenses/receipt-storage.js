@@ -22,12 +22,12 @@ export async function storeExpenseReceipt(file, driverId, submissionId) {
   const receipt_sha256 = hashSum.digest('hex');
 
   const contentType = validation.contentType;
-  const suppliedExt = file.name?.split(".").pop()?.toLowerCase();
+  // Server-derived extension — see the note in lib/fuel/receipt-storage.js.
   const fallbackExt = validation.extension || "jpg";
-  
+
   // Predictable protected namespace: expenses/{driver_id}/{client_submission_id}/receipt.*
   const safeSubmissionId = String(submissionId || uuidv4()).replace(/[^a-zA-Z0-9-]/g, "");
-  const fileName = `${driverId}/${safeSubmissionId}/receipt.${suppliedExt || fallbackExt}`;
+  const fileName = `${driverId}/${safeSubmissionId}/receipt.${fallbackExt}`;
   const supabase = createAdminClient();
 
   const { error: uploadError } = await supabase.storage

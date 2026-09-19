@@ -34,12 +34,13 @@ function mount(preference) {
 
 it('bounds launch time, uses native non-blocking motion, and completes once even when finish events race', () => {
   const launch = mount(false);
-  expect(launch.timers[0].delay).toBeLessThanOrEqual(2300);
+  expect(source).not.toContain('car animation.json');
+  expect(launch.timers[0].delay).toBeLessThanOrEqual(1100);
   expect(launch.timings.every(config=>config.useNativeDriver && config.isInteraction === false)).toBe(true);
   launch.finish();
   launch.timers[0].callback();
   expect(launch.complete).toHaveBeenCalledTimes(1);
-  expect(launch.timings.at(-1).duration).toBe(240);
+  expect(launch.timings.at(-1).duration).toBe(180);
   launch.cleanup.forEach(cleanup=>cleanup?.());
   expect(launch.stopped).toHaveBeenCalledOnce();
 });

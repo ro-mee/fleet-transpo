@@ -1,6 +1,7 @@
 import { query, transaction } from "@/lib/db";
 import { requireDriver, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject, normalizePhone, isUrl, isBase64DataUrl } from "@/lib/validation/helpers";
+import { validateBody, isValidObject, normalizePhone, isBase64DataUrl } from "@/lib/validation/helpers";
+import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
 import { PRIVACY_POLICY, CURRENT_PRIVACY_POLICY_VERSION } from "@/lib/consent/policies";
 import { syncDriverStatus } from "@/services/status.service";
 import {
@@ -135,6 +136,13 @@ export async function GET(req) {
     ).catch(() => ({ rows: [] }));
     const latest = consentRows[0] ?? null;
 
+    // Resolve the stored media references to short-lived URLs for the response.
+    // The columns hold object keys now (SEC-UPLOAD-006) and a key is not
+    // renderable — the mobile app and the web driver home bind these straight to
+    // an <img src>. Signing converts a legacy stored URL into a fresh
+    // short-lived one too, so a ten-year token never leaves the server.
+    const media = await signDriverMedia(driver);
+
     return ok({
       employeeId: driver.employee_id,
       email: driver.email,
@@ -143,17 +151,17 @@ export async function GET(req) {
       phone: driver.phone,
       driverId: driver.driver_id,
       driverStatus: driver.driver_status,
-      avatarUrl: driver.face_image_url || driver.avatar_url || null,
-      faceImageUrl: driver.face_image_url || null,
+      avatarUrl: media.face_image_url || media.avatar_url || null,
+      faceImageUrl: media.face_image_url || null,
       license: {
         number: driver.license_number,
         type: driver.license_type,
         class: driver.license_class,
         expiry: driver.license_expiry,
         yearsExperience: driver.years_of_experience,
-        imageUrl: driver.face_image_url,
-        frontScanImageUrl: driver.license_image_url,
-        backScanImageUrl: driver.license_back_image_url,
+        imageUrl: media.face_image_url,
+        frontScanImageUrl: media.license_image_url,
+        backScanImageUrl: media.license_back_image_url,
       },
       performance,
       trips,
@@ -215,7 +223,12 @@ export async function PATCH(req) {
 
     const errors = validateBody(body, {
       phone: { type: "phone", label: "Phone" },
-      face_image_url: { type: "url", label: "Face image URL" },
+      // Was `url` (isUrl), which admits ANY host — it is a scheme check, not a
+      // host check. The value is bound to an <img src> in the staff chrome
+      // (app-shell.jsx:348, user-dropdown.jsx:52), so a foreign host there is a
+      // beacon reporting each viewer's IP. Held to the same rule the sibling
+      // media fields use (mediaUrl, SEC-UPLOAD-008).
+      face_image_url: { type: "mediaUrl", label: "Face image URL" },
       license_image_url: { type: "base64Url", label: "License front scan" },
       license_back_image_url: { type: "base64Url", label: "License back scan" },
       license_expiry: { type: "date", label: "License expiry" },
@@ -243,8 +256,15 @@ export async function PATCH(req) {
       ]);
     }
     if (body.face_image_url !== undefined) {
+      // Canonicalise to the STORED form rather than writing what arrived. The
+      // read above hands this driver a short-lived signed URL (`faceImageUrl`),
+      // and a client that echoes it back would otherwise persist a value that
+      // expires within the hour — the SEC-UPLOAD-003 defect, re-created through
+      // this door. A key passes through requalified; a legacy storage URL has
+      // its key recovered from the path; anything else the rule accepted is
+      // left verbatim, which is the behaviour that existed before.
       await query(`UPDATE drivers SET face_image_url = $1, updated_at = NOW() WHERE driver_id = $2`, [
-        isUrl(body.face_image_url) ? body.face_image_url : null,
+        toStoredMediaRef(body.face_image_url, "face-captures") ?? null,
         driver.driver_id,
       ]);
     }

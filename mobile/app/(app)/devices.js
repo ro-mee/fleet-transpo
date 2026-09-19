@@ -31,7 +31,7 @@ export default function LoggedInDevicesScreen() {
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
   const isDark = scheme === "dark";
-  const { clearAuth } = useAuth();
+  const { signOut } = useAuth();
 
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +45,7 @@ export default function LoggedInDevicesScreen() {
       const data = await apiFetch("/api/auth/sessions");
       setSessions(data.sessions || []);
     } catch (err) {
-      setError(err.message || "Failed to load logged-in devices.");
+      setError(err.message || "Failed to load active sessions.");
     } finally {
       setLoading(false);
     }
@@ -60,17 +60,18 @@ export default function LoggedInDevicesScreen() {
     const isCurrent = session.is_current || session.current;
 
     AppAlert.alert(
-      "Sign out this device?",
+      "Revoke this session?",
       isCurrent
-        ? "This will sign you out of your current device. You will need to log in again."
-        : `This will end the session on ${session.device}. The device will need to log in again to access your account.`,
+        ? "This revokes the current app session and returns you to the sign-in screen."
+        : `This immediately revokes the session on ${session.device}. The device will need to sign in again to access your account.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Sign Out",
+          text: "Revoke",
           style: "destructive",
           onPress: async () => {
-            setRevoking(session.id);
+            const sessionKey = `${session.kind}:${session.id}`;
+            setRevoking(sessionKey);
             try {
               await apiFetch("/api/auth/sessions", {
                 method: "DELETE",
@@ -78,13 +79,14 @@ export default function LoggedInDevicesScreen() {
               });
 
               if (isCurrent) {
-                await clearAuth();
+                // The API already revoked this family; signOut clears local tokens and cache.
+                await signOut();
                 router.replace("/login");
               } else {
-                setSessions(prev => prev.filter(s => s.id !== session.id));
+                setSessions(prev => prev.filter(s => s.id !== session.id || s.kind !== session.kind));
               }
             } catch (err) {
-              AppAlert.alert("Error", err.message || "Failed to sign out device.", [{ text: "OK" }]);
+              AppAlert.alert("Error", err.message || "Failed to revoke session.", [{ text: "OK" }]);
             } finally {
               setRevoking(null);
             }
@@ -118,7 +120,7 @@ export default function LoggedInDevicesScreen() {
       ) : sessions.length === 0 ? (
         <View style={styles.centerContainer}>
           <ClayTile icon="desktop-outline" size={56} variant="surface" style={{ marginBottom: 16 }} />
-          <Text style={[type.titleMd, { color: colors.onSurface }]}>No logged-in devices</Text>
+          <Text style={[type.titleMd, { color: colors.onSurface }]}>No active sessions</Text>
           <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, textAlign: 'center', marginTop: 8 }]}>
             You currently have no active sessions.
           </Text>
@@ -126,20 +128,23 @@ export default function LoggedInDevicesScreen() {
       ) : (
         <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 20 }]}>
           <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, marginBottom: 8 }]}>
-            {sessions.length} device{sessions.length === 1 ? '' : 's'}
+            {sessions.length} active session{sessions.length === 1 ? '' : 's'}
+          </Text>
+          <Text style={[type.caption, { color: colors.onSurfaceVariant, marginBottom: 8 }]}>
+            The same IP can appear on multiple sessions when devices share Wi-Fi or a mobile network.
           </Text>
 
           {currentSessions.length > 0 && (
             <>
-              <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>CURRENT DEVICE</Text>
+              <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant }]}>CURRENT SESSION</Text>
               {currentSessions.map(session => (
                 <SessionCard
-                  key={session.id}
+                  key={`${session.kind}:${session.id}`}
                   session={session}
                   colors={colors}
                   type={type}
                   isDark={isDark}
-                  isRevoking={revoking === session.id}
+                  isRevoking={revoking === `${session.kind}:${session.id}`}
                   onRevoke={() => handleRevoke(session)}
                 />
               ))}
@@ -148,15 +153,15 @@ export default function LoggedInDevicesScreen() {
 
           {otherSessions.length > 0 && (
             <>
-              <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant, marginTop: 24 }]}>OTHER DEVICES</Text>
+              <Text style={[styles.groupLabel, { color: colors.onSurfaceVariant, marginTop: 24 }]}>OTHER SESSIONS</Text>
               {otherSessions.map(session => (
                 <SessionCard
-                  key={session.id}
+                  key={`${session.kind}:${session.id}`}
                   session={session}
                   colors={colors}
                   type={type}
                   isDark={isDark}
-                  isRevoking={revoking === session.id}
+                  isRevoking={revoking === `${session.kind}:${session.id}`}
                   onRevoke={() => handleRevoke(session)}
                 />
               ))}
@@ -183,7 +188,7 @@ function SessionCard({ session, colors, type, isDark, isRevoking, onRevoke }) {
           </Text>
         </View>
         {isCurrent && (
-          <ClayBadge label="This device" variant="primary" dot size="sm" />
+          <ClayBadge label="This session" variant="primary" dot size="sm" />
         )}
       </View>
 
@@ -202,11 +207,18 @@ function SessionCard({ session, colors, type, isDark, isRevoking, onRevoke }) {
           </Text>
         </View>
 
+        <View style={styles.infoRow}>
+          <Ionicons name="log-in-outline" size={16} color={colors.onSurfaceVariant} />
+          <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, marginLeft: 8 }]}>
+            Session started {formatDate(session.createdAt)}
+          </Text>
+        </View>
+
         {session.ipAddress && (
           <View style={styles.infoRow}>
             <Ionicons name="git-network-outline" size={16} color={colors.onSurfaceVariant} />
             <Text style={[type.bodyMd, { color: colors.onSurfaceVariant, marginLeft: 8 }]}>
-              IP: {session.ipAddress}
+              Network IP: {session.ipAddress}
             </Text>
           </View>
         )}
@@ -214,13 +226,13 @@ function SessionCard({ session, colors, type, isDark, isRevoking, onRevoke }) {
 
       <View style={[styles.cardFooter, { borderTopColor: isDark ? colors.outlineVariant + "55" : "transparent" }]}>
         <ClayButton
-          label="Sign Out"
+          label="Revoke session"
           variant="danger"
           size="md"
           loading={isRevoking}
           disabled={isRevoking}
           onPress={onRevoke}
-          accessibilityLabel={`Sign out ${session.device || "device"}`}
+          accessibilityLabel={`Revoke ${session.device || "device"} session`}
         />
       </View>
     </ClayCard>

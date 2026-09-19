@@ -18,7 +18,12 @@ import {
   CURRENT_FUEL_TRIP_STATUSES,
   FORECAST_FUEL_TRIP_STATUSES,
 } from "@/lib/fuel/request-policy";
-import { isOwnedFuelImageUrl } from "@/lib/fuel/receipt-storage";
+import {
+  isOwnedFuelImageUrl,
+  toStoredReceiptRef,
+  signFuelReceipt,
+  signFuelReceiptList,
+} from "@/lib/fuel/receipt-storage";
 
 const currentAllocationMonth = () => `${toCalendarDay(new Date()).slice(0, 7)}-01`;
 const SELECT_REQUESTS = `
@@ -93,7 +98,7 @@ export async function GET(req) {
        FROM fuelrequests r ${clause}`,
       params
     );
-    return ok({ rows, counts: countRows[0] });
+    return ok({ rows: await signFuelReceiptList(rows), counts: countRows[0] });
   } catch (e) {
     return handleError(e);
   }
@@ -114,6 +119,13 @@ export async function POST(req) {
     if (!isOwnedFuelImageUrl(body.gauge_photo_url, session.user.driverId, "gauge")) {
       return err("The gauge photo is not a valid upload for this driver", 400);
     }
+    // `gauge_photo_url` holds an object key, not a URL (SEC-UPLOAD-003). The
+    // driver is handed a short-lived URL at upload and echoes it back here, so
+    // reduce it to the key on the way in; fail closed if it does not resolve.
+    body.gauge_photo_url = toStoredReceiptRef(body.gauge_photo_url);
+    if (!body.gauge_photo_url) {
+      return err("The gauge photo is not a valid upload for this driver", 400);
+    }
     const gaugeScanEstimate = Number(body.gauge_scan_estimate);
     const gaugeScan = Number.isFinite(gaugeScanEstimate) && gaugeScanEstimate >= 0 && gaugeScanEstimate <= 100
       ? { estimated_level_percent: Math.round(gaugeScanEstimate) }
@@ -126,7 +138,7 @@ export async function POST(req) {
       `SELECT * FROM fuelrequests WHERE driver_id = $1 AND client_submission_id = $2 LIMIT 1`,
       [session.user.driverId, body.client_submission_id]
     );
-    if (duplicates[0]) return ok(duplicates[0]);
+    if (duplicates[0]) return ok(await signFuelReceipt(duplicates[0]));
 
     const vehicleResult = tripId
       ? await query(
@@ -267,7 +279,7 @@ export async function POST(req) {
       resourceId: rows[0].fuel_request_id,
       newValues: rows[0],
     });
-    return ok(rows[0], 201);
+    return ok(await signFuelReceipt(rows[0]), 201);
   } catch (e) {
     if (e?.code === "23505") return err("This vehicle already has an open fuel request", 409);
     return handleError(e);
@@ -353,7 +365,7 @@ export async function PUT(req) {
       oldValues: result.old,
       newValues: result.updated,
     });
-    return ok(result.updated);
+    return ok(await signFuelReceipt(result.updated));
   } catch (e) {
     return handleError(e);
   }

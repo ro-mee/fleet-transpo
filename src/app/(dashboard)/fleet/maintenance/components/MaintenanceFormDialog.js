@@ -95,6 +95,7 @@ export default function MaintenanceFormDialog({ isOpen, onClose, initialData }) 
                 <Select name="status" value={formData.status} onChange={handleChange} required>
                   <option value="Scheduled">Scheduled</option>
                   <option value="In Progress">In Progress</option>
+                  <option value="Pending Inspection">Pending Inspection</option>
                   <option value="Completed">Completed</option>
                   <option value="Cancelled">Cancelled</option>
                 </Select>

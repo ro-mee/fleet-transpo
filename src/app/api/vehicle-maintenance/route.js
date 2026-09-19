@@ -71,7 +71,7 @@ const MT_COUNTS_SQL = `
   SELECT
     count(*) AS total,
     count(*) FILTER (WHERE vm.status = 'Scheduled') AS scheduled,
-    count(*) FILTER (WHERE vm.status = 'In Progress') AS "inProgress",
+    count(*) FILTER (WHERE vm.status IN ('In Progress', 'Pending Inspection')) AS "inProgress",
     COALESCE(SUM(vm.cost), 0) AS total_cost
   FROM vehiclemaintenance vm WHERE vm.deleted_at IS NULL
 `;

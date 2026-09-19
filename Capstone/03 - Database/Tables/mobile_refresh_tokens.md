@@ -8,7 +8,7 @@ source:
   - src/app/api/mobile/auth/login/route.js
   - src/app/api/mobile/auth/refresh/route.js
   - src/lib/api/utils.js
-last_verified: 2026-09-08
+last_verified: 2026-09-19
 ---
 
 # Table: `mobile_refresh_tokens`
@@ -37,6 +37,10 @@ Each refresh consumes its token and issues a new one. Presenting a consumed toke
 > *"…the first would succeed and the other two would present an already-revoked token and log the driver out."*
 
 **Families, not rows, are the session.** Rotation revokes the old row and inserts a new one *with the same `family_id`* (migration 087), so a live session's family accumulates rows: exactly one active, N revoked. The 2026-09-08 SESSION_REVOKED storm came from a family-liveness check that sampled an arbitrary row (`LIMIT 1`, no `ORDER BY` or active-row filter) instead of asking "does this family still have an active row?" — once a family rotated, PostgreSQL could return a revoked row and the live session read as revoked. → [[Token Rotation And Refresh Races]]
+
+The family ID is the session identity used by Devices & Sessions. IP address
+and user-agent values are descriptive metadata only; shared networks can make
+multiple real sessions show the same IP, so they are not deduplication keys.
 
 ## Why the row count only grows — CONFIRMED
 

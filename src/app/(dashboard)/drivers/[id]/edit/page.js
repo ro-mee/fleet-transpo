@@ -586,16 +586,6 @@ export default function EditDriverPage() {
                         <Upload className="w-4 h-4 text-primary" /> Upload Front Scan
                       </div>
                     </div>
-                    <Input
-                      placeholder="Or Front License URL..."
-                      value={values.license_image_url || ""}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        form.setValue("license_image_url", url);
-                        if (url.startsWith("http") || url.startsWith("data:")) setLicenseImagePreview(url);
-                      }}
-                      className="h-9 text-xs rounded-xl"
-                    />
                   </div>
                 </div>
 
@@ -653,16 +643,6 @@ export default function EditDriverPage() {
                         <Upload className="w-4 h-4 text-primary" /> Upload Back Scan
                       </div>
                     </div>
-                    <Input
-                      placeholder="Or Back License URL..."
-                      value={values.license_back_image_url || ""}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        form.setValue("license_back_image_url", url);
-                        if (url.startsWith("http") || url.startsWith("data:")) setLicenseBackImagePreview(url);
-                      }}
-                      className="h-9 text-xs rounded-xl"
-                    />
                   </div>
                 </div>
 

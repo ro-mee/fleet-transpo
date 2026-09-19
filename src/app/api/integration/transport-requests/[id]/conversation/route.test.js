@@ -7,12 +7,50 @@ vi.mock('@/services/dispatch-radar.service',()=>({applyDispatchRadar:vi.fn(async
 vi.mock('@/services/dispatch-plan-evidence.service',()=>({verifyPlanToken:vi.fn()}));
 vi.mock('@/lib/ai/llm-adapter',()=>({executeLlmCompletion:vi.fn(async()=>({success:false}))}));
 import {requirePermission} from '@/lib/api/utils';
+import {loadRequest} from '@/services/reservation-lifecycle.service';
 import {prepareDispatchRecommendation} from '@/services/dispatch-recommendation-preparation.service';
 import {executeLlmCompletion} from '@/lib/ai/llm-adapter';
 import {verifyPlanToken} from '@/services/dispatch-plan-evidence.service';
 import {POST} from './route';
+process.env.NEXTAUTH_SECRET ??= 'test-secret-for-conversation';
 const call=body=>POST(new Request('http://localhost/conversation',{method:'POST',body:JSON.stringify(body)}),{params:Promise.resolve({id:'1'})});
 beforeEach(()=>{vi.clearAllMocks();requirePermission.mockResolvedValue({user:{employeeId:1}});});
+it.each([
+  ['Hi','Hi. How can I help with this reservation or fleet operation?'],
+  ['Thanks','Hi. How can I help with this reservation or fleet operation?'],
+  ['Recommend a movie.',"I'm focused on FleetOps and transportation operations. I can help with reservations, dispatch, drivers, vehicles, trips, ETA, incidents, or related fleet decisions."],
+])('handles %s without reservation/provider work',async(message,answer)=>{
+  const response=await call({message,selectedPair:{vehicleId:7,driverId:8},displayedOptions:[{vehicleId:7,driverId:8}],planToken:'ignored'});
+  const data=await response.json();
+  expect(response.status).toBe(200);
+  expect(data).toMatchObject({answer,mode:'scope-only',choiceOptions:[],evaluatedAt:null,selection:null,coverage:null,snapshot:null,intent:null});
+  expect(JSON.stringify(data)).not.toMatch(/serverEvidence|vehicleId|driverId|ignored/);
+  expect(loadRequest).not.toHaveBeenCalled();
+  expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
+  expect(executeLlmCompletion).not.toHaveBeenCalled();
+});
+it('keeps a FleetOps follow-up in the normal evidence path',async()=>{
+  await call({message:'Why?',history:[{role:'user',content:'Why is Driver 12 unavailable?'}]});
+  expect(loadRequest).toHaveBeenCalled();
+  expect(prepareDispatchRecommendation).toHaveBeenCalled();
+  expect(executeLlmCompletion).toHaveBeenCalled();
+});
+it('does not revive context after an out-of-scope turn',async()=>{
+  const response=await call({message:'Why?',history:[{role:'user',content:'Recommend a movie.'}],selectedPair:{vehicleId:7,driverId:8}});
+  const data=await response.json();
+  expect(data.mode).toBe('scope-only');
+  expect(data.answer).toContain("I'm focused on FleetOps");
+  expect(loadRequest).not.toHaveBeenCalled();
+  expect(executeLlmCompletion).not.toHaveBeenCalled();
+});
+it('scope-only replies do not add a choice prompt or mutate the supplied UI context',async()=>{
+  const response=await call({message:'Thanks',selectedPair:{vehicleId:7,driverId:8},displayedOptions:[{vehicleId:7,driverId:8},{vehicleId:9,driverId:10}],planToken:'plan'});
+  const data=await response.json();
+  expect(data.choiceOptions).toEqual([]);
+  expect(data.selection).toBeNull();
+  expect(data.snapshot).toBeNull();
+  expect(JSON.stringify(data)).not.toMatch(/plan|7|8|9|10/);
+});
 it.each([
  {selectedPair:{vehicleId:0,driverId:1}},
  {selectedPair:{vehicleId:1,driverId:-1}},
@@ -72,12 +110,42 @@ it('rejects unauthorized or oversized questions before evidence/provider work',a
  expect(executeLlmCompletion).not.toHaveBeenCalled();
 });
 it('answers without a pair, provides honest provider fallback and never returns mutation commands',async()=>{
- const response=await call({message:'Bakit walang driver? Assign mo na.',history:[]});
- const data=await response.json();
- expect(response.headers.get('Cache-Control')).toBe('private, no-store');
- expect(data).toMatchObject({mode:'evidence-only'});
- expect(data.answer).toContain('No designated driver');
- expect(data).not.toHaveProperty('actions');
- expect(executeLlmCompletion.mock.calls[0][0].system_instructions).toContain('no mutation tools');
- expect(executeLlmCompletion.mock.calls[0][0].system_instructions).toContain('Always answer in plain English');
+  const response=await call({message:'Bakit walang driver? Assign mo na.',history:[]});
+  const data=await response.json();
+  expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  expect(data).toMatchObject({mode:'evidence-only'});
+  expect(data.answer).toContain('No designated driver');
+  expect(data).not.toHaveProperty('actions');
+  expect(executeLlmCompletion.mock.calls[0][0].system_instructions).toContain('no mutation tools');
+  expect(executeLlmCompletion.mock.calls[0][0].system_instructions).toContain('Always answer in plain English');
+});
+it('asks a concise clarification for dateless what-if instead of guessing',async()=>{
+  const data=await (await call({message:'What if pickup is 7 PM for 4 passengers?'})).json();
+  expect(data.mode).toBe('evidence-only');
+  expect(data.answer).toMatch(/which date/i);
+  expect(data.answer).toMatch(/4 passenger/);
+  expect(data.answer).not.toMatch(/19:00.*Sep|Sep.*19:00/);
+  const prompt=JSON.parse(executeLlmCompletion.mock.calls.at(-1)[0].user_prompt);
+  expect(prompt.intent).toMatchObject({type:'simulate',status:'needs-date'});
+});
+it('passes a low temperature for faithful narration',async()=>{
+  await call({message:'Why no match?'});
+  expect(executeLlmCompletion.mock.calls.at(-1)[0].temperature).toBe(0.2);
+});
+it('mints a comparison proof only for two resolved displayed options',async()=>{
+  prepareDispatchRecommendation.mockResolvedValueOnce({recommendation:{pair:{candidates:[{vehicle_id:1,driver_id:2},{vehicle_id:3,driver_id:4}],recommended:{vehicle_id:1,driver_id:2}}}});
+  const two=await (await call({message:'Compare?',displayedOptions:[{vehicleId:1,driverId:2},{vehicleId:3,driverId:4}]})).json();
+  expect(two.comparisonProof?.type).toBe('comparison');
+  expect(typeof two.comparisonProof?.ref).toBe('string');
+  const one=await (await call({message:'Compare?',displayedOptions:[{vehicleId:1,driverId:2}]})).json();
+  expect(one.comparisonProof).toBeNull();
+});
+it('composes every prompt block exactly once with hierarchy and lifecycle wording',async()=>{
+  await call({message:'Why no match?'});
+  const instructions=executeLlmCompletion.mock.calls.at(-1)[0].system_instructions;
+  for (const marker of ['1. Hard eligibility','ELIGIBLE','RECOMMENDED','SELECTED','ASSIGNED','LIVE GPS HEALTH',
+    'a simulation never authorizes assignment','rechecking does not fix them','No signal means there is no usable GPS timestamp','say plainly there is no material change','displayedOptions']) {
+    const occurrences=instructions.split(marker).length-1;
+    expect(occurrences).toBe(1);
+  }
 });

@@ -1,3 +1,6 @@
+import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
+import { isStoredObjectKey } from "@/lib/storage/key-format";
+
 export const PATTERNS = {
   NAME: /^[A-Za-z\u00C0-\u017F' .-]+$/,
   EMAIL: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
@@ -163,6 +166,35 @@ export function isUrl(value) {
 export function isBase64DataUrl(value) {
   if (typeof value !== "string") return false;
   return /^data:image\/[\w.+-]+;base64,[A-Za-z0-9+/=\s]+$/.test(value);
+}
+
+/**
+ * True when `value` is an acceptable STORED image reference: an object key, an
+ * inline base64 image, or a URL on a fleet-controlled origin.
+ *
+ * This is the write-side counterpart to `isSafeRemoteMediaUrl`. That guard
+ * exists to decide what the server may FETCH; this decides what may be
+ * PERSISTED into a column that later binds to an `<img src>` for other users.
+ * The same allow-list answers both, but the data: branch needs to be stricter
+ * here: the guard short-circuits `true` on any `data:image/` prefix
+ * (remote-url.js:34), which would admit `data:image/svg+xml,<svg …>` and every
+ * malformed payload with it. Stored scans are always real base64 (every
+ * producer in this repo uses FileReader.readAsDataURL or canvas.toDataURL), so
+ * route `data:` to the strict check instead.
+ *
+ * The object-key branch arrived with SEC-UPLOAD-006: the licence scan now
+ * stores the key it uploaded rather than a URL, and `employees.avatar_url` is
+ * copied from it, so a key has to be a storable value here or that copy would
+ * be nulled on every save. A key is strictly narrower than the URL it replaced
+ * — no scheme, no host, no token, no expiry — so accepting it does not widen
+ * what may be persisted. `lib/storage/key-format` owns the format; it is a leaf
+ * module, imported here rather than from `object-refs` (which imports this file).
+ */
+export function isAllowedStoredImageRef(value) {
+  if (typeof value !== "string" || !value) return false;
+  if (value.startsWith("data:")) return isBase64DataUrl(value);
+  if (isStoredObjectKey(value)) return true;
+  return isSafeRemoteMediaUrl(value);
 }
 
 export function normalizePlate(value) {

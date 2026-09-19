@@ -11,6 +11,7 @@ import {
 } from "@/lib/incidents/resolution";
 import { groundIncident } from "@/lib/incidents/grounding";
 import { incidentUnderReview } from "@/lib/notifications/copy";
+import { isSafeRemoteMediaUrl } from "@/lib/security/remote-url";
 import { ensureIncidentMaintenance, notifyMaintenanceTeam } from "@/lib/incidents/maintenance";
 import { evaluateResponder } from "@/lib/incidents/responder-tracking";
 import { writeAudit } from "@/lib/audit";
@@ -40,7 +41,15 @@ function isIncidentPhotoReference(value, driverId) {
   if (pathPattern.test(value)) return true;
 
   // Keep already-queued reports from older mobile builds replayable, but only
-  // accept URLs that point back to this driver's private evidence bucket.
+  // accept URLs that point back to this driver's private evidence bucket ON a
+  // fleet-controlled host.
+  //
+  // The host check is the whole point. A path match alone proves nothing: the
+  // stored value is rendered straight into <img src> on the staff incident page
+  // and the incident map, so accepting `https://attacker.example/storage/v1/
+  // object/sign/incident-evidence/4/x.png` recorded an attacker-chosen URL as
+  // fleet evidence and made every reviewing staff browser call out to it.
+  if (!isSafeRemoteMediaUrl(value)) return false;
   try {
     const url = new URL(value);
     return url.pathname.includes(`/storage/v1/object/sign/incident-evidence/${Number(driverId)}/`);

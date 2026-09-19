@@ -9,6 +9,8 @@ import { consumeFactor } from "@/lib/auth/mfa";
 import { checkAccountLockout, recordFailedAttempt, clearAccountLockout, LOCKOUT_LIMIT } from "@/lib/auth/account-lockout";
 import { raiseSecurityAlert } from "@/lib/auth/security-alerts";
 import { WEB_SESSION_TTL_SECONDS, IDLE_TIMEOUT_SECONDS } from "@/lib/auth/sessions";
+import { signedUrlFor, isResolvableMediaRef } from "@/lib/storage/object-refs";
+import { AVATAR_BUCKETS } from "@/lib/drivers/media";
 
 export function isSafeAvatarUrl(url) {
   if (!url || typeof url !== "string") return false;
@@ -132,8 +134,20 @@ export const authOptions = {
           driverFaceImageUrl = driverData?.face_image_url || null;
         }
 
+        // `drivers.face_image_url` and `employees.avatar_url` hold object keys
+        // now, and a key is not renderable — 413-char signed URLs are, measured
+        // against the live project, so they fit the 512 cap below.
+        //
+        // Resolve BEFORE the guard, because the guard is what would reject a key:
+        // `isSafeAvatarUrl` requires an http(s) string, so an unresolved key going
+        // in would come back out as a silently blank avatar on every page. Only
+        // refs this module owns are resolved; an avatar that is an ordinary
+        // external URL is left exactly as it was.
         const candidateAvatar = driverFaceImageUrl || employee.avatar_url || null;
-        const avatarUrl = isSafeAvatarUrl(candidateAvatar) ? candidateAvatar : null;
+        const resolvedAvatar = isResolvableMediaRef(candidateAvatar, AVATAR_BUCKETS)
+          ? await signedUrlFor(AVATAR_BUCKETS, candidateAvatar)
+          : candidateAvatar;
+        const avatarUrl = isSafeAvatarUrl(resolvedAvatar) ? resolvedAvatar : null;
 
         const sessionId = randomUUID();
         const userAgent = auditReq.headers.get("user-agent") || null;

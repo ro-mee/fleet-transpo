@@ -8,6 +8,7 @@ import { evaluateLicenseScan } from "@/lib/ai/license-scan-policy";
 import { validateBase64Image } from "@/lib/uploads/validator";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notificationRolesFor } from "@/lib/notifications/recipients";
+import { canonicalStoredRef } from "@/lib/storage/object-refs";
 import { v4 as uuidv4 } from "uuid";
 
 /**
@@ -113,18 +114,20 @@ export async function POST(req) {
       return err("Failed to securely store license image.", 500);
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("driver-licenses")
-      .getPublicUrl(fileName);
-      
-    const imageUrl = publicUrlData?.publicUrl;
-
-    if (!imageUrl) {
-      return err("Failed to generate URL for license image.", 500);
-    }
+    // The object KEY is what gets persisted, never a URL — SEC-UPLOAD-006.
+    //
+    // getPublicUrl() used to mint the value written here. It builds an
+    // /object/public/… URL without contacting storage, so on this private bucket
+    // (migration 070, confirmed private against the live project) it produced a
+    // link that does not authorize: the desk-facing licence image was a 400.
+    // Readers now recover the key from a legacy URL of that shape, but new
+    // writes store the key directly and let the reader sign per view. Stored
+    // bucket-qualified so the value stays resolvable if it is ever copied to
+    // another column — see `canonicalStoredRef`.
+    const storedRef = canonicalStoredRef(fileName, "driver-licenses") || fileName;
 
     const setClauses = [`${imageColumn} = $1`, "updated_at = NOW()"];
-    const params = [imageUrl];
+    const params = [storedRef];
     if (verdict.applyExpiry) {
       params.push(verdict.expiryDate);
       setClauses.push(`license_expiry = $${params.length}`);

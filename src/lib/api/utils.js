@@ -203,10 +203,19 @@ export async function requireDriver(req) {
 }
 
 export class AuthError extends Error {
-  constructor(message, status = 401, code = "SESSION_INVALID") {
+  /**
+   * `code` is a SESSION-liveness signal, so it only defaults on a 401. It used
+   * to default unconditionally, which made every 403 role denial and every 404
+   * ship `code: "SESSION_INVALID"` — a permission refusal telling the client its
+   * session is dead. Nothing acts on that today (both consumers read `code`
+   * only inside a `status === 401` branch), but the envelope should not lie to
+   * whoever reads it next. A caller that passes a code still gets it, whatever
+   * the status.
+   */
+  constructor(message, status = 401, code) {
     super(message);
     this.status = status;
-    this.code = code;
+    this.code = code ?? (status === 401 ? "SESSION_INVALID" : undefined);
   }
 }
 

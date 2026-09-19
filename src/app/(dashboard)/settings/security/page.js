@@ -442,12 +442,13 @@ export default function SecurityPage() {
   };
 
   const revokeSession = async (session) => {
-    if (!window.confirm(`Sign out ${session.device}?`)) return;
-    setRevoking(session.id);
+    if (!window.confirm(`Revoke ${session.device} session?`)) return;
+    const sessionKey = `${session.kind}:${session.id}`;
+    setRevoking(sessionKey);
     try {
       const data = await deleteJson("/api/auth/sessions", { kind: session.kind, id: session.id });
-      setSessions((current) => current.filter((item) => item.id !== session.id));
-      toast.success("Session signed out.");
+      setSessions((current) => current.filter((item) => item.id !== session.id || item.kind !== session.kind));
+      toast.success("Session revoked.");
       if (data.signInRequired) await signOut();
     } catch (error) {
       toast.error(error.message);
@@ -457,12 +458,12 @@ export default function SecurityPage() {
   };
 
   const revokeOthers = async () => {
-    if (!window.confirm("Sign out all other web and mobile sessions?")) return;
+    if (!window.confirm("Revoke all other web and mobile sessions?")) return;
     setRevoking("others");
     try {
       await postJson("/api/auth/sessions", {});
       setSessions((current) => current.filter((item) => item.current));
-      toast.success("Other sessions signed out.");
+      toast.success("Other sessions revoked.");
     } catch (error) {
       toast.error(error.message);
     } finally {
@@ -988,7 +989,7 @@ export default function SecurityPage() {
               ) : (
                 <LogOut className="h-4 w-4 text-slate-600 dark:text-slate-400" strokeWidth={1.75} />
               )}
-              <span>Sign out all other sessions</span>
+              <span>Revoke all other sessions</span>
             </button>
           }
         />
@@ -1021,6 +1022,7 @@ export default function SecurityPage() {
             <div className="space-y-3">
               {sessions.map((session) => {
                 const isCurrent = session.current || session.is_current;
+                const sessionKey = `${session.kind}:${session.id}`;
 
                 return (
                   <div
@@ -1036,7 +1038,7 @@ export default function SecurityPage() {
                           </p>
                           {isCurrent && (
                             <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-sky-50 text-sky-600 border border-sky-100 dark:bg-sky-950/60 dark:text-sky-400 dark:border-sky-900/50">
-                              Current Device
+                              Current session
                             </span>
                           )}
                         </div>
@@ -1065,12 +1067,12 @@ export default function SecurityPage() {
                         onClick={() => revokeSession(session)}
                         className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-red-50 hover:bg-red-100 dark:bg-red-950/40 dark:hover:bg-red-900/50 text-red-600 dark:text-red-400 border border-red-100 dark:border-red-900/30 text-xs font-semibold transition-colors shadow-2xs cursor-pointer disabled:opacity-50"
                       >
-                        {revoking === session.id ? (
+                        {revoking === sessionKey ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <LogOut className="h-3.5 w-3.5 text-red-500" />
                         )}
-                        <span>{revoking === session.id ? "Signing out..." : "Sign out"}</span>
+                        <span>{revoking === sessionKey ? "Revoking..." : "Revoke session"}</span>
                       </button>
                     </div>
                   </div>
