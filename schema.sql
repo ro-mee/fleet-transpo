@@ -1026,12 +1026,13 @@ CREATE TABLE vehiclemaintenance (
   completed_by integer,
   completed_at timestamptz,
   repair_completed_at timestamptz,
-  inspection_required boolean DEFAULT true,
+  inspection_required boolean DEFAULT false,
   inspection_completed_at timestamptz,
   inspected_by integer,
   inspection_notes text,
   manager_approved_at timestamptz,
   manager_approved_by integer,
+  repair_completed_by integer,
   CONSTRAINT vehiclemaintenance_pkey PRIMARY KEY (maintenance_id)
 );
 
@@ -1202,6 +1203,7 @@ ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_completed_by_fk
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_created_by_fkey FOREIGN KEY (created_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_inspected_by_fkey FOREIGN KEY (inspected_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_manager_approved_by_fkey FOREIGN KEY (manager_approved_by) REFERENCES employees(employee_id);
+ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_repair_completed_by_fkey FOREIGN KEY (repair_completed_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_source_incident_id_fkey FOREIGN KEY (source_incident_id) REFERENCES driverincidents(incident_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES employees(employee_id);
 ALTER TABLE vehiclemaintenance ADD CONSTRAINT vehiclemaintenance_vehicle_id_fkey FOREIGN KEY (vehicle_id) REFERENCES vehicles(vehicle_id);

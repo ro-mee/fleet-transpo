@@ -1,0 +1,68 @@
+BEGIN;
+
+-- ============================================
+-- MIGRATION 114: app_errors — enable Row Level Security
+--
+-- Closes SEC-DB-003 for app_errors. Confirmed live 2026-09-18, not inferred.
+--
+-- WHY THIS WAS MISSING
+-- --------------------
+-- `app_errors` was created by migration 103, whose header says:
+--
+--   "No RLS changes either (RLS is inert by design; the read API enforces
+--    audit-read permission)."
+--
+-- That premise was already false when 103 was written. Migration 100, three
+-- files earlier, had made RLS the mechanism that actually stops PostgREST:
+-- it enabled RLS on 20 tables and explained in its own comment that the app
+-- server connects as `postgres` via DATABASE_URL and therefore bypasses RLS
+-- entirely. 103 reasoned from the pre-100 world, and the omission propagated
+-- into 106 (ai_prompt_templates) and 109 (trip_monitor_alerts) as well.
+--
+-- WHAT WAS ACTUALLY OBSERVED
+-- --------------------------
+-- `npm run verify:anon` probes with nothing but the public anon key — the key
+-- that ships in the browser bundle by design. Before this migration:
+--
+--   EXPOSED   app_errors   1 row(s) readable
+--             columns: error_id, source, route, message, stack,
+--                      status_code, employee_id, fingerprint, user_agent,
+--                      created_at
+--
+-- The row carried a populated `stack` — a full server stack trace with
+-- internal paths, line numbers and SQL detail — plus `route`, `employee_id`
+-- and `user_agent`. Row count was not enumerated past the probe's `limit=1`.
+--
+-- The probe's controls make that read trustworthy rather than an artifact: a
+-- tampered key is rejected with "Invalid API key", a nonexistent table returns
+-- PGRST205, and the real key authenticates (it was 42501-refused on
+-- `employees`, which is a different and correct outcome — no grant at all).
+--
+-- WHY THIS IS SAFE FOR THE APPLICATION
+-- ------------------------------------
+-- RLS with no policies is deny-all for roles SUBJECT to RLS: the PostgREST
+-- `anon` and `authenticated` roles. The table owner is not subject to it. The
+-- app connects as the owner (`postgres`, via the pg Pool in src/lib/db.js),
+-- so its own write path (src/lib/app-errors.js, INSERT/SELECT/DELETE) and the
+-- audit-read API (/api/errors) are unaffected. This is the same mechanism
+-- migration 100 used on 20 tables without breaking anything.
+--
+-- Deliberately NO policies, and deliberately NOT `FORCE ROW LEVEL SECURITY`:
+-- forcing RLS would subject the owner to deny-all and break the application's
+-- own reads and writes.
+--
+-- STILL OPEN, and NOT fixed here
+-- ------------------------------
+-- The rest of SEC-DB-003: `ai_prompt_templates` (106) and
+-- `trip_monitor_alerts` (109) inherited the same omission and are still
+-- without RLS. Both currently return `200 []` to the anon probe, which cannot
+-- distinguish "deny-all" from "empty table" — so they are unproven, not safe.
+-- They are resolved by the database contract work (`npm run db:contract`),
+-- not by this migration.
+--
+-- Idempotent: ENABLE ROW LEVEL SECURITY is a no-op where already enabled.
+-- ============================================
+
+ALTER TABLE public.app_errors ENABLE ROW LEVEL SECURITY;
+
+COMMIT;

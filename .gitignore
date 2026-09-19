@@ -53,3 +53,8 @@ Capstone/.obsidian/
 
 # agent scratch workspaces (subagent-driven development ledgers/briefs)
 .superpowers/
+
+# local probes, census scripts and debug output — never commit
+scratch/
+*.bak
+*.log
