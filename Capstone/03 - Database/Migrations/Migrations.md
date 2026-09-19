@@ -36,7 +36,16 @@ SQL editor was found to silently target the wrong project. → [[ADR-008 Manual 
 
 Writing a new one:
 
-1. `ls supabase/migrations/` first — **do not reuse a number** (see below).
+1. `npm run db:status` first — **do not reuse a number** (see below).
+   `ls supabase/migrations/` is *not* enough: the ledger holds migrations whose
+   files are gone, so a version can be spent without ever appearing on disk —
+   which is exactly how a second 113 came to be written (origin's
+   `113_session_idle_timeout_5min.sql` vs the local maintenance/RLS set). The
+   local set was renumbered on the 2026-09-19 merge to
+   `114_maintenance_repairer_identity.sql`, `115_app_errors_rls.sql` and
+   `116_rls_gap_tables.sql`; the ledger rows under the old names still read as
+   missing-from-disk, and the renamed files apply as safe no-ops (every
+   statement is `IF NOT EXISTS` / idempotent).
 2. Make it idempotent: `IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`,
    `DROP ... IF EXISTS`. The live DB is ahead of the files in places, so a
    migration must be a safe no-op there.
@@ -233,17 +242,18 @@ It was **not written**, because the change it belongs to was stopped as unsafe
   regression test records the reasoning so the TTL is not "fixed" by shortening
   it. See [[Fuel]] and [[Bugs]].
 
-## 2026-09-18 — `114_app_errors_rls.sql`
+## 2026-09-18 — `115_app_errors_rls.sql` (written as 114, renumbered on the 09-19 merge)
 
 `npm run db:status`: **117 files, 117 applied, 0 pending, 0 changed**. Note the
 `114` slot: the 2026-09-17 entry below says the security plan called for
 `114_licence_bucket_private.sql` and that it was **never written** — so `114`
-was free and is now taken by this migration. A future licence-bucket migration
+was free and is now taken by this migration (file since renumbered to
+`115_app_errors_rls.sql` after a parallel origin 113 forced the shift). A future licence-bucket migration
 must take a higher number.
 
 | Migration | Name | Purpose |
 |---|---|---|
-| **114** | `app_errors_rls.sql` | `ALTER TABLE public.app_errors ENABLE ROW LEVEL SECURITY` — closes SEC-DB-003 for `app_errors`. Idempotent, deliberately **no policies** and **no `FORCE`**. |
+| **115** | `app_errors_rls.sql` | `ALTER TABLE public.app_errors ENABLE ROW LEVEL SECURITY` — closes SEC-DB-003 for `app_errors`. Idempotent, deliberately **no policies** and **no `FORCE`**. |
 
 **Why it was needed.** Migration `103` created `app_errors` with the comment
 *"No RLS changes either (RLS is inert by design)"* — a premise migration `100`
@@ -265,21 +275,21 @@ emits structure only and never queries `pg_class.relrowsecurity` or
 contains **0** `ROW LEVEL SECURITY` and **0** `GRANT` statements. So for *this*
 migration there is no review artifact at all — which is precisely why SEC-DB-004
 is filed as its own finding, and why the database contract is a gate rather
-than a note. (The same dump *did* show migration `113`'s structural changes,
+than a note. (The same dump *did* show migration `114`'s structural changes,
 which had not been re-dumped since it was applied.)
 
 **Still open.** `ai_prompt_templates` (`106`) and `trip_monitor_alerts` (`109`)
-carry the same omission and are **not** covered by `114`. Both return `200 []`
+carry the same omission and are **not** covered by `115`. Both return `200 []`
 to the anon probe — unproven, not safe. → [[Bugs]] SEC-DB-003. (Closed the same
-day by `115`, below.)
+day by `116`, below.)
 
-## 2026-09-18 (later) — `115_rls_gap_tables.sql`
+## 2026-09-18 (later) — `116_rls_gap_tables.sql` (written as 115, renumbered on the 09-19 merge)
 
 `npm run db:status`: **118 files, 117 applied, 1 pending, 0 changed** → applied.
 
 | Migration | Name | Purpose |
 |---|---|---|
-| **115** | `rls_gap_tables.sql` | Closes the rest of SEC-DB-003 (`ai_prompt_templates`, `trip_monitor_alerts`) and all of SEC-DB-006 (`driver_stats`). RLS on the two tables, `security_invoker = true` on the view, and `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on all three. Idempotent, deliberately **no policies** and **no `FORCE`**. |
+| **116** | `rls_gap_tables.sql` | Closes the rest of SEC-DB-003 (`ai_prompt_templates`, `trip_monitor_alerts`) and all of SEC-DB-006 (`driver_stats`). RLS on the two tables, `security_invoker = true` on the view, and `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on all three. Idempotent, deliberately **no policies** and **no `FORCE`**. |
 
 **This one is not RLS-only, and the reason is the interesting part.** Both tables
 granted `anon` the TRUNCATE privilege, and **row security does not apply to

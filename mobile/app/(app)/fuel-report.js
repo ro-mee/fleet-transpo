@@ -7,8 +7,10 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
 import { useAuth } from "../../lib/auth";
 import { fonts, statusColorForTone } from "../../lib/theme";
-import { api } from "../../lib/api";
-import { resolveDriverId, setCached, CACHE_KEYS } from "../../lib/offline-cache";
+import { api, isTransportFailure } from "../../lib/api";
+import { resolveDriverId, getCached, setCached, CACHE_KEYS } from "../../lib/offline-cache";
+import { shouldAutoRetry, LIST_AUTO_RETRY_MS } from "../../lib/connectivity-state";
+import { useConnectivity } from "../../lib/connectivity-context";
 import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver-context";
 import * as ImagePicker from "expo-image-picker";
 import { CameraView, useCameraPermissions } from "expo-camera";
@@ -16,6 +18,7 @@ import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
 import { AppAlert } from '../../components/AppAlert';
 import { RECEIPT_FRAME, receiptCropRect } from "../../lib/receipt-crop";
 import { ClayCard, ClayButton, ClayTile, ClayBadge } from '../../components/clay';
+import { useCoachMarks, CoachMarkTarget } from "../../components/coachmarks";
 
 export default function FuelReport() {
   const insets = useSafeAreaInsets();
@@ -23,9 +26,14 @@ export default function FuelReport() {
   const { user } = useAuth();
   const { tripId: paramTripId, id, scan: autoScan, liters: pLiters, cost: pCost, station: pStation, fuelDate: pFuelDate } = useLocalSearchParams();
   const { colors } = useTheme();
+  const { triggerMilestone } = useCoachMarks();
 
   const [assignedTrip, setAssignedTrip] = useState(null);
   const driverId = resolveDriverId(user);
+  // Unstable counts as online (amber banner speaks for it) — only a fully
+  // offline verdict skips the network poll and serves the cached list.
+  const { status: connectivityStatus } = useConnectivity();
+  const isOffline = connectivityStatus === "offline";
   const [mode, setMode] = useState("overview"); // overview | details
   const [entryMethod, setEntryMethod] = useState(null); // scan | manual
   const [liters, setLiters] = useState(pLiters || "");
@@ -61,6 +69,22 @@ export default function FuelReport() {
   const cameraRef = useRef(null);
   const scanInFlight = useRef(false);
   const autoScanStarted = useRef(false);
+  // Lets CoachMarkTarget scroll a spotlighted control into the safe viewport
+  // before measuring — the verify step's fields sit below the fold on a small
+  // device, and an off-screen target would dim the page with nothing framed.
+  const scrollRef = useRef(null);
+
+  useEffect(() => {
+    if (cameraOpen && cameraPurpose === "scan") {
+      triggerMilestone("fuel_scan_capture");
+    }
+  }, [cameraOpen, cameraPurpose, triggerMilestone]);
+
+  useEffect(() => {
+    if (mode === "details" && entryMethod === "scan") {
+      triggerMilestone("fuel_scan_verify");
+    }
+  }, [mode, entryMethod, triggerMilestone]);
 
   useEffect(() => {
     (async () => {
@@ -132,24 +156,60 @@ export default function FuelReport() {
       setLoadingRequests(false);
       return;
     }
-    try {
-      const data = await api.get("/api/fuel/requests");
-      const rows = data?.rows || [];
-      setFuelRequests(rows);
-      const latest = rows.find((request) => activeVehicleId
-        ? String(request.vehicle_id) === activeVehicleId
-        : String(request.trip_id) === String(activeTripId));
-      if (latest?.status === "Rejected" && latest.client_submission_id === requestSubmissionId.current) {
-        requestSubmissionId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}-req`;
+    // Offline Read Mode: show last-known requests instantly (offline
+    // included), then revalidate against the server below. Display-only —
+    // approval gates still run on live state.
+    if (driverId) {
+      const cached = await getCached(driverId, CACHE_KEYS.FUEL_REQUESTS);
+      if (cached && Array.isArray(cached.data)) {
+        setFuelRequests(cached.data);
+        setLoadingRequests(false);
       }
-    } catch (error) {
-      console.warn("Could not load fuel requests:", error.message);
-    } finally {
-      setLoadingRequests(false);
     }
-  }, [activeTripId, activeVehicleId, hasAssignedVehicle, id]);
+    // Fully offline: keep the cached list on screen. The global connectivity
+    // banner already speaks for the outage — no warn, no network attempt, so
+    // the 15s poll below becomes a cheap no-op until recovery.
+    if (isOffline) {
+      setLoadingRequests(false);
+      return;
+    }
+    // Cold-start tolerance (same as Home/Trips): one automatic retry for
+    // transient failures before giving up silently or warning.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const data = await api.get("/api/fuel/requests");
+        const rows = data?.rows || [];
+        setFuelRequests(rows);
+        if (driverId) await setCached(driverId, CACHE_KEYS.FUEL_REQUESTS, rows);
+        const latest = rows.find((request) => activeVehicleId
+          ? String(request.vehicle_id) === activeVehicleId
+          : String(request.trip_id) === String(activeTripId));
+        if (latest?.status === "Rejected" && latest.client_submission_id === requestSubmissionId.current) {
+          requestSubmissionId.current = `${Date.now()}-${Math.random().toString(36).slice(2)}-req`;
+        }
+        return;
+      } catch (error) {
+        if (attempt === 0 && shouldAutoRetry(error)) {
+          await new Promise((r) => setTimeout(r, LIST_AUTO_RETRY_MS));
+          continue;
+        }
+        // PR #3.1 dedup: transport failures belong to the global banner, never
+        // to per-screen warnings. Genuine errors (auth, validation, 5xx) still warn.
+        if (!isTransportFailure(error)) {
+          console.warn("Could not load fuel requests:", error.message);
+        }
+        return;
+      } finally {
+        setLoadingRequests(false);
+      }
+    }
+  }, [activeTripId, activeVehicleId, driverId, hasAssignedVehicle, id, isOffline]);
 
   useEffect(() => {
+    // Approval poll: loadFuelRequests early-returns while fully offline
+    // (cached list stays, banner owns the outage), so this interval is a
+    // no-op offline and resumes automatically on recovery. Unstable still
+    // polls so an approval landing mid-blip is picked up.
     const initial = setTimeout(loadFuelRequests, 0);
     const poll = setInterval(loadFuelRequests, 15_000);
     return () => {
@@ -616,9 +676,11 @@ export default function FuelReport() {
                 <Text style={styles.receiptGuideText}>Center the fuel gauge — avoid the temperature or RPM dials</Text>
               </View>
             ) : (
-              <View pointerEvents="none" style={styles.receiptGuide}>
-                <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
-              </View>
+              <CoachMarkTarget targetId="fuel.viewfinder">
+                <View pointerEvents="none" style={styles.receiptGuide}>
+                  <Text style={styles.receiptGuideText}>Place the full receipt inside the frame</Text>
+                </View>
+              </CoachMarkTarget>
             )}
             <View style={[styles.cameraBottomBar, { paddingBottom: insets.bottom + 20 }]}>
               <Pressable
@@ -737,6 +799,7 @@ export default function FuelReport() {
       </View>
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 80 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -928,30 +991,32 @@ export default function FuelReport() {
               </View>
             </View>
 
-            <View style={styles.fieldRow}>
-              <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>VOLUME (L)</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                  placeholder="e.g. 45.5"
-                  placeholderTextColor={colors.outline}
-                  keyboardType="decimal-pad"
-                  value={liters}
-                  onChangeText={(value) => { setLiters(value); setPricePerLiter(""); }}
-                />
+            <CoachMarkTarget targetId="fuel.verify" scrollRef={scrollRef}>
+              <View style={styles.fieldRow}>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>VOLUME (L)</Text>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                    placeholder="e.g. 45.5"
+                    placeholderTextColor={colors.outline}
+                    keyboardType="decimal-pad"
+                    value={liters}
+                    onChangeText={(value) => { setLiters(value); setPricePerLiter(""); }}
+                  />
+                </View>
+                <View style={[styles.fieldGroup, { flex: 1 }]}>
+                  <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>TOTAL COST (₱)</Text>
+                  <TextInput
+                    style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
+                    placeholder="e.g. 3500"
+                    placeholderTextColor={colors.outline}
+                    keyboardType="decimal-pad"
+                    value={cost}
+                    onChangeText={(value) => { setCost(value); setPricePerLiter(""); }}
+                  />
+                </View>
               </View>
-              <View style={[styles.fieldGroup, { flex: 1 }]}>
-                <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>TOTAL COST (₱)</Text>
-                <TextInput
-                  style={[styles.input, { borderColor: colors.outline, color: colors.onSurface, backgroundColor: colors.surfaceContainerLowest }]}
-                  placeholder="e.g. 3500"
-                  placeholderTextColor={colors.outline}
-                  keyboardType="decimal-pad"
-                  value={cost}
-                  onChangeText={(value) => { setCost(value); setPricePerLiter(""); }}
-                />
-              </View>
-            </View>
+            </CoachMarkTarget>
 
             <View style={styles.fieldGroup}>
               <Text style={[styles.fieldLabel, { color: colors.onSurfaceVariant }]}>STATION NAME</Text>

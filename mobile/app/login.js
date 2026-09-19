@@ -16,6 +16,8 @@ import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/theme-context";
 import { fonts } from "../lib/theme";
 import { ClayCard, ClayButton, ClayTile, ClayInput } from "../components/clay";
+import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../lib/consent";
+import { resolveDriverId } from "../lib/offline-cache";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
@@ -39,7 +41,13 @@ export default function LoginScreen() {
     try {
       setError(null);
       setLoading(true);
-      await signIn(username.trim(), password, { mfaCode });
+      const driver = await signIn(username.trim(), password, { mfaCode });
+      const driverId = resolveDriverId(driver);
+      const consentVersion = await getAcceptedConsentVersion().catch(() => null);
+      if (consentVersion !== CURRENT_PRIVACY_POLICY_VERSION) {
+        router.replace("/consent");
+        return;
+      }
       router.replace("/");
     } catch (e) {
       if (e.message === "MFA_REQUIRED") {

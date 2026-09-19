@@ -57,6 +57,8 @@ import { ReceiptVerificationModal } from "@/components/fuel/receipt-verification
 import { RejectClaimDialog } from "@/components/fuel/reject-claim-dialog";
 import { FullscreenReceiptDialog } from "@/components/fuel/fullscreen-receipt-dialog";
 import { ConfigureAllocationDialog } from "@/components/fuel/configure-allocation-dialog";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
+import Link from "next/link";
 
 const rejectSchema = {
   rejection_reason: { required: true, maxLength: 500, label: "Rejection reason" },
@@ -440,14 +442,25 @@ export default function FuelPage() {
       render: (_, row) => {
         const emp = row.drivers?.employees;
         const name = emp ? `${emp.first_name} ${emp.last_name}` : "—";
-        const initials = emp ? `${emp.first_name?.[0] || ""}${emp.last_name?.[0] || ""}`.toUpperCase() : "DR";
+        const photoSource = {
+          face_image_url: row.drivers?.face_image_url || null,
+          avatar_url: emp?.avatar_url || null,
+        };
         return (
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
-              {initials}
-            </div>
+            <DriverAvatar source={photoSource} name={name} />
             <div>
-              <p className="font-bold text-sm text-foreground">{name}</p>
+              {row.drivers?.driver_id ? (
+                <Link
+                  href={`/drivers/${row.drivers.driver_id}`}
+                  className="font-bold text-sm text-foreground hover:text-primary transition-colors"
+                  title={name}
+                >
+                  {name}
+                </Link>
+              ) : (
+                <p className="font-bold text-sm text-foreground">{name}</p>
+              )}
               <p className="text-xs text-foreground-muted font-medium">Refueling driver</p>
             </div>
           </div>
@@ -612,10 +625,24 @@ export default function FuelPage() {
       header: "Driver / Source",
       cell: (info) => {
         const req = info.row.original;
+        const name = `${req.first_name || ""} ${req.last_name || ""}`.trim() || "—";
         return (
-          <div>
-            <p className="font-semibold text-foreground">{req.first_name} {req.last_name}</p>
-            <p className="text-xs text-foreground-muted">{req.trip_id ? `Trip #${req.trip_id}` : "Vehicle assignment"}</p>
+          <div className="flex items-center gap-3">
+            <DriverAvatar source={req} name={name} />
+            <div>
+              {req.driver_id ? (
+                <Link
+                  href={`/drivers/${req.driver_id}`}
+                  className="font-semibold text-foreground hover:text-primary transition-colors"
+                  title={name}
+                >
+                  {name}
+                </Link>
+              ) : (
+                <p className="font-semibold text-foreground">{name}</p>
+              )}
+              <p className="text-xs text-foreground-muted">{req.trip_id ? `Trip #${req.trip_id}` : "Vehicle assignment"}</p>
+            </div>
           </div>
         );
       },

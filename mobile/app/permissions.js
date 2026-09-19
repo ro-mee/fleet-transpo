@@ -19,6 +19,7 @@ import {
   listAppPermissions,
   requestAppPermission,
 } from "../lib/permissions";
+import { useAuth } from "../lib/auth";
 
 function PermissionCard({ icon, title, description, state }) {
   const { colors, type } = useTheme();
@@ -45,6 +46,7 @@ function PermissionCard({ icon, title, description, state }) {
 export default function PermissionsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user } = useAuth();
   const { colors, type } = useTheme();
   const permissions = listAppPermissions();
 

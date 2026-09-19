@@ -240,3 +240,46 @@ The remaining opening hitch came from the car Lottie itself: `car animation.json
 The native splash now hides inside `ThemedApp` after the app shell commits, rather than immediately when fonts finish. This prevents an empty native-splash-to-app gap while `SettingsProvider` restores preferences. Notification channel setup is deferred until the launch overlay exits and pending interactions settle, so it no longer competes with the first frame.
 
 Verification: the full mobile library suite passed (22 files / 135 tests), targeted ESLint passed, and an Android export passed (1,376 modules, 79 assets, 4.58 MB Hermes bundle); the export no longer includes `car animation.json`. Physical-device cold-start duration and FPS still require a release-build device check.
+## In-App Guidance & Contextual Coach Marks Subsystem (2026-09-16, implemented & refined)
+
+Introduced a lightweight, just-in-time contextual guidance subsystem (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`) to train drivers directly over live production screens without passive slide tours, simulations, mascots, or gamification:
+- **Core Principles**: "Guidance when needed, not guidance everywhere." "Teach the difficult decision or workflow, not the button the driver already understands." "ONE COACH MARK = ONE EXACT COMPONENT TARGET."
+- **Contextual Milestones**:
+  - *Welcome*: Single non-intrusive card on first authenticated dashboard launch.
+  - *Pre-Trip Inspection*: Spotlights Pass/Fail checks, mandatory remarks on Fail, and the 7/7 inspection completion requirement before trip start.
+  - *Trip Readiness*: Explains allowed start readiness window, pre-trip safety confirmed state, and dynamic Start Trip vs. Continue to Map CTA semantics.
+  - *Live Map*: Explains real-time mission target (Pickup vs. Drop-off confirmation) without making false turn-by-turn claims, live dispatch telemetry sharing, and trip progression slide control.
+  - *Fuel OCR*: Camera framing and mandatory extracted liters/amount verification.
+  - *Emergency SOS & Incident*: Explains stationary emergency assistance with immediate dispatch transmission, without requiring live emergency triggers to advance.
+  - *Offline Resilience*: Explains local caching and automated outbox synchronization on connection loss.
+- **Spotlight & Interactivity Architecture**:
+  - *Exact Component Targeting*: Spotlights wrap the smallest meaningful interactive component via `CoachMarkTarget` (e.g. `incident.category` on the type grid, `inspection.pass_fail` on check buttons), never parent screens or large cards.
+  - *Real 4-Scrim Passthrough*: Replaced React Native `<Modal>` with an absolute fill container (`pointerEvents="box-none"`) and 4 blocking scrim rectangles (`pointerEvents="auto"`). The spotlight hole is structurally unblocked (`pointerEvents="none"`) for `passthrough` steps, allowing drivers to interact directly with real native components (PASS/FAIL, Remarks TextInput, Category selection).
+  - *Protected Action Safeguard*: Protected buttons (SOS, Start Trip, Complete Inspection, Swipe Progression) use `interaction: "blocked"`, with cutout `pointerEvents="auto"` so drivers advance with `[ Got it ]` without accidental execution.
+  - *Cross-Screen Stale Coordinate Rejection*: Targets are stamped with `route: pathname`. Missing, zero-sized, or cross-route targets suppress the overlay until properly mounted.
+  - *ScrollView Support*: Detects offscreen targets, auto-scrolls parent ScrollViews into the safe viewport, settles layout, and remeasures coordinates before presentation.
+  - *Visual Contour*: Subtle theme forest-green primary contour (`colors.primary`), 8dp padding, 1 restrained arrival pulse, and zero bright neon #00E676.
+- **State & Storage (`mobile/lib/coach-mark-storage.js`)**: Scoped per driver ID via AsyncStorage with versioned keys (`fleetops.guide.<key>.v<version>_<driverId>`). Reset available in **Profile $\rightarrow$ Help & Support $\rightarrow$ Reset In-App Tips**.
+
+### Driving-motion state (2026-09-18)
+
+The Driving Safety Lock needed one defensible answer to "is this vehicle moving", and the app already had exactly one GPS stream. Motion is therefore derived from the 30 s poster in `mobile/lib/tracking.js` rather than a second watcher:
+
+- `mobile/lib/motion-state.js` holds the derivation and is **React Native-free**, following the same split as `connectivity-state.js` (pure, unit-tested) vs. `connectivity-context.js` (RN glue). It is also the only part of this feature the vitest suite can reach — `vitest.config.mjs` includes `src/**` and `mobile/lib/**` only.
+- The poster publishes `motionSpeedMs` / `motionFixAt` on **every** fix, immediately after `getCurrentPositionAsync` resolves and before the trip / responder / standby branch, so evidence exists in all three modes and does not depend on a post succeeding. A fix is evidence; a delivered post is not a prerequisite for one.
+- `useIsDriving()` consumes it through a new `subscribePosterStatus(listener)` rather than `usePosterStatus()`. That distinction is load-bearing: the coach-mark provider wraps the entire app tree, and a state subscription would re-render it every 30 s. The hook folds fixes into a ref-held state and runs a 15 s tick that calls `setState` **only when the boolean flips**, bounding how late the lock releases without engaging late.
+- Motion is sticky for 2 minutes after the last moving fix, and unknown motion (no permission, tracking off, no fix yet) fails open. The threshold is `10 / 3.6` m/s because `LocationObjectCoords.speed` is metres per second — elsewhere in the app `coords.speed` is compared against raw `1` and `2`, so an un-converted `10` would sit at 36 km/h.
+
+### One guide at a time (2026-09-18)
+
+`triggerMilestone` refuses to pre-empt a guide that is **on screen**. The guard reads a render-time mirror of `shouldShowOverlay`, held in a ref, for two reasons: the value changes on every target measurement (the settling ticks re-register continuously) and `triggerMilestone`'s identity is in the dependency array of most screens' trigger effects, so it must not change on every measurement or transition. Owner state lives in `activeKeyRef`, set synchronously alongside `setActiveMilestoneKey` so the guard is never a render behind.
+
+Scoping the guard to *visible* rather than *active* is what keeps it from wedging the app: a guide left behind by navigation, or one whose target never registered, is hidden — and blocking on an invisible guide would refuse every later guide with nothing on screen to dismiss. A superseded guide is left incomplete, so it returns when its trigger next fires.
+
+### Target ownership and off-screen rejection (2026-09-18)
+
+- **Ownership tokens**: a target id can be live more than once — `inspection.remarks` mounts once per *failed* checklist item. Each `CoachMarkTarget` mount carries a token; `registerTarget` records all live registrations per id and publishes the newest; `unregisterTarget(id, token)` removes only its own and promotes the survivor. Previously last-measure-wins overwrote the first registration and unmounting *either* deleted the shared one.
+- **Off-screen rejection**: `activeTargetLayout` rejects a target measured entirely outside the safe viewport (`insets.top + 40` to `SCREEN_HEIGHT - insets.bottom - 80`) — the same bounds `CoachMarkTarget` scrolls against. Positive bounds are not sufficient evidence, since a card scrolled out of view measures positively. Only a box *entirely* outside is rejected: auto-scroll is gated on `isCurrentActiveTarget` independently of overlay visibility, so a partially visible target still scrolls in and presents.
+- **Spotlight geometry is animated**: the four scrim rectangles and the cutout are driven by interpolated bounds. They were previously animated for 240 ms and then never referenced in JSX, so a re-measuring target snapped the spotlight instead of moving it.
+
+- **Verification**: `mobile/lib/coach-marks.test.js` (39 tests) and `mobile/lib/motion-state.test.js` (11 tests) both pass, and the full suite is green as of 2026-09-18 — **143 test files, 1,389 tests**, run with `npx vitest run --no-file-parallelism --maxWorkers=1`. They cover the definitions, storage, motion arithmetic, and hold-window boundaries directly; the provider wiring is asserted as **source text** (the RN component tree is outside the vitest include list), which catches a revert but not a subtle rewrite — the suite passes even if the provider fails to render. ESLint has not been re-run. Manual device checks of the lock — the only thing that exercises the wiring rather than the arithmetic — remain outstanding; see the journal entry for that date.

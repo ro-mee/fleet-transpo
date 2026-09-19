@@ -25,6 +25,8 @@ const JOIN_SELECT = `
       'driver_status',  d.driver_status,
       'license_number', d.license_number,
       'license_expiry', d.license_expiry,
+      'face_image_url', d.face_image_url,
+      'avatar_url',     de.avatar_url,
       'phone',          de.phone,
       'first_name',     de.first_name,
       'last_name',      de.last_name

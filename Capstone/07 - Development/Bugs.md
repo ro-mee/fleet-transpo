@@ -129,7 +129,7 @@ and correct outcome — no grant at all). Credential validity is judged by
 denied key are both `401` — conflating those is how a broken run gets reported
 as clean.
 
-**Fix.** Migration `114_app_errors_rls.sql` — `ALTER TABLE public.app_errors
+**Fix.** Migration `115_app_errors_rls.sql` — `ALTER TABLE public.app_errors
 ENABLE ROW LEVEL SECURITY`, idempotent, no policies. Deny-all applies to roles
 **subject** to RLS (PostgREST `anon` / `authenticated`); the table owner is not
 subject to it, and the app connects as the owner. So the write path
@@ -272,9 +272,9 @@ of change that `schema.sql` cannot show now fails a check rather than a review.
 policy. It was never in migration `100`'s list, so this was genuinely unproven
 until the catalog was read.
 
-## Fixed — 2026-09-18 (SEC-DB-003 remainder and SEC-DB-006, migration `115`)
+## Fixed — 2026-09-18 (SEC-DB-003 remainder and SEC-DB-006, migration `116`)
 
-Migration `115_rls_gap_tables.sql` closes both. `ai_prompt_templates` and
+Migration `116_rls_gap_tables.sql` closes both. `ai_prompt_templates` and
 `trip_monitor_alerts` get RLS; `driver_stats` gets `security_invoker = true`; and
 all three have their `anon`/`authenticated` grants revoked.
 

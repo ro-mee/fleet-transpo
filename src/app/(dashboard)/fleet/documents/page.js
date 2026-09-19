@@ -14,6 +14,7 @@ import { formatCalendarDate } from "@/lib/dates";
 import { HeroHeader, heroButtonOutlineClass, heroButtonPrimaryClass } from "@/components/ui/hero-header";
 import { DataTable } from "@/components/tables/data-table";
 import { useRouter } from "next/navigation";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 
@@ -254,12 +255,9 @@ export default function DocumentExpirationPage() {
       label: "Driver Name",
       sortable: true,
       render: (val, row) => {
-        const initials = val ? val.split(" ").map((n) => n[0]).join("").slice(0, 2) : "DR";
         return (
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs">
-              {initials}
-            </div>
+            <DriverAvatar source={row} name={val} />
             <div>
               <p className="font-bold text-sm text-foreground">{val}</p>
               <p className="text-xs text-foreground-muted font-medium">Driver license document</p>

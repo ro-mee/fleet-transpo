@@ -16,7 +16,7 @@ const SELECT_SCHEDULE = `
   SELECT s.substitute_id, s.vehicle_id, s.substitute_driver_id,
          s.effective_from, s.effective_until, s.notes, s.created_at, s.updated_at,
          v.plate_number, v.vehicle_name, v.vehicle_status,
-         e.first_name, e.last_name, d.driver_status
+         e.first_name, e.last_name, e.avatar_url, d.driver_status, d.face_image_url
     FROM substitute_vehicle_schedules s
     LEFT JOIN vehicles v ON v.vehicle_id = s.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = s.substitute_driver_id

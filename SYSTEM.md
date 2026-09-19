@@ -1,5 +1,4 @@
 # FleetOps — Fleet & Logistics Management System
-
 **Mobile Profile Photo Picker claymorphic bottom sheet redesign (2026-09-19, implemented):** Replaced the native `AppAlert.alert` photo source prompt in `mobile/app/(app)/(tabs)/profile.js` with a dedicated tactile bottom sheet modal (`<Modal visible={photoModalVisible}>`). Solved button text truncation, cramped multi-button layout, and uniform green styling in the native dialog. Features: (1) full 64×64 avatar container touch target, (2) claymorphic bottom action card with drag handle and backdrop dismissal, (3) facial guidance notice banner for biometric attendance verification, (4) vertical action rows ("Take Photo" and "Choose from Gallery") with raised clay forest icon tiles and subtitles, (5) enforced 1:1 aspect ratio square cropping (`allowsEditing: true, aspect: [1, 1]`) in both camera and gallery pickers, and (6) tonal clay Cancel button. Verification: ESLint clean (0 errors), all 24 mobile Vitest suites (143 tests) and all 171 workspace test suites (1,931 tests) passing. See `Capstone/01 - System/Mobile Profile & Settings Claymorphism Implementation Plan.md`.
 
 **Dashboard operational attention per-cell color states (2026-09-19, implemented):** Resolved blanket-red background on operational attention panels (`AdminDashboard` "Operational attention" and `DispatcherDashboard` "Needs attention now" in `src/components/dashboard/role-dashboard.jsx`). Instead of applying a container-wide `bg-danger/5` across the entire row whenever any single issue exists, styling is now strictly per-cell: individual cells with active exceptions (>0) render red (`bg-danger/5 hover:bg-danger/10`), while zero-count cells stay calm green (`bg-success/5 hover:bg-success/10`), preventing false alarms across unrelated healthy queues. The outer panel border stays calm green (`border-success/25`) when all clear and neutral default when mixed. Verification: ESLint clean (0 errors), 3 test suites / 14 tests passing. See `Capstone/01 - System/UI UX Audit - Web.md`.
@@ -19,7 +18,19 @@
 **Copilot wording improvements (2026-09-17, implemented):** Intent routing in the conversation route ("what if" runs the real read-only simulation with date clarification instead of guessing; impact questions run the pinned A-vs-B comparison; return questions run the bounded search — all with deterministic provider-outage fallbacks), fixable-first `fix: record|verify|choice` recovery ordering with sharpened labels, per-call temperature override in the LLM adapter (conversation passes 0.2; provider row unchanged), and prompt rules for no-change framing and intent labeling. Live-verified on RS-KXIH against real DeepSeek. 13 files / 58 tests green, lint clean, build 203 pages. See `Capstone/02 - Features/AI Advisory.md`.
 
 **Dispatch Copilot decision-support enhancement Phases 1–5B (2026-09-17, implemented):** (1) Recovery guidance: stable `RECOVERY_CODES` + `recoveryActionForCheck/Exclusion` in `decision.js`, projected per-pair and per-exclusion in `conversationEvidence`, allowlisted record navigation buttons in chat, evidence-only fallback carries the next step. (2) Verified what-changed: signed size-bounded snapshots (`explanation.js`, purpose `fleet-dispatch-explanation-v1`, never assignment authority), baseline compare by stable pair identity with slack-band jitter suppression, per-reservation baseline in sessionStorage, timestamp-only refresh yields no change. (3) Read-only simulation: `POST .../[id]/simulate` allowlists pickup_datetime + passenger_count only, in-memory overlay, `persistRoute:false`, no tokens, `Simulation — reservation unchanged` label. (4) Queue impact: `POST .../[id]/queue-impact` runs the same queue pinned to A vs B within one budget, reports affected IDs + coverage with `Within the evaluated queue` wording, no assignment. (4B) Return-trip matching: `POST .../[id]/return-matches` bounded window/cap/deadline search reusing radar evaluation, reliability-first ranking, no savings math, follow-on commits only via guarded assignment in its own conversation. (5A) Assigned-trip workspace check: `GET .../[id]/assigned-status` evaluates the committed pair with its own commitment excluded, one deduplicated issue per fingerprint, assignment stays intact. (5B) Background scan: `syncAssignedTripAlerts` bounded horizon scan with advisory-lock dedupe via notifications table, wired as an isolated best-effort step in `/api/cron/sync` (external scheduler still required). Verification: 13 files / 59 tests green across dispatch/conversation/cron suites, touched-source ESLint clean, production build passed (203 pages incl. 4 new routes). Browser/live-provider wording and scheduler end-to-end acceptance remain pending. See `Capstone/07 - Development/Dispatch Copilot Decision Support Enhancement Plan.md` and `Capstone/02 - Features/AI Advisory.md`.
+**Contextual Coach Marks Subsystem & In-App Operational Guidance (2026-09-16, implemented):** Built a lightweight, just-in-time contextual guidance subsystem for the FleetOps Driver App (`mobile/`) to guide drivers through high-stakes operational workflows without intrusive product tours, mascots, or gamification.
+- *Core Philosophy*: "Guidance when needed, not guidance everywhere." Teaches difficult workflows at the exact moment of real action: Welcome dialog on first app launch, Pre-trip inspection (Pass/Fail, remarks requirement, submission lock), Trip Readiness (departure window, inspection dependency, Start Trip vs Continue to Map), Live Map & Progression (mission destination target and service point confirmation without turn-by-turn claims, live telemetry, swipe advancement), Fuel Scan (camera receipt framing and liters/cost verification), SOS & Incident reporting (safe emergency assistance, category triage), and Offline Outbox sync banner.
+- *Safe & Non-Invasive Architecture*: Built on `mobile/components/coachmarks/` (`CoachMarkProvider`, `CoachMarkTarget`, `CoachMarkOverlay`, `CoachMarkTooltip`) and `mobile/lib/coach-marks.js` + `mobile/lib/coach-mark-storage.js`. Production components serve as real anchor targets measured via `measureInWindow`. Spotlight uses a translucent scrim with cutout and subtle theme-derived contour (`colors.primary` forest green). Guidance controls advance strictly via `Next` / `Got it` and NEVER trigger real production actions (no accidental SOS calls, trip transitions, inspection submits, or fuel logs).
+- *Android Measurement Stabilization & Dynamic Active Re-measurement (2026-09-16)*: Resolved vertical coordinate offset and premature auto-scrolling on Android. `CoachMarkTarget` listens directly to `currentStep` from `useCoachMarks()`, gating auto-scroll strictly to `isCurrentActiveTarget === true` so background targets never shift the ScrollView. On step activation, triggers authoritative measurements across `requestAnimationFrame`, `InteractionManager.runAfterInteractions()`, and staggered settling ticks (80ms, 240ms, 480ms) to capture post-transition settlement and async data arrivals (such as dynamic vehicle assignment loading). Defers early $y \le 0$ measurement returns on Android until the native window position settles. Constrained tooltip positioning within safe insets to prevent offscreen clipping or target overlap.
+- *Impeccable Polish & Craft Pass (2026-09-17)*: Refined visual depth and tactile quality across `CoachMarkTooltip` and `CoachMarkOverlay`. Upgraded tooltip with molded claymorphic elevation, top specular sheen (`borderTopColor: rgba(255, 255, 255, 0.95)` light / `rgba(255, 255, 255, 0.14)` dark), 100% color-harmonized pointer arrow (eliminating dark mode seam mismatch), segmented step progress dots (`1 / N`), tactile primary CTA styling with spring-scale press response, and an executive compass badge for first-launch welcome. Elevated spotlight cutout with a dual-ring contour (inner primary crisp border + outer diffused aura ring) with smooth cubic arrival pulse easing (`Easing.out(Easing.cubic)`).
+- *Strict Safety & Driving Locks*: Vehicle velocity > 10 km/h or active driving transit suppresses non-critical coach marks, with a mark already on screen dismissed the moment motion begins. SOS guidance auto-presents only in safe, stationary contexts (`pathname === '/'`, `!isDriving`, 2s stationary delay) and is instantly dismissed if an emergency occurs or the emergency modal opens; tapping the SOS cutout in the overlay immediately passes through to trigger the real emergency SOS action, ensuring zero interference with real emergency operations.
+- *Driving Safety Lock Made Real + Guide Conflicts Fixed (2026-09-18)*: The lock above was advertised but inert — `CoachMarkProvider` accepted an `isDriving` prop its only call site never passed, so it held its `false` default forever and the context never exposed it either. It now reads `useIsDriving()`, derived in the RN-free `mobile/lib/motion-state.js` from the `coords.speed` the existing 30 s GPS poster already reads on every fix (no second GPS stream). The threshold is `10 / 3.6` m/s because `LocationObjectCoords.speed` is metres per second. Motion is sticky for 2 minutes after the last moving fix — a stationary fix does not release it early, so a red light or tunnel cannot un-suppress the guide mid-route — and unknown motion (no permission, tracking off, no fix yet) fails open so the guide still works on a device that never grants location. The poster publishes raw evidence via a new `subscribePosterStatus` (an imperative subscription, so the provider that wraps the whole app tree is not re-rendered every 30 s), and the lock is re-checked after each async storage read. A mark taken away by the lock is **abandoned, not completed** — not written to storage — so it returns once stationary. Also fixed: `triggerMilestone` no longer pre-empts a guide that is on screen (the Welcome card was being replaced by the SOS tip ~2 s in, so it was never read *and* never marked complete); the guard is scoped to *visible* rather than merely *active*, so a guide hidden by navigation cannot wedge every later guide; a target id may now be live more than once with per-instance ownership tokens (`inspection.remarks` mounts once per failed item, and unmounting either one used to delete the shared registration); targets measured entirely outside the safe viewport are rejected rather than spotlighting nothing; the four scrim rectangles and cutout are now actually driven by the animated bounds (they were animated for 240 ms and then never referenced in JSX); `trip_readiness` fires only in the pre-start presentation its targets exist in; and Welcome/Offline copy was aligned to the Capstone spec verbatim.
+- *In-App Guide Replay*: Replay provides a non-destructive "Reset In-App Tips" option in Help & Support (`profile/help.js`) that resets versioned coach-mark keys (`fleetops.guide.<milestone>.v<version>_<driverId>`) without locking the driver out or launching mandatory training gates.
+- *Verification*: `mobile/lib/motion-state.test.js` (11 tests) and `mobile/lib/coach-marks.test.js` (39 tests) both pass, and the **full suite is green as of 2026-09-18 — 143 test files, 1,389 tests**, run with `npx vitest run --no-file-parallelism --maxWorkers=1` (vitest's default per-file forking bursts past this machine's memory and dies with `FATAL ERROR: Committing semi space failed`). The mobile tests cover the definitions, storage, the motion arithmetic and the hold-window boundaries directly; provider wiring is asserted as **source text** because the RN component tree is outside `vitest.config.mjs`'s include list, which catches a deletion or revert but not a subtle rewrite. `npm run lint:ci` is clean (0 errors, 0 warnings) as of 2026-09-18. Getting there meant resolving five `react-hooks` findings: two render-time ref writes in `CoachMarkProvider.jsx` moved to `useLayoutEffect` (which still flushes synchronously at commit, so a pending async continuation cannot read a stale value — the guarantee the render-time write existed for), a render-time ref read in `CoachMarkTarget.jsx` whose per-instance token now comes from a lazy `useState` (it is read during render and sits in two dep arrays), and one setState-in-effect in `CoachMarkProvider.jsx` and one in `src/context/session-manager.jsx`, both carrying documented `eslint-disable-next-line` comments. Manual device checks of the lock remain outstanding — they are the only thing that exercises the wiring rather than the arithmetic (see the 2026-09-18 journal entry).
 
+**Driver Academy Decommissioned & Exclusive In-App Guide Focus (2026-09-16, implemented):** Fully removed the standalone Driver Academy simulator (`mobile/app/(app)/guide.js`, `mobile/components/guide/DriverGuideModal.jsx`, `mobile/components/guide/DriverGuideCard.jsx`, `mobile/lib/driver-guide.js`, and `mobile/lib/driver-guide.test.js`) to focus exclusively on the Contextual In-App Guide.
+- *Clean Experience*: Removed the Driver Academy card from the Home dashboard (`mobile/app/(app)/(tabs)/index.js`), removed the Driver Academy row from Profile (`mobile/app/(app)/(tabs)/profile.js`), updated Help & Support (`mobile/app/(app)/profile/help.js`) with an In-App Guidance section, and cleaned unused imports from `login.js` and `permissions.js`.
+- *Zero Mandatory Gate*: Drivers immediately access real assignments upon login; high-stakes workflows are taught just-in-time on production screens via the contextual coach marks subsystem.
 **Mobile DriverHomeCards JSX syntax & stylesheet cleanup (2026-09-16, implemented):** Resolved JSX parser errors in `mobile/components/home/DriverHomeCards.jsx` caused by an unclosed `<View>` tag and duplicated return block in `AssignmentsHeading`. Removed duplicate import of `statusColorForTone` / `tripStatusTone`, cleaned trailing duplicate `empty`, `mapArt`, and outdated `scheduleLink` styles from `StyleSheet.create`. Verification: ESLint 0 errors / 0 warnings on `DriverHomeCards.jsx`, all 24 mobile Vitest test suites (143 tests) passing. See `Capstone/01 - System/Mobile Home Claymorphism Implementation Plan.md`.
 
 **Security hardening batch 1 (2026-09-16, implemented, uncommitted):** (1) `createUserSchema` password now uses the shared `isPassword` rule (8+, upper/lower/digit/special), matching the register route and `driverSchema` — the client form no longer accepts 6-char passwords the server rejects. (2) Account lockout: 10 failed password attempts per 15-minute window freeze the account on web (`ACCOUNT_LOCKED:<seconds>` from `authorize`) and mobile (429 + `Retry-After`), reusing `auth_rate_limits` buckets with peek-before/burn-on-fail/clear-on-success; exhaustion emits an `account_locked` alert. (3) Per-IP edge throttle (600 req/min, in-memory, fail-open by design) wired in `src/proxy.js` after the CORS checks. (4) `security_alert` audit rows (`account_locked`, `token_replay` on refresh-family replay wipe) plus admin-only `GET /api/system/security-alerts` (`reports/read` roles). (5) Deleted dead `withRole`/`requireRole` (`src/lib/auth/api-auth.js`, zero callers, trusted stale session role). Verification: new unit/route tests green, `npm run verify:auth` 270/0, full suite green, touched-source ESLint clean (2 pre-existing `no-undef` errors in `src/lib/auth.js` left untouched — see Authentication note). Dashboard widget and push delivery for alerts are explicit follow-ups. See `Capstone/07 - Development/Security Hardening Batch 1 Implementation Plan.md`.
@@ -103,6 +114,13 @@ Comprehensive system overview for AI assistants and new developers. Covers archi
 - **Session Manager Route Scoping & Safe Text Parsing (`src/context/session-manager.jsx`)**: Scoped `isAppApiRequest` to ignore all auth flows (`/api/auth/*` except `/api/auth/profile`) so failed login credentials do not trigger session invalidation. In the 401 interceptor, swapped `cloned.json()` with `cloned.text()` and safe `JSON.parse` to eliminate unhandled rejections on 0-byte 401s.
 - **Login Status Resiliency (`src/app/(auth)/login/page.js`)**: Protected `/api/auth/login-status` polling with `res.ok` validation and `.catch(() => ({}))`.
 - **Verification**: `src/lib/auth.test.js` (5/5 passed), `src/services/auth.service.test.js` (3/3 passed), `src/lib/auth/return-to.test.js` (8/8 passed), `src/security-boundaries.test.js` (10/10 passed), full Vitest suite passing (137 test files, 1319 tests), and `npm run verify:auth` passing (261/261 routes).
+
+**Driver Academy & Interactive In-App Guide (2026-09-16, implemented):** Replaced static text FAQs with a hands-on interactive driver onboarding simulator (`mobile/app/(app)/guide.js`):
+- **Interactive Missions (`mobile/components/guide/DriverGuideModal.jsx`)**: 6 tactile sandbox modules simulating real app interactions without affecting live dispatch: pre-trip vehicle safety checklist (7-point inspection with pass/fail triggers), swipe-gesture masterclass (`SwipeButton` 48% slide confirmation for route start/completion), trip lifecycle and odometer verification, fuel receipt camera viewfinder alignment, floating emergency SOS medallion hotline menu, and offline mode tunnel resilience.
+- **Home Integration (`mobile/components/guide/DriverGuideCard.jsx`, `mobile/app/(app)/(tabs)/index.js`)**: Compact molded clay card showing live completion percentage and resume CTA for uncertified drivers.
+- **Persistent State (`mobile/lib/driver-guide.js`)**: Pure module managing driver progress in `@fleetops_driver_guide_progress` with completion timestamps and reset abilities.
+- **Profile & Help Center Integration**: Direct navigation from Profile General menu (`profile.js`) and Help & Support (`profile/help.js`).
+- **Verification**: `mobile/lib/driver-guide.test.js` (6/6 passed), full Vitest suite passing (142 test files, 1340 tests), and `npm run verify:auth` passing (270/270 routes).
 
 **RSC Fetch & Client Fetch Hardening (2026-09-16, implemented):** Resolved `TypeError: Failed to fetch` on RSC payload (`/dashboard`) and NextAuth session (`/api/auth/session`):
 - **CORS Development Origin Flexibility (`src/proxy.js`)**: `isAllowedOrigin()` now supports loopback (`localhost`, `127.0.0.1`, `::1`) and local LAN addresses when `NODE_ENV !== "production"` and the app is bound locally, preventing 403 CORS preflight rejections when accessing the dashboard via `127.0.0.1` or LAN IP. Validated allowed origins are dynamically echoed in `Access-Control-Allow-Origin` (replacing the rigid single-string assignment). Production remains strictly locked down to `NEXT_PUBLIC_APP_URL`.
@@ -230,6 +248,12 @@ Home verification follow-up: the final header revision also passes Android expor
 
 **Map weather chip (2026-09-09, implemented):** [Mobile Map Weather Chip plan](Capstone/01%20-%20System/Mobile%20Map%20Weather%20Chip%20Implementation%20Plan.md) added a compact ambient weather pill fed from the GPS ingest response (Open-Meteo, coarse-grid cache, fail-open ~2 s timeout) via a new shared post-write advisory helper (`src/services/ping-advisories.service.js`) used by both GPS POST routes, plus a `GET /api/mobile/driver/weather` endpoint and `useAmbientWeather` hook so the chip is visible even without an active trip (one-shot/last-known position, never a watcher). The chip label is a reverse-geocoded place name (TomTom, existing server key, `src/lib/geo/reverse-geocode.js`) with the condition carried by a dual-tone Ionicon. Weather is never a banner/notification — permanently chip-only; placed in the **Home header beside the notification bell** (map has no weather surface). Vitest (994 tests) and lint passed; native device acceptance pending. **2026-09-13 Meteocons upgrade:** glyphs replaced with vendored Meteocons Fill PNGs (12 keys, MIT attribution in `mobile/assets/images/weather/`); truthful `is_day` threaded for day/night art; glyph tinting dropped (full-color art), text tokens kept.
 
+**Contextual Coach Marks Subsystem (2026-09-16, implemented & refined):** [Driver In-App Guide](Capstone/02%20-%20Features/Driver%20In-App%20Guide.md) and [Mobile Architecture](Capstone/04%20-%20Architecture/Mobile%20Architecture.md) record the lightweight, non-intrusive contextual guidance system (`mobile/components/coachmarks/` and `mobile/lib/coach-marks.js`). Adheres strictly to "ONE COACH MARK = ONE EXACT COMPONENT TARGET", real 4-scrim passthrough interactivity (modal-less absolute fill container with 4 blocking regions and unblocked cutout for interactive controls), protected action guarantees (SOS, Start Trip, Complete Inspection, Swipe Progression require Got it without forced execution), cross-screen route stamping and stale measurement prevention, ScrollView safe viewport auto-scrolling, and theme forest-green primary contour with a single restrained arrival pulse (no neon #00E676). Driver-isolated persistence via AsyncStorage with reset in Help & Support. All 26 mobile test suites (172 tests) passing with 0 ESLint warnings.
+
+**Session Timeout UI Redesign (2026-09-18, implemented):** [Authentication architecture note](Capstone/04%20-%20Architecture/Authentication.md) records the centered blocking modal enhancement (`src/components/auth/session-timeout-dialog.jsx`) aligned with the Operations Center design language (`--session-*` design tokens). Features calm amber card during inactivity warning, 120px circular SVG countdown ring during final 60s, clear recovery upon expiration, fail-safe inline error retry on extension failure, focus trap, and ARIA polite interval announcements. 13 new unit tests and clean ESLint.
+
+
+
 **FleetOps** is a hotel-affiliated fleet & logistics management platform (guest transport for a hotel, e.g. "CoCo Star Hotel"). It runs the full lifecycle of guest transportation requests — from an external **Booking** subsystem through intake, review, approval, dispatch scheduling, trip execution, GPS tracking, fuel reporting, and maintenance — plus fleet/driver/vehicle management, analytics, reports, and a driver-facing mobile app.
 
 It is a **single-organization** system (branch/multi-tenant concepts were removed in migration 013). There are two applications in one repo:
@@ -294,8 +318,9 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
 - **CORS lockdown:** `src/proxy.js` (Next 16 middleware) answers preflights only
   for the `NEXT_PUBLIC_APP_URL` origin and 403s every other cross-origin caller —
   fail-closed, no `*` (see §4.6).
-- **Authentication and session hardening** (migrations 087–089, 2026-09-02):
-  web sessions are server-backed with a 1-hour idle timeout and 12-hour absolute
+- **Authentication and session hardening** (migrations 087–089, 113, 2026-09-02 /
+  2026-09-18):
+  web sessions are server-backed with a 5-minute idle timeout and 12-hour absolute
   expiry; heartbeat activity, cross-tab session events, validated return-to
   redirects, TOTP MFA, and hashed recovery codes are shipped. Session management
   identifies web rows by `sessionId` and mobile rows by refresh `familyId`; IP
@@ -309,6 +334,11 @@ trip warnings. Read surface: `GET /api/dispatch/availability-pairs` (see §6).
   exactly one active token row. No live session was revoked during the audit.
   Production requires distinct `MOBILE_JWT_SECRET` and dedicated
   `MFA_ENCRYPTION_KEY` secrets.
+  redirects, TOTP MFA, and hashed recovery codes are shipped. Production requires
+  distinct `MOBILE_JWT_SECRET` and dedicated `MFA_ENCRYPTION_KEY` secrets.
+  The idle deadline moves only through the human-gated `POST /api/auth/heartbeat`
+  — API traffic (including the dashboard's background polling) cannot extend a
+  session. See §"Session idle timeout" for the policy rationale.
   The password field Caps Lock warning UI matches the reference design with an
   upward speech-notch pointer, a coral "Aa" badge, and an active coral input border,
   also extended to Confirm New Password for live match/mismatch feedback.
@@ -1056,14 +1086,36 @@ places, so a migration has to be a safe no-op there.
 | 110 | `notification_copy_triggers.sql` | driver notification microcopy for the two plpgsql trigger producers |
 | 111 | `dispatch_standby_presence.sql` | latest standby observation metadata, separate from the location trail |
 | 112 | `backfill_registration_expiry.sql` | backfills NULL LTO registration expiries from the deterministic per-plate window |
-| 113 | `maintenance_repairer_identity.sql` | `vehiclemaintenance.repair_completed_by` FK — the maintenance completion guard's real repairer; `inspection_required` default flips to FALSE |
-| **114** | `app_errors_rls.sql` | ★ security: `ENABLE ROW LEVEL SECURITY` on `app_errors` — closes SEC-DB-003 for that table. The anon key had been reading live rows, `stack` column included. Verified from the database side (RLS on, no anon policy) by the first `db:contract` run. |
-| **115** | `rls_gap_tables.sql` | ★ security: closes the rest of SEC-DB-003 (`ai_prompt_templates`, `trip_monitor_alerts` — RLS enabled) and all of SEC-DB-006 (`driver_stats` — `security_invoker = true`), plus `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on all three. **The revoke is load-bearing:** row security does not apply to `TRUNCATE`, so RLS alone would have left both tables emptyable with the public anon key. Rehearsed against live inside a rolled-back transaction before applying — 12/12 application queries identical, anon went from 40 visible `driver_stats` rows to `42501`. After: `verify:anon` EXPOSED 0, `db:contract` 0 violations |
+| 113 | `session_idle_timeout_5min.sql` | reduces the `web_sessions.idle_timeout_seconds` **default** to 300 seconds. No backfill — pre-existing rows keep their recorded window (3600) until they roll off inside the 12-hour cap, so the deploy cannot mass-logout live sessions. The app passes the value explicitly on INSERT, so new logins get 300 immediately. See §12.9. |
+| 114 | `maintenance_repairer_identity.sql` | `vehiclemaintenance.repair_completed_by` FK — the maintenance completion guard's real repairer; `inspection_required` default flips to FALSE |
+| **115** | `app_errors_rls.sql` | ★ security: `ENABLE ROW LEVEL SECURITY` on `app_errors` — closes SEC-DB-003 for that table. The anon key had been reading live rows, `stack` column included. Verified from the database side (RLS on, no anon policy) by the first `db:contract` run. |
+| **116** | `rls_gap_tables.sql` | ★ security: closes the rest of SEC-DB-003 (`ai_prompt_templates`, `trip_monitor_alerts` — RLS enabled) and all of SEC-DB-006 (`driver_stats` — `security_invoker = true`), plus `REVOKE ALL PRIVILEGES … FROM anon, authenticated` on all three. **The revoke is load-bearing:** row security does not apply to `TRUNCATE`, so RLS alone would have left both tables emptyable with the public anon key. Rehearsed against live inside a rolled-back transaction before applying — 12/12 application queries identical, anon went from 40 visible `driver_stats` rows to `42501`. After: `verify:anon` EXPOSED 0, `db:contract` 0 violations |
 
 > 042–046 are **reconciliation** migrations: the live database had drifted ahead of
 > the files, so replaying the history onto an empty database produced a schema the
 > app could not run against. They declare what already existed rather than
 > changing live — which is why every one is a no-op there.
+
+> This table is itemised only to 102, then jumps to 113. Migrations 103–112 exist
+> in `supabase/migrations/` and in the `schema_migrations` ledger but were never
+> written up here; `npm run db:status` is the authoritative list.
+>
+> The ledger is authoritative rather than the directory, and as of 2026-09-18 the
+> two disagree: `113_maintenance_repairer_identity.sql`, `114_app_errors_rls.sql`
+> and `115_rls_gap_tables.sql` are recorded as applied with **no file on disk**,
+> and disk numbering stops at 113. `ls supabase/migrations/` therefore cannot tell
+> you whether a version is free. The 113 entry's effects are visible in the
+> refreshed `schema.sql` (`vehiclemaintenance.repair_completed_by` plus its FK, and
+> `inspection_required` now defaulting to `false`). 114 and 115 are RLS, which
+> `schema.sql` does not capture at all, so they were characterised against live
+> with `npm run verify:rls` instead — **114** enabled RLS on `app_errors` (created
+> by 103, i.e. after 100 had already swept the schema, so it started unprotected),
+> and **115** closed the remaining gap. All 58 tables in `public` now have RLS
+> enabled and none is SELECT-granted to `anon`/`authenticated` with RLS off.
+> The same probe counts **73 policies**, which are pre-existing Supabase-schema
+> policies rather than anything 100/114/115 added — so 100's "we intentionally do
+> NOT create explicit policies" deny-all posture holds only for the 25 tables that
+> carry no policy at all.
 
 ### 5.2 Tables (final state)
 | Table | Domain | Notes |
@@ -1338,7 +1390,7 @@ with a vehicle attached; the rule is now real and unit-tested
 
 ### Web sessions (NextAuth)
 - Credentials provider; bcrypt vs `employees.password_hash`; **IP/account rate limit 5/min**; JWT transport (`NEXTAUTH_SECRET`) identifies a server-backed `web_sessions` record. Role/employeeId/name remain in the token for UI landing, while every API request revalidates the live employee and session row.
-- Sessions expire after 12 hours absolutely or 1 hour idle (`idle_timeout_seconds`); `GET/POST /api/auth/heartbeat` updates the idle deadline only for verified activity. The session manager warns five minutes before either deadline, synchronizes tabs through `BroadcastChannel`, and preserves only validated internal return-to routes through re-authentication.
+- Sessions expire after 12 hours absolutely or 5 minutes idle (`idle_timeout_seconds`). The idle deadline moves **only** through `POST /api/auth/heartbeat`, which the client fires on real DOM activity (click/keydown/touch/pointer) and on explicit "Stay signed in"; `GET /api/auth/heartbeat` reads the deadlines without moving them. Identity resolution (`resolveCurrentIdentity`) is deliberately read-only for session timing — it must never slide `last_seen_at`, or background polling would keep an abandoned browser alive indefinitely (see `src/security-boundaries.test.js`). The session manager warns 60 seconds before idle expiry (5 minutes before the 12-hour cap), synchronizes tabs through `BroadcastChannel`, and preserves only validated internal return-to routes through re-authentication.
 - Registration is **admin-only**; public signup redirects to login. TOTP MFA is checked before a web session is created, and enabling/disabling MFA revokes existing sessions.
 
 ### Mobile tokens (separate system)
@@ -1626,7 +1678,15 @@ future developer/AI must know:
   (`globals.css`). Charts take hex mirrors from `src/lib/chart-tokens.js` —
   never declare private palettes. Chart heights use `chart-h-sm/md/lg`
   utilities. `docs/design-system.md` is canonical for the shipped visual
-  language (Inter-everywhere, ink primary).
+  language (Inter-everywhere, ink primary). `DESIGN.md` (re-synced
+  2026-09-17, web-only scope) records the component layer on top: StatCard
+  base/interactive variants, dashboard Panels + FeedState, DonutMeter
+  (partitions-only) / DistributionMeter / StatusBars, LivePulseBeacon,
+  PageEntrance, Operations 2x2 cards, AI Analyst card, map-entity-marker
+  grammar, CapsLock/session-expired/lockout surfaces, and the
+  Partition-Only-Donut / No-Severity-Border / Honest-Feed rules. Accent navy
+  `#0b132b` is scoped to the AI Analyst identity; session peach `#fff8f3`
+  is a one-off. Mobile Claymorphism stays in the Mobile * plans.
 
 **Behavior contracts**
 - Cancel of a transportation request ALWAYS goes through ConfirmDialog +
@@ -1715,15 +1775,22 @@ CORS lockdown via `src/proxy.js` (§4.6); anon access to `employees` revoked
 random `DSP-XXXX` dispatch numbers (044); seven pagination indexes (052);
 incident triage/grounding/maintenance integrity (081–086); auth-version
 invalidation and shared auth rate limits (087); server-backed web sessions and
-TOTP MFA (088); configurable web-session idle timeout (089).
+TOTP MFA (088); configurable web-session idle timeout (089); 5-minute idle
+timeout default (113).
 
-### 12.9 Auth lifecycle and session UX (migrations 087–089)
-Web authentication now records a server-backed session with a 12-hour absolute
-lifetime and 1-hour idle timeout. Live identity resolution checks session expiry,
-revocation, employee status, role, and `auth_version` before authorizing each API
-request. Human activity and the Stay signed in action use `/api/auth/heartbeat`;
-background polling does not extend the idle deadline. The browser session manager
-warns before idle or absolute expiry, coordinates failures/extensions/logout across
+### 12.9 Auth lifecycle and session UX (migrations 087–089, 113)
+Web authentication records a server-backed session with a 12-hour absolute
+lifetime and a 5-minute idle timeout. Live identity resolution checks session
+expiry, revocation, employee status, role, and `auth_version` before authorizing
+each API request. Human activity and the Stay signed in action use
+`POST /api/auth/heartbeat`; that route is the **only** writer of
+`web_sessions.last_seen_at`, so neither background polling nor any other API
+traffic can extend the idle deadline. The browser session manager slides the
+deadline as soon as real DOM activity occurs (throttled to one write per minute),
+warns 60 seconds before idle expiry through the blocking modal, shows the remaining
+idle time continuously as a countdown chip in the top bar (a readout — it cannot
+extend the session, and it escalates its tone at 120s so the escalation is visible
+before the modal covers the screen), coordinates failures/extensions/logout across
 tabs, and returns users only to validated internal routes after re-authentication.
 TOTP enrollment and login MFA use encrypted per-employee secrets, a v9-compatible
 `otpauth` implementation, hashed single-use recovery codes, replay protection, and

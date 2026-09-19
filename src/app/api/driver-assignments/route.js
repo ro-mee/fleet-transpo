@@ -19,7 +19,7 @@ const SELECT_ASSIGNMENT = `
   SELECT a.assignment_id, a.driver_id, a.vehicle_id, a.assigned_from, a.assigned_until,
          a.release_reason, a.notes, a.created_at, a.updated_at,
          v.plate_number, v.vehicle_name, v.vehicle_status,
-         e.first_name, e.last_name
+         e.first_name, e.last_name, e.avatar_url, d.face_image_url
     FROM driver_vehicle_assignments a
     LEFT JOIN vehicles v ON v.vehicle_id = a.vehicle_id
     LEFT JOIN drivers d ON d.driver_id = a.driver_id

@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { DetailSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
 import { DispatchEditDialog } from "@/components/dispatch/dispatch-edit-dialog";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { tripProgress } from "@/lib/scheduling/trip-progress";
 import { ReservationTimeline } from "@/components/reservations/reservation-timeline";
 import { useRoleAccess } from "@/hooks/use-role-access";
@@ -372,7 +373,25 @@ export default function DispatchDetailPage() {
           label="Vehicle"
           value={vehicle ? [vehicle.plate_number, vehicle.model].filter(Boolean).join(" · ") : "Unassigned"}
         />
-        <Field icon={UserCheck} label="Driver" value={driverName || "Unassigned"} />
+        <Field icon={UserCheck} label="Driver">
+          {driver ? (
+            <span className="inline-flex items-center gap-2">
+              <DriverAvatar source={driver} name={driverName} className="h-7 w-7 rounded-lg text-[10px]" />
+              {driver.driver_id ? (
+                <Link
+                  href={`/drivers/${driver.driver_id}`}
+                  className="hover:text-primary hover:underline transition-colors"
+                >
+                  {driverName || "Unassigned"}
+                </Link>
+              ) : (
+                driverName || "Unassigned"
+              )}
+            </span>
+          ) : (
+            "Unassigned"
+          )}
+        </Field>
         <Field
           icon={Clock}
           label="Departure"

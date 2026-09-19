@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EVENT_KIND, KIND_LABEL } from "@/lib/scheduling/calendar";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { cn, formatTime } from "@/lib/utils";
 import {
   AlertTriangle,
@@ -306,7 +307,13 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
                     )}
                   </div>
                   {currentEvent.driverDisplayName ? (
-                    <div>
+                    <div className="flex items-center gap-2.5">
+                      <DriverAvatar
+                        source={currentEvent.driver}
+                        name={currentEvent.driverDisplayName}
+                        className="h-9 w-9 rounded-xl text-[11px]"
+                      />
+                      <div>
                       <p className="text-xs font-bold text-foreground">{currentEvent.driverDisplayName}</p>
                       {currentEvent.driver?.license_number && (
                         <p className="font-data text-[11px] text-foreground-muted">
@@ -318,6 +325,7 @@ export function CalendarDetailDrawer({ event, conflicts = new Map(), open, onOpe
                           Status: {currentEvent.driver.driver_status}
                         </p>
                       )}
+                      </div>
                     </div>
                   ) : (
                     <p className="text-xs font-medium text-warning-700">No driver assigned yet.</p>

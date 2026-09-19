@@ -26,6 +26,7 @@ import { ErrorNotice } from "../../../components/ui";
 import { selectHomeTrips, homeVehicleImage, HOME_UPCOMING_LIMIT } from "../../../lib/home-trips";
 import { resolveVehicleContext } from "../../../lib/driver-context";
 import { DriverHeroCard, HomeQuickActions, DriverTripCard, AssignmentsHeading } from "../../../components/home/DriverHomeCards";
+import { useCoachMarks } from "../../../components/coachmarks/CoachMarkProvider";
 import {
   useSharedSkeletonPulse,
   DriverHeroCardSkeleton,
@@ -82,6 +83,7 @@ export default function Home() {
   const [odometerError, setOdometerError] = useState(null);
   const [odometerSaving, setOdometerSaving] = useState(false);
   const [nowMs, setNowMs] = useState(Date.now);
+  const { triggerMilestone } = useCoachMarks();
   // Incident reports that permanently failed to deliver offline. Surfaced
   // globally — a driver must not have to open Activity Logs to learn that an
   // emergency report never reached dispatch.
@@ -99,11 +101,19 @@ export default function Home() {
   const { status } = useConnectivity();
   const offline = status === "offline";
 
+  // First authenticated launch: show the short, non-intrusive Welcome card
+  useEffect(() => {
+    if (driverId) {
+      triggerMilestone("welcome");
+    }
+  }, [driverId, triggerMilestone]);
+
   // Keep the GPS-age caption ticking on a calm 30s cadence without an immediate mount duplicate render.
   useEffect(() => {
     const timer = setInterval(() => setNowMs(Date.now()), 30000);
     return () => clearInterval(timer);
   }, []);
+
 
   const { current: activeTrip, upcoming } = selectHomeTrips(trips, activeStatuses);
   const visibleUpcoming = upcoming.slice(0, HOME_UPCOMING_LIMIT);

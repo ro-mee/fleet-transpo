@@ -93,3 +93,40 @@ Aliases (`description`, `confirmText`, `isLoading`, `variant="danger"`)
 still work but are legacy. Archive flows use `variant="archive"`
 (warning icon), destructive deletes use `"destructive"`, informational
 confirmations use `"info"`.
+
+---
+
+## Web component inventory — September additions (synced 2026-09-17)
+
+Full visual contracts live in `DESIGN.md` (re-synced 2026-09-17, web-only
+scope). Shipped since the August audit, all verified against source:
+
+- `stat-card.jsx` — base vs interactive (`href`/`onClick`) variants,
+  `valueNote` pill, `trend` caption, destination `aria-label` + focus ring
+  on linked cards.
+- `role-dashboard.jsx` — `Panel` (inset highlight + header rhythm),
+  `FeedState` (skeleton / named `role="alert"` / honest empty), `DonutMeter`
+  (partitions-only, fills from `chart-tokens.js`), `DistributionMeter`
+  (`role="img"` + text summary), `StatusBars` (overlapping counts),
+  `LivePulseBeacon` (live-critical rows only), `Row` (`line-clamp-2`,
+  `min-h-16` touch rows).
+- `operations-cards.jsx` — Request Pipeline chevron ribbon, Document
+  Compliance dual-viz, Maintenance activity list, Incident Risk tiles +
+  calm/alert summary states.
+- `ai-analyst-card.jsx` — sky squircle + navy "Intelligence Engine" pill,
+  inset contour-wave panel, report-identity-matched narrative, numbered
+  recommended actions.
+- `maps/map-entity-marker.jsx` — 30px pin + card anatomy, six-tone grammar,
+  z-index scale (critical 2500 → stale 400), pulse-only-critical,
+  `MinimalMapLegend`.
+- `ui/page-entrance.jsx` — one 0.6s fade-up per page (`CARD_SHADOW`
+  shared by record-creation pages).
+- `ui/caps-lock-hint.jsx` + login lockout countdown + session-expired
+  banner — quiet hint semantics (`aria-live`, never blocks submit),
+  enumeration-safe lockout peek, peach one-off surface.
+- `auth/session-countdown.jsx` + `lib/auth/countdown.js` — always-on idle
+  readout in the `TopNav` cluster (`role="timer"`, `aria-live` off by
+  default), plus the shared `formatCountdown` / `formatCountdownSpoken` /
+  `countdownTone` used by both the chip and `session-expiry-modal.jsx`.
+  Ticking state is held in the chip, never in the shell, so the rest of
+  `TopNav` does not re-render once a second.

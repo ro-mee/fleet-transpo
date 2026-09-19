@@ -12,6 +12,7 @@
     "test:run": "vitest run",
     "verify:auth": "node scripts/verify-route-auth.mjs",
     "verify:anon": "node scripts/verify-anon-access.mjs",
+    "verify:rls": "node scripts/verify-rls.mjs",
     "db:contract": "node scripts/verify-db-contract.mjs",
     "db:check": "node scripts/migrate.mjs check",
     "db:status": "node scripts/migrate.mjs status",

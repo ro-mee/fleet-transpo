@@ -13,6 +13,7 @@ import { useRequireRole } from "@/lib/auth/role-guard";
 import { useRoleAccess } from "@/hooks/use-role-access";
 import { getDriverLeaveRequests, reviewDriverLeave } from "@/services/driver.service";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { CalendarClock, Loader2, CheckCircle2, XCircle, User, IdCard, CalendarDays } from "lucide-react";
 
 const FILTERS = ["Pending", "Approved", "Declined", "All"];
@@ -99,7 +100,13 @@ export default function DriverLeaveRequestsPage() {
               <div className="space-y-2.5">
                 {rows.map((l) => (
                   <div key={l.leave_request_id} className="p-4 rounded-2xl border border-border bg-surface flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                    <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <DriverAvatar
+                        source={l.driver}
+                        name={`${l.driver?.first_name || ""} ${l.driver?.last_name || ""}`.trim()}
+                        className="h-9 w-9 rounded-xl text-[11px]"
+                      />
+                      <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-bold text-foreground text-sm">
                           {l.driver?.first_name} {l.driver?.last_name}
@@ -113,6 +120,7 @@ export default function DriverLeaveRequestsPage() {
                         {l.leave_type ? ` · ${l.leave_type}` : ""}
                       </p>
                       {l.reason && <p className="text-xs text-foreground-muted truncate max-w-xl">{l.reason}</p>}
+                      </div>
                     </div>
                     <div className="flex flex-col sm:flex-row items-end sm:items-center gap-2 shrink-0">
                       {l.status === "Pending" && can("driver_leave_requests", "update") && (
@@ -163,9 +171,11 @@ export default function DriverLeaveRequestsPage() {
             <>
               <div className="px-6 py-4 border-b border-border/70 bg-surface/80 backdrop-blur-md flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="h-11 w-11 rounded-2xl bg-primary/10 text-primary border border-primary/20 flex items-center justify-center text-base font-bold shadow-2xs">
-                    {selectedRequest.driver?.first_name?.[0]}{selectedRequest.driver?.last_name?.[0]}
-                  </div>
+                  <DriverAvatar
+                    source={selectedRequest.driver}
+                    name={`${selectedRequest.driver?.first_name || ""} ${selectedRequest.driver?.last_name || ""}`.trim()}
+                    className="h-11 w-11 rounded-2xl text-base"
+                  />
                   <div>
                     <div className="flex items-center gap-2">
                       <DialogTitle className="text-base font-bold text-foreground">

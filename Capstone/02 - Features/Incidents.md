@@ -82,7 +82,7 @@ disconnected duplicate report.
 
 | Rule | Where | Why |
 |---|---|---|
-| Maintenance completion requires separation of duties | `api/vehicle-maintenance/[id]/route.js` | Whoever declared the repair finished (`repair_completed_by`, migration 113) cannot approve its completion. **Not** a manager inspection — that gate was removed 2026-09-16 → [[Maintenance]] |
+| Maintenance completion requires separation of duties | `api/vehicle-maintenance/[id]/route.js` | Whoever declared the repair finished (`repair_completed_by`, migration 114) cannot approve its completion. **Not** a manager inspection — that gate was removed 2026-09-16 → [[Maintenance]] |
 | Strict State Machine | `api/incidents/[id]/route.js` | Incidents require `acknowledged_at` before resolution. Audit history via `incident_comments`. |
 | Incident Confidentiality | `api/incidents/route.js` | HR/Admin reports are shielded from general staff visibility based on role |
 | Dynamic SLAs | `api/driver/incidents/route.js`, `pg_cron` | `due_at` calculated server-side based on severity (Critical = 2h, Major = 24h). `pg_cron` idempotently processes breaches into `overdue_at` automatically. |
@@ -110,7 +110,7 @@ Closed 2026-09-04: automatic maintenance gates on the incident's own vehicle
 and rule-based category/severity; the mobile form offers all four severities
 including Critical; repairs carry both incident/work-order links and completing
 one notifies the reporting driver; expense claims are reviewed, not auto-booked;
-assistance requests are structured chips. Active trips are aborted and Guest Services notified. Completing a work order requires a Fleet Manager or Admin who did not perform the repair (`repair_completed_by`, migration 113 — the earlier "manager inspection/clearance" gate never had a writer and was removed 2026-09-16 → [[Maintenance]]).
+assistance requests are structured chips. Active trips are aborted and Guest Services notified. Completing a work order requires a Fleet Manager or Admin who did not perform the repair (`repair_completed_by`, migration 114 — the earlier "manager inspection/clearance" gate never had a writer and was removed 2026-09-16 → [[Maintenance]]).
 
 ## Evidence photo references are host-checked — 2026-09-17
 

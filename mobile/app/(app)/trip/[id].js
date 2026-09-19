@@ -16,6 +16,7 @@ import { AppAlert } from '../../../components/AppAlert';
 import { detailPrimaryAction, readinessFor, completionTime, scheduledDeparture, passengerSummary } from "../../../lib/trip-detail";
 import { clayMaterials } from "../../../lib/clay";
 import { ClayCard, ClayBadge, ClayButton } from "../../../components/clay";
+import { useCoachMarks, CoachMarkTarget } from "../../../components/coachmarks";
 
 // Scheme-aware clay material (clayMaterials) — the old local copy baked in
 // light-mode edge strips that read as a harsh gray line in dark mode.
@@ -31,6 +32,7 @@ export default function TripDetailsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { colors, type, scheme } = useTheme();
+  const { triggerMilestone, dismiss } = useCoachMarks();
   const mats = clayMaterials(scheme === "dark");
   const dark = scheme === "dark";
 
@@ -56,6 +58,11 @@ export default function TripDetailsScreen() {
   useEffect(() => {
     offlineRef.current = offline;
   }, [offline]);
+
+  // Lets CoachMarkTarget scroll a spotlighted control into the safe viewport
+  // before measuring — without it a target below the fold measures fine but off
+  // screen, and the guide would dim the page with nothing highlighted.
+  const scrollRef = useRef(null);
 
   // Tick every 30s so the "start in X min" / START ROUTE gate refreshes.
   useEffect(() => {
@@ -144,9 +151,27 @@ export default function TripDetailsScreen() {
   const isAccepted = trip?.trip_status === "Driver Accepted";
   const isCompleted = trip?.trip_status === "Completed";
 
+  useEffect(() => {
+    // Pre-start only. All three steps of this milestone target controls that
+    // exist solely in the pre-start presentation — the readiness window, the
+    // pre-trip requirement line, and the accept/start button. Firing it for an
+    // underway trip spotlighted the "this trip is underway" line with copy about
+    // when a trip CAN begin, then left steps 2 and 3 with no target at all: the
+    // overlay hid while the milestone stayed active and could never complete.
+    if (loading || !trip || isTerminal || !isPreStart) return;
+    triggerMilestone("trip_readiness");
+  }, [loading, trip, isTerminal, isPreStart, triggerMilestone]);
+
   // Pre-start only: the existing accept→start sequence. Active trips never
   // reach this — CONTINUE TO MAP navigates without writing status.
   const handleAcceptStart = async () => {
+    // The guide explains how to start this trip and the driver just started it,
+    // so retire it now. Accepting flips this screen out of its pre-start
+    // presentation, which unmounts the controls every step targets — the overlay
+    // would hide with the milestone still active. Now that a milestone cannot be
+    // pre-empted, that would block every guide after it. Fire-and-forget: the
+    // storage write must not delay the accept/start call.
+    Promise.resolve(dismiss()).catch(() => {});
     setAccepting(true);
     try {
       let queued = false;
@@ -250,7 +275,7 @@ export default function TripDetailsScreen() {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {headerBar(() => router.back())}
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         {offline && lastSynced != null ? (
           // Cached trip offline: one inline note under the header — the global
           // banner owns "You're offline", this says what THIS screen shows.
@@ -311,57 +336,68 @@ export default function TripDetailsScreen() {
             {isPreStart ? (
               ready.earliestStart != null ? (
                 <>
-                  <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
-                    <View style={styles.pair}>
-                      <Text style={type.caption}>EARLIEST START</Text>
-                      <Text style={[type.headlineMd, { color: ready.windowOpen ? colors.secondary : colors.onSurface }]}>
-                        {fmtTime(ready.earliestStart)}
-                      </Text>
-                    </View>
-                    {ready.recommended != null ? (
-                      <View style={[styles.pair, { alignItems: "flex-end" }]}>
-                        <Text style={type.caption}>RECOMMENDED</Text>
-                        <Text style={type.headlineMd}>{fmtTime(ready.recommended)}</Text>
+                  <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
+                    <View style={[styles.pairRow, { flexWrap: "wrap", gap: 10 }]}>
+                      <View style={styles.pair}>
+                        <Text style={type.caption}>EARLIEST START</Text>
+                        <Text style={[type.headlineMd, { color: ready.windowOpen ? colors.secondary : colors.onSurface }]}>
+                          {fmtTime(ready.earliestStart)}
+                        </Text>
                       </View>
-                    ) : null}
-                  </View>
-                  <View
-                    style={[
-                      styles.banner,
-                      {
-                        backgroundColor: ready.windowOpen ? colors.secondaryContainer : colors.surfaceContainerHighest,
-                        borderColor: ready.windowOpen ? colors.secondary : colors.outlineVariant + "55",
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={ready.windowOpen ? "checkmark-circle" : "hourglass-outline"}
-                      size={18}
-                      color={ready.windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
-                    />
-                    <Text style={[type.supporting, { flexShrink: 1, color: ready.windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
-                      {ready.windowOpen
-                        ? ready.preTripPassed ? "Departure window is open. Ready to start." : "Departure window is open. Pre-trip inspection is still required."
-                        : `Window opens in ${ready.minsToStart} min (${fmtTime(ready.earliestStart)}).`}
-                    </Text>
-                  </View>
-                  {!ready.preTripPassed ? (
-                    <View style={styles.hintRow}>
-                      <Ionicons name="information-circle-outline" size={14} color={colors.error} />
-                      <Text style={[type.caption, { flexShrink: 1 }]}>Pre-trip inspection must be completed before starting.</Text>
+                      {ready.recommended != null ? (
+                        <View style={[styles.pair, { alignItems: "flex-end" }]}>
+                          <Text style={type.caption}>RECOMMENDED</Text>
+                          <Text style={type.headlineMd}>{fmtTime(ready.recommended)}</Text>
+                        </View>
+                      ) : null}
                     </View>
-                  ) : null}
+                  </CoachMarkTarget>
+                  <CoachMarkTarget targetId="trip.pretrip_requirement" scrollRef={scrollRef}>
+                    <View style={{ gap: 8 }}>
+                      <View
+                        style={[
+                          styles.banner,
+                          {
+                            backgroundColor: ready.windowOpen ? colors.secondaryContainer : colors.surfaceContainerHighest,
+                            borderColor: ready.windowOpen ? colors.secondary : colors.outlineVariant + "55",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={ready.windowOpen ? "checkmark-circle" : "hourglass-outline"}
+                          size={18}
+                          color={ready.windowOpen ? colors.onSecondaryContainer : colors.onSurfaceVariant}
+                        />
+                        <Text style={[type.supporting, { flexShrink: 1, color: ready.windowOpen ? colors.onSecondaryContainer : colors.onSurface }]}>
+                          {ready.windowOpen
+                            ? ready.preTripPassed ? "Departure window is open. Ready to start." : "Departure window is open. Pre-trip inspection is still required."
+                            : `Window opens in ${ready.minsToStart} min (${fmtTime(ready.earliestStart)}).`}
+                        </Text>
+                      </View>
+                      {!ready.preTripPassed ? (
+                        <View style={styles.hintRow}>
+                          <Ionicons name="information-circle-outline" size={14} color={colors.error} />
+                          <Text style={[type.caption, { flexShrink: 1 }]}>Pre-trip inspection must be completed before starting.</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  </CoachMarkTarget>
                 </>
               ) : (
                 // No verified start window — say so instead of guessing one.
-                <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
-                  <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
-                  <Text style={[type.supporting, { flexShrink: 1 }]}>
-                    Start window isn&apos;t confirmed yet. Check with dispatch for your scheduled departure.
-                  </Text>
-                </View>
+                <CoachMarkTarget targetId="trip.readiness" scrollRef={scrollRef}>
+                  <View style={[styles.banner, { backgroundColor: colors.surfaceContainerHighest, borderColor: colors.outlineVariant + "55" }]}>
+                    <Ionicons name="calendar-outline" size={18} color={colors.onSurfaceVariant} />
+                    <Text style={[type.supporting, { flexShrink: 1 }]}>
+                      Start window isn&apos;t confirmed yet. Check with dispatch for your scheduled departure.
+                    </Text>
+                  </View>
+                </CoachMarkTarget>
               )
             ) : (
+              /* Not a CoachMarkTarget: this is the underway branch, and
+                 `trip_readiness` is a pre-start milestone — see the trigger
+                 effect above. */
               <Text style={type.supporting}>
                 This trip is underway. Continue to the map to track the route and progress.
               </Text>
@@ -451,57 +487,61 @@ export default function TripDetailsScreen() {
             </View>
           </View>
         ) : isPreStart ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.cta,
-              dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 },
-              mats.clayCta,
-              {
-                backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
-                shadowColor: colors.shadow,
-                opacity: pressed ? 0.85 : 1,
-              },
-            ]}
-            onPress={handleAcceptStart}
-            disabled={accepting || !ready.startReady}
-            accessibilityRole="button"
-            accessibilityLabel={ready.startReady
-              ? (isAccepted ? "Start route" : "Accept and start trip")
-              : "Start route not yet available"}
-            accessibilityState={{ disabled: accepting || !ready.startReady, busy: !!accepting }}
-          >
-            {accepting ? (
-              <ActivityIndicator color={colors.onPrimary} />
-            ) : (
-              <>
-                <Text style={[type.labelLg, { color: ready.startReady ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
-                  {ready.startReady
-                    ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
-                    : ready.unavailableReason === "inspection"
-                      ? "PRE-TRIP CHECK REQUIRED"
-                      : ready.unavailableReason === "window"
-                        ? `START ROUTE IN ${ready.minsToStart} MIN`
-                        : "START NOT YET SCHEDULED"}
-                </Text>
-                <Ionicons
-                  name={ready.startReady ? "car-outline" : "lock-closed-outline"}
-                  size={19}
-                  color={ready.startReady ? colors.onPrimary : colors.onSurfaceVariant}
-                />
-              </>
-            )}
-          </Pressable>
+          <CoachMarkTarget targetId="trip.primary_action">
+            <Pressable
+              style={({ pressed }) => [
+                styles.cta,
+                dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 },
+                mats.clayCta,
+                {
+                  backgroundColor: ready.startReady ? colors.primary : colors.surfaceContainerHigh,
+                  shadowColor: colors.shadow,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+              onPress={handleAcceptStart}
+              disabled={accepting || !ready.startReady}
+              accessibilityRole="button"
+              accessibilityLabel={ready.startReady
+                ? (isAccepted ? "Start route" : "Accept and start trip")
+                : "Start route not yet available"}
+              accessibilityState={{ disabled: accepting || !ready.startReady, busy: !!accepting }}
+            >
+              {accepting ? (
+                <ActivityIndicator color={colors.onPrimary} />
+              ) : (
+                <>
+                  <Text style={[type.labelLg, { color: ready.startReady ? colors.onPrimary : colors.onSurfaceVariant, textAlign: "center", flexShrink: 1 }]}>
+                    {ready.startReady
+                      ? (isAccepted ? "START ROUTE" : "ACCEPT & START")
+                      : ready.unavailableReason === "inspection"
+                        ? "PRE-TRIP CHECK REQUIRED"
+                        : ready.unavailableReason === "window"
+                          ? `START ROUTE IN ${ready.minsToStart} MIN`
+                          : "START NOT YET SCHEDULED"}
+                  </Text>
+                  <Ionicons
+                    name={ready.startReady ? "car-outline" : "lock-closed-outline"}
+                    size={19}
+                    color={ready.startReady ? colors.onPrimary : colors.onSurfaceVariant}
+                  />
+                </>
+              )}
+            </Pressable>
+          </CoachMarkTarget>
         ) : (
-          <Pressable
-            style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 }]}
-            onPress={handleContinue}
-            disabled={accepting}
-            accessibilityRole="button"
-            accessibilityLabel="Continue to map"
-          >
-            <Text style={[type.labelLg, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
-            <Ionicons name="navigate-outline" size={19} color={colors.onPrimary} />
-          </Pressable>
+          <CoachMarkTarget targetId="trip.primary_action">
+            <Pressable
+              style={({ pressed }) => [styles.cta, dark && { borderTopColor: "rgba(255,255,255,0.12)", borderBottomColor: "rgba(0,0,0,0.40)", shadowOpacity: 0.4 }, mats.clayCta, { backgroundColor: colors.primary, shadowColor: colors.shadow, opacity: pressed ? 0.85 : 1 }]}
+              onPress={handleContinue}
+              disabled={accepting}
+              accessibilityRole="button"
+              accessibilityLabel="Continue to map"
+            >
+              <Text style={[type.labelLg, { color: colors.onPrimary }]}>CONTINUE TO MAP</Text>
+              <Ionicons name="navigate-outline" size={19} color={colors.onPrimary} />
+            </Pressable>
+          </CoachMarkTarget>
         )}
       </View>
     </View>

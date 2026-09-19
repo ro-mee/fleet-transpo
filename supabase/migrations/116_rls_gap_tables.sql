@@ -1,7 +1,7 @@
 BEGIN;
 
 -- ============================================
--- MIGRATION 115: the RLS gap tables, and a view that bypassed RLS entirely
+-- MIGRATION 116: the RLS gap tables, and a view that bypassed RLS entirely
 --
 -- Closes the remainder of SEC-DB-003 and all of SEC-DB-006. Confirmed live on
 -- 2026-09-18 by measurement, not by reading migrations.

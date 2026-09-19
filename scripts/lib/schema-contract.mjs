@@ -217,7 +217,7 @@ export const TABLES = Object.freeze({
     classification: CLASSIFICATION.PRIVATE,
     reason: "Per-trip operational alerts plus a metadata JSONB.",
     rlsNote:
-      "RESOLVED 2026-09-18 by migration 115. Created by 109 after migration 100 and never given RLS; `db:contract` read RLS DISABLED with anon holding SELECT/INSERT/UPDATE/DELETE, and the probe's `200 []` was an EMPTY TABLE, not a protected one. Now RLS-enabled with no policy, and the anon/authenticated grants are revoked — RLS does not cover TRUNCATE, so the revoke closes a hole RLS alone cannot. `npm run verify:anon` returns an explicit 42501.",
+      "RESOLVED 2026-09-18 by migration 116. Created by 109 after migration 100 and never given RLS; `db:contract` read RLS DISABLED with anon holding SELECT/INSERT/UPDATE/DELETE, and the probe's `200 []` was an EMPTY TABLE, not a protected one. Now RLS-enabled with no policy, and the anon/authenticated grants are revoked — RLS does not cover TRUNCATE, so the revoke closes a hole RLS alone cannot. `npm run verify:anon` returns an explicit 42501.",
   },
 
   // --- incidents -----------------------------------------------------------
@@ -314,7 +314,7 @@ export const TABLES = Object.freeze({
     reason:
       "Full system-prompt text for the advisory layer — a direct map of what the AI can be made to say.",
     rlsNote:
-      "RESOLVED 2026-09-18 by migration 115. Created by 106 after migration 100 and never given RLS; `db:contract` read RLS DISABLED with anon holding SELECT/INSERT/UPDATE/DELETE, and the probe's `200 []` was an EMPTY TABLE, not a protected one. Now RLS-enabled with no policy, and the anon/authenticated grants are revoked. The revoke is load-bearing rather than decorative: RLS does not apply to TRUNCATE, so enabling RLS alone would have left an anonymous caller able to empty the table. `npm run verify:anon` returns an explicit 42501.",
+      "RESOLVED 2026-09-18 by migration 116. Created by 106 after migration 100 and never given RLS; `db:contract` read RLS DISABLED with anon holding SELECT/INSERT/UPDATE/DELETE, and the probe's `200 []` was an EMPTY TABLE, not a protected one. Now RLS-enabled with no policy, and the anon/authenticated grants are revoked. The revoke is load-bearing rather than decorative: RLS does not apply to TRUNCATE, so enabling RLS alone would have left an anonymous caller able to empty the table. `npm run verify:anon` returns an explicit 42501.",
   },
 
   // --- audit & tooling -----------------------------------------------------
@@ -331,7 +331,7 @@ export const TABLES = Object.freeze({
     reason:
       "Unexpected-failure log. The `stack` column holds full server stack traces with internal paths and SQL detail.",
     rlsNote:
-      "Found readable with the public anon key on 2026-09-18 (SEC-DB-003); RLS added by migration 114. CONFIRMED from the database side by `db:contract`: RLS enabled, no anon policy. Regression-guarded by `npm run verify:anon`.",
+      "Found readable with the public anon key on 2026-09-18 (SEC-DB-003); RLS added by migration 115. CONFIRMED from the database side by `db:contract`: RLS enabled, no anon policy. Regression-guarded by `npm run verify:anon`.",
   },
   schema_migrations: {
     classification: CLASSIFICATION.PRIVATE,
@@ -353,7 +353,7 @@ export const VIEWS = Object.freeze({
     reason:
       "Per-driver performance rollup computed over completed trips. Read by /api/driver/me, which scopes it to the requesting driver's own id.",
     rlsNote:
-      "RESOLVED 2026-09-18 by migration 115. It ran as its OWNER — no `security_invoker` — and anon held SELECT, so it read straight through the RLS protecting `trips` and `drivers`. A direct role-switch measurement returned 40 driver performance rows; the earlier report said 1 because the probe used `limit=1`, a floor rather than a count. Now `security_invoker=true` and the anon/authenticated grants are revoked. Found by this contract; the anon probe had never looked at a view, because it enumerated CREATE TABLE only.",
+      "RESOLVED 2026-09-18 by migration 116. It ran as its OWNER — no `security_invoker` — and anon held SELECT, so it read straight through the RLS protecting `trips` and `drivers`. A direct role-switch measurement returned 40 driver performance rows; the earlier report said 1 because the probe used `limit=1`, a floor rather than a count. Now `security_invoker=true` and the anon/authenticated grants are revoked. Found by this contract; the anon probe had never looked at a view, because it enumerated CREATE TABLE only.",
   },
 });
 

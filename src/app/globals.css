@@ -103,6 +103,23 @@
   --warning-bg: #fffbeb;
   --danger-bg: #fef2f2;
   --info-bg: #eff6ff;
+
+  /* Session Timeout tokens */
+  --session-bg: #ffffff;
+  --session-text-primary: #101828;
+  --session-text-secondary: #667085;
+  --session-text-muted: #98a2b3;
+  --session-border: #e4e7ec;
+  --session-primary: #0f172a;
+  --session-primary-text: #ffffff;
+  --session-warning-bg: #fff4e8;
+  --session-warning-border: #f6d7ae;
+  --session-warning-text: #b86708;
+  --session-warning-accent: #d97706;
+  --session-danger-bg: #fff1f1;
+  --session-danger-border: #f4c4c4;
+  --session-danger-text: #b42318;
+  --session-danger-accent: #d92d20;
 }
 
 :root.dark {
@@ -132,6 +149,23 @@
   --warning-700: #fbbf24;
   --danger-700: #f87171;
   --info-700: #60a5fa;
+
+  /* Session Timeout tokens (Dark mode) */
+  --session-bg: #0f172a;
+  --session-text-primary: #f8fafc;
+  --session-text-secondary: #94a3b8;
+  --session-text-muted: #64748b;
+  --session-border: #1e293b;
+  --session-primary: #f8fafc;
+  --session-primary-text: #0f172a;
+  --session-warning-bg: rgba(217, 119, 6, 0.14);
+  --session-warning-border: rgba(217, 119, 6, 0.35);
+  --session-warning-text: #fbbf24;
+  --session-warning-accent: #f59e0b;
+  --session-danger-bg: rgba(217, 45, 32, 0.14);
+  --session-danger-border: rgba(217, 45, 32, 0.35);
+  --session-danger-text: #f87171;
+  --session-danger-accent: #ef4444;
 }
 
 * {

@@ -5,24 +5,22 @@ import { useAuth } from "../../lib/auth";
 import { isDriverSession } from "../../lib/rbac";
 import { useActiveTripGpsPoster } from "../../lib/tracking";
 import { CURRENT_PRIVACY_POLICY_VERSION, getAcceptedConsentVersion } from "../../lib/consent";
+import { resolveDriverId } from "../../lib/offline-cache";
 import { useTheme } from "../../lib/theme-context";
 import { NotificationFeedProvider } from "../../context/notification-feed";
 import { ConnectivityProvider } from "../../lib/connectivity-context";
 import { ConnectivityBanner } from "../../components/ConnectivityBanner";
+import { CoachMarkProvider } from "../../components/coachmarks/CoachMarkProvider";
 
 /**
  * Auth + consent guard for every signed-in route.
  *
- * Auth: only a driver session may enter the signed-in area. This is the UI
- * half of the role check; the server independently rejects non-driver tokens
- * on every request, and a driver whose refresh token was revoked lands back
- * here when the api layer clears `user` through the session-expired handler.
- *
+ * Auth: only a driver session may enter the signed-in area.
  * Consent: a driver who has not accepted the current privacy policy version is
- * parked on the consent screen until they agree, so no personal-data section
- * (license, face photo, live location) is shown first. The version is re-read
- * on every focus, so accepting on the consent screen lets the driver straight
- * into the app without a restart.
+ * parked on the consent screen until they agree.
+ *
+ * Contextual Coach Marks: wraps the authenticated tree in CoachMarkProvider
+ * so real production screens trigger just-in-time guidance.
  */
 export default function AppLayout() {
   const { user, loading } = useAuth();
@@ -31,22 +29,21 @@ export default function AppLayout() {
   const [consentLoading, setConsentLoading] = useState(true);
 
   const consented = consentVersion === CURRENT_PRIVACY_POLICY_VERSION;
+  const driverId = resolveDriverId(user);
 
   // The single GPS poster for the whole app (see lib/tracking.js). Runs only
-  // once the driver is signed in and consented — live location is personal
-  // data, so nothing posts while parked on the consent screen.
+  // once the driver is signed in and consented.
   useActiveTripGpsPoster(Boolean(user) && isDriverSession(user) && consented);
 
-  // Read the locally-accepted policy version. A signed-in driver is remembered
-  // so returning drivers are not re-prompted; the version constant lives beside
-  // the web policy (mobile/lib/consent.js).
   useFocusEffect(
     useCallback(() => {
       let active = true;
       (async () => {
         const v = await getAcceptedConsentVersion().catch(() => null);
-        if (active) setConsentVersion(v);
-        if (active) setConsentLoading(false);
+        if (active) {
+          setConsentVersion(v);
+          setConsentLoading(false);
+        }
       })();
       return () => {
         active = false;
@@ -71,28 +68,30 @@ export default function AppLayout() {
   }
 
   return (
-    <NotificationFeedProvider>
-      <ConnectivityProvider>
-        {/* PR #3.1 global connectivity status: layout-participating sibling
-            above the navigator — driver-only (guards above already redirected
-            non-drivers/consent), pushes content down, never overlays map
-            controls or tabs, invisible when healthy. */}
-        <ConnectivityBanner />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-            contentStyle: { backgroundColor: colors.background },
-          }}
-        >
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="trip/[id]" />
-          <Stack.Screen name="fuel-report" />
-          <Stack.Screen name="incidents" />
-          <Stack.Screen name="inspection" />
-          <Stack.Screen name="work-schedule" />
-        </Stack>
-      </ConnectivityProvider>
-    </NotificationFeedProvider>
+    <CoachMarkProvider driverId={driverId}>
+      <NotificationFeedProvider>
+        <ConnectivityProvider>
+          {/* PR #3.1 global connectivity status: layout-participating sibling
+              above the navigator — driver-only (guards above already redirected
+              non-drivers/consent), pushes content down, never overlays map
+              controls or tabs, invisible when healthy. */}
+          <ConnectivityBanner />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          >
+            <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="trip/[id]" />
+            <Stack.Screen name="fuel-report" />
+            <Stack.Screen name="incidents" />
+            <Stack.Screen name="inspection" />
+            <Stack.Screen name="work-schedule" />
+          </Stack>
+        </ConnectivityProvider>
+      </NotificationFeedProvider>
+    </CoachMarkProvider>
   );
 }
 

@@ -7,7 +7,7 @@ source:
   - src/app/(dashboard)/fleet/maintenance
   - src/app/(dashboard)/maintenance/page.js
   - src/app/api/vehicle-maintenance/[id]/route.js
-  - supabase/migrations/113_maintenance_repairer_identity.sql
+  - supabase/migrations/114_maintenance_repairer_identity.sql
 last_verified: 2026-09-16
 ---
 
@@ -24,7 +24,7 @@ Tracks vehicle servicing, handles emergency repairs from incidents, provides an 
 | `src/lib/ai/predictive-maintenance.js` | ✅ Pure scoring module, feeds [[AI Advisory]] |
 | `trigger_notify_maintenance_due` | ✅ DB trigger writes a [[Notifications]] row |
 | `src/app/(dashboard)/fleet/maintenance/` | ✅ **Fully operational dashboard** (history, active repairs, predictive schedule) |
-| `vehiclemaintenance` State Machine | ✅ `Completed` is a terminal state. Strict completion audit trail (`completed_by`, `completed_at`) enforced server-side. Separation of duties keyed to `repair_completed_by` (migration 113). |
+| `vehiclemaintenance` State Machine | ✅ `Completed` is a terminal state. Strict completion audit trail (`completed_by`, `completed_at`) enforced server-side. Separation of duties keyed to `repair_completed_by` (migration 114). |
 | ~~Manager inspection gate~~ | ❌ **REMOVED 2026-09-16** — required `inspection_completed_at`, which nothing in the app could ever write. See the bug record below. |
 
 ## The Fleet Maintenance Dashboard
@@ -47,7 +47,7 @@ Two guards run on the `Completed` transition, in this order:
 2. **Four-eyes gate.** The person who declared the repair finished cannot also approve it: `repair_completed_by === session.user.employeeId` → `403 "The person who completed this repair cannot approve its completion."`
 
 `repair_completed_by` is stamped by the server on the transition **into**
-`Pending Inspection` (migration 113), together with `repair_completed_at`. That
+`Pending Inspection` (migration 114), together with `repair_completed_at`. That
 is the only point in the lifecycle where "who did the work" is knowable, so it is
 the only honest key the guard can use.
 
@@ -56,7 +56,7 @@ provenance, and on an incident-sourced ticket (`src/lib/incidents/maintenance.js
 passes `session.user.employeeId`) it names **whoever resolved the incident**, not
 the mechanic — that mis-keying is exactly what the pre-2026-09-16 guard denied on.
 A row whose `repair_completed_by` is `NULL` — every record predating migration
-113, and any record that skipped `Pending Inspection` — is **not blocked**: there
+114, and any record that skipped `Pending Inspection` — is **not blocked**: there
 is no evidence of who did the work, so the guard stays silent rather than guess.
 No backfill was performed, for the same reason.
 
@@ -164,7 +164,7 @@ field the real UI never sends. The suite was asserting against a session and a
 payload that production never produces.
 
 **Fix.**
-- Migration **113** adds `vehiclemaintenance.repair_completed_by` (FK →
+- Migration **114** adds `vehiclemaintenance.repair_completed_by` (FK →
   `employees`) and flips `inspection_required` to `DEFAULT FALSE`.
 - The route stamps `repair_completed_by` / `repair_completed_at` on the
   transition into `Pending Inspection`, and the four-eyes guard now compares
@@ -187,7 +187,7 @@ re-running: all four fail with the correct messages (`expected 200 to be 403`,
 `expected 403 to be 200`, missing `repair_completed_by = $`, and
 `inspection_required` still present in the SET list). Full suite **141 files /
 1338 tests pass**, ESLint clean on the 7 touched files, `npm run db:dump` a
-clean 3-insertion/1-deletion `schema.sql` diff, migration 113 confirmed applied
+clean 3-insertion/1-deletion `schema.sql` diff, migration 114 confirmed applied
 via `information_schema` + `pg_constraint`. The three queries the app actually
 runs were replayed against live and return correct shapes.
 

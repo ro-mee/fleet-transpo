@@ -1084,7 +1084,7 @@ CREATE TABLE web_sessions (
   revoked_at timestamptz,
   ip_address varchar(50),
   user_agent text,
-  idle_timeout_seconds integer DEFAULT 3600 NOT NULL,
+  idle_timeout_seconds integer DEFAULT 300 NOT NULL,
   CONSTRAINT web_sessions_pkey PRIMARY KEY (session_id)
 );
 

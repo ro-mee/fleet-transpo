@@ -111,7 +111,7 @@ export async function GET(req) {
 
       query(
         `SELECT d.driver_id, d.driver_status, d.license_number, d.license_expiry,
-                e.first_name, e.last_name
+                d.face_image_url, e.first_name, e.last_name, e.avatar_url
            FROM drivers d
            LEFT JOIN employees e ON d.employee_id = e.employee_id
           WHERE d.deleted_at IS NULL

@@ -133,7 +133,8 @@ export async function listAllLeaveRequests({ driverId } = {}) {
   const { rows } = await query(
     `SELECT lr.leave_request_id, lr.driver_id, lr.start_date::text AS start_date, lr.end_date::text AS end_date, lr.start_time, lr.end_time, lr.leave_type, lr.reason, lr.status,
             lr.requested_at, lr.reviewed_by, lr.reviewed_at, lr.review_notes,
-            json_build_object('employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name) AS driver
+            json_build_object('employee_id', e.employee_id, 'first_name', e.first_name, 'last_name', e.last_name,
+              'face_image_url', d.face_image_url, 'avatar_url', e.avatar_url) AS driver
        FROM driver_leave_requests lr
        LEFT JOIN drivers d ON d.driver_id = lr.driver_id
        LEFT JOIN employees e ON e.employee_id = d.employee_id

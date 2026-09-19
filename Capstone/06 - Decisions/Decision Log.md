@@ -40,6 +40,36 @@ the dead `reservation_approved` key, migration 107 moved 8 live preference
 rows); suspended/reinstated drivers are told alongside staff. Evidence:
 `Capstone/02 - Features/Notifications.md` (audit matrix + implementation).
 
+## 2026-09-18 — Web session idle timeout: 1 hour → 5 minutes, strictly enforced
+
+**Decision:** the dashboard idle timeout is **5 minutes**, and `last_seen_at` may
+be written **only** by `POST /api/auth/heartbeat`, which the client gates on real
+DOM activity. The 12-hour absolute cap is unchanged and still never extended.
+
+**Why now:** the 1-hour timeout was not being enforced at all. `resolveCurrentIdentity()`
+slid `last_seen_at` on any authenticated request older than 5 minutes, and every
+dashboard page polls continuously (30s sidebar counts, 15–30s live map, 10s dispatch
+plan; two queries with `refetchIntervalInBackground: true`), so an untouched browser
+kept its own session alive indefinitely. The real exposure was the 12-hour cap.
+Shortening the number without fixing that would have changed nothing.
+
+**Rejected alternatives:**
+
+| Option | Why not |
+|---|---|
+| 30 min / 15 min idle | Offered as the middle ground. Rejected in favour of the tighter window; either is a one-constant change plus the migration default if this proves too aggressive. |
+| Keep the auto-slide, gate it on an explicit client activity signal | Reliably distinguishing polled from user-initiated requests server-side is fragile, and the auto-slide is precisely the mechanism that defeated the control. |
+| Slide on non-GET requests as a safety net | Near-free backstop (polling is almost always GET, user actions are POST/PATCH/DELETE) but leaves an hour of read-only work counting as idle — a weaker guarantee for a marginal availability gain. Chosen against deliberately; revisit if heartbeat failures prove common in the field. |
+| Backfill live rows to 300 in migration 113 | Would instantly idle-expire every session older than 5 minutes at deploy — a mass logout presenting as an outage. Existing rows keep their recorded window and roll off within 12 hours. |
+
+**Accepted cost:** a dispatcher on a live map or a manager on a long form can lose
+unsaved state; `saveReturnTo()` preserves the route, not the form. Mitigated by a
+60-second warning, an immediate slide on activity, and focus landing on "Stay signed in".
+
+**Evidence:** `Capstone/04 - Architecture/Authentication.md` §"The idle timeout that
+wasn't", `Capstone/01 - System/Security Audit.md`, `src/lib/auth/session-policy.js`,
+migration `113_session_idle_timeout_5min.sql`.
+
 ## What the pattern shows — INFERRED
 
 **Six of eleven decisions are well-evidenced; the rest are not.** And the well-evidenced ones are documented *in the code that implements them* — docstrings and migration headers — never in `docs/`.

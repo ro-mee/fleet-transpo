@@ -49,7 +49,7 @@ export function UserDropdown({ employee, signOut, side = "bottom", align = "end"
   const role = employee?.roles?.role_name || "admin";
   const isDriver = role === "driver";
   const statusText = isDriver ? employee?.driver_status || "Available" : employee?.status || "Active";
-  const avatarUrl = employee?.avatar_url || employee?.face_image_url || employee?.image || employee?.image_url || null;
+  const avatarUrl = employee?.face_image_url || employee?.avatar_url || employee?.image || employee?.image_url || null;
 
   let statusColor = "text-success";
   let statusBg = "bg-success";

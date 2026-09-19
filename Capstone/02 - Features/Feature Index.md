@@ -43,6 +43,7 @@ Each note answers: what it does, why it exists, how it works, which files, which
 | Notifications | ✅ DB-trigger driven (164 rows) | [[Notifications]] |
 | Booking integration | ⚠ contract built, far end mocked | [[System Boundaries]] |
 | Driver consent & visibility | ✅ | [[Driver Consent]] |
+| Driver Academy & In-App Guide | ✅ mandatory interactive training gate | [[Driver In-App Guide]] |
 | Reports & analytics | ✅ separate role-guarded pages; honest empty-state cleanup WIP | [[Reports]] |
 
 Legend: ✅ exercised · ⚠ works with a known problem · ⚪ built but zero rows

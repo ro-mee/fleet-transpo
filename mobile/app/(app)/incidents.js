@@ -1,10 +1,9 @@
 import { moderateScale } from '../../lib/scaling';
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ScrollView, StyleSheet, Text, View, Pressable, TextInput, KeyboardAvoidingView, Platform, Image, InteractionManager } from 'react-native';
 import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
-import { useEffect } from 'react';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../lib/theme-context";
@@ -16,6 +15,7 @@ import { resolveVehicleContext, getCachedVehicleContext } from "../../lib/driver
 import { AppAlert } from '../../components/AppAlert';
 import { ClayCard, ClayButton, ClayTile } from '../../components/clay';
 import { raisedControl } from '../../lib/clay';
+import { useCoachMarks, CoachMarkTarget } from '../../components/coachmarks';
 
 const INCIDENT_TYPES = [
   { id: "breakdown", label: "Vehicle Breakdown", icon: "car" },
@@ -46,6 +46,8 @@ export default function IncidentsScreen() {
   const raised = raisedControl(isDark);
   const { user } = useAuth();
   const driverId = resolveDriverId(user);
+  const { triggerMilestone, notifyInteraction } = useCoachMarks();
+  const scrollRef = useRef(null);
 
   const [type, setType] = useState(null);
   const [description, setDescription] = useState("");
@@ -60,6 +62,13 @@ export default function IncidentsScreen() {
   const [vehiclePlate, setVehiclePlate] = useState("");
   const [photos, setPhotos] = useState([]);
   const [uploadingPhotos, setUploadingPhotos] = useState(false);
+
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      triggerMilestone("incident");
+    });
+    return () => task?.cancel?.();
+  }, [triggerMilestone]);
   
   useEffect(() => {
     // Offline driver context: the vehicle shown (and submitted) resolves
@@ -277,14 +286,17 @@ export default function IncidentsScreen() {
       </View>
 
       {/* Emergency Banner */}
-      <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
-        <Ionicons name="radio-outline" size={16} color={colors.onError} />
-        <Text style={[styles.emergencyText, { color: colors.onError }]}>
-          Fleet Coordinator will be notified immediately upon submission.
-        </Text>
-      </View>
+      <CoachMarkTarget id="incident.banner" targetId="incident.banner" radius={10} padding={6}>
+        <View style={[styles.emergencyBanner, { backgroundColor: colors.error }]}>
+          <Ionicons name="radio-outline" size={16} color={colors.onError} />
+          <Text style={[styles.emergencyText, { color: colors.onError }]}>
+            Fleet Coordinator will be notified immediately upon submission.
+          </Text>
+        </View>
+      </CoachMarkTarget>
 
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + 100 }]}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -314,35 +326,40 @@ export default function IncidentsScreen() {
           <Text style={[styles.sectionSub, { color: colors.onSurfaceVariant }]}>
             Select the category that best describes the situation
           </Text>
-          <View style={styles.typeGrid}>
-            {INCIDENT_TYPES.map((t) => {
-              const selected = type === t.id;
-              return (
-                <ClayCard
-                  key={t.id}
-                  onPress={() => setType(t.id)}
-                  style={[
-                    styles.typeCard,
-                    selected && { backgroundColor: colors.errorContainer, borderColor: colors.error },
-                  ]}
-                >
-                  <ClayTile
-                    icon={t.icon}
-                    size={38}
-                    style={{ backgroundColor: selected ? colors.error + '20' : undefined }}
-                  />
-                  <Text
+          <CoachMarkTarget id="incident.category" targetId="incident.category" scrollRef={scrollRef}>
+            <View style={styles.typeGrid}>
+              {INCIDENT_TYPES.map((t) => {
+                const selected = type === t.id;
+                return (
+                  <ClayCard
+                    key={t.id}
+                    onPress={() => {
+                      setType(t.id);
+                      notifyInteraction?.("incident.category", t.id);
+                    }}
                     style={[
-                      styles.typeCardText,
-                      { color: selected ? colors.onErrorContainer : colors.onSurface },
+                      styles.typeCard,
+                      selected && { backgroundColor: colors.errorContainer, borderColor: colors.error },
                     ]}
                   >
-                    {t.label}
-                  </Text>
-                </ClayCard>
-              );
-            })}
-          </View>
+                    <ClayTile
+                      icon={t.icon}
+                      size={38}
+                      style={{ backgroundColor: selected ? colors.error + '20' : undefined }}
+                    />
+                    <Text
+                      style={[
+                        styles.typeCardText,
+                        { color: selected ? colors.onErrorContainer : colors.onSurface },
+                      ]}
+                    >
+                      {t.label}
+                    </Text>
+                  </ClayCard>
+                );
+              })}
+            </View>
+          </CoachMarkTarget>
         </View>
 
         {/* Severity */}

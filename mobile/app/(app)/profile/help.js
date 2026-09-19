@@ -14,7 +14,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../lib/theme-context";
 import { fonts, TOUCH_TARGET } from "../../../lib/theme";
 import ClayScreenHeader from '../../../components/ClayScreenHeader';
-import { ClayCard, ClayTile } from "../../../components/clay";
+import { ClayCard, ClayTile, ClayButton } from "../../../components/clay";
+import { AppAlert } from "../../../components/AppAlert";
+import { useCoachMarks } from "../../../components/coachmarks";
 
 const FAQS = [
   {
@@ -61,6 +63,24 @@ export default function HelpCenter() {
   const insets = useSafeAreaInsets();
   const { colors, scheme } = useTheme();
   const isDark = scheme === "dark";
+  const { resetTips } = useCoachMarks();
+
+  const handleResetTips = () => {
+    AppAlert.alert(
+      "Reset In-App Tips?",
+      "Contextual coach marks and workflow tips will appear again as you use the app.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset Tips",
+          onPress: async () => {
+            await resetTips();
+            AppAlert.alert("In-App Tips Reset", "Helpful tips will appear again as you use the app.");
+          },
+        },
+      ]
+    );
+  };
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
@@ -75,6 +95,26 @@ export default function HelpCenter() {
             Contact dispatch directly or check our frequently asked questions.
           </Text>
         </View>
+
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>IN-APP GUIDANCE</Text>
+        <ClayCard variant="standard" style={styles.trainingCard}>
+          <View style={styles.trainingTop}>
+            <ClayTile icon="bulb" size={44} variant="primary" />
+            <View style={styles.trainingInfo}>
+              <Text style={[styles.trainingTitle, { color: colors.onSurface }]}>In-App Guidance Tips</Text>
+              <Text style={[styles.trainingSub, { color: colors.onSurfaceVariant }]}>
+                FleetOps provides contextual tips and walkthroughs directly on real screens during vehicle inspections, live trips, fuel logging, and emergencies.
+              </Text>
+            </View>
+          </View>
+          <ClayButton
+            variant="tonal"
+            label="Reset In-App Tips"
+            icon="refresh"
+            onPress={handleResetTips}
+            style={{ width: '100%', marginTop: 8 }}
+          />
+        </ClayCard>
 
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceVariant }]}>CONTACT</Text>
         <ClayCard variant="standard" style={styles.sectionCard}>
@@ -146,6 +186,30 @@ const styles = StyleSheet.create({
   sectionCard: {
     borderRadius: 30,
     overflow: "hidden",
+  },
+
+  trainingCard: {
+    padding: 16,
+    borderRadius: 24,
+    gap: 12,
+  },
+  trainingTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  trainingInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  trainingTitle: {
+    fontSize: 16,
+    fontFamily: fonts.displayBold,
+  },
+  trainingSub: {
+    fontSize: 13,
+    fontFamily: fonts.body,
+    lineHeight: 18,
   },
 
   contactRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 20, minHeight: TOUCH_TARGET },

@@ -1,7 +1,7 @@
 BEGIN;
 
 -- ============================================
--- MIGRATION 114: app_errors — enable Row Level Security
+-- MIGRATION 115: app_errors — enable Row Level Security
 --
 -- Closes SEC-DB-003 for app_errors. Confirmed live 2026-09-18, not inferred.
 --

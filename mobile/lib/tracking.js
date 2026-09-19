@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import * as Location from "expo-location";
@@ -7,6 +7,7 @@ import { useSettings } from "./settings-context";
 import { getActiveStatuses } from "./tripRef";
 import { monitorBannerFor } from "./monitor-banner";
 import { weatherChipFor } from "./weather-chip";
+import { createMotionState, recordFix, isDrivingAt } from "./motion-state";
 
 // Re-exported for screens: the pure PR #4 banner derivation (implemented in
 // its own RN-import-free module so the vitest suite can exercise it).
@@ -33,6 +34,12 @@ let posterStatus = {
   weatherTripId: null,
   activeTripId: null,
   standbyObservedAt: null,
+  // Raw motion evidence from the most recent fix, consumed by useIsDriving.
+  // Published raw rather than as a verdict because the hold window in
+  // ./motion-state is time-based: "is driving" has to be re-evaluated against a
+  // clock, not only when new data lands.
+  motionSpeedMs: null,
+  motionFixAt: null,
 };
 const statusListeners = new Set();
 
@@ -48,6 +55,73 @@ export function usePosterStatus() {
     return () => statusListeners.delete(setStatus);
   }, []);
   return status;
+}
+
+/**
+ * Imperative subscription to the poster status. Unlike `usePosterStatus` this
+ * keeps nothing in React state, so a consumer that derives one boolean from the
+ * status is not re-rendered on every publish. That matters here: the consumer
+ * is the coach-mark provider, which wraps the entire app tree and would
+ * otherwise re-render it every 30 s.
+ *
+ * @param {(status: object) => void} listener
+ * @returns {() => void} unsubscribe
+ */
+export function subscribePosterStatus(listener) {
+  statusListeners.add(listener);
+  return () => statusListeners.delete(listener);
+}
+
+// How often the hold window is re-checked against the clock. This bounds only
+// how LATE the lock releases (the hold is whole minutes); engaging is immediate,
+// because it happens on the fix itself rather than on a tick.
+const MOTION_TICK_MS = 15 * 1000;
+
+/**
+ * Whether the vehicle is in motion right now — the input to the coach-mark
+ * Driving Safety Lock (Capstone: Driver In-App Guide §7.1).
+ *
+ * Motion is sticky, per `./motion-state`: a fix at or above 10 km/h suppresses
+ * tips for MOVING_HOLD_MS, and a later stationary fix does not release that
+ * early — otherwise a red light would un-suppress the guide mid-route.
+ *
+ * Fails open by design: no location permission, tracking off in Settings, or no
+ * fix yet all report `false`, so the in-app guide still works on a device that
+ * never grants location. The lock engages only on positive evidence.
+ *
+ * @returns {boolean}
+ */
+export function useIsDriving() {
+  const [isDriving, setIsDriving] = useState(false);
+  const stateRef = useRef(createMotionState());
+  const drivingRef = useRef(false);
+
+  const apply = useCallback(() => {
+    const next = isDrivingAt(stateRef.current, Date.now());
+    if (next === drivingRef.current) return;
+    drivingRef.current = next;
+    setIsDriving(next);
+  }, []);
+
+  useEffect(
+    () =>
+      subscribePosterStatus((status) => {
+        if (status.motionFixAt == null) return;
+        stateRef.current = recordFix(stateRef.current, {
+          speedMs: status.motionSpeedMs,
+          atMs: new Date(status.motionFixAt).getTime(),
+        });
+        apply();
+      }),
+    [apply]
+  );
+
+  useEffect(() => {
+    const interval = setInterval(apply, MOTION_TICK_MS);
+    return () => clearInterval(interval);
+  }, [apply]);
+
+  return isDriving;
 }
 
 // ── The single GPS poster ──────────────────────────────────────────────────
@@ -168,6 +242,16 @@ export function useActiveTripGpsPoster(enabled) {
             accuracy: Location.Accuracy.Balanced,
           });
           if (cancelled) return;
+          // Motion evidence is published for every fix, before the branch
+          // below, so the driving gate sees it whether this driver is on a
+          // trip, responding to an incident, or merely on standby. No extra GPS
+          // read: this is the speed field this call already returned.
+          // Deliberately NOT part of the publishes below, which are all
+          // gated on a response — a fix is evidence even if its post fails.
+          publishStatus({
+            motionSpeedMs: loc.coords.speed ?? null,
+            motionFixAt: new Date().toISOString(),
+          });
           if (tripId) {
             // Trip GPS wins when both exist: it updates the same
             // drivers.current_* columns the responder evaluation reads, so

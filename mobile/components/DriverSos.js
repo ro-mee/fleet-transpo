@@ -26,6 +26,7 @@ import { TOUCH_TARGET } from "../lib/theme";
 import { clayMaterials } from "../lib/clay";
 import { AppAlert } from "./AppAlert";
 import RadarPulse from "./RadarPulse";
+import { useCoachMarks, CoachMarkTarget } from "./coachmarks";
 
 const sosIcon = require("../assets/images/SOS.png");
 
@@ -71,6 +72,26 @@ export function DriverSos() {
         shadowOpacity: 0.22,
       };
   const [open, setOpen] = useState(false);
+  const { triggerMilestone, dismissCoachMark, activeMilestone, isDriving } = useCoachMarks();
+
+  // Never allow tutorial state to delay, intercept, or prevent a real emergency SOS action.
+  useEffect(() => {
+    if (open && activeMilestone) {
+      dismissCoachMark();
+    }
+  }, [open, activeMilestone, dismissCoachMark]);
+
+  // SOS coach mark must only auto-present in a safe/stationary context.
+  useEffect(() => {
+    if (pathname === "/" && !isDriving && !open) {
+      const timer = setTimeout(() => {
+        if (!isDriving && !open) {
+          triggerMilestone("sos");
+        }
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [pathname, isDriving, open, triggerMilestone]);
 
   useEffect(() => {
     registerSosHandler(() => setOpen(true));
@@ -238,41 +259,43 @@ export function DriverSos() {
 
   return (
     <>
-      <Animated.View
-        {...pan.panHandlers}
-        style={[
-          styles.sos,
-          {
-            backgroundColor: sosTheme.backgroundColor,
-            borderColor: sosTheme.borderColor,
-            shadowColor: sosTheme.shadowColor,
-            shadowOpacity: sosTheme.shadowOpacity,
-            bottom: insets.bottom + 88,
-            transform: position.getTranslateTransform(),
-          },
-        ]}
-        accessibilityRole="button"
-        accessibilityLabel="Emergency actions"
-        accessibilityHint="Tap to open. Drag to reposition."
-        accessible
-        onAccessibilityTap={() => setOpen(true)}
-      >
-        <LinearGradient
-          colors={sosTheme.gradient}
-          start={{ x: 0.2, y: 0 }}
-          end={{ x: 0.8, y: 1 }}
-          style={styles.sosInner}
+      <CoachMarkTarget targetId="incident.sos">
+        <Animated.View
+          {...pan.panHandlers}
+          style={[
+            styles.sos,
+            {
+              backgroundColor: sosTheme.backgroundColor,
+              borderColor: sosTheme.borderColor,
+              shadowColor: sosTheme.shadowColor,
+              shadowOpacity: sosTheme.shadowOpacity,
+              bottom: insets.bottom + 88,
+              transform: position.getTranslateTransform(),
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Emergency actions"
+          accessibilityHint="Tap to open. Drag to reposition."
+          accessible
+          onAccessibilityTap={() => setOpen(true)}
         >
-          <View style={styles.concentricRim}>
-            <Image
-              source={sosIcon}
-              style={[styles.sosImage, { width: moderateScale(50), height: moderateScale(50) }]}
-              resizeMode="contain"
-              accessibilityIgnoresInvertColors
-            />
-          </View>
-        </LinearGradient>
-      </Animated.View>
+          <LinearGradient
+            colors={sosTheme.gradient}
+            start={{ x: 0.2, y: 0 }}
+            end={{ x: 0.8, y: 1 }}
+            style={styles.sosInner}
+          >
+            <View style={styles.concentricRim}>
+              <Image
+                source={sosIcon}
+                style={[styles.sosImage, { width: moderateScale(50), height: moderateScale(50) }]}
+                resizeMode="contain"
+                accessibilityIgnoresInvertColors
+              />
+            </View>
+          </LinearGradient>
+        </Animated.View>
+      </CoachMarkTarget>
 
       <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
         <View style={styles.backdrop}>

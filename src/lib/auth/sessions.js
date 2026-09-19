@@ -1,10 +1,15 @@
 import { query } from "@/lib/db";
 import { getLocationFromIp } from "./geoip";
 
-export const WEB_SESSION_TTL_SECONDS = 12 * 60 * 60;
-export const IDLE_TIMEOUT_SECONDS = 60 * 60; // 1 hour idle timeout
-export const IDLE_WARNING_SECONDS = 5 * 60; // 5 minutes before idle timeout
-export const ABSOLUTE_WARNING_SECONDS = 5 * 60; // 5 minutes before absolute expiry
+// Re-exported for existing server-side importers (lib/auth.js, the idle-session
+// tests). The values themselves live in the dependency-free policy module so
+// the client bundle can read the same numbers.
+export {
+  WEB_SESSION_TTL_SECONDS,
+  IDLE_TIMEOUT_SECONDS,
+  IDLE_WARNING_SECONDS,
+  ABSOLUTE_WARNING_SECONDS,
+} from "./session-policy";
 
 export async function revokeEmployeeSessions(tx, employeeId) {
   await tx.query(

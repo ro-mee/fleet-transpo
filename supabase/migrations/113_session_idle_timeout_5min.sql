@@ -1,0 +1,23 @@
+-- ============================================
+-- MIGRATION 113: web session idle timeout -> 5 minutes
+-- ============================================
+-- Policy change: the dashboard idle window drops from 1 hour to 5 minutes.
+-- The application sets this value explicitly on every INSERT (src/lib/auth.js),
+-- so the column default is not what enforces the policy for new logins — it
+-- exists so the schema does not advertise a stale window.
+--
+-- NO BACKFILL, deliberately. Rewriting live rows to 300 would instantly
+-- idle-expire every session whose last_seen_at is more than 5 minutes old,
+-- i.e. a mass logout at deploy time that would present as an outage. Rows
+-- created before this migration keep their recorded idle_timeout_seconds and
+-- roll off within the 12-hour absolute window instead.
+--
+-- If immediate enforcement is ever wanted, the backfill MUST also refresh
+-- last_seen_at in the same statement, for example:
+--   UPDATE web_sessions
+--      SET idle_timeout_seconds = 300, last_seen_at = NOW()
+--    WHERE revoked_at IS NULL AND expires_at > NOW();
+--
+-- Setting a column default is idempotent: re-running is a no-op.
+
+ALTER TABLE web_sessions ALTER COLUMN idle_timeout_seconds SET DEFAULT 300;

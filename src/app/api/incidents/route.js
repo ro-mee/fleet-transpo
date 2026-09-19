@@ -79,12 +79,14 @@ export async function GET(req) {
              COALESCE(array_length(i.photo_urls, 1), 0) AS photo_count,
              v.plate_number, m.maintenance_id AS linked_maintenance_id,
              m.status AS maintenance_status, m.maintenance_type,
-             CASE WHEN d.driver_id IS NULL THEN NULL ELSE
-               json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name)
-             END AS driver,
-             CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
-               json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name)
-             END AS responder
+              CASE WHEN d.driver_id IS NULL THEN NULL ELSE
+                json_build_object('driver_id', d.driver_id, 'first_name', e.first_name, 'last_name', e.last_name,
+                  'face_image_url', d.face_image_url, 'avatar_url', e.avatar_url)
+              END AS driver,
+              CASE WHEN rd.driver_id IS NULL THEN NULL ELSE
+                json_build_object('driver_id', rd.driver_id, 'first_name', re.first_name, 'last_name', re.last_name,
+                  'face_image_url', rd.face_image_url, 'avatar_url', re.avatar_url)
+              END AS responder
         FROM driverincidents i
         LEFT JOIN vehicles v ON v.vehicle_id = i.vehicle_id
         LEFT JOIN vehiclemaintenance m ON m.source_incident_id = i.incident_id AND m.deleted_at IS NULL

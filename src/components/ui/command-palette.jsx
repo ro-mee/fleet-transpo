@@ -16,6 +16,7 @@ import {
   CarFront,
   FileText,
 } from "lucide-react";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 
 // Static "jump to page" commands. Filtered at render time by the current user's
 // role so an operator only ever sees pages they can actually open.
@@ -232,7 +233,11 @@ export function CommandPalette() {
                       idx === active ? "bg-hover" : "hover:bg-hover"
                     )}
                   >
-                    <Icon className="h-4 w-4 shrink-0 text-foreground-muted" />
+                    {it.type === "driver" && (it.face_image_url || it.avatar_url) ? (
+                      <DriverAvatar source={it} name={it.label} className="h-8 w-8 rounded-lg text-[11px]" />
+                    ) : (
+                      <Icon className="h-4 w-4 shrink-0 text-foreground-muted" />
+                    )}
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium text-foreground">
                         {it.label}

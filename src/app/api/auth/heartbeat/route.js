@@ -1,5 +1,6 @@
 import { requireAuth, ok, handleError, AuthError } from "@/lib/api/utils";
 import { query } from "@/lib/db";
+import { IDLE_TIMEOUT_SECONDS } from "@/lib/auth/session-policy";
 
 const DASHBOARD_ROLES = ["system_admin", "admin", "fleet_manager", "dispatcher", "management"];
 
@@ -55,7 +56,7 @@ export async function POST(req) {
       throw new AuthError("Session expired. Please sign in again.", 401, "SESSION_EXPIRED");
     }
 
-    const idleSeconds = Number(updated.idle_timeout_seconds) || 3600;
+    const idleSeconds = Number(updated.idle_timeout_seconds) || IDLE_TIMEOUT_SECONDS;
     const idleExpiresAt = new Date(new Date(updated.last_seen_at).getTime() + idleSeconds * 1000).toISOString();
 
     return ok({

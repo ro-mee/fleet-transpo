@@ -18,7 +18,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 import { toast } from "@/components/ui/toast";
 import { cn, formatDate } from "@/lib/utils";
 import {
@@ -69,12 +69,6 @@ function personLabel(row) {
   const last = row.last_name || row.employees?.last_name || "";
   const fullName = `${first} ${last}`.trim();
   return fullName || `Driver #${row.driver_id ?? row.substitute_driver_id ?? "—"}`;
-}
-
-function personInitials(row) {
-  const first = (row.first_name || row.employees?.first_name || "")[0] || "";
-  const last = (row.last_name || row.employees?.last_name || "")[0] || "";
-  return (first + last).toUpperCase() || "DR";
 }
 
 function vehiclePlate(row) {
@@ -510,12 +504,9 @@ function ActivePairingsTable({ assignments, isLoading, isError, error, refetch, 
         cell: ({ row }) => {
           const r = row.original;
           const name = personLabel(r);
-          const initials = personInitials(r);
           return (
             <div className="flex items-center gap-3 py-1">
-              <Avatar className="h-9 w-9 rounded-xl border border-border/80 bg-muted/60 text-foreground font-semibold text-xs shrink-0">
-                <AvatarFallback className="rounded-xl bg-primary/10 text-primary font-bold">{initials}</AvatarFallback>
-              </Avatar>
+              <DriverAvatar source={r} name={name} className="h-9 w-9 rounded-xl text-xs" />
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-foreground truncate">{name}</p>
                 <span className="text-[11px] font-data text-foreground-muted block">
@@ -736,12 +727,9 @@ function SubstitutesTable({ schedules, isLoading, isError, error, refetch, canMa
         cell: ({ row }) => {
           const r = row.original;
           const name = personLabel(r);
-          const initials = personInitials(r);
           return (
             <div className="flex items-center gap-3 py-1">
-              <Avatar className="h-9 w-9 rounded-xl border border-border/80 bg-muted/60 text-foreground font-semibold text-xs shrink-0">
-                <AvatarFallback className="rounded-xl bg-info/10 text-info font-bold">{initials}</AvatarFallback>
-              </Avatar>
+              <DriverAvatar source={r} name={name} className="h-9 w-9 rounded-xl text-xs" />
               <div className="min-w-0">
                 <p className="font-semibold text-sm text-foreground truncate">{name}</p>
                 <span className="text-[11px] font-data text-foreground-muted block">
@@ -1002,7 +990,6 @@ function MatchmakingAssistant({ unassignedVehicles, unassignedDrivers, canManage
               unassignedDrivers.map((d) => {
                 const isSelected = selectedDriver?.driver_id === d.driver_id;
                 const name = personLabel(d);
-                const initials = personInitials(d);
                 return (
                   <div
                     key={d.driver_id}
@@ -1015,9 +1002,7 @@ function MatchmakingAssistant({ unassignedVehicles, unassignedDrivers, canManage
                     )}
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <Avatar className="h-9 w-9 rounded-xl border border-border/80 bg-muted/60 text-foreground font-semibold text-xs shrink-0">
-                        <AvatarFallback className="rounded-xl bg-primary/10 text-primary font-bold">{initials}</AvatarFallback>
-                      </Avatar>
+                      <DriverAvatar source={d} name={name} className="h-9 w-9 rounded-xl text-xs" />
                       <div className="min-w-0 space-y-0.5">
                         <p className="text-xs font-bold text-foreground truncate">{name}</p>
                         <div className="flex items-center gap-2">

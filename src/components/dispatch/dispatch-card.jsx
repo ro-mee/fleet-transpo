@@ -21,9 +21,9 @@ import {
   Radio,
   Shuffle,
   TriangleAlert,
-  Users,
   XCircle,
 } from "lucide-react";
+import { DriverAvatar } from "@/components/drivers/driver-avatar";
 
 // Safe numeric coercer — returns a finite number or null.
 const num = (v) => { const n = Number(v); return isFinite(n) ? n : null; };
@@ -228,14 +228,24 @@ export function DispatchCard({
           )}
           </div>
           <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-border/60 bg-surface px-3 py-2.5">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-            <Users className="h-4 w-4" aria-hidden="true" />
-          </span>
           {driverNameStr ? (
-            <div className="min-w-0">
-              <p className="truncate text-xs font-semibold text-foreground">{driverNameStr.trim()}</p>
-              <p className="text-[11px] text-foreground-muted">Driver</p>
-            </div>
+            <>
+              <DriverAvatar source={driver} name={driverNameStr} className="h-8 w-8 rounded-lg text-[11px]" />
+              <div className="min-w-0">
+                {driver?.driver_id ? (
+                  <Link
+                    href={`/drivers/${driver.driver_id}`}
+                    className="truncate text-xs font-semibold text-foreground hover:text-primary hover:underline transition-colors block"
+                    title={driverNameStr.trim()}
+                  >
+                    {driverNameStr.trim()}
+                  </Link>
+                ) : (
+                  <p className="truncate text-xs font-semibold text-foreground">{driverNameStr.trim()}</p>
+                )}
+                <p className="text-[11px] text-foreground-muted">Driver</p>
+              </div>
+            </>
           ) : (
             <p className="text-xs font-semibold text-warning">Driver unassigned</p>
           )}
