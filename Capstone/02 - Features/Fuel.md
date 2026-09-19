@@ -37,7 +37,7 @@ The module is deliberately structured in four layers (external review adopted 20
 | `/api/fuel/*` routes | CRUD |
 | Dashboard page | Under `(dashboard)/` |
 | Mobile refuel screen | Embedded receipt camera, review, manual recovery, and fuel submission |
-| `/api/mobile/fuel/upload` | Stores the driver's receipt and returns a signed URL |
+| `/api/mobile/fuel/upload` | Stores the driver's receipt and returns a short-lived signed URL **plus** the object key |
 | `/api/mobile/fuel/scan` | Verifies URL ownership, fetches the uploaded image, and invokes Gemini server-side |
 | `gemini-receipt.js` | Structured extraction and strict field normalization (now incl. `fuel_type`) |
 | `/api/fuel/requests` | Driver-submitted consolidated refill requests + policy auto-authorization + manager approval ladder |
@@ -189,10 +189,50 @@ flowchart LR
 ## Trust boundaries
 
 - Gemini API credentials stay on the server.
-- The scan route only accepts a signed receipt URL owned by the authenticated driver.
+- The scan route only accepts a receipt reference owned by the authenticated driver — either an owned signed URL or an owned object key, both matched against the same expected path prefix.
 - Receipt images must be valid image responses and no larger than 10 MB.
 - Driver, trip, vehicle, fuel type, odometer, price per liter, and initial `Pending` status are server-owned or server-derived.
 - `client_submission_id` keeps mobile submissions idempotent.
+- **The stored filename's extension is server-derived** (2026-09-17). It used to
+  come from `file.name?.split(".").pop()`, so `receipt.html` declared as
+  `image/png` was stored as `<uuid>.html` under `Content-Type: image/png` — the
+  exact disagreement a content sniffer is built to resolve, and a stored-XSS
+  shape wherever the object is served from a host that honours the extension.
+  `storeFuelReceipt` now uses the extension the magic-byte validator returned,
+  as `vehicles/[id]/image/route.js` already did. Found by the security
+  assessment (SEC-UPLOAD-002, LOW). → [[Travel Expenses]] carries the same fix.
+- **An owned receipt URL is matched segment-by-segment** (same pass,
+  SEC-UPLOAD-004). `isOwnedFuelImageUrl` used `path.includes(...)`, so
+  `/…/sign/other-bucket/storage/v1/object/sign/fuel-receipts/4/x.png` satisfied
+  it, and decoding the path first let an encoded separator (`fuel-receipts%2F4%2F`)
+  decode *into* a match the real path never had. It now builds the expected path
+  one percent-encoded segment at a time and compares it as a raw **prefix**,
+  keeping the host check and the `token` requirement.
+- **The fuel columns store an object KEY, not a URL** (2026-09-18, SEC-UPLOAD-003
+  Phase B). `receipt_url` and `gauge_photo_url` used to hold a ten-year signed
+  URL — a bearer credential with no revocation path, and the column was readable.
+  Both now hold a bucket-qualified key (`fuel-receipts/4/….jpg`) and every reader
+  signs a 1-hour URL on the way out: `api/fuel`, `api/fuel/[id]`,
+  `api/fuel/requests`, `api/admin/analytics/fuel`, `api/mobile/fuel`,
+  `api/mobile/fuel/[id]`. The upload route returns **both** shapes —
+  `receipt_url` (short-lived, for the immediate preview/scan) and `receipt_path`
+  (the key) — so an already-installed APK keeps working; `isOwnedFuelImageUrl`
+  accepts either shape and checks both against the same expected prefix. The
+  write path **canonicalises**: the client echoes back the URL it was shown and
+  the server reduces it to a key rather than trusting the client.
+  Consequently `scan`/`gauge-scan` sign the reference themselves instead of
+  `fetch`ing what the client sent — a key is not fetchable, and trusting the
+  client to hand over something already signed is not a control.
+- **Behaviours that changed:** an upload URL is fetchable for **1 hour instead of
+  10 years** (the scan runs within seconds, so the flow is unaffected); an `<img>`
+  preview built from a *stale* upload URL breaks after an hour; a **dangling**
+  legacy object now reads as `null` rather than as a broken image.
+- **Data residual — SEC-UPLOAD-003 is PARTIALLY CLOSED, not closed.** The code
+  stops minting long-lived URLs; it does not revoke the ones already stored. The
+  2026-09-18 census found 7 rows in `fuelrecords.receipt_url` (6 of them already
+  dangling) and 1 in `fuelrequests.gauge_photo_url` still holding ten-year tokens.
+  Clearing them means rewriting the rows to keys or rotating the storage key —
+  both are separate, explicitly-approved actions. → [[Bugs]]
 
 ## Why it's worth a note
 

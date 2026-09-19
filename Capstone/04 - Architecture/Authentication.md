@@ -26,7 +26,7 @@ source:
   - src/app/api/auth/mfa/disable/route.js
   - src/app/api/auth/mfa/recovery-codes/route.js
   - src/lib/auth/reset-token.js
-last_verified: 2026-09-05
+last_verified: 2026-09-19
 ---
 
 # Authentication
@@ -215,9 +215,12 @@ Verified: mobile suite 129/129, ESLint clean on all 7 touched files,
   sessions. Password/email/role/account changes use the same revocation path.
 - `web_sessions` records safe device metadata and bounded activity. The
   owner-scoped sessions API can list, revoke one, or revoke all other sessions;
-  mobile refresh families are grouped as one device entry. Session listing includes 
-  an approximate physical location derived from the IP address using `geoip-lite`, 
-  and accurately identifies the current device for both web (`sessionId`) and mobile (`familyId`) contexts.
+  mobile refresh families are grouped as one session entry. Session listing includes
+  an approximate physical location derived from the IP address using `geoip-lite`,
+  and accurately identifies the current session for both web (`sessionId`) and
+  mobile (`familyId`) contexts. Those IDs are used for current detection,
+  filtering, and revocation; the IP address is display metadata only and is
+  never a device/session deduplication key.
 
 ## Session idle timeout and expiration UX — CONFIRMED (2026-09-02)
 

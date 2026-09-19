@@ -70,11 +70,16 @@ Tapping it offers **Take Photo** / **Gallery** (`expo-image-picker`, JPEG/PNG
 ≤5MB, resized to ≤1400 px JPEG — the license-scan pipeline), then single-call
 `POST /api/driver/face-photo` (`{ file_url }` data URL) validates
 (magic-byte + SSRF guards), stores in the private `face-captures` bucket
-(migration 006), and writes a 10-year signed URL to the driver's OWN
-`drivers.face_image_url` (fuel-receipt URL convention — a 1-hour URL would rot
-in the column). Staff get the same never-silent in-app + push notification as
-license updates, worded to ask for an eyeball check since the photo is also
-the attendance face-verification reference.
+(migration 006), and writes the object **key** to the driver's OWN
+`drivers.face_image_url`. It used to write a **10-year signed URL** — the
+fuel-receipt convention of the time, chosen because a 1-hour URL would rot in the
+column. That reasoning was correct about the symptom and wrong about the cause:
+the column should not have held a URL at all. As of 2026-09-18 (SEC-UPLOAD-003
+Phase B) the row holds `face-captures/<driverId>/<uuid>.jpg`, the 1-hour URL is
+what the **response** carries, and every reader re-signs per view. Staff get the
+same never-silent in-app + push notification as license updates, worded to ask
+for an eyeball check since the photo is also the attendance face-verification
+reference.
 
 Deliberate non-goals: the **license-card scan is NOT reused as the avatar** —
 it is a document photo (wrong aspect, glare-prone) and compliance PII that

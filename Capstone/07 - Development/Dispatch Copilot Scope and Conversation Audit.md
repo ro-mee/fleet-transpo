@@ -150,3 +150,25 @@ Exercise expired/failed plan validation, removed pair, rapid request switching, 
     - Button-in-button interactive CTA to view full reservation details (`/reservations/[id]`).
   - Updated `dispatch-plan-panel.jsx` and `reservations/[id]/page.js` to pass `alreadyAssigned` and `selectedRequest` accurately for all terminal and active statuses.
   - Enhanced `<CopilotBubble>` with avatar ring enclosure and squircle bubble curvature.
+
+## FleetMate scope contract implementation — 2026-09-18
+
+The scope boundary from the product requirement is now enforced before the
+conversation route loads reservation data or prepares evidence. The pure
+`classifyCopilotScope()` helper separates courtesy, unrelated requests and
+FleetOps questions. A short contextual follow-up is accepted only when recent
+user history contains an in-scope FleetOps turn or the request carries active
+reservation/recommendation context; an unrelated turn resets that context.
+
+Courtesy returns a brief FleetOps-focused acknowledgement. Out-of-scope input
+returns the exact FleetOps redirect. Both use a private `scope-only` response
+with empty operational fields, so no provider/evidence work occurs and the
+panel's existing options, selected review, plan state and evidence are not
+replaced. Scope is routing only; deterministic server evidence remains the sole
+source of availability, eligibility, ranking, and operational state.
+
+The prompt still contains `SCOPE_RULES` as defense in depth. Regression coverage
+includes the direct boundary examples, context reset/recovery, no-provider and
+no-evidence short-circuiting, exact redirect/courtesy responses, and UI state
+preservation. Full repository verification: **171 test files / 1,893 tests**,
+touched-file ESLint clean, and production build completed successfully.

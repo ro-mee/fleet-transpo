@@ -23,6 +23,17 @@ Only when a Finance user reviews the system-determined context (OCR vs Driver Co
 2. **Scan**: The image is analyzed using Google Gemini 2.5 Pro (`gemini-expense-receipt.js`). The server returns a structured snapshot containing inferred category, merchant, amount, date, and currency.
 3. **Submit**: The driver confirms or edits the data. The server receives the submission and computes anomalies.
 
+> **The stored object's extension is server-derived — 2026-09-17.** It used to come
+> from `file.name?.split(".").pop()`, so a `receipt.html` declared as `image/png`
+> was stored as `<uuid>.html` under `Content-Type: image/png`. The file is now
+> always `receipt.<ext>` where `<ext>` is what the magic-byte validator returned.
+> The path shape (`{driverId}/{clientSubmissionId}/`) and `upsert: true` are
+> deliberate and unchanged — SEC-RACE-002 verified they are what makes retries
+> idempotent. Found by the security assessment (SEC-UPLOAD-002, LOW); [[Fuel]]
+> carries the same fix. The `expense-receipts` bucket is the one storage path that
+> already does this correctly end to end: it stores a **key**, not a URL, and
+> `getExpenseReceiptSignedUrl` mints a 1-hour URL per read.
+
 ### 3. Server-Side Context & Attribution (Phase 5 & 6)
 Upon submission, the backend automatically derives context:
 - **Trip Attribution**: Is the driver currently on an Active Trip? If yes, `trip_id` and `vehicle_id` are derived and locked to the expense.

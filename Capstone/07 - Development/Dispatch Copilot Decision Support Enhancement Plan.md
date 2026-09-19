@@ -1,6 +1,6 @@
 ---
 type: implementation-plan
-status: proposed
+status: implemented-2026-09-17
 created: 2026-09-16
 related: ["[[AI Advisory]]", "[[Temporal Dispatch Recommendation Implementation Plan]]", "[[Dispatch Copilot Scope and Conversation Audit]]"]
 ---
@@ -182,3 +182,15 @@ Read installed Next.js documentation before route/component implementation. Upda
 The dispatcher can understand a blocker, see a verified reason for a changed recommendation, explore a hypothetical booking safely, inspect relevant queue trade-offs, review a feasible return-trip match and receive useful assigned-trip issue updates in the same conversation. Every real assignment or replacement still requires current evidence and explicit dispatcher confirmation. No feature represents ranking scores as probabilities or derives fatigue from trip counts.
 
 Planning validation: repository instructions, current conversation route, queue hook, planner/evidence exports, notification producer and relevant feature/temporal notes were inspected. No application tests or live scheduler/database checks were run for this documentation-only task.
+
+## Implementation record - 2026-09-17 (Phases 1–5B)
+
+All six deliveries implemented, no migration. See SYSTEM.md entry and [[AI Advisory]] section of the same date for file-level details. Verification: 13 files / 59 focused tests green, touched-source ESLint clean, production build 203 pages (4 new routes). Reassignment execution remains unavailable per plan. Pending: browser/mobile/keyboard acceptance, live-provider wording, external-scheduler end-to-end run, and the deferred cross-cutting addendum (prompt-injection labeling, cost/latency budgets, action inventory, observability/ailogs retention, per-phase flags) — to be raised again later per dispatcher request.
+
+## Prompt-hardening record - 2026-09-17
+
+System prompt restructured into `src/lib/dispatch/copilot-prompt.js` (ten single-owner blocks + composer), `gpsHealth` label projection added to conversation evidence, English-only retained. See [[AI Advisory#Copilot prompt hardening - 2026-09-17]]. Verification: 15 files / 74 tests green, lint clean, build 203 pages, live old-vs-new RS-KXIH comparison passed on all seven rubric criteria.
+
+## Evidence Drawer record - 2026-09-17 (B1–B4; B5 deferred)
+
+Read-only dispatcher proof: B1 evidence contract + GET-only endpoint, B2 drawer shell + exclusion proof, B3 eligibility inspector, B4 option comparison (codes/facts only, no scores). Trail stays reserved. See [[AI Advisory#Evidence Drawer B1–B4 - 2026-09-17]]. Verification: 21 files / 108 tests green, lint clean, build 203 pages, live read-only RS-KXIH round-trip confirmed (facts match DB, cross-request 403). One production-shape bug (query-function vs query-object) found live and fixed with regression coverage.
