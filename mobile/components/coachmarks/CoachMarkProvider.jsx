@@ -142,7 +142,7 @@ export function CoachMarkProvider({ children, driverId }) {
   }, []);
 
   // Target registration with route stamping, dimension validation and ownership
-  const registerTarget = useCallback((targetId, layout, route, token) => {
+  const registerTarget = useCallback((targetId, layout, route, token, instanceId) => {
     if (!targetId || !layout) return;
     if (layout.width <= 0 || layout.height <= 0) return;
 
@@ -163,6 +163,7 @@ export function CoachMarkProvider({ children, driverId }) {
       seq: (seqRef.current += 1),
       layout,
       route: targetRoute,
+      instanceId,
     });
 
     // Two live mounts under one id is legitimate for `inspection.remarks`, but
@@ -181,7 +182,16 @@ export function CoachMarkProvider({ children, driverId }) {
             `different bounds (${p.x},${p.y} ${p.width}x${p.height} vs ` +
             `${layout.x},${layout.y} ${layout.width}x${layout.height}). The ` +
             `spotlight follows whichever measured last — give the target id to ` +
-            `one instance only.`
+            `one instance only. This one: instance ${instanceId ?? "unknown"} ` +
+            `on ${targetRoute}. Previous: instance ` +
+            `${previous.instanceId ?? "unknown"} on ${previous.route}. ` +
+            `Live instances under this id: ${byToken.size}.`,
+          // Which mount is behind the second registration is not visible from
+          // the bounds alone — an instance that is mounted but covered, or one
+          // whose registration outlived its mount, both look like this. The
+          // stack says whether it came from a mount effect, a settle timer, or
+          // a native measure callback that had already outlived its screen.
+          `Registering stack:\n${new Error().stack}`
         );
       }
     }

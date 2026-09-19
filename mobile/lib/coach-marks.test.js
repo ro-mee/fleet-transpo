@@ -593,6 +593,69 @@ describe("Spec Alignment & Coach Mark Wiring", () => {
     });
   });
 
+  describe("One instance, one spotlight", () => {
+    // A target id can legitimately be live more than once — `inspection.remarks`
+    // mounts once per failed item — so the provider cannot simply refuse a
+    // second registration. What it can refuse is a registration from an
+    // instance in no position to own the spotlight: one whose screen is not on
+    // top, and one whose mount is already gone.
+    const target = readFileSync(
+      new URL("../components/coachmarks/CoachMarkTarget.jsx", import.meta.url),
+      "utf8"
+    );
+    const provider = readFileSync(
+      new URL("../components/coachmarks/CoachMarkProvider.jsx", import.meta.url),
+      "utf8"
+    );
+
+    it("registers only while the target's screen is focused", () => {
+      // Reported live: `incident.category` registered twice with bounds 145.7dp
+      // apart, so the spotlight jumped between two boxes on every keyboard or
+      // dimension event. A covered stack screen, a background tab and a route
+      // expo-router preloaded for `router.prefetch` are all mounted; only one of
+      // them is on screen.
+      expect(target).toContain("const isFocused = useIsFocused();");
+      expect(target).toContain("if (!isFocused) return;");
+      expect(target).toContain("isFocusedRef.current = isFocused;");
+    });
+
+    it("drops its registration when the screen blurs", () => {
+      const start = target.indexOf("// Losing focus gives up the registration");
+      const end = target.indexOf("// Cleanup on unmount");
+      expect(start).toBeGreaterThan(-1);
+      expect(end).toBeGreaterThan(start);
+      expect(target.slice(start, end)).toContain(
+        "unregisterTarget(effectiveId, token)"
+      );
+    });
+
+    it("re-checks focus and mount at every async registration", () => {
+      // measureInWindow is a native round trip and the settle timer fires 320ms
+      // out, so what was true where the work was scheduled is not necessarily
+      // true where it lands.
+      expect(target).toContain("const canRegister = useCallback(");
+      expect(target).toContain("() => mountedRef.current && isFocusedRef.current,");
+      expect(target.match(/if \(!canRegister\(\)\) return;/g)).toHaveLength(5);
+      expect(target).toContain("mountedRef.current = false;");
+    });
+
+    it("cancels the scroll-settle timer on unmount", () => {
+      // Its callback registers, and the unregister in the same cleanup has
+      // already run by the time it fires — leaving an entry nothing removes.
+      expect(target).toContain("settleTimerRef.current = setTimeout(");
+      expect(target).toContain("clearTimeout(settleTimerRef.current);");
+    });
+
+    it("names the mount behind a duplicate registration", () => {
+      // The bounds alone cannot say whether the second registration came from a
+      // second screen or from a callback that outlived its own.
+      expect(target).toContain("(instanceCounter += 1)");
+      expect(provider).toContain("instanceId,");
+      expect(provider).toContain("Live instances under this id: ${byToken.size}.");
+      expect(provider).toContain("new Error().stack");
+    });
+  });
+
   describe("Trip Readiness is a pre-start milestone", () => {
     const tripScreen = readFileSync(
       new URL("../app/(app)/trip/[id].js", import.meta.url),
