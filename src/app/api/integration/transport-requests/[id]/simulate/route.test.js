@@ -1,0 +1,31 @@
+import { beforeEach, it, expect, vi } from 'vitest';
+vi.mock('@/lib/api/utils', () => ({ requirePermission: vi.fn(), parseBody: req => req.json(), AuthError: class extends Error { constructor(message, status) { super(message); this.status = status; } }, handleError: e => Response.json({ error: e.message }, { status: e.status ?? 500 }) }));
+vi.mock('@/lib/rate-limit', () => ({ rateLimit: vi.fn(async () => ({ allowed: true })) }));
+vi.mock('@/services/reservation-lifecycle.service', () => ({ loadRequest: vi.fn(async () => ({ request_id: 7, pickup_datetime: '2026-09-16T10:00:00+08:00', passenger_count: 2 })) }));
+vi.mock('@/services/dispatch-recommendation-preparation.service', () => ({ prepareDispatchRecommendation: vi.fn(async (req) => ({ recommendation: { evaluatedAt: '2026-09-16T09:00:00Z', pair: { candidates: [{ vehicle_id: 1, driver_id: 2, vehicle: { plate_number: 'ABC' }, checks: [], feasibility: { verdict: 'SAFE' } }], none_reasons: [] } } })) }));
+vi.mock('@/services/dispatch-radar.service', () => ({ applyDispatchRadar: vi.fn(async () => {}) }));
+vi.mock('@/lib/dispatch/conversation', async (importOriginal) => ({ ...(await importOriginal()), conversationEvidence: vi.fn(() => ({ pairs: [{ vehicleId: 1, driverId: 2, plate: 'ABC', state: 'ALL_CLEAR', reasons: [], scheduleEvidence: {}, workloadEvidence: null }], coverage: {}, evaluatedAt: '2026-09-16T09:00:00Z' })) }));
+import { requirePermission } from '@/lib/api/utils';
+import { prepareDispatchRecommendation } from '@/services/dispatch-recommendation-preparation.service';
+import { POST } from './route';
+const call = body => POST(new Request('http://localhost/simulate', { method: 'POST', body: JSON.stringify(body) }), { params: Promise.resolve({ id: '7' }) });
+beforeEach(() => { vi.clearAllMocks(); requirePermission.mockResolvedValue({ user: { employeeId: 1 } }); });
+it('rejects unsupported fields and invalid values', async () => {
+  expect((await call({ scenario: { route: 'x' } })).status).toBe(400);
+  expect((await call({ scenario: { passenger_count: 99 } })).status).toBe(400);
+  expect((await call({ scenario: { pickup_datetime: 'not-a-date' } })).status).toBe(400);
+  expect((await call({ scenario: {} })).status).toBe(400);
+  expect(prepareDispatchRecommendation).not.toHaveBeenCalled();
+});
+it('evaluates the in-memory overlay without mutation or assignability', async () => {
+  const data = await (await call({ scenario: { pickup_datetime: '2026-09-16T19:00:00+08:00', passenger_count: 4 } })).json();
+  expect(data.label).toMatch(/reservation unchanged/i);
+  expect(data.interpreted.passengerCount).toBe(4);
+  expect(data.interpreted.pickupLocal).toContain('Philippine time');
+  expect(data.assignable).toBe(false);
+  expect(data).not.toHaveProperty('token');
+  const overlay = prepareDispatchRecommendation.mock.calls[0][0];
+  expect(overlay.pickup_datetime).toBe('2026-09-16T11:00:00.000Z');
+  expect(overlay.passenger_count).toBe(4);
+  expect(prepareDispatchRecommendation.mock.calls[0][1]).toMatchObject({ persistRoute: false });
+});

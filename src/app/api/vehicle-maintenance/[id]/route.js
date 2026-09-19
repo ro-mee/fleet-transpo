@@ -35,9 +35,6 @@ const FIELD_TO_COLUMN = {
   service_center: "service_center",
   remarks: "remarks",
   deleted_at: "deleted_at",
-  inspection_required: "inspection_required",
-  inspection_completed_at: "inspection_completed_at",
-  inspection_notes: "inspection_notes",
 };
 
 export async function PUT(req, { params }) {
@@ -67,9 +64,6 @@ export async function PUT(req, { params }) {
       service_center: { maxLength: 255, label: "Service center" },
       remarks: { maxLength: 1000, label: "Notes" },
       deleted_at: { type: "date", label: "Archived at" },
-      inspection_required: { type: "boolean", label: "Inspection required" },
-      inspection_completed_at: { type: "date", label: "Inspection completed at" },
-      inspection_notes: { maxLength: 1000, label: "Inspection notes" },
     });
     if (!isValidObject(errors)) {
       return errValidation(errors);
@@ -80,7 +74,7 @@ export async function PUT(req, { params }) {
     // unreferenced and Postgres fails the parse with
     // "could not determine data type of parameter $1" (500 on every PUT).
     const beforeRow = (await query(
-      `SELECT status, created_by, inspection_required, inspection_completed_at, inspected_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
+      `SELECT status, created_by, repair_completed_by FROM vehiclemaintenance WHERE maintenance_id = $1 AND deleted_at IS NULL`,
       [id]
     )).rows[0];
 
@@ -112,7 +106,14 @@ export async function PUT(req, { params }) {
     }
     
     if (isTransitioningToPendingInspection) {
+      // The moment the repair is declared finished. Stamping the actor here is
+      // what gives the completion guard below a real repairer to compare
+      // against: created_by is the ticket's provenance, not the mechanic —
+      // on an incident-sourced work order it names whoever resolved the
+      // incident, which is why the old guard denied the admin its own queue.
       sets.push(`repair_completed_at = CURRENT_TIMESTAMP`);
+      sets.push(`repair_completed_by = $${values.length + 1}`);
+      values.push(session.user.employeeId);
     }
 
     if (isTransitioningToCompleted) {
@@ -121,29 +122,23 @@ export async function PUT(req, { params }) {
         return err("Only a Fleet Manager or Admin can approve maintenance completion.", 403);
       }
 
-      if (beforeRow.created_by === session.user.employeeId) {
-        return err("Mechanics cannot approve their own repairs. Manager inspection required.", 403);
-      }
-      
-      const requiresInspection = body.inspection_required !== undefined ? body.inspection_required : beforeRow.inspection_required;
-      if (requiresInspection) {
-        if (!body.inspection_completed_at && !beforeRow.inspection_completed_at) {
-          return err("Inspection must be completed before marking as Completed", 400);
-        }
-        if (body.inspection_completed_at && !beforeRow.inspection_completed_at) {
-          sets.push(`inspected_by = $${values.length + 1}`);
-          values.push(session.user.employeeId);
-        }
+      // Separation of duties, keyed to whoever declared the repair finished.
+      // Rows with no repairer on record — every record predating migration 113,
+      // and any record that skipped 'Pending Inspection' — are not blocked: there
+      // is no evidence of who did the work, and created_by is deliberately NOT a
+      // fallback, because on an incident-sourced work order it names the staff
+      // member who resolved the incident rather than the mechanic.
+      if (
+        beforeRow.repair_completed_by != null &&
+        Number(beforeRow.repair_completed_by) === Number(session.user.employeeId)
+      ) {
+        return err("The person who completed this repair cannot approve its completion.", 403);
       }
 
-      // Remove any client-supplied approval fields
-      const approvalFields = ["manager_approved_by", "manager_approved_at", "completed_by", "completed_at"];
-      for (let i = sets.length - 1; i >= 0; i--) {
-        if (approvalFields.some(f => sets[i].startsWith(f))) {
-          sets.splice(i, 1);
-        }
-      }
-
+      // Client-supplied approval fields cannot reach the SET list: FIELD_TO_COLUMN
+      // is the allowlist and none of them appear in it. An earlier revision also
+      // spliced them out of `sets` here, which would have desynchronised `values`
+      // and shifted every later $n had it ever matched — unreachable, and a trap.
       sets.push(`manager_approved_by = $${values.length + 1}`);
       values.push(session.user.employeeId);
       

@@ -1,5 +1,6 @@
 import {it,expect} from 'vitest';
 import {conversationEvidence,evidenceSummary,plainChatText} from './conversation';
+import {recoveryActionForCheck, recoveryActionForExclusion} from './decision';
 import {dispatchPlanWindow} from './plan-window';
 it('resolves the selected pair before truncation and keeps the engine recommendation separate',()=>{
  const candidates=Array.from({length:18},(_,i)=>({vehicle_id:i+1,driver_id:100+i,vehicle:{plate_number:`PLATE-${i+1}`},checks:[],feasibility:{verdict:'UNKNOWN'}}));
@@ -35,9 +36,22 @@ it('uses Philippine pickup time and removes model bold markup from plain chat',(
  expect(plainChatText('The **driver** is unavailable.')).toBe('The driver is unavailable.');
 });
 it('carries prefiltered exclusions with plate and flag for the Copilot',()=>{
- const evidence=conversationEvidence({request_id:502}, {pair:{candidates:[],none_reasons:[{vehicle_id:1,plate:'XYZ 5678',reason:'Vehicle status is Under Maintenance.',prefiltered:true}]}});
- expect(evidence.exclusions).toEqual([{vehicleId:1,plate:'XYZ 5678',reason:'Vehicle status is Under Maintenance.',prefiltered:true}]);
- expect(evidenceSummary(evidence)).toContain('Under Maintenance');
+  const evidence=conversationEvidence({request_id:502}, {pair:{candidates:[],none_reasons:[{vehicle_id:1,plate:'XYZ 5678',reason:'Vehicle status is Under Maintenance.',prefiltered:true}]}});
+  expect(evidence.exclusions[0]).toMatchObject({vehicleId:1,plate:'XYZ 5678',reason:'Vehicle status is Under Maintenance.',prefiltered:true});
+  expect(evidence.exclusions[0].recovery).toMatchObject({code:'VEHICLE_STATUS',record:'vehicle'});
+  expect(evidence.recoveryActions[0]).toMatchObject({code:'VEHICLE_STATUS'});
+  expect(evidenceSummary(evidence)).toContain('Under Maintenance');
+});
+it('maps blocked checks to advisory recovery without prose classification',()=>{
+  expect(recoveryActionForCheck({id:'maintenance',status:'blocking',message:'m'},{vehicleId:7,requestId:502})).toMatchObject({code:'MAINTENANCE_CONFLICT',record:'maintenance',id:7});
+  expect(recoveryActionForCheck({id:'capacity',status:'verified'},{})).toBeNull();
+  expect(recoveryActionForExclusion({reason:'Seats 2 — too small for 4 passenger(s).'},{requestId:502})).toMatchObject({code:'CAPACITY_MISMATCH',record:'request'});
+  expect(recoveryActionForExclusion({reason:'Vehicle status is Under Maintenance.',vehicleId:1},{})).toMatchObject({code:'VEHICLE_STATUS',record:'vehicle',id:1});
+  expect(recoveryActionForExclusion({reason:'Vehicle XYZ 5678 insurance 2026-08-24 is not valid for this trip.',vehicleId:1},{})).toMatchObject({code:'INSURANCE_EXPIRED',record:'vehicle',id:1});
+  expect(recoveryActionForExclusion({reason:'Vehicle ABC-1234 is number-coding restricted (ends 4) on Tuesday.',vehicleId:37},{})).toMatchObject({code:'UVVRP_RESTRICTED',record:'vehicle',id:37});
+  const evidence=conversationEvidence({request_id:502},{pair:{candidates:[{vehicle_id:1,driver_id:2,vehicle:{plate_number:'XYZ 5678'},checks:[{id:'maintenance',label:'Service-window maintenance',status:'blocking',message:'Scheduled service overlaps.'}],feasibility:{verdict:'INFEASIBLE',reasons:['Scheduled service overlaps.']}}]}});
+  expect(evidence.pairs[0].recoveryActions[0]).toMatchObject({code:'MAINTENANCE_CONFLICT'});
+  expect(evidenceSummary(evidence)).toContain('Check maintenance record');
 });
 it('separates tomorrow from today and preserves Manila boundary and overdue scope',()=>{
  const now=new Date('2026-09-15T07:22:00+08:00');
@@ -61,6 +75,31 @@ it('answers timing/workload questions with supported values and labels future ET
  expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('0 completed, 0 active and 2 scheduled trips on 2026-09-18');
  expect(evidenceSummary(evidence,'What is the ETA?')).toContain('this is not a live ETA');
  expect(evidenceSummary(evidence,'What is the ETA?')).not.toContain('85 minutes');
- const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
- expect(evidenceSummary(blocked,'Why this option?')).toContain('cannot be assigned. Overlapping reservation.');
+  const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
+  expect(evidenceSummary(blocked,'Why this option?')).toContain('cannot be assigned. Overlapping reservation.');
+});
+it('projects blocking incident ids for record-scoped incident proof',()=>{
+  const evidence=conversationEvidence({request_id:9},{pair:{candidates:[{vehicle_id:5,driver_id:6,checks:[],feasibility:{verdict:'UNKNOWN'},
+    hardConflicts:[{type:'incident',severity:'blocking',message:'Vehicle is restricted by incident #2041.',detail:{incident_id:2041}},{type:'pairing',severity:'blocking',message:'x'}]}]}});
+  expect(evidence.pairs[0].incidentIds).toEqual([2041]);
+  expect(JSON.stringify(evidence)).not.toMatch(/Breakdown|private/);
+});
+it('projects gpsHealth only when supplied and never restores expired live ETA',()=>{
+  const future={vehicle_id:1,driver_id:2,checks:[],feasibility:{verdict:'UNKNOWN'},temporalContext:{horizon:'FUTURE'}};
+  const immediate={vehicle_id:3,driver_id:4,checks:[],feasibility:{verdict:'UNKNOWN'},temporalContext:{horizon:'NEAR_DISPATCH'},
+    dispatchContext:{liveLocationUsed:true,gpsHealth:'Delayed'},proximity:{etaMinutes:9,expiresAt:new Date(Date.now()-1000).toISOString()}};
+  const evidence=conversationEvidence({request_id:9},{pair:{candidates:[future,immediate]}});
+  const futurePair=evidence.pairs.find(p=>p.vehicleId===1);
+  const immediatePair=evidence.pairs.find(p=>p.vehicleId===3);
+  expect(futurePair).not.toHaveProperty('gpsHealth');
+  expect(immediatePair.gpsHealth).toBe('Delayed');
+  expect(immediatePair.livePickupEta).toBeNull();
+  expect(JSON.stringify(evidence)).not.toMatch(/latitude|longitude/);
+});
+it('projects each supplied health label verbatim',()=>{
+  for (const label of ['Fresh','Delayed','Offline','No signal']) {
+    const evidence=conversationEvidence({request_id:9},{pair:{candidates:[{vehicle_id:5,driver_id:6,checks:[],feasibility:{verdict:'UNKNOWN'},
+      temporalContext:{horizon:'NEAR_DISPATCH'},dispatchContext:{liveLocationUsed:false,gpsHealth:label}}]}});
+    expect(evidence.pairs[0].gpsHealth).toBe(label);
+  }
 });

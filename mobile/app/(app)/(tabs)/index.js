@@ -48,12 +48,12 @@ import { shouldRevalidateHome } from "../../../lib/home-revalidate";
 // compiling under the strict preserve-manual-memoization rule): first card
 // NEXT TRIP, the rest UPCOMING, plus a "+N more" footer reusing the same
 // /trips destination as the section heading.
-const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore }) {
+const UpcomingTripList = memo(function UpcomingTripList({ trips, extra, confirmed, offline, nowMs, canManage, busy, onAction, onDetails, onMore, interactivePreview }) {
   const { colors, type } = useTheme();
   return <>
     {trips.map((trip, i) => <DriverTripCard key={trip.trip_id} trip={trip} variant={i === 0 ? 'next' : 'upcoming'} confirmed={confirmed}
       offline={offline} nowMs={nowMs} canManage={canManage} busy={busy}
-      onAction={onAction} onDetails={onDetails} />)}
+      onAction={onAction} onDetails={onDetails} interactivePreview={interactivePreview && i === 0} />)}
     {extra > 0 ? <Pressable onPress={onMore} accessibilityRole="button" accessibilityLabel={`Show ${extra} more trips in full schedule`}
       style={({ pressed }) => [{ minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4 }, pressed && { opacity: 0.72 }]}>
       <Text style={[type.labelLg, { color: colors.primary }]}>+{extra} more · View Full Schedule</Text>
@@ -497,20 +497,23 @@ export default function Home() {
           <AssignmentsHeading onPress={goTrips} />
           <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            interactivePreview={Boolean(activeTrip)}
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} />
           <DriverTripCard trip={upcoming[0] ?? null} variant="next" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            interactivePreview={!activeTrip}
             onAction={handleTripAction} onDetails={goDetails} />
         </> : <>
           {activeTrip ? <DriverTripCard trip={activeTrip} current variant="current" confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
+            interactivePreview
             trackingText={activeTrip && canReportLocation && (poster.error || poster.lastSentAt) ? trackingChipText : null}
             onAction={handleTripAction} onDetails={goDetails} /> : null}
           <AssignmentsHeading onPress={goTrips} title="Upcoming Trips" />
           <UpcomingTripList trips={visibleUpcoming} extra={hiddenUpcomingCount} confirmed={tripsSyncedAt != null}
             offline={offline} nowMs={nowMs} canManage={canManageTrip} busy={!!actingOn}
-            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} />
+            onAction={handleTripAction} onDetails={goDetails} onMore={goTrips} interactivePreview={!activeTrip} />
         </>)}
 
       </ScrollView>

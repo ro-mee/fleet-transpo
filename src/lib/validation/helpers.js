@@ -24,6 +24,7 @@ import {
   isUuid,
   isUrl,
   isBase64DataUrl,
+  isAllowedStoredImageRef,
   normalizePlate,
   normalizeName,
   normalizeEmail,
@@ -33,7 +34,7 @@ import {
   toVehicleTitleCase,
 } from "./index";
 
-export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, toProperCase, toVehicleTitleCase, isUrl, isBase64DataUrl, isEmail, isPhonePH, isName, isId, isUuid, isPassword, isPasswordByteLengthAllowed, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH };
+export { normalizePlate, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, toProperCase, toVehicleTitleCase, isUrl, isBase64DataUrl, isAllowedStoredImageRef, isEmail, isPhonePH, isName, isId, isUuid, isPassword, isPasswordByteLengthAllowed, hasPasswordLowercase, hasPasswordUppercase, hasPasswordNumber, hasPasswordSpecial, isIsoDate, isDateInPast, isTime, isPositiveNumber, isSeatingCapacity, isYear, isVIN, isLicenseNumber, isPlateNumberPH };
 
 export const ERRORS = {
   required: (label) => `${label} is required.`,
@@ -62,6 +63,7 @@ export const ERRORS = {
   uuid: (label) => `${label} is invalid.`,
   url: (label) => `${label} must be a valid URL.`,
   base64Url: (label) => `${label} must be a valid image (base64 data URL).`,
+  mediaUrl: (label) => `${label} must be an uploaded scan or an image on fleet storage.`,
 };
 
 export const isNotEmpty = (value) => value !== undefined && value !== null && String(value).trim() !== "";
@@ -174,6 +176,7 @@ export function validateField(value, spec = {}, label = "This field", allValues 
         uuid: () => (isUuid(value) ? null : message || ERRORS.uuid(label)),
         url: () => (isUrl(value) ? null : message || ERRORS.url(label)),
         base64Url: () => (isBase64DataUrl(value) ? null : message || ERRORS.base64Url(label)),
+        mediaUrl: () => (isAllowedStoredImageRef(value) ? null : message || ERRORS.mediaUrl(label)),
       };
       const fn = map[effectivePattern];
       if (fn) {

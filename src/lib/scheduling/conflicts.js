@@ -142,14 +142,49 @@ function maintenanceCoversDay(row, day, endDay = day) {
 /**
  * Travel-time + safety-buffer rule (SYSTEM.md §4.8.3). BLOCKING when a
  * resource's previous commitment ends too close to the pickup for it to get
- * there in time. Only fires when the caller attaches the two signals
- * (`_previous_busy_end` + `_eta_to_pickup_min`); a missing signal fails open so
- * the gate never fabricates a conflict from absent data. The buffer is the
- * configured safety offset (not a fixed 30 min).
+ * there in time.
+ *
+ * Two different situations used to share one fail-open, and they are not the
+ * same thing:
+ *
+ *   - No previous commitment. The resource is available immediately; the buffer
+ *     reserves slack AFTER a real commitment, not before a stand-by one. Nothing
+ *     to gate on — correctly silent.
+ *   - A previous commitment exists, but the travel time to this pickup could not
+ *     be worked out. The rule could not be evaluated. Reporting that as an
+ *     all-clear is how a safety constraint silently disappears, so it is
+ *     reported as WARNING instead: we never fabricate a conflict from absent
+ *     data, and we never fabricate a clean bill from it either.
+ *
+ * The buffer is the configured safety offset (not a fixed 30 min).
  */
 function travelBufferFindings(request, resource, kind, cfg) {
   if (!resource || !cfg || cfg.travelBufferEnabled === false) return [];
-  if (resource._previous_busy_end == null || resource._eta_to_pickup_min == null) return [];
+
+  // Nothing was booked before this pickup — nothing to gate on.
+  if (resource._previous_busy_end == null) return [];
+
+  const idKey = kind === "vehicle" ? "vehicle_id" : "driver_id";
+  const label =
+    kind === "vehicle"
+      ? resource.plate_number || `vehicle #${resource.vehicle_id}`
+      : `${resource.first_name || ""} ${resource.last_name || ""}`.trim() || `driver #${resource.driver_id}`;
+
+  // A prior commitment exists and the travel time is unknown: unverified, not clean.
+  if (resource._eta_to_pickup_min == null) {
+    return [
+      {
+        type: CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED,
+        severity: SEVERITY.WARNING,
+        message: `${label} has a previous commitment ending ${new Date(resource._previous_busy_end).toISOString()}, but the travel time to this pickup could not be determined — the safety buffer was not checked. Confirm the gap manually before dispatching.`,
+        detail: {
+          [idKey]: resource[idKey],
+          previous_scheduled_end: resource._previous_busy_end,
+          eta_source: resource._eta_source ?? null,
+        },
+      },
+    ];
+  }
 
   const r = travelBufferBlocked({
     pickup: request?.pickup_datetime,
@@ -159,12 +194,6 @@ function travelBufferFindings(request, resource, kind, cfg) {
     bufferFloorMinutes: cfg.bufferFloorMinutes,
   });
   if (!r.blocked || !r.earliest) return [];
-
-  const idKey = kind === "vehicle" ? "vehicle_id" : "driver_id";
-  const label =
-    kind === "vehicle"
-      ? resource.plate_number || `vehicle #${resource.vehicle_id}`
-      : `${resource.first_name || ""} ${resource.last_name || ""}`.trim() || `driver #${resource.driver_id}`;
 
   return [
     {
@@ -529,13 +558,22 @@ export async function detectRequestConflicts(request, opts = {}) {
   const policy = opts.policy ?? await getDispatchPolicy().catch(error => { if (opts.strict) throw error; return null; });
 
   // Attach the §4.8.3 signals so the pure evaluator can run the travel+buffer
-  // gate. ETA to pickup is supplied by the caller (the assign route passes a
-  // TomTom/heuristic value); when absent the gate fails open (no conflict).
+  // gate. A caller that resolved them server-side (lib/scheduling/travel-signals)
+  // supplies both the commitment and the ETA, and those win: the ETA was derived
+  // against that exact commitment, so taking the end time from here and the
+  // travel time from there could gate the wrong pair. Callers that pass nothing
+  // fall back to the previous-commitment lookup above; when the ETA is then
+  // unknown the evaluator reports an unverified buffer rather than a clean one.
   const travel = opts.travel || {};
-  if (vehicleRow && prevEnds) vehicleRow._previous_busy_end = prevEnds.vehicle_end ?? null;
-  if (driverRow && prevEnds) driverRow._previous_busy_end = prevEnds.driver_end ?? null;
-  if (vehicleRow && travel.vehicle?.etaMinutes != null) vehicleRow._eta_to_pickup_min = travel.vehicle.etaMinutes;
-  if (driverRow && travel.driver?.etaMinutes != null) driverRow._eta_to_pickup_min = travel.driver.etaMinutes;
+  const attach = (row, key, fallbackEnd) => {
+    if (!row) return;
+    const signal = travel[key];
+    row._previous_busy_end = signal?.previousEnd ?? fallbackEnd ?? null;
+    if (signal?.etaMinutes != null) row._eta_to_pickup_min = signal.etaMinutes;
+    if (signal?.etaSource) row._eta_source = signal.etaSource;
+  };
+  attach(vehicleRow, "vehicle", prevEnds?.vehicle_end);
+  attach(driverRow, "driver", prevEnds?.driver_end);
 
   // Work-schedule + approved-leave context (migration 049) for the checked driver.
   const scheduleContext = driverId

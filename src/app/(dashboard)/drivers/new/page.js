@@ -7,7 +7,6 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FloatingField, FloatingSelect } from "@/components/ui/field";
@@ -631,19 +630,6 @@ export default function NewDriverPage() {
                         <span className="text-[11px] text-foreground-muted">PNG, JPG, WEBP up to 10MB</span>
                       </div>
                     </div>
-
-                    <Input
-                      placeholder="Or paste Front License Image URL..."
-                      value={values.license_image_url || ""}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        form.setValue("license_image_url", url);
-                        if (url.startsWith("http") || url.startsWith("data:")) {
-                          setLicenseImagePreview(url);
-                        }
-                      }}
-                      className="h-9 text-xs rounded-xl"
-                    />
                   </div>
                 </div>
 
@@ -744,19 +730,6 @@ export default function NewDriverPage() {
                         <span className="text-[11px] text-foreground-muted">PNG, JPG, WEBP up to 10MB</span>
                       </div>
                     </div>
-
-                    <Input
-                      placeholder="Or paste Back License Image URL..."
-                      value={values.license_back_image_url || ""}
-                      onChange={(e) => {
-                        const url = e.target.value;
-                        form.setValue("license_back_image_url", url);
-                        if (url.startsWith("http") || url.startsWith("data:")) {
-                          setLicenseBackImagePreview(url);
-                        }
-                      }}
-                      className="h-9 text-xs rounded-xl"
-                    />
                   </div>
                 </div>
 

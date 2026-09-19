@@ -5,7 +5,7 @@ import { advanceReservation, loadRequest } from "@/services/reservation-lifecycl
 import { recordReservationEvent } from "@/services/reservation-events.service";
 import { detectRequestConflicts } from "@/lib/scheduling/conflicts";
 import { hasCompleteAssignment } from "@/lib/scheduling/reservation-state";
-import { tomtomEtaMinutes } from "@/lib/scheduling/travel-buffer";
+import { resolveTravelSignals, travelAdvisories } from "@/lib/scheduling/travel-signals";
 import { validatePairAvailability, getActiveRecommendation, markRecommendationConsumed } from "@/services/recommendation.service";
 import { createDispatchForRequest, syncDispatchSideEffects } from "@/services/dispatch-autocreate.service";
 import { writeAudit } from "@/lib/audit";
@@ -13,27 +13,9 @@ import { commitDispatchEvidence } from '@/services/dispatch-evidence.service';
 import { verifyPlanToken } from '@/services/dispatch-plan-evidence.service';
 import { isFuelNoise } from '@/lib/dispatch/decision';
 
-// §4.8.3 travel+buffer signals for the conflict gate. The caller may supply the
-// per-resource ETA directly, or a TomTom origin/destination pair to compute it;
-// when neither is present the gate fails OPEN (no fabricated block), so this
-// never refuses a valid assignment just because a coordinate is missing.
-async function buildTravelSignals(body) {
-  const t = body?.travel;
-  const forRes = async (key) => {
-    if (t?.[key]?.etaMinutes != null) return { etaMinutes: Number(t[key].etaMinutes) };
-    const o = t?.[key]?.origin;
-    const d = t?.[key]?.destination;
-    if (o && d) {
-      const etaMinutes = await tomtomEtaMinutes({ origin: o, destination: d }).catch(() => null);
-      return etaMinutes != null ? { etaMinutes } : null;
-    }
-    return null;
-  };
-  return {
-    vehicle: (await forRes("vehicle")) ?? undefined,
-    driver: (await forRes("driver")) ?? undefined,
-  };
-}
+// NOTE: the §4.8.3 travel+buffer signals are no longer built from the request
+// body. `body.travel` is still accepted, but only as a cross-check against the
+// ETA the server derives from stored data — see lib/scheduling/travel-signals.
 
 // ASSIGN a vehicle+driver pair to a request.
 //
@@ -75,8 +57,20 @@ export async function PUT(req, { params }) {
     const planSelection = { requestId: id, vehicleId, driverId, mode:force ? 'manual' : 'verified' };
     if (body.plan_token !== undefined) await verifyPlanToken(body.plan_token, planSelection);
 
-    const travel = await buildTravelSignals(body);
+    const travel = await resolveTravelSignals({
+      request: before,
+      vehicleId,
+      driverId,
+      claimed: body?.travel ?? null,
+    });
     const conflicts = await detectRequestConflicts(before, { vehicleId, driverId, travel });
+    // What the gate could not verify, and where the caller's own estimate
+    // disagreed with the derived one. WARNING only — these inform the dispatcher,
+    // they never become the 409 below. (`§4.8.3`'s unverified case is raised by
+    // detectRequestConflicts itself, from the same shared evaluator the queue
+    // uses, so this only adds what is unique to the assign call: the cross-check.)
+    const advisories = travelAdvisories(travel, { vehicleId, driverId });
+    conflicts.push(...advisories);
     const blocking = conflicts.filter((c) => c.severity === "blocking");
 
     if (blocking.length > 0) {
@@ -228,6 +222,7 @@ export async function PUT(req, { params }) {
       ...result.request,
       reviewed: pairCheck.reviewed === true,
       warnings: force ? (pairCheck.evidence?.advisories ?? []).filter((a) => !isFuelNoise(a?.message)) : [],
+      advisories: advisories.length ? advisories : undefined,
       dispatch_id: dispatchId ?? undefined,
       dispatch_number: dispatchNumber ?? undefined,
     });

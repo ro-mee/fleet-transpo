@@ -71,6 +71,7 @@ export async function executeLlmCompletion({
   prefer_fast_model = false,
   provider_name = null,
   timeout_ms = null,
+  temperature = null,
 }) {
   const startTime = Date.now();
   const provider = await getActiveAiProvider(provider_name);
@@ -120,7 +121,7 @@ export async function executeLlmCompletion({
         { role: "system", content: instructions },
         { role: "user", content: userMessageContent },
       ],
-      temperature: Number(provider.temperature) || 0.7,
+      temperature: Number(temperature ?? provider.temperature) || 0.7,
       max_tokens: Number(max_tokens) || Number(provider.max_tokens) || 1500,
     };
 

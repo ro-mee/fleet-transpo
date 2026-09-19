@@ -45,16 +45,42 @@ describe("evaluateRequestConflicts — travel buffer (§4.8.3)", () => {
       travelBufferEnabled: true,
     });
     expect(findings.some((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER)).toBe(false);
+    // …and it is silent about the buffer rather than merely unblocked: there is
+    // genuinely nothing to gate on, so no advisory is raised either.
+    expect(findings.some((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED)).toBe(false);
   });
 
-  it("fails open when ETA is unknown", () => {
+  it("reports an UNVERIFIED buffer when a prior commitment exists but the ETA is unknown", () => {
+    // The rule could not be evaluated. That is not the same as "clean", and it
+    // must not read as one — a safety constraint that silently disappears when
+    // its input is missing is a bypass, whether or not anyone intended it.
     const findings = evaluateRequestConflicts(REQ, {
       driver: { ...DRIVER, _eta_to_pickup_min: null },
       safetyBufferMinutes: 5,
       bufferFloorMinutes: 0,
       travelBufferEnabled: true,
     });
+    // It does not block — we never fabricate a conflict from absent data…
     expect(findings.some((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER)).toBe(false);
+    // …but it is not silent either.
+    const unverified = findings.find((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED);
+    expect(unverified).toBeTruthy();
+    expect(unverified.severity).toBe("warning");
+    expect(unverified.detail).toMatchObject({
+      driver_id: 5,
+      previous_scheduled_end: DRIVER._previous_busy_end,
+    });
+  });
+
+  it("carries the ETA provenance into the unverified finding", () => {
+    const findings = evaluateRequestConflicts(REQ, {
+      driver: { ...DRIVER, _eta_to_pickup_min: null, _eta_source: "unknown" },
+      safetyBufferMinutes: 5,
+      bufferFloorMinutes: 0,
+      travelBufferEnabled: true,
+    });
+    expect(findings.find((f) => f.type === CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED)?.detail)
+      .toMatchObject({ eta_source: "unknown" });
   });
 
   it("skips the rule when travelBufferEnabled is false", () => {

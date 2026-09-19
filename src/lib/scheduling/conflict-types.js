@@ -21,6 +21,14 @@ export const CONFLICT_TYPE = {
   CAPACITY_MISMATCH: "capacity_mismatch",
   VEHICLE_NOT_ASSIGNED_TO_DRIVER: "vehicle_not_assigned_to_driver",
   TRAVEL_BUFFER: "travel_buffer",
+  // A prior commitment exists but the travel time to the next pickup could not
+  // be determined, so the §4.8.3 buffer rule could not be evaluated. Distinct
+  // from TRAVEL_BUFFER (which asserts a violation was found) and from the
+  // no-prior-commitment case (which is genuinely nothing to gate on).
+  TRAVEL_BUFFER_UNVERIFIED: "travel_buffer_unverified",
+  // The caller's own travel estimate disagrees with the route the system
+  // computed. The computed value is what the rule uses.
+  TRAVEL_ETA_DIVERGENCE: "travel_eta_divergence",
 };
 
 export const CONFLICT_SEVERITY = { BLOCKING: "blocking", WARNING: "warning" };
@@ -39,4 +47,6 @@ export const CONFLICT_LABEL = {
   [CONFLICT_TYPE.CAPACITY_MISMATCH]: "Capacity Mismatch",
   [CONFLICT_TYPE.VEHICLE_NOT_ASSIGNED_TO_DRIVER]: "Not Driver's Vehicle",
   [CONFLICT_TYPE.TRAVEL_BUFFER]: "Travel Buffer",
+  [CONFLICT_TYPE.TRAVEL_BUFFER_UNVERIFIED]: "Travel Buffer Not Verified",
+  [CONFLICT_TYPE.TRAVEL_ETA_DIVERGENCE]: "Travel Estimate Disagrees",
 };

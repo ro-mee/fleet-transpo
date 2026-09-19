@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, View } from "react-native";
+import { AppState, InteractionManager, View } from "react-native";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useFonts } from "expo-font";
@@ -23,12 +23,29 @@ import { NotificationHost } from "../components/NotificationHost";
 import { LaunchScreen } from "../components/LaunchScreen";
 import { completeLaunch } from "../lib/launch";
 
-// Keep the native splash up while fonts load so the app never flashes in a
-// fallback typeface. Hidden in the effect below once fonts are ready.
+// Keep the native splash up while fonts and the app shell load so the app
+// never exposes a fallback typeface or an empty handoff frame.
 SplashScreen.preventAutoHideAsync().catch(() => { });
 
 function ThemedApp({ showLaunch, onLaunchDone }) {
   const { scheme, colors } = useTheme();
+
+  useEffect(() => {
+    // Hide the native splash only after the app shell has committed. Hiding
+    // at font-ready time can expose a blank frame while SettingsProvider is
+    // still loading its persisted preferences.
+    SplashScreen.hideAsync().catch(() => { });
+  }, []);
+
+  useEffect(() => {
+    if (showLaunch) return undefined;
+    const task = InteractionManager.runAfterInteractions(() => {
+      // Notification setup is not needed to paint the first screen.
+      initPush().catch(() => { });
+    });
+    return () => task.cancel();
+  }, [showLaunch]);
+
   return (
     <ErrorBoundary>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
@@ -74,19 +91,7 @@ export default function RootLayout() {
 
   const ready = loaded || error;
 
-  useEffect(() => {
-    if (ready) {
-      SplashScreen.hideAsync().catch(() => { });
-    }
-  }, [ready]);
-
   const appState = useRef(AppState.currentState);
-
-  useEffect(() => {
-    // Create the Android notification channel before any push can arrive so
-    // remote FCM notifications have somewhere to display.
-    initPush().catch(() => { });
-  }, []);
 
   const handleLaunchDone = useCallback(() => {
     setShowLaunch(false);

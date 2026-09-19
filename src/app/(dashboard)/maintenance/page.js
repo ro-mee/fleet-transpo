@@ -621,6 +621,7 @@ export default function MaintenancePage() {
                   >
                     <option value="Scheduled">Scheduled</option>
                     <option value="In Progress">In Progress</option>
+                    <option value="Pending Inspection">Pending Inspection</option>
                     <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>

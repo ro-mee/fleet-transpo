@@ -1,6 +1,7 @@
 import { query } from "@/lib/db";
 import { requirePermission, parseBody, ok, err, errValidation, handleError } from "@/lib/api/utils";
-import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense } from "@/lib/validation/helpers";
+import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone, normalizeLicense, isAllowedStoredImageRef } from "@/lib/validation/helpers";
+import { signDriverMedia, toStoredMediaRef } from "@/lib/drivers/media";
 import { writeAudit } from "@/lib/audit";
 import { TRIPS_SELECT, TRIPS_JOINS } from "@/lib/api/trips-query";
 import { suspensionAction } from "@/lib/drivers/compliance";
@@ -111,12 +112,16 @@ export async function GET(req, { params }) {
       console.warn("Driver account lookup skipped:", accErr);
     }
 
-    return ok({
-      ...driver,
-      ...stats,
-      trips,
-      account,
-    });
+    // Media columns hold object keys; resolve them to short-lived URLs for the
+    // response. See `lib/drivers/media` — never persist what this returns.
+    return ok(
+      await signDriverMedia({
+        ...driver,
+        ...stats,
+        trips,
+        account,
+      })
+    );
   } catch (e) {
     return handleError(e);
   }
@@ -136,6 +141,9 @@ export async function PUT(req, { params }) {
       phone: { type: "phone", label: "Phone" },
       license_number: { type: "license", label: "License number", maxLength: 30 },
       license_expiry: { type: "date", label: "License expiry" },
+      // Same allow-list as POST /api/drivers — see the note there.
+      license_image_url: { type: "mediaUrl", label: "License front scan" },
+      license_back_image_url: { type: "mediaUrl", label: "License back scan" },
       years_of_experience: { type: "positiveNumber", integer: true, label: "Years of experience" },
       driver_status: { maxLength: 30, label: "Driver status" },
       birthdate: { type: "date", label: "Birthdate" },
@@ -199,8 +207,16 @@ export async function PUT(req, { params }) {
     if (sex !== undefined) driverPayload.sex = sex || null;
     if (birthdate !== undefined) driverPayload.birthdate = birthdate || null;
     if (nationality !== undefined) driverPayload.nationality = nationality || null;
-    if (license_image_url !== undefined) driverPayload.license_image_url = license_image_url || null;
-    if (license_back_image_url !== undefined) driverPayload.license_back_image_url = license_back_image_url || null;
+    // Canonicalise before anything is written. The reader hands the admin form a
+    // short-lived signed URL, and the form submits that back on every save
+    // (`drivers/[id]/edit/page.js:116,295`) — storing it would mean the licence
+    // image rots when the URL expires, which is the very defect this work exists
+    // to close. One canonical value feeds both the driver column and the
+    // employee avatar mirror below, so they cannot disagree.
+    const storedLicenceFront = toStoredMediaRef(license_image_url, "driver-licenses");
+    const storedLicenceBack = toStoredMediaRef(license_back_image_url, "driver-licenses");
+    if (storedLicenceFront !== undefined) driverPayload.license_image_url = storedLicenceFront;
+    if (storedLicenceBack !== undefined) driverPayload.license_back_image_url = storedLicenceBack;
     if (emergency_contact_name !== undefined) driverPayload.emergency_contact_name = emergency_contact_name || null;
     if (emergency_contact_phone !== undefined) driverPayload.emergency_contact_phone = emergency_contact_phone || null;
     if (emergency_contact_address !== undefined) driverPayload.emergency_contact_address = emergency_contact_address || null;
@@ -224,8 +240,14 @@ export async function PUT(req, { params }) {
     if (email !== undefined) employeePayload.email = normalizeEmail(email);
     if (phone !== undefined) employeePayload.phone = normalizePhone(phone) || null;
     if (position !== undefined) employeePayload.position = position || "Driver";
-    if (license_image_url !== undefined) {
-      employeePayload.avatar_url = (license_image_url && typeof license_image_url === "string" && license_image_url.startsWith("http") && license_image_url.length <= 512) ? license_image_url : null;
+    if (storedLicenceFront !== undefined) {
+      // The allow-list replaced a bare startsWith("http") prefix test, which
+      // admitted any host. The 512 cap stays: it is why a multi-megabyte scan
+      // data URL has never been copied into employees.avatar_url, and that
+      // behaviour must not change here. A stored key passes the allow-list and
+      // is far under the cap, so the mirror keeps working now that the licence
+      // column holds a key rather than a URL.
+      employeePayload.avatar_url = (storedLicenceFront && typeof storedLicenceFront === "string" && storedLicenceFront.length <= 512 && isAllowedStoredImageRef(storedLicenceFront)) ? storedLicenceFront : null;
     }
     employeePayload.updated_at = new Date().toISOString();
 
@@ -383,7 +405,7 @@ export async function PUT(req, { params }) {
     `;
 
     const { rows: updatedRows } = await query(fetchSql, [id]);
-    return ok({ ...updatedRows[0], reinstated });
+    return ok(await signDriverMedia({ ...updatedRows[0], reinstated }));
   } catch (e) {
     return handleError(e);
   }

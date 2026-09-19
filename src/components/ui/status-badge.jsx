@@ -104,6 +104,7 @@ const ENTITY_MAPS = {
   maintenance: {
     scheduled: "info",
     "in progress": "warning",
+    "pending inspection": "warning",
     completed: "success",
     done: "success",
     cancelled: "secondary",

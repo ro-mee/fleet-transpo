@@ -786,6 +786,7 @@ export function AiRecommendationPanel({
           disabled={busy || !canRecommend || isClosed}
           completed={isClosed}
           onCommand={handleCommand}
+          planStatus={{ isInvalid: !!planInvalidReason, invalidReason: planInvalidReason ?? null }}
           selectedReply={!isClosed && !assignment.isPending ? actionSlot : null}
           reply={<>
             {query.isLoading && <CopilotBubble><p role="status">I am checking the eligible pairs and their schedules.</p></CopilotBubble>}

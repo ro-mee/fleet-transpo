@@ -4,6 +4,7 @@ import { requireAuth, ok, err, errValidation, handleError } from "@/lib/api/util
 import { validateBody, isValidObject, normalizeName, normalizeEmail, normalizePhone } from "@/lib/validation/helpers";
 import { writeAudit } from "@/lib/audit";
 import { revokeEmployeeSessions } from "@/lib/auth/sessions";
+import { signDriverMedia } from "@/lib/drivers/media";
 
 export async function GET(req) {
   try {
@@ -33,10 +34,19 @@ export async function GET(req) {
       [employeeId]
     );
 
-    const emp = rows[0];
-    if (!emp) {
+    const raw = rows[0];
+    if (!raw) {
       return err("Profile not found", 404);
     }
+
+    // Resolve the stored media references BEFORE the fallback chain runs. These
+    // columns hold object keys now (SEC-UPLOAD-006) and a key is not
+    // renderable, so chaining over the raw values would hand this endpoint's
+    // callers — the app-shell avatar, the sidebar, `use-auth` — a path the
+    // browser cannot load. Signing also converts a legacy URL into a fresh
+    // short-lived one, so a ten-year token written by an older build never
+    // reaches the client.
+    const emp = await signDriverMedia(raw);
 
     const photoUrl = emp.face_image_url || emp.avatar_url || emp.license_image_url || null;
 

@@ -8,14 +8,25 @@ const FORMATS = {
 /**
  * Validates an image file against size and format restrictions.
  * Enforces magic byte signatures for security.
- * 
+ *
+ * `bytes` is REQUIRED. It used to be optional, with the signature check skipped
+ * when it was absent — so the only thing standing between a caller and an
+ * arbitrary stored payload was the `Content-Type` they chose themselves. Every
+ * in-repo caller already has the buffer in hand and passes it; omitting it now
+ * raises rather than silently downgrading the check, so the footgun cannot be
+ * walked into from a future call site.
+ *
  * @param {File|Blob} file - The uploaded file object (e.g. from FormData).
- * @param {Uint8Array} [bytes] - Optional byte array of the file contents. If not provided, magic bytes are not checked.
+ * @param {Uint8Array} bytes - The file's bytes, for signature verification.
  * @returns {{ error?: string, contentType?: string, extension?: string }}
  */
 export function validateImage(file, bytes) {
+  if (!(bytes instanceof Uint8Array)) {
+    throw new TypeError("validateImage requires the file bytes as a Uint8Array.");
+  }
+
   const contentType = file.type?.toLowerCase();
-  
+
   if (!contentType || !FORMATS[contentType]) {
     return { error: "Image must be a JPEG or PNG file." };
   }
@@ -26,13 +37,11 @@ export function validateImage(file, bytes) {
 
   const format = FORMATS[contentType];
 
-  if (bytes) {
-    const startsWith = (signature, offset = 0) =>
-      signature.every((byte, index) => bytes[offset + index] === byte);
-      
-    if (!startsWith(format.signature)) {
-      return { error: "The uploaded file does not match its image type." };
-    }
+  const startsWith = (signature, offset = 0) =>
+    signature.every((byte, index) => bytes[offset + index] === byte);
+
+  if (!startsWith(format.signature)) {
+    return { error: "The uploaded file does not match its image type." };
   }
 
   return { contentType, extension: format.extension };

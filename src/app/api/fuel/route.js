@@ -4,6 +4,11 @@ import { validateBody, isValidObject } from "@/lib/validation/helpers";
 import { resolveDriverScope } from "@/lib/api/ownership";
 import { validateOdometerReading } from "@/lib/vehicles/odometer";
 import { writeAudit } from "@/lib/audit";
+import {
+  toStoredReceiptRef,
+  signFuelReceipt,
+  signFuelReceiptList,
+} from "@/lib/fuel/receipt-storage";
 
 export const dynamic = 'force-dynamic';
 
@@ -144,7 +149,7 @@ export async function GET(req) {
 
       const c = countsRes.rows[0] || {};
       return ok({
-        rows: rowsRes.rows,
+        rows: await signFuelReceiptList(rowsRes.rows),
         total: Number(totalRes.rows[0]?.total) || 0,
         page,
         pageSize: ps,
@@ -173,7 +178,7 @@ export async function GET(req) {
        ${FUEL_FROM} ${where} ORDER BY fr.fuel_record_id DESC`,
       params
     );
-    return ok(rows);
+    return ok(await signFuelReceiptList(rows));
   } catch (e) { return handleError(e); }
 }
 
@@ -204,6 +209,15 @@ export async function POST(req) {
     if (body.liters === undefined) return err("liters is required", 400);
     if (body.amount === undefined && body.total_cost === undefined) return err("amount/total_cost is required", 400);
     if (!body.fuel_date) return err("fuel_date is required", 400);
+
+    // `receipt_url` holds an object key now. Resolve whatever was sent to a key;
+    // a value that is not a resolvable fuel-receipts reference is refused rather
+    // than written, because a URL in this column would be unreadable the moment
+    // its token expired.
+    if (body.receipt_url !== undefined && body.receipt_url !== null && body.receipt_url !== "") {
+      body.receipt_url = toStoredReceiptRef(body.receipt_url);
+      if (!body.receipt_url) return err("receipt_url is not a valid receipt reference", 400);
+    }
 
     if (session.user.role === "driver") {
       let ownedVehicleId = null;
@@ -275,6 +289,6 @@ export async function POST(req) {
       values
     );
     await writeAudit(req, session, { action: "create", resource: "fuelrecords", resourceId: rows[0]?.fuel_record_id, newValues: rows[0] });
-    return ok(rows[0], 201);
+    return ok(await signFuelReceipt(rows[0]), 201);
   } catch (e) { return handleError(e); }
 }

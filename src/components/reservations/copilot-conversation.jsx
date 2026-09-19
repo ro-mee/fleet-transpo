@@ -4,6 +4,36 @@ import { useMutation } from "@tanstack/react-query";
 import { Send, LoaderCircle, RotateCcw } from "lucide-react";
 import { formatDateTime, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api/client";
+import { EvidenceDrawer, buildInspectorRows } from "./evidence-drawer";
+
+// Latest comparison proof from assistant messages. Exported for tests.
+export function latestComparisonFor(messages = []) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role === "assistant" && m.comparisonProof?.ref) return m.comparisonProof;
+  }
+  return null;
+}
+// Latest clearance for the selected pair (else first reported pair) from
+// assistant messages. Exported for tests. Reads stored messages only.
+export function latestClearanceFor(messages = [], selectedPair = null) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role !== "assistant" || !Array.isArray(m.pairRecovery)) continue;
+    const match = selectedPair
+      ? m.pairRecovery.find(p => p.vehicleId === selectedPair.vehicleId && p.driverId === selectedPair.driverId)
+      : null;
+    const entry = match ?? m.pairRecovery[0];
+    if (entry && Array.isArray(entry.clearance) && entry.clearance.length) {
+      return {
+        pair: { vehicleId: entry.vehicleId, driverId: entry.driverId },
+        clearance: entry.clearance, meta: entry.meta ?? {},
+        pairLabel: m.selectedPairLabel ?? null,
+      };
+    }
+  }
+  return null;
+}
 
 const clock = (value) =>
   new Intl.DateTimeFormat("en-PH", {
@@ -23,6 +53,19 @@ function readStoredMemoryMap() {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
+  }
+}
+
+function recoveryHref(action) {
+  if (!action || action.record == null) return null;
+  const id = action.id;
+  switch (action.record) {
+    case 'vehicle': return id != null ? `/vehicles/${id}` : '/vehicles';
+    case 'driver': return id != null ? `/drivers/${id}` : '/drivers';
+    case 'maintenance': return id != null ? `/maintenance?vehicleId=${id}` : '/maintenance';
+    case 'schedule': return id != null ? `/schedules?driverId=${id}` : '/schedules';
+    case 'request': return id != null ? `/reservations/${id}` : null;
+    default: return null;
   }
 }
 
@@ -118,9 +161,13 @@ export function CopilotConversation({
   reply,
   selectedReply,
   onCommand,
+  planStatus = null,
 }) {
   const [messages, setMessages] = useState(() => getReservationMessages(requestId));
   const [draft, setDraft] = useState("");
+  // Open evidence proof (server-signed ref). The drawer is a pure read view:
+  // opening it fetches one point-in-time snapshot and never validates.
+  const [evidenceProof, setEvidenceProof] = useState(null);
   const log = useRef(null);
   const follow = useRef(true);
   const sending = useRef(false);
@@ -146,14 +193,17 @@ export function CopilotConversation({
   const currentGuest = selectedRequest?.guest_name || null;
 
   const send = useMutation({
-    mutationFn: ({ message, history, requestId: targetId, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, displayedOptions: options }) =>
-      apiFetch(
+    mutationFn: ({ message, history, requestId: targetId, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, displayedOptions: options }) => {
+      let baseline = null;
+      try { baseline = window.sessionStorage.getItem(`fleetops_dispatch_baseline_${targetId}`); } catch { baseline = null; }
+      return apiFetch(
         `/api/integration/transport-requests/${targetId}/conversation`,
         {
           method: "POST",
-          body: { message, history, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, ...(options ? {displayedOptions:options} : {}) },
+          body: { message, history, planToken: token, selectedPair: selection, displayedEvaluatedAt: viewedAt, ...(options ? {displayedOptions:options} : {}), ...(baseline ? {baseline} : {}) },
         }
-      ),
+      );
+    },
     onMutate: ({ message, requestId: targetId, selectedPair: selection, selectedPairLabel: selectionLabel, displayedEvaluatedAt: viewedAt }) => {
       const userMsg = {
         role: "user",
@@ -170,6 +220,7 @@ export function CopilotConversation({
       setDraft("");
     },
     onSuccess: (response, { requestId: targetId, selectedPair: selection, selectedPairLabel: selectionLabel, displayedEvaluatedAt: viewedAt, displayedOptions: options }) => {
+      try { if (response.snapshot) window.sessionStorage.setItem(`fleetops_dispatch_baseline_${targetId}`, response.snapshot); } catch { /* private mode */ }
       const choices = (response.choiceOptions ?? []).filter(index => options?.[index-1]);
       const prompt = !selection && !currentSelection.current && choices.length
         ? choices.length === 2 ? '\n\nWhich would you like to choose: Option 1 or Option 2?' : `\n\nWould you like to choose Option ${choices[0]}?`
@@ -247,7 +298,7 @@ export function CopilotConversation({
   return (
     <section
       aria-label="Copilot conversation"
-      className="min-h-0 flex-1 flex flex-col overflow-hidden bg-background"
+      className="min-h-0 flex-1 flex flex-col overflow-hidden bg-background relative"
     >
       {/* ── Context & Memory Header ── */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border bg-muted/20 text-xs shrink-0">
@@ -345,6 +396,33 @@ export function CopilotConversation({
                         Chat is temporarily unavailable. These are the recorded findings.
                       </p>
                     )}
+                    {m.role === "assistant" && Array.isArray(m.recoveryActions) && m.recoveryActions.length > 0 && (
+                      <span className="mt-2 flex flex-wrap gap-1.5">
+                        {m.recoveryActions.slice(0, 2).map((action, idx) => {
+                          if (action.proof?.ref) {
+                            return (
+                              <button key={`${action.code}-${idx}`} type="button"
+                                onClick={() => setEvidenceProof({ kind: "proof", type: action.proof.type, ref: action.proof.ref })}
+                                className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary cursor-pointer">
+                                Review Evidence
+                              </button>
+                            );
+                          }
+                          const href = recoveryHref(action);
+                          const label = action.label || 'Check record';
+                          return href ? (
+                            <a key={`${action.code}-${idx}`} href={href}
+                              className="rounded-lg border border-border px-2.5 py-1 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary">
+                              {label}
+                            </a>
+                          ) : (
+                            <span key={`${action.code}-${idx}`} className="rounded-lg border border-border px-2.5 py-1 text-xs text-foreground-secondary">
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <time
@@ -399,6 +477,29 @@ export function CopilotConversation({
           {displayedOptions.map((option,index)=><button key={`${option.vehicleId}:${option.driverId}`} type="button" disabled={disabled}
             onClick={()=>submit(`Option ${index+1}`)} className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">Choose Option {index+1}</button>)}
         </div>}
+        {!completed && !send.isPending && (() => {
+          const clearanceInfo = latestClearanceFor(messages, selectedPair);
+          const comparison = latestComparisonFor(messages);
+          if (!clearanceInfo && !comparison) return null;
+          return (
+            <div className="flex flex-wrap gap-2 pl-8">
+              {clearanceInfo && (
+                <button type="button" disabled={disabled}
+                  onClick={() => setEvidenceProof({ kind: "inspector", ...clearanceInfo })}
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  Review eligibility
+                </button>
+              )}
+              {comparison && (
+                <button type="button" disabled={disabled}
+                  onClick={() => setEvidenceProof({ kind: "proof", type: comparison.type, ref: comparison.ref })}
+                  className="rounded-lg border border-border px-3 py-2 text-xs text-primary hover:bg-hover focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  Compare options
+                </button>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* ── Action Suggestions & Composer ── */}
@@ -466,6 +567,31 @@ export function CopilotConversation({
           </div>
         </form>
       </div>}
+      {evidenceProof && evidenceProof.kind === "inspector" ? (
+        <EvidenceDrawer
+          key="inspector"
+          requestId={requestId}
+          proof={null}
+          inspector={{
+            pairLabel: evidenceProof.pairLabel,
+            horizon: evidenceProof.meta?.horizon ?? null,
+            rows: buildInspectorRows(evidenceProof.clearance, evidenceProof.meta),
+          }}
+          planStatus={planStatus}
+          onClose={() => setEvidenceProof(null)}
+          onReviewProof={(proof) => setEvidenceProof({ kind: "proof", type: proof.type, ref: proof.ref, backTo: evidenceProof })}
+        />
+      ) : evidenceProof ? (
+        <EvidenceDrawer
+          key={evidenceProof.ref}
+          requestId={requestId}
+          proof={evidenceProof}
+          backTo={evidenceProof.backTo ?? null}
+          planStatus={planStatus}
+          onClose={() => setEvidenceProof(null)}
+          onBack={evidenceProof.backTo ? () => setEvidenceProof(evidenceProof.backTo) : undefined}
+        />
+      ) : null}
     </section>
   );
 }

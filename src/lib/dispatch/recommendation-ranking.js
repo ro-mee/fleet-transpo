@@ -33,11 +33,19 @@ export function rankDispatchPairs(candidates, policy = {}) {
   for (let i = 0; i < candidates.length; i++) {
     const pair = candidates[i], other = candidates[i === 0 ? 1 : 0];
     const comparison = other ? comparePairEvidence(pair, other, policy) : null;
+    // A lone option has nothing to compare against, and saying so is not the
+    // same as inviting a comparison that cannot exist. The generic sentence is
+    // kept for the multi-pair fallback it was written for: it fires only when
+    // the comparator left candidates[0] losing to candidates[1], whose own
+    // decisionEvidence is not written yet.
+    const alone = !other;
     pair.decisionEvidence = {
       reliability: pair.feasibility?.verdict ?? 'UNKNOWN',
       code: comparison?.code ?? 'ONLY_OPTION',
       label: i === 0 ? comparison?.label ?? 'Only evaluated option' : 'Alternative',
-      explanation: comparison?.order <= 0 ? comparison.explanation : other?.decisionEvidence?.explanation ?? 'Compare the current evidence before choosing.',
+      explanation: comparison?.order <= 0 ? comparison.explanation
+        : alone ? 'This is the only evaluated option, so there is nothing to compare it against.'
+          : other?.decisionEvidence?.explanation ?? 'Compare the current evidence before choosing.',
       comparedPair: other ? { vehicleId: other.vehicle_id, driverId: other.driver_id } : null,
       alternativeAdvantage: other && workload(pair) && workload(other) && pair.workloadEvidence.totalTrips < other.workloadEvidence.totalTrips ? 'Lighter service-date workload' : null,
     };

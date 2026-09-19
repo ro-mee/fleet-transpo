@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
@@ -612,13 +612,25 @@ function AdminDashboard({ queries }) {
         { query: queries.fuelRequests, title: "Fuel requests could not be loaded" },
       ]} />
 
-      <Panel title="Operational attention" description={attentionTone === "success" ? "No exceptions need action. Counts rise here the moment something blocks service." : "Exceptions that may block service, ordered by current volume."} action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>} className={attentionTone === "danger" ? "border-danger/20 ring-1 ring-danger/10" : attentionTone === "success" ? "border-success/25" : undefined}>
-        <div className={cn("grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0", attentionTone === "danger" ? "bg-danger/5" : attentionTone === "success" ? "bg-success/5" : "bg-hover/40")}>
+      <Panel title="Operational attention" description={attentionTone === "success" ? "No exceptions need action. Counts rise here the moment something blocks service." : "Exceptions that may block service, ordered by current volume."} action={<Link href="/notifications" className={linkClass}>Notification center <ArrowRight className="h-3.5 w-3.5" /></Link>} className={attentionTone === "success" ? "border-success/25" : undefined}>
+        <div className="grid divide-y divide-border/70 md:grid-cols-5 md:divide-x md:divide-y-0">
           {attention.map((item) => {
             const hasIssues = item.value !== "—" && item.value > 0;
             const unknown = item.value === "—";
             return (
-              <Link key={item.label} href={item.href} aria-label={`${item.label}: ${unknown ? "unavailable" : item.value}`} className="group flex flex-col items-center justify-center gap-2 p-5 transition-all hover:bg-hover/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+              <Link
+                key={item.label}
+                href={item.href}
+                aria-label={`${item.label}: ${unknown ? "unavailable" : item.value}`}
+                className={cn(
+                  "group flex flex-col items-center justify-center gap-2 p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                  unknown
+                    ? "bg-hover/40 hover:bg-hover/80"
+                    : hasIssues
+                      ? "bg-danger/5 hover:bg-danger/10"
+                      : "bg-success/5 hover:bg-success/10"
+                )}
+              >
                 <div className="relative">
                   <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border shadow-sm transition-transform group-hover:scale-105", unknown ? "border-border/60 bg-hover text-foreground-muted" : hasIssues ? "border-danger/25 bg-danger/10 text-danger" : "border-success/25 bg-success/10 text-success-700")}>
                     <item.icon className="h-5 w-5" />
@@ -918,12 +930,22 @@ function DispatcherDashboard({ queries, queueGroups }) {
         </Link>
       )}
 
-      <Panel title="Needs attention now" description={dispatchTone === "success" ? "Nothing needs action. New unassigned, overdue, or delayed work lands here first." : "Actionable right now — everything else on this page can wait."} className={dispatchTone === "danger" ? "border-danger/20 ring-1 ring-danger/10" : "border-success/25"}>
-        <div className={cn("grid grid-cols-2 divide-x divide-border/70 lg:grid-cols-4", dispatchTone === "danger" ? "bg-danger/5" : "bg-success/5")}>
+      <Panel title="Needs attention now" description={dispatchTone === "success" ? "Nothing needs action. New unassigned, overdue, or delayed work lands here first." : "Actionable right now — everything else on this page can wait."} className={dispatchTone === "success" ? "border-success/25" : undefined}>
+        <div className="grid grid-cols-2 divide-x divide-border/70 lg:grid-cols-4">
           {dispatchAttention.map((item) => {
             const hasIssues = item.value > 0;
             return (
-              <Link key={item.label} href={item.href} aria-label={`${item.label}: ${item.value}`} className="group flex flex-col items-center justify-center gap-2 p-5 transition-all hover:bg-hover/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary">
+              <Link
+                key={item.label}
+                href={item.href}
+                aria-label={`${item.label}: ${item.value}`}
+                className={cn(
+                  "group flex flex-col items-center justify-center gap-2 p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                  hasIssues
+                    ? "bg-danger/5 hover:bg-danger/10"
+                    : "bg-success/5 hover:bg-success/10"
+                )}
+              >
                 <div className="relative">
                   <span className={cn("flex h-10 w-10 items-center justify-center rounded-2xl border shadow-sm transition-transform group-hover:scale-105", hasIssues ? "border-danger/25 bg-danger/10 text-danger" : "border-success/25 bg-success/10 text-success-700")}>
                     <item.icon className="h-5 w-5" />

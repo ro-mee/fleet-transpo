@@ -18,10 +18,17 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
   let mockRecord;
 
   beforeEach(() => {
+    // Mirrors the columns the route's pre-check actually reads. This mock used
+    // to carry only status/completed_*, so `beforeRow.created_by` and
+    // `beforeRow.inspection_required` both resolved to `undefined` and NEITHER
+    // completion guard ever armed — which is how a gate that denied every real
+    // user shipped with a green suite.
     mockRecord = {
       maintenance_id: maintenanceId,
       vehicle_id: 1,
       status: "Scheduled",
+      created_by: null,
+      repair_completed_by: null,
       completed_by: null,
       completed_at: null
     };
@@ -189,8 +196,11 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
     // Multi-field body like the real Edit dialog sends on Complete: before the
     // fix, the SELECT carried all SET values and Postgres rejected the parse
     // with "could not determine data type of parameter $1" (500 on every PUT).
+    // This body used to also carry `inspection_required: false` — a field the
+    // real UI never sent, and the only reason the assertion below passed while
+    // production rejected every completion.
     const req = mockRequest(
-      { status: "Completed", cost: 1500, mileage_at_service: 45000, inspection_required: false },
+      { status: "Completed", cost: 1500, mileage_at_service: 45000 },
       "fleet_manager",
       777
     );
@@ -226,9 +236,118 @@ describe("PUT /api/vehicle-maintenance/[id]", () => {
 
   it("Test 8: Unauthorized User", async () => {
     const req = mockRequest({ status: "Completed" }, "driver", 123);
-    
+
     vi.spyOn(utils, "requirePermission").mockRejectedValue(new AuthError("Unauthorized", 403));
     const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
     expect(res.status).toBe(403);
+  });
+
+  it("Test 11: separation of duties blocks the repairer, never the ticket's creator", async () => {
+    // The repairer is whoever declared the work finished ('Pending Inspection'),
+    // which migration 113 records in repair_completed_by. created_by is the
+    // ticket's provenance and is deliberately not a fallback: on an
+    // incident-sourced work order it names the staff member who resolved the
+    // incident, and treating them as the mechanic is what made the old guard
+    // deny the admin account its own queue of work orders.
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "Pending Inspection", created_by: 48, repair_completed_by: 42 }] };
+      }
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      return { rows: [] };
+    });
+
+    // 42 performed the repair and tries to approve it → blocked, no UPDATE.
+    const blocked = await PUT(
+      mockRequest({ status: "Completed" }, "fleet_manager", 42),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(blocked.status).toBe(403);
+    expect((await blocked.json()).error).toContain("cannot approve its completion");
+    expect(updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"))).toBeUndefined();
+
+    // 6 repaired nothing and opened nothing → allowed.
+    const allowed = await PUT(
+      mockRequest({ status: "Completed" }, "fleet_manager", 6),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(allowed.status).toBe(200);
+
+    // 48 opened this work order by resolving an incident but did not repair it →
+    // allowed. This is the exact case the created_by guard denied in production.
+    const resolver = await PUT(
+      mockRequest({ status: "Completed" }, "admin", 48),
+      { params: Promise.resolve({ id: maintenanceId }) }
+    );
+    expect(resolver.status).toBe(200);
+  });
+
+  it("Test 12: a record with no repairer on file is not blocked", async () => {
+    // Every row predating migration 113 has repair_completed_by NULL, as does any
+    // record that skipped 'Pending Inspection'. There is no evidence of who did
+    // the work, so the guard must not fire — this is what unblocks the incident
+    // work orders that had been stuck since 2026-09-04.
+    vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "In Progress", created_by: 48, repair_completed_by: null }] };
+      }
+      return { rows: [{ ...mockRecord, status: "Completed" }] };
+    });
+
+    const req = mockRequest({ status: "Completed" }, "admin", 48);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(200);
+  });
+
+  it("Test 13: 'Pending Inspection' records who finished the repair", async () => {
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "In Progress", repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Pending Inspection" }] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest({ status: "Pending Inspection" }, "fleet_manager", 42);
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(200);
+
+    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    expect(updateCall[0]).toContain("repair_completed_by = $");
+    expect(updateCall[0]).toContain("repair_completed_at = CURRENT_TIMESTAMP");
+    expect(updateCall[1]).toContain(42);
+  });
+
+  it("Test 14: inspection fields are no longer writable (gate removed)", async () => {
+    // The gate was removed because no UI, service, or endpoint in the app could
+    // ever write inspection_completed_at, so it blocked every user. The fields
+    // must leave the allowlist too, or a client could still send them and leave
+    // a row looking inspected after the requirement was dropped.
+    const updateSpy = vi.spyOn(db, "query").mockImplementation(async (sql) => {
+      if (sql.includes("SELECT status")) {
+        return { rows: [{ status: "In Progress", repair_completed_by: null }] };
+      }
+      if (sql.includes("UPDATE")) return { rows: [{ ...mockRecord, status: "Completed" }] };
+      return { rows: [] };
+    });
+
+    const req = mockRequest(
+      {
+        status: "Completed",
+        inspection_required: true,
+        inspection_completed_at: "2026-09-16T00:00:00Z",
+        inspection_notes: "looks fine",
+      },
+      "fleet_manager",
+      6
+    );
+    const res = await PUT(req, { params: Promise.resolve({ id: maintenanceId }) });
+    expect(res.status).toBe(200);
+
+    const updateCall = updateSpy.mock.calls.find((c) => c[0].includes("UPDATE"));
+    expect(updateCall[0]).not.toContain("inspection_required");
+    expect(updateCall[0]).not.toContain("inspection_completed_at");
+    expect(updateCall[0]).not.toContain("inspection_notes");
+    expect(updateCall[0]).not.toContain("inspected_by");
   });
 });

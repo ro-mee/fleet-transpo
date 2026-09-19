@@ -1,5 +1,5 @@
 import { requireDriver, parseBody, ok, err, handleError } from "@/lib/api/utils";
-import { isOwnedFuelImageUrl } from "@/lib/fuel/receipt-storage";
+import { isOwnedFuelImageUrl, resolveFuelImageUrl } from "@/lib/fuel/receipt-storage";
 import { scanFuelGaugeWithGemini } from "@/lib/fuel/gemini-gauge";
 
 const MAX_GAUGE_BYTES = 10 * 1024 * 1024;
@@ -12,7 +12,13 @@ export async function POST(request) {
       return err("The gauge photo is not a valid upload for this driver.", 400);
     }
 
-    const imageResponse = await fetch(gaugeUrl);
+    // See the receipt-scan route: the submit endpoint stores a key, so resolve
+    // the reference to a signed URL ourselves rather than fetching what the
+    // client sent.
+    const imageUrl = await resolveFuelImageUrl(gaugeUrl);
+    if (!imageUrl) return err("The uploaded gauge photo could not be read.", 400);
+
+    const imageResponse = await fetch(imageUrl);
     const contentType = imageResponse.headers.get("content-type")?.split(";")[0] || "";
     if (!imageResponse.ok || !contentType.startsWith("image/")) {
       return err("The uploaded gauge photo could not be read.", 400);

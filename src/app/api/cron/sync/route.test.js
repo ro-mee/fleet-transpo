@@ -9,6 +9,7 @@ import { POST } from "./route";
 import * as serviceAuth from "@/lib/api/service-auth";
 import * as statusService from "@/services/status.service";
 import * as startWindowService from "@/services/start-window-notifications.service";
+import * as assignedTripService from "@/services/assigned-trip-scan.service";
 import * as appErrors from "@/lib/app-errors";
 import * as systemHealth from "@/lib/system-health";
 
@@ -31,6 +32,9 @@ function mockHappyPath(overrides = {}) {
   vi.spyOn(systemHealth, "recordSyncHeartbeat").mockResolvedValue(true);
   vi.spyOn(startWindowService, "syncStartWindowNotifications").mockResolvedValue({
     created: 0, pushes_attempted: 0, skipped: 0, errors: 0,
+  });
+  vi.spyOn(assignedTripService, "syncAssignedTripAlerts").mockResolvedValue({
+    created: 0, pushes_attempted: 0, scanned: 0, errors: 0,
   });
   for (const [mod, name, impl] of overrides.mocks || []) {
     vi.spyOn(mod, name).mockImplementation(impl);

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { requirePermission } from "@/lib/api/utils";
+import { signFuelReceipt } from "@/lib/fuel/receipt-storage";
 
 export async function GET(request) {
   try {
@@ -128,12 +129,16 @@ export async function GET(request) {
       ORDER BY f.fuel_date DESC
     `, [targetMonthStr]);
 
-    const exceptions = exceptionRows.map(row => ({
-      ...row,
-      flags: row.flags || {},
-      amount: Number(row.amount),
-      liters: Number(row.liters)
-    }));
+    // The exceptions table links each row to its receipt, so the key in the
+    // column has to become a URL on the way out.
+    const exceptions = await Promise.all(
+      exceptionRows.map(async (row) => ({
+        ...(await signFuelReceipt(row)),
+        flags: row.flags || {},
+        amount: Number(row.amount),
+        liters: Number(row.liters),
+      }))
+    );
 
     return NextResponse.json({
       overview: {
