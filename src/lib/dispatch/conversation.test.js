@@ -1,5 +1,5 @@
 import {it,expect} from 'vitest';
-import {conversationEvidence,evidenceSummary,plainChatText} from './conversation';
+import {conversationEvidence,evidenceSummary,plainChatText,stripChoicePrompt} from './conversation';
 import {recoveryActionForCheck, recoveryActionForExclusion} from './decision';
 import {dispatchPlanWindow} from './plan-window';
 it('resolves the selected pair before truncation and keeps the engine recommendation separate',()=>{
@@ -9,7 +9,7 @@ it('resolves the selected pair before truncation and keeps the engine recommenda
  expect(evidence.pairs.slice(0,2).map(p=>p.vehicleId)).toEqual([18,1]);
  expect(evidence.recommended.vehicleId).toBe(1);
  expect(evidence.coverage).toEqual({pairs:{total:18,included:12,truncated:true},exclusions:{total:35,included:30,truncated:true}});
- expect(evidenceSummary(evidence)).toContain('PLATE-18 / driver #117');
+ expect(evidenceSummary(evidence)).toContain('PLATE-18 with driver #117');
  expect(evidenceSummary(evidence)).not.toContain('PLATE-1 / driver');
  expect(evidenceSummary(evidence)).toContain('12 of 18');
  expect(JSON.stringify(evidence)).not.toContain('secret');
@@ -34,6 +34,18 @@ it('uses Philippine pickup time and removes model bold markup from plain chat',(
  expect(evidence.pickupLocal).toContain('Sep 16, 2026');
  expect(evidence.pickupLocal).toContain('1:00');
  expect(plainChatText('The **driver** is unavailable.')).toBe('The driver is unavailable.');
+});
+it('keeps the unselected comparison concise when neither option has a clear advantage',()=>{
+ const first={vehicle_id:1,driver_id:2,driver:{driver_name:'Jack Mors'},vehicle:{plate_number:'XYZ 5678'},checks:[{status:'verified'}],feasibility:{verdict:'UNKNOWN'},decisionEvidence:{code:'SCHEDULE_FIT',explanation:'Neither option has a verified timing advantage yet; this option is listed first only by the stable tie-breaker.'}};
+ const second={vehicle_id:3,driver_id:4,driver:{driver_name:'Karlo Rafael'},vehicle:{plate_number:'ABC-1234'},checks:[{status:'verified'}],feasibility:{verdict:'UNKNOWN'},decisionEvidence:{code:'SCHEDULE_FIT',explanation:'Neither option has a verified timing advantage yet; this option is listed first only by the stable tie-breaker.'}};
+ const evidence=conversationEvidence({}, {pair:{candidates:[first,second],recommended:first}});
+ evidence.displayedOptions=[{option:1,vehicleId:1,driverId:2,status:'resolved'},{option:2,vehicleId:3,driverId:4,status:'resolved'}];
+ expect(evidenceSummary(evidence,'Why this pair?')).toBe('You have not selected an option yet. Option 1 is listed first, but no clear advantage over Option 2 was verified. Both options still need timing verification.');
+});
+it('removes only the interface-owned choice prompt from narrated text',()=>{
+ const text='Option 1 is the stronger fit. Which would you like to choose: Option 1 or Option 2?';
+ expect(stripChoicePrompt(text,{choiceOptions:[1,2]})).toBe('Option 1 is the stronger fit.');
+ expect(stripChoicePrompt(text,{hasSelection:true,choiceOptions:[1,2]})).toBe(text);
 });
 it('carries prefiltered exclusions with plate and flag for the Copilot',()=>{
   const evidence=conversationEvidence({request_id:502}, {pair:{candidates:[],none_reasons:[{vehicle_id:1,plate:'XYZ 5678',reason:'Vehicle status is Under Maintenance.',prefiltered:true}]}});
@@ -71,12 +83,12 @@ it('answers timing/workload questions with supported values and labels future ET
    temporalContext:{horizon:'FUTURE'},scheduleEvidence:{usableSlackMinutes:85},workloadEvidence:{complete:true,serviceDate:'2026-09-18',completedTrips:0,activeTrips:0,scheduledTrips:2},
    decisionEvidence:{explanation:'Both options have sufficient time; lighter workload decides.'},expectedRoute:{etaMinutes:12}};
  const evidence=conversationEvidence({}, {pair:{candidates:[p],recommended:p}});
- expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('85 minutes of usable preparation slack');
- expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('0 completed, 0 active and 2 scheduled trips on 2026-09-18');
+ expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('85 minutes of preparation time');
+ expect(evidenceSummary(evidence,'Why this workload recommendation?')).toContain('0 completed, 0 active, and 2 scheduled on 2026-09-18');
  expect(evidenceSummary(evidence,'What is the ETA?')).toContain('this is not a live ETA');
  expect(evidenceSummary(evidence,'What is the ETA?')).not.toContain('85 minutes');
   const blocked={...evidence,pairs:[{...evidence.pairs[0],state:'BLOCKED',reasons:['Overlapping reservation.']}]};
-  expect(evidenceSummary(blocked,'Why this option?')).toContain('cannot be assigned. Overlapping reservation.');
+  expect(evidenceSummary(blocked,'Why this option?')).toContain('Juan with ABC - Blocked. Overlapping reservation.');
 });
 it('projects blocking incident ids for record-scoped incident proof',()=>{
   const evidence=conversationEvidence({request_id:9},{pair:{candidates:[{vehicle_id:5,driver_id:6,checks:[],feasibility:{verdict:'UNKNOWN'},

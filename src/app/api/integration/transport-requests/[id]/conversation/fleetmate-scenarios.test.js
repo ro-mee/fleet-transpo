@@ -128,7 +128,7 @@ describe('N. Conversation route response contract', () => {
     expect(blocked.actions[0]).toMatchObject({ code: 'MAINTENANCE_CONFLICT', status: 'blocking' });
     expect(data.answer).toContain('Vehicle is under Preventive Maintenance during this window.');
     // A pair with no recorded conflict says so rather than inventing one.
-    expect(data.answer).toContain('No specific conflict finding is recorded in this response.');
+    expect(data.answer).toContain('No hard conflict found for Ben Cruz with ONE 01.');
     // Read-only: the route returns no mutation surface of any kind.
     expect(Object.keys(data).sort()).toEqual([
       'answer', 'baselineStatus', 'changes', 'choiceOptions', 'comparisonProof', 'coverage',

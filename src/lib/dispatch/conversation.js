@@ -22,6 +22,15 @@ export function plainChatText(value) {
   return String(value ?? '').replace(/\\([*_`])/g,'$1').replace(/\*\*([\s\S]*?)\*\*/g,'$1').replace(/__([\s\S]*?)__/g,'$1').replace(/^#{1,6}\s+/gm,'').trim();
 }
 
+// The interface appends the choice prompt for unselected options. Provider
+// narration sometimes repeats it despite the prompt rule, so remove only the
+// known trailing prompt and leave the model's operational explanation intact.
+export function stripChoicePrompt(answer, { hasSelection = false, choiceOptions = [] } = {}) {
+  const text = String(answer ?? '').trim();
+  if (hasSelection || !choiceOptions.length) return text;
+  return text.replace(/\s*(?:Which would you like to choose:?\s*Option 1 or Option 2\??|Would you like to choose Option [12]\??|Choose Option 1 or Option 2\.?)\s*$/i, '').trim();
+}
+
 // Explicit projection: never send raw driver records, standby positions or tokens.
 export function conversationEvidence(request, recommendation, selectedPair = null) {
   const candidates = [...new Map((recommendation.pair?.candidates ?? []).map(p => [`${p.vehicle_id}:${p.driver_id}`, p])).values()];
@@ -79,6 +88,144 @@ export function conversationEvidence(request, recommendation, selectedPair = nul
     recommended:recommendation.pair?.recommended ? {vehicleId:recommendation.pair.recommended.vehicle_id,driverId:recommendation.pair.recommended.driver_id}:null};
 }
 
+const FRIENDLY_PAIR_STATES = {
+  ALL_CLEAR: 'Ready for review',
+  REVIEW_REQUIRED: 'Needs review',
+  BLOCKED: 'Blocked',
+  INSUFFICIENT_DATA: 'Needs verification',
+};
+
+function pairLabel(pair = {}) {
+  if (pair.driverName && pair.plate) return `${pair.driverName} with ${pair.plate}`;
+  if (pair.driverName) return pair.driverName;
+  if (pair.plate) return `${pair.plate}${pair.driverId != null ? ` with driver #${pair.driverId}` : ''}`;
+  return `Vehicle #${pair.vehicleId ?? '?'} / driver #${pair.driverId ?? '?'}`;
+}
+
+function cleanOperationalText(value) {
+  return String(value ?? '')
+    .replace(/\busable preparation slack\b/gi, 'preparation time')
+    .replace(/\busable slack\b/gi, 'preparation time')
+    .replace(/\bservice-date workload\b/gi, 'workload for this date')
+    .replace(/\bdriver-vehicle pair\b/gi, 'driver and vehicle')
+    .replace(/\bINSUFFICIENT_DATA\b/gi, 'needs verification')
+    .replace(/\bREVIEW_REQUIRED\b/gi, 'needs review')
+    .replace(/\bALL_CLEAR\b/gi, 'ready for review')
+    .replace(/\bUNKNOWN\b/gi, 'unverified')
+    .replace(/\bthis pair\b/gi, 'this option')
+    .replace(/\bestimated travel to pickup\b/gi, 'travel to the pickup')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function pairReasons(pair = {}) {
+  const reasons = [];
+  const seen = new Set();
+  const add = (value) => {
+    const text = cleanOperationalText(value);
+    const key = text.toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    reasons.push(text);
+  };
+
+  (pair.reasons ?? []).forEach(add);
+  (pair.nextTrips ?? []).forEach((trip) => {
+    (trip.reasons ?? []).forEach((reason) => {
+      const dispatchId = trip.dispatchId;
+      add(dispatchId != null && !new RegExp(`dispatch\\s*#?${dispatchId}`, 'i').test(String(reason))
+        ? `Downstream dispatch #${dispatchId}: ${reason}`
+        : reason);
+    });
+  });
+  return reasons;
+}
+
+function firstPairReason(pair = {}) {
+  return pairReasons(pair)[0] ?? null;
+}
+
+function pairReasonText(pair = {}) {
+  return pairReasons(pair).slice(0, 2).join(' ');
+}
+
+function stateDisclosure(pair = {}) {
+  if (pair.state === 'ALL_CLEAR') return 'the recorded checks passed.';
+  if (pair.state === 'BLOCKED') return 'This option cannot be assigned.';
+  if (pair.state === 'INSUFFICIENT_DATA') return 'some required evidence is unverified.';
+  return null;
+}
+
+function decisionReason(pair = {}) {
+  const code = pair.decisionEvidence?.code;
+  const raw = String(pair.decisionEvidence?.explanation ?? '');
+  if (code === 'RELIABILITY') return 'This option has the stronger timing evidence.';
+  if (code === 'EFFICIENCY') return 'Both options have comparable timing, and this option needs less travel to the pickup.';
+  if (code === 'WORKLOAD') return 'Both options have enough preparation time, and this driver has the lighter workload for this date.';
+  if (code === 'ONLY_OPTION') return 'the recorded checks passed, and this is the only option checked.';
+  if (code === 'SCHEDULE_FIT') {
+    if (/designated driver|standing preference/i.test(raw)) return 'Both options have workable timing, and the designated driver pairing puts this option first.';
+    if (/no supported material timing|no meaningful|no material|verified timing advantage|stable tie-breaker/i.test(raw)) return 'No clear advantage was verified over the other option.';
+    if (/required timing evidence|unverified preparation/i.test(raw)) return 'Pickup timing is not verified yet, so this option is not fully ready.';
+    if (/checked schedule fits/i.test(raw)) return 'Both options have workable timing, with no meaningful timing or workload difference.';
+  }
+  if (pair.state === 'ALL_CLEAR' && !raw && !firstPairReason(pair)) return 'the recorded checks passed.';
+  return cleanOperationalText(raw || firstPairReason(pair) || 'The latest check did not identify a single decisive advantage.');
+}
+
+function pairStatus(pair = {}) {
+  return FRIENDLY_PAIR_STATES[pair.state] ?? 'Needs verification';
+}
+
+function pendingReason(pair = {}) {
+  if (pair.routeVerdict === 'UNKNOWN' || /timing evidence|preparation time|turnaround/i.test(String(pair.decisionEvidence?.explanation ?? ''))) {
+    return 'pickup timing is not verified yet';
+  }
+  return cleanOperationalText(firstPairReason(pair) || 'some required information is not verified yet').replace(/[.]+$/, '').toLowerCase();
+}
+
+function nextStep(pair = {}) {
+  const code = pair.recoveryActions?.[0]?.code;
+  const steps = {
+    ROUTE_EVIDENCE: 'Verify departure positioning and timing, then recheck this request.',
+    MAINTENANCE_CONFLICT: 'Check maintenance record, then recheck this request.',
+    PAIRING: 'Check the substitute schedule, then recheck this request.',
+    DRIVER_UNAVAILABLE: 'Pick an available driver, then recheck this request.',
+    VEHICLE_STATUS: 'Check the vehicle record, then recheck this request.',
+    REQUEST_EVIDENCE: 'Check the reservation details, then recheck this request.',
+  };
+  if (steps[code]) return steps[code];
+  if (pair.state === 'BLOCKED') return 'Resolve the blocker, then recheck this request.';
+  if (pair.state && pair.state !== 'ALL_CLEAR') return 'Recheck this request after the pending information is verified.';
+  return null;
+}
+
+function pairLine(pair = {}) {
+  const status = pairStatus(pair);
+  const reason = pair.state === 'BLOCKED'
+    ? pairReasonText(pair) || 'A blocking issue was found.'
+    : decisionReason(pair);
+  const action = nextStep(pair);
+  const disclosure = stateDisclosure(pair);
+  const hasDisclosure = disclosure && reason.toLowerCase().includes(disclosure.replace(/[.]+$/, '').toLowerCase());
+  return `${pairLabel(pair)} - ${status}. ${reason}${action ? ` Next step: ${action}` : ''}${disclosure && !hasDisclosure ? ` ${disclosure}` : ''}`;
+}
+
+function optionNumberForPair(evidence, pair, fallback) {
+  const option = (evidence.displayedOptions ?? []).find(o => o.status === 'resolved' && o.vehicleId === pair?.vehicleId && o.driverId === pair?.driverId);
+  return option?.option ?? fallback;
+}
+
+function samePair(a, b) {
+  return Boolean(a && b && a.vehicleId === b.vehicleId && a.driverId === b.driverId);
+}
+
+function workloadLine(pair = {}) {
+  const workload = pair.workloadEvidence;
+  if (!workload?.complete) return `${pairLabel(pair)}: workload for this date is not available.`;
+  return `${pairLabel(pair)}: ${workload.completedTrips ?? 'unknown'} completed, ${workload.activeTrips ?? 'unknown'} active, and ${workload.scheduledTrips ?? 'unknown'} scheduled on ${workload.serviceDate}.`;
+}
+
 export function evidenceSummary(evidence, question = '') {
   if (evidence.selection?.status === 'missing') {
     return `The selected vehicle #${evidence.selection.vehicleId} / driver #${evidence.selection.driverId} is no longer in the current candidate evidence. Recheck this reservation before relying on that pair.`;
@@ -90,32 +237,53 @@ export function evidenceSummary(evidence, question = '') {
   const pairs = evidence.selection
     ? evidence.pairs.filter(p=>p.vehicleId===evidence.selection.vehicleId && p.driverId===evidence.selection.driverId)
     : option ? evidence.pairs.filter(p=>p.vehicleId===option.vehicleId && p.driverId===option.driverId) : evidence.pairs;
-  const name = p => p.driverName ? `${p.driverName}${p.plate ? ` + ${p.plate}` : ''}` : `${p.plate || `Vehicle #${p.vehicleId}`} / driver #${p.driverId}`;
-  if (pairs.length === 1 && pairs[0].state === 'BLOCKED') { const next = pairs[0].recoveryActions?.[0]?.label ? ` Next step: ${pairs[0].recoveryActions[0].label}.` : ' Resolve the flagged records, then recheck this reservation.'; return `${name(pairs[0])} cannot be assigned. ${pairs[0].reasons.slice(0,2).join(' ')}${next}`; }
-  const workload = p => p.workloadEvidence?.complete
-    ? `${name(p)}: ${p.workloadEvidence.completedTrips ?? 'unknown'} completed, ${p.workloadEvidence.activeTrips ?? 'unknown'} active and ${p.workloadEvidence.scheduledTrips ?? 'unknown'} scheduled trips on ${p.workloadEvidence.serviceDate}.`
-    : `${name(p)}: service-date workload is unavailable.`;
+  const name = pairLabel;
   // Bounded evidence-only topics; other questions retain the honest general summary.
   const comparison = /\b(why|better|compare|recommend|workload|fair|buffer)\b|bakit|mas maganda/i.test(question);
   const eta = /\b(eta|arrival|arrive|distance|traffic)\b/i.test(question);
   const conflicts = /\b(conflict|blocked|overlap|maintenance|leave)\b/i.test(question);
   if (pairs.length && (comparison || eta || conflicts)) {
-    const preferred = evidence.pairs.find(p=>p.vehicleId===evidence.recommended?.vehicleId && p.driverId===evidence.recommended?.driverId);
-    const compared = comparison && !evidence.selection ? evidence.pairs.slice(0,2) : pairs.slice(0,2);
-    const lead = comparison ? (evidence.selection ? pairs[0] : preferred)?.decisionEvidence?.explanation : null;
-    const facts = compared.map(p => {
-      if (eta) return p.livePickupEta ? `${name(p)}: live pickup ETA is ${p.livePickupEta.etaMinutes} minutes.`
-        : `${name(p)}: live pickup ETA is unavailable.${p.predictedTransfer?.etaMinutes != null ? ` Predicted transfer takes ${p.predictedTransfer.etaMinutes} minutes; this is not a live ETA.` : ''}`;
-      if (conflicts) return `${name(p)}: ${p.reasons?.slice(0,2).join(' ') || 'No specific conflict finding is recorded in this response.'}`;
-      return `${name(p)}: ${p.scheduleEvidence?.usableSlackMinutes ?? 'unverified'} minutes of usable preparation slack. ${workload(p)}`;
-    }).join('\n');
-    const planning = compared.some(p=>['FUTURE','SAME_DAY'].includes(p.temporalContext?.horizon));
-    return `${planning ? 'Based on the current schedule. ' : ''}${lead || (comparison ? 'The available timing and workload evidence is below.' : '')}\n${facts}`.trim();
+    if (conflicts) {
+      return pairs.slice(0,2).map(p => p.state === 'BLOCKED'
+        ? pairLine(p)
+        : `No hard conflict found for ${name(p)}. ${p.state === 'ALL_CLEAR' ? 'This option is ready for review.' : `It still needs verification because ${pendingReason(p)}.`}`
+      ).join('\n');
+    }
+    if (eta) {
+      return pairs.slice(0,2).map(p => p.livePickupEta
+        ? `${name(p)}: live pickup ETA is ${p.livePickupEta.etaMinutes} minutes.`
+        : `${name(p)}: live pickup ETA is unavailable.${p.predictedTransfer?.etaMinutes != null ? ` Predicted transfer takes ${p.predictedTransfer.etaMinutes} minutes; this is not a live ETA.` : ''}`
+      ).join('\n');
+    }
+    if (/workload|fair|buffer/i.test(question)) {
+      const compared = comparison && !evidence.selection ? evidence.pairs.slice(0,2) : pairs.slice(0,2);
+      const planning = compared.some(p=>['FUTURE','SAME_DAY'].includes(p.temporalContext?.horizon));
+      const lead = comparison ? (evidence.selection ? pairs[0] : evidence.recommended ? evidence.pairs.find(p=>samePair(p,evidence.recommended)) : null) : null;
+      return `${planning ? 'Based on the current schedule. ' : ''}${lead ? decisionReason(lead) : ''}\n${compared.map(p => `${p.scheduleEvidence?.usableSlackMinutes ?? 'Unverified'} minutes of preparation time. ${workloadLine(p)}`).join('\n')}`.trim();
+    }
+    if (!evidence.selection && comparison) {
+      if (pairs.length === 1) {
+        const planning = pairs[0].state !== 'BLOCKED' && ['FUTURE', 'SAME_DAY'].includes(pairs[0].temporalContext?.horizon);
+        return `${planning ? 'Based on the current schedule. ' : ''}${option ? `Option ${option.option}: ` : ''}${pairLine(pairs[0])}`;
+      }
+      if (option) return `Option ${option.option}: ${pairLine(pairs[0])}`;
+      const preferred = evidence.recommended ? evidence.pairs.find(p=>samePair(p,evidence.recommended)) : evidence.pairs[0];
+      const alternative = evidence.pairs.find(p=>!samePair(p,preferred));
+      const preferredOption = optionNumberForPair(evidence, preferred, 1);
+      const alternativeOption = optionNumberForPair(evidence, alternative, preferredOption === 1 ? 2 : 1);
+      const reason = decisionReason(preferred);
+      if (alternative && /No clear advantage was verified|no meaningful timing or workload difference/i.test(reason)) {
+        const bothPending = preferred.state !== 'ALL_CLEAR' && alternative.state !== 'ALL_CLEAR';
+        return `You have not selected an option yet. Option ${preferredOption} is listed first, but no clear advantage over Option ${alternativeOption} was verified. ${bothPending ? 'Both options still need timing verification.' : `${name(alternative)} remains ${pairStatus(alternative).toLowerCase()}.`}`;
+      }
+      return `You have not selected an option yet. Option ${preferredOption} is currently the stronger fit. ${reason}${alternative ? ` Option ${alternativeOption} remains ${pairStatus(alternative).toLowerCase()}.` : ''}`;
+    }
+    return pairLine(pairs[0]);
   }
   const summary = pairs.length
-    ? pairs.slice(0,2).map(p=>`${name(p)}: ${{ALL_CLEAR:'the recorded checks passed',REVIEW_REQUIRED:'needs review',BLOCKED:'cannot be assigned',INSUFFICIENT_DATA:'some required evidence is unverified'}[p.state] || 'needs verification'}. ${p.reasons.slice(0,2).join(' ')}${p.recoveryActions?.[0]?.label ? ` Next step: ${p.recoveryActions[0].label}.` : ''}`).join('\n')
-    : reasons.length ? `No pair is currently recommended. Recorded exclusions:\n${reasons.join('\n')}${evidence.recoveryActions?.[0]?.label ? `\nNext step: ${evidence.recoveryActions[0].label}.` : ''}`
-      : 'No evaluated pair or exclusion explanation is available. Recheck this reservation; this does not prove the fleet is unavailable.';
+    ? pairs.slice(0,2).map(pairLine).join('\n')
+    : reasons.length ? `I couldn't find an eligible option right now. No pair is currently recommended. ${reasons.slice(0,2).map(cleanOperationalText).join(' ')}${evidence.recoveryActions?.[0]?.label ? ` Next step: ${cleanOperationalText(evidence.recoveryActions[0].label)}.` : ''}`
+      : 'I couldn\'t verify an eligible option from the current records. Recheck this reservation; this does not prove the fleet is unavailable.';
   return summary + coverageDisclosure(evidence.coverage);
 }
 

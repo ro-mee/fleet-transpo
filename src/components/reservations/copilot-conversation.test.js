@@ -5,7 +5,7 @@ const state=vi.hoisted(()=>({handlers:null}));
 vi.mock('@tanstack/react-query',()=>({useMutation:options=>{state.handlers=options;return {isPending:false,mutate:vi.fn()};}}));
 vi.mock('@/lib/api/client',()=>({apiFetch:vi.fn(async()=>({answer:'Checked'}))}));
 import { apiFetch } from '@/lib/api/client';
-import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor } from './copilot-conversation';
+import { CopilotConversation, clearAllReservationMessages, getReservationMessages, setReservationMessages, latestClearanceFor, latestComparisonFor, getReservationSelection, setReservationSelection, clearReservationSelection, clearReservationMessages } from './copilot-conversation';
 
 beforeEach(()=>{vi.stubGlobal('React',React);vi.clearAllMocks();clearAllReservationMessages();});
 afterEach(()=>vi.unstubAllGlobals());
@@ -107,4 +107,81 @@ it('offers option comparison only when a comparison proof exists',()=>{
   setReservationMessages(8,[{role:'assistant',content:'Two options',comparisonProof:comparison,at:1}]);
   const html=renderToStaticMarkup(React.createElement(CopilotConversation,{requestId:8,hasPair:true}));
   expect(html).toContain('Compare options');
+});
+// The chosen pair is component state inside the panel, and the panel is remounted
+// per request (`key={selectedRequest?.request_id}`), so the choice has to live
+// outside React to survive a move to another section and back. It lives here,
+// beside the transcript, and shares its lifetime.
+it('remembers a chosen pair per reservation and forgets it only for that reservation',()=>{
+  expect(getReservationSelection(1)).toBeNull();
+  expect(setReservationSelection(1,{key:'3:4',pinnedKeys:['1:2','3:4']})).toEqual({key:'3:4',pinnedKeys:['1:2','3:4']});
+  setReservationSelection(2,{key:'5:6',pinnedKeys:['5:6']});
+  expect(getReservationSelection(2)).toEqual({key:'5:6',pinnedKeys:['5:6']});
+  // "Change selection" must forget, not merely hide: the panel is remounted on
+  // every return, so a surviving record would resurrect an abandoned choice.
+  expect(clearReservationSelection(1)).toBeNull();
+  expect(getReservationSelection(1)).toBeNull();
+  expect(getReservationSelection(2)).toEqual({key:'5:6',pinnedKeys:['5:6']});
+  expect(getReservationSelection(null)).toBeNull();
+});
+it('refuses to remember a record it could not restore',()=>{
+  // A remembered selection is read back as {key, pinnedKeys}; anything else would
+  // resolve to nothing on return and is not worth storing.
+  expect(setReservationSelection(3,{key:42})).toBeNull();
+  expect(setReservationSelection(3,null)).toBeNull();
+  expect(getReservationSelection(3)).toBeNull();
+  expect(setReservationSelection(4,{key:'7:8'})).toEqual({key:'7:8',pinnedKeys:[]});
+  expect(getReservationSelection(4)).toEqual({key:'7:8',pinnedKeys:[]});
+});
+it('clears the remembered pair with the conversation it belongs to',()=>{
+  setReservationMessages(1,[{role:'user',content:'Option 1'}]);
+  setReservationSelection(1,{key:'1:2',pinnedKeys:['1:2']});
+  setReservationSelection(2,{key:'3:4',pinnedKeys:['3:4']});
+  clearReservationMessages(1);
+  expect(getReservationMessages(1)).toEqual([]);
+  expect(getReservationSelection(1)).toBeNull();
+  expect(getReservationSelection(2)).toEqual({key:'3:4',pinnedKeys:['3:4']});
+  clearAllReservationMessages();
+  expect(getReservationSelection(2)).toBeNull();
+});
+it('clears Copilot baseline snapshots together with conversation state',()=>{
+  const stored = new Map([
+    ['fleetops_dispatch_baseline_1', 'private snapshot'],
+    ['unrelated_app_state', 'keep'],
+  ]);
+  const sessionStorage = {
+    get length() { return stored.size; },
+    key: index => [...stored.keys()][index] ?? null,
+    getItem: key => stored.has(key) ? stored.get(key) : null,
+    setItem: (key, value) => stored.set(key, String(value)),
+    removeItem: key => stored.delete(key),
+  };
+  vi.stubGlobal('window', { sessionStorage });
+  clearAllReservationMessages();
+  expect(sessionStorage.getItem('fleetops_dispatch_baseline_1')).toBeNull();
+  expect(sessionStorage.getItem('unrelated_app_state')).toBe('keep');
+});
+it('reads the remembered pair back out of the session, not out of module memory',async()=>{
+  // The in-memory cache above cannot be what survives a navigation — sessionStorage
+  // is. A fresh module instance is what a remount after leaving the route looks
+  // like: empty cache, value has to come back out of storage.
+  const stored=new Map();
+  vi.stubGlobal('window',{sessionStorage:{getItem:k=>stored.has(k)?stored.get(k):null,setItem:(k,v)=>stored.set(k,String(v))}});
+  vi.resetModules();
+  const first=await import('./copilot-conversation');
+  first.setReservationSelection(11,{key:'3:4',pinnedKeys:['1:2','3:4']});
+  vi.resetModules();
+  const remounted=await import('./copilot-conversation');
+  expect(remounted.getReservationSelection(11)).toEqual({key:'3:4',pinnedKeys:['1:2','3:4']});
+  expect(stored.size).toBe(1);
+  // Unusable content in the key is ignored rather than thrown: a stale or
+  // hand-edited entry must not break the dispatch screen.
+  stored.set('fleetops_dispatch_copilot_selection_map','{"12":42}');
+  vi.resetModules();
+  const corrupted=await import('./copilot-conversation');
+  expect(corrupted.getReservationSelection(12)).toBeNull();
+  stored.set('fleetops_dispatch_copilot_selection_map','not json');
+  vi.resetModules();
+  const unparseable=await import('./copilot-conversation');
+  expect(unparseable.getReservationSelection(11)).toBeNull();
 });

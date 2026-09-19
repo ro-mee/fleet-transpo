@@ -27,6 +27,7 @@ import {
   broadcastSessionLogout,
 } from "@/lib/auth/session-bus";
 import { SessionTimeoutDialog } from "@/components/auth/session-timeout-dialog";
+import { clearAllReservationMessages } from "@/components/reservations/copilot-conversation";
 
 // Derived from the shared policy module, never hand-written here. These used to
 // be independent 5-minute literals, which silently collided once the idle
@@ -36,6 +37,9 @@ const IDLE_WARNING_MS = IDLE_WARNING_SECONDS * 1000;
 const ABSOLUTE_WARNING_MS = ABSOLUTE_WARNING_SECONDS * 1000;
 const ACTIVITY_HEARTBEAT_INTERVAL_MS = ACTIVITY_HEARTBEAT_INTERVAL_SECONDS * 1000;
 const ACTIVITY_HEARTBEAT_MIN_GAP_MS = ACTIVITY_HEARTBEAT_MIN_GAP_SECONDS * 1000;
+// Full idle window in ms — the optimistic local reset slides the visible
+// deadline by exactly this on every verified human interaction.
+const IDLE_TIMEOUT_MS = IDLE_TIMEOUT_SECONDS * 1000;
 
 const SessionManagerContext = createContext({
   modalState: null,
@@ -87,16 +91,38 @@ export function SessionManagerProvider({ children }) {
   const [loading, setLoading] = useState(false);
 
   // Activity tracking — pure DOM events only. No network/polling contamination!
-  const hasUserBeenActiveRef = useRef(false);
+  // lastActivityRef records WHEN the last interaction happened; lastSlideRef
+  // records when the server last accepted a slide. The gap between them is the
+  // "unflushed" window the optimistic UI covers.
+  const lastActivityRef = useRef(0);
+  const pendingFlushRef = useRef(null);
   const isExpiredRef = useRef(false);
   // Serializes heartbeat POSTs and enforces the minimum spacing between them.
   const inFlightRef = useRef(false);
   const lastSlideRef = useRef(0);
+  const lastUserIdRef = useRef(user?.id ?? null);
 
   // Sync state ref to avoid stale closures in listeners
   useEffect(() => {
     isExpiredRef.current = modalState === "expired";
   }, [modalState]);
+
+  // A new identity must not inherit the previous user's optimistic activity
+  // window or Copilot evidence. The explicit sign-in-again path clears storage;
+  // this also covers an in-app identity replacement without a full reload.
+  useEffect(() => {
+    const nextUserId = user?.id ?? null;
+    if (lastUserIdRef.current !== nextUserId) {
+      lastActivityRef.current = 0;
+      lastSlideRef.current = 0;
+      if (pendingFlushRef.current) clearTimeout(pendingFlushRef.current);
+      pendingFlushRef.current = null;
+      if (lastUserIdRef.current && nextUserId && lastUserIdRef.current !== nextUserId) {
+        clearAllReservationMessages();
+      }
+      lastUserIdRef.current = nextUserId;
+    }
+  }, [user?.id]);
 
   // Transition to expired state cleanly and suppress toasts
   const triggerExpired = useCallback((code = "SESSION_EXPIRED") => {
@@ -129,7 +155,19 @@ export function SessionManagerProvider({ children }) {
       const data = await res.json();
       if (data?.expiresAt && data?.idleExpiresAt) {
         setAbsoluteExpiresAt(new Date(data.expiresAt).getTime());
-        setIdleExpiresAt(new Date(data.idleExpiresAt).getTime());
+        const serverIdle = new Date(data.idleExpiresAt).getTime();
+        // Reconcile with the optimistic UI: if the user interacted after the
+        // last successful slide AND that interaction is still inside the
+        // throttle window, the server has not seen it yet (the flush is
+        // scheduled, not lost) — keep the newer optimistic deadline so the
+        // chip does not jump backwards. Anything older has already been
+        // flushed or dropped, so the server is authoritative again.
+        const now = Date.now();
+        const unflushed =
+          lastActivityRef.current > lastSlideRef.current &&
+          now - lastActivityRef.current < ACTIVITY_HEARTBEAT_MIN_GAP_MS + 5000;
+        const optimistic = lastActivityRef.current + IDLE_TIMEOUT_MS;
+        setIdleExpiresAt(unflushed && optimistic > serverIdle ? optimistic : serverIdle);
       }
     } catch {
       // Network blip; the next tick or visibility change will re-sync.
@@ -141,6 +179,11 @@ export function SessionManagerProvider({ children }) {
    * `last_seen_at` — the server no longer auto-slides on arbitrary API
    * traffic, so a session stays alive exactly as long as someone is at the
    * keyboard or clicks "Stay signed in".
+   *
+   * The visible countdown does NOT wait for this: the activity handler applies
+   * an optimistic local reset first, and this POST only confirms it
+   * server-side (throttled to one write per minute). The server deadline
+   * reconciles on success; on 401 the optimistic UI is overridden by expiry.
    *
    * `force` bypasses the minimum-gap throttle for an explicit user action.
    * Returns true when the deadline actually moved.
@@ -155,13 +198,20 @@ export function SessionManagerProvider({ children }) {
       const res = await fetch("/api/auth/heartbeat", { method: "POST", cache: "no-store" });
       if (res.status === 401) {
         const data = await res.json().catch(() => ({}));
+        if (pendingFlushRef.current) {
+          clearTimeout(pendingFlushRef.current);
+          pendingFlushRef.current = null;
+        }
         triggerExpired(data?.code || "SESSION_EXPIRED");
         return false;
       }
       if (!res.ok) return false;
       const data = await res.json();
       lastSlideRef.current = Date.now();
-      hasUserBeenActiveRef.current = false;
+      if (pendingFlushRef.current) {
+        clearTimeout(pendingFlushRef.current);
+        pendingFlushRef.current = null;
+      }
       if (data?.idleExpiresAt) {
         setIdleExpiresAt(new Date(data.idleExpiresAt).getTime());
         setModalState((cur) =>
@@ -228,17 +278,48 @@ export function SessionManagerProvider({ children }) {
     };
   }, []);
 
-  // 2. Track human interactions (mouse clicks, keyboard typing, touch) and slide
-  // the deadline promptly. Background polling (React Query, dispatch intervals)
-  // does NOT trigger these — so polling can no longer keep a session alive.
-  // extendSession() applies the minimum-gap throttle, so this is one write per
-  // window no matter how fast the user types.
+  // 2. Track human interactions (mouse clicks, keyboard typing, touch) with an
+  // optimistic local reset. Background polling (React Query, dispatch
+  // intervals) does NOT trigger these — so polling can no longer keep a
+  // session alive.
+  //
+  // Why optimistic: the server write is throttled to one POST per minute, so
+  // waiting for it made the top-bar countdown keep draining through real
+  // activity. Now every interaction snaps the visible deadline back to a full
+  // window instantly; the POST only confirms it. The confirmation either
+  // fires now (gap elapsed) or is scheduled once for the moment the gap
+  // elapses — never per keystroke, never later than ~60s after the activity.
   useEffect(() => {
     if (!user || typeof window === "undefined") return;
 
     const onHumanActivity = () => {
-      hasUserBeenActiveRef.current = true;
-      void extendSession();
+      if (isExpiredRef.current) return;
+      const now = Date.now();
+      lastActivityRef.current = now;
+      // Instant UI: push the visible deadline forward, never backwards (a
+      // scheduled flush or a racing GET may already hold a newer value).
+      setIdleExpiresAt((prev) => {
+        if (prev == null) return prev;
+        const optimistic = now + IDLE_TIMEOUT_MS;
+        return optimistic > prev ? optimistic : prev;
+      });
+      // Dismiss a warning the moment the user proves they are there — waiting
+      // for the POST round trip made the modal linger after a click. Absolute
+      // warnings are untouched: activity cannot extend the 12-hour cap.
+      setModalState((cur) =>
+        cur === "idle_warning" || cur === "warning" || cur === "critical" ? null : cur
+      );
+
+      const sinceSlide = now - lastSlideRef.current;
+      if (sinceSlide >= ACTIVITY_HEARTBEAT_MIN_GAP_MS) {
+        void extendSession();
+      } else if (!pendingFlushRef.current) {
+        const wait = ACTIVITY_HEARTBEAT_MIN_GAP_MS - sinceSlide + 250;
+        pendingFlushRef.current = setTimeout(() => {
+          pendingFlushRef.current = null;
+          void extendSession();
+        }, wait);
+      }
     };
 
     const events = ["click", "keydown", "touchstart", "pointerdown"];
@@ -246,6 +327,10 @@ export function SessionManagerProvider({ children }) {
 
     return () => {
       events.forEach((evt) => window.removeEventListener(evt, onHumanActivity));
+      if (pendingFlushRef.current) {
+        clearTimeout(pendingFlushRef.current);
+        pendingFlushRef.current = null;
+      }
     };
   }, [user, extendSession]);
 
@@ -306,15 +391,23 @@ export function SessionManagerProvider({ children }) {
     return () => document.removeEventListener("visibilitychange", onVisibilityChange);
   }, [user, syncSession]);
 
-  // 6. Periodic heartbeat backstop, for the case where DOM activity events are
-  // missed entirely. Activity itself slides immediately (effect 2), so this
-  // normally finds the flag already cleared and does nothing.
+  // 6. Periodic heartbeat backstop, for the case where the scheduled flush was
+  // lost (timers throttled while hidden, POST in flight during the activity).
+  // Timestamp-gated: it only fires when unflushed activity exists AND the
+  // throttle gap has elapsed, so it can never extend a session long after the
+  // user walked away — the pending flush already covers the normal case.
   useEffect(() => {
     if (!user) return;
 
     const interval = setInterval(() => {
-      if (!hasUserBeenActiveRef.current) return;
-      void extendSession();
+      if (isExpiredRef.current || inFlightRef.current) return;
+      const now = Date.now();
+      if (
+        lastActivityRef.current > lastSlideRef.current &&
+        now - lastSlideRef.current >= ACTIVITY_HEARTBEAT_MIN_GAP_MS
+      ) {
+        void extendSession();
+      }
     }, ACTIVITY_HEARTBEAT_INTERVAL_MS);
 
     return () => clearInterval(interval);
@@ -429,6 +522,11 @@ export function SessionManagerProvider({ children }) {
     try {
       saveReturnTo();
       setSuppressAuthToasts(true);
+      clearAllReservationMessages();
+      lastActivityRef.current = 0;
+      lastSlideRef.current = 0;
+      if (pendingFlushRef.current) clearTimeout(pendingFlushRef.current);
+      pendingFlushRef.current = null;
       await nextAuthSignOut({ redirect: false });
     } catch {
       // Proceed to login

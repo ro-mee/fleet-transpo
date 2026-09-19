@@ -43,6 +43,8 @@ const clock = (value) =>
   }).format(new Date(value));
 
 const CONVERSATION_STORAGE_KEY = "fleetops_dispatch_copilot_convo_map";
+// Retain up to 30 most recently used reservations.
+const MAX_MEMORY_ENTRIES = 30;
 
 function readStoredMemoryMap() {
   if (typeof window === "undefined") return {};
@@ -74,8 +76,8 @@ function writeStoredMemoryMap(map) {
   try {
     // Retain up to 30 most recently used reservations with up to 30 messages each
     const entries = Object.entries(map);
-    const pruned = entries.slice(-30).reduce((acc, [k, v]) => {
-      acc[k] = Array.isArray(v) ? v.slice(-30) : [];
+    const pruned = entries.slice(-MAX_MEMORY_ENTRIES).reduce((acc, [k, v]) => {
+      acc[k] = Array.isArray(v) ? v.slice(-MAX_MEMORY_ENTRIES) : [];
       return acc;
     }, {});
     window.sessionStorage.setItem(
@@ -85,6 +87,75 @@ function writeStoredMemoryMap(map) {
   } catch {
     // Fallback for private mode or storage quota
   }
+}
+
+// The chosen pair is separate state from the conversation, and it needs its own
+// record for one reason the transcript cannot cover: "change" clears the
+// selection without appending a message, so a transcript can record a choice but
+// never its absence — deriving the selection from the last `select-pair` message
+// would resurrect a choice the dispatcher had abandoned. Written on choose,
+// cleared on change/assign/clear, restored by the panel on mount.
+const SELECTION_STORAGE_KEY = "fleetops_dispatch_copilot_selection_map";
+
+function readStoredSelectionMap() {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.sessionStorage.getItem(SELECTION_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredSelectionMap(map) {
+  if (typeof window === "undefined") return;
+  try {
+    const pruned = Object.entries(map).slice(-MAX_MEMORY_ENTRIES).reduce((acc, [k, v]) => {
+      if (v && typeof v === "object" && typeof v.key === "string") acc[k] = v;
+      return acc;
+    }, {});
+    window.sessionStorage.setItem(
+      SELECTION_STORAGE_KEY,
+      JSON.stringify(pruned)
+    );
+  } catch {
+    // Fallback for private mode or storage quota
+  }
+}
+
+let selectionCache = null;
+
+function getSelectionMap() {
+  if (selectionCache === null) selectionCache = readStoredSelectionMap();
+  return selectionCache;
+}
+
+// The chosen pair for one reservation: { key: 'vehicleId:driverId', pinnedKeys: string[] }.
+// No listener registry: the panel is the only reader, and it reads once at mount.
+export function getReservationSelection(requestId) {
+  if (!requestId) return null;
+  const stored = getSelectionMap()[String(requestId)];
+  return stored && typeof stored === "object" && typeof stored.key === "string" ? stored : null;
+}
+
+export function setReservationSelection(requestId, selection) {
+  if (!requestId) return null;
+  const map = { ...getSelectionMap() };
+  const id = String(requestId);
+  const next = selection && typeof selection.key === "string"
+    ? { key: selection.key, pinnedKeys: Array.isArray(selection.pinnedKeys) ? selection.pinnedKeys : [] }
+    : null;
+  if (next) map[id] = next; else delete map[id];
+  selectionCache = map;
+  writeStoredSelectionMap(map);
+  return next;
+}
+
+export function clearReservationSelection(requestId) {
+  if (!requestId) return null;
+  return setReservationSelection(requestId, null);
 }
 
 // Module-level shared map and listener registry
@@ -120,12 +191,27 @@ export function setReservationMessages(requestId, updater) {
 
 export function clearReservationMessages(requestId) {
   if (!requestId) return [];
+  clearReservationSelection(requestId);
   return setReservationMessages(requestId, []);
 }
 
 export function clearAllReservationMessages() {
   memoryCache = {};
   writeStoredMemoryMap({});
+  selectionCache = {};
+  writeStoredSelectionMap({});
+  if (typeof window !== "undefined") {
+    try {
+      const baselineKeys = [];
+      for (let index = 0; index < window.sessionStorage.length; index += 1) {
+        const key = window.sessionStorage.key(index);
+        if (key?.startsWith("fleetops_dispatch_baseline_")) baselineKeys.push(key);
+      }
+      baselineKeys.forEach((key) => window.sessionStorage.removeItem(key));
+    } catch {
+      // Private mode or a restricted storage implementation.
+    }
+  }
   memoryListeners.forEach((fn) => fn({}, null));
   return {};
 }

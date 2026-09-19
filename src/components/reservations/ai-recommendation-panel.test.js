@@ -2,15 +2,21 @@ import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-const state = vi.hoisted(() => ({ query: {}, mutation: {}, chat: null, keys: [] }));
+const state = vi.hoisted(() => ({ query: {}, mutation: {}, chat: null, keys: [], queries: [], messages: vi.fn(), selection: null, persisted: [], cleared: [] }));
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: ({queryKey}) => { state.keys.push(queryKey); return state.query; },
+  useQuery: (options) => { state.keys.push(options.queryKey); state.queries.push(options); return state.query; },
   useMutation: () => state.mutation,
   useQueryClient: () => ({setQueryData:vi.fn(),invalidateQueries:vi.fn()}),
 }));
 vi.mock('@/hooks/use-role-access', () => ({useRoleAccess:()=>({can:()=>true})}));
 vi.mock('@/components/reservations/trip-summary', () => ({useNow:()=>Date.parse('2026-09-15T00:00:00Z')}));
-vi.mock('./copilot-conversation', () => ({setReservationMessages:vi.fn(),CopilotConversation:({children,reply,selectedReply,...props})=>{state.chat=props;return React.createElement(React.Fragment,null,children,selectedReply,reply);}}));
+vi.mock('./copilot-conversation', () => ({
+  setReservationMessages: state.messages,
+  getReservationSelection: () => state.selection,
+  setReservationSelection: (requestId, selection) => { state.persisted.push({requestId, selection}); },
+  clearReservationSelection: (requestId) => { state.cleared.push(requestId); },
+  CopilotConversation:({children,reply,selectedReply,...props})=>{state.chat=props;return React.createElement(React.Fragment,null,children,selectedReply,reply);},
+}));
 import { AiRecommendationPanel } from './ai-recommendation-panel';
 
 const a={vehicle_id:1,driver_id:2,vehicle:{plate_number:'PAIR-A'},driver:{driver_name:'Driver A'},score:87,
@@ -20,6 +26,12 @@ beforeEach(()=>{
   // This repo's Vitest JSX transform uses the classic React runtime.
   vi.stubGlobal('React',React);
   state.keys=[];
+  state.queries=[];
+  // A fresh store per test: no remembered selection, nothing written, nothing cleared.
+  state.messages.mockClear();
+  state.selection=null;
+  state.persisted=[];
+  state.cleared=[];
   state.query={data:{evaluatedAt:'2026-09-15T00:00:00Z',pair:{recommended:a,candidates:[a,b]}},refetch:vi.fn()};
   state.mutation={isPending:false,mutate:vi.fn()};
 });
@@ -27,17 +39,40 @@ afterEach(()=>vi.unstubAllGlobals());
 const render=props=>renderToStaticMarkup(React.createElement(AiRecommendationPanel,{requestId:1,canAssign:true,...props}));
 
 it('speaks gating statuses in the thread and surfaces blocked evidence on the card',()=>{
-  state.query.isFetching=true;
+  // First load speaks its own line; there is no pair yet to be confirming.
+  state.query.isLoading=true;
   let html=render();
+  expect(html).toContain('I am checking the eligible pairs and their schedules.');
+  // Permission gating is spoken in the thread once there is evidence to act on.
+  state.query.isLoading=false;
+  html=render({canAssign:false});
   expect(html).toContain('id="dispatch-confirmation-status"');
-  expect(html).toContain('Checking current availability');
-  expect(render({canAssign:false})).toContain('You do not have permission to assign resources.');
+  expect(html).toContain('You do not have permission to assign resources.');
+  // A background refresh is not something the dispatcher is waiting on, so it must
+  // not re-speak "Checking current availability…". That gate keyed on isFetching,
+  // which is also true for every 30s poll, so the primary Assign action greyed out
+  // on a timer and on every window focus.
+  state.query.isFetching=true;
+  html=render();
+  expect(html).not.toContain('Checking current availability');
   // Blocked evidence is presented on the option card, not as a footer status.
   state.query.isFetching=false;
   state.query.data={pair:{recommended:{...a,hardConflicts:[{message:'Vehicle overlap'}]}}};
   html=render();
   expect(html).toContain('Blocked');
   expect(html).toContain('Vehicle overlap');
+});
+it('keeps the recommendation query on the app-wide freshness policy',()=>{
+  render();
+  const q=state.queries.find(o=>o.queryKey?.[0]==='reservation-recommendation');
+  // A 30s re-check cadence, and no per-query override that turns every remount or
+  // focus change into a real re-evaluation. staleTime:0 + refetchOnMount/
+  // refetchOnWindowFocus "always" was the cause of the reload-on-every-movement.
+  expect(q.staleTime).toBe(30_000);
+  expect(q.refetchInterval).toBe(30_000);
+  expect(q.refetchIntervalInBackground).toBe(false);
+  expect(q.refetchOnWindowFocus).toBeUndefined();
+  expect(q.refetchOnMount).toBeUndefined();
 });
 it('shows the option flow inside the conversation thread by default',()=>{
   const html=render();

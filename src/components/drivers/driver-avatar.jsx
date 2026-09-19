@@ -57,7 +57,7 @@ export function DriverAvatar({ source, name, className, imgClassName, eager = fa
   }
 
   return (
-    <div
+    <span
       aria-label={name || "Driver"}
       className={cn(
         "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted/60 font-black text-xs text-foreground border border-border/40 shadow-2xs",
@@ -65,6 +65,6 @@ export function DriverAvatar({ source, name, className, imgClassName, eager = fa
       )}
     >
       {driverInitials(name)}
-    </div>
+    </span>
   );
 }

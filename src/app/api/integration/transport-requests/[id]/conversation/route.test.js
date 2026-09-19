@@ -102,6 +102,16 @@ it('uses the selected-pair fallback when the provider is unavailable',async()=>{
  expect(data.selection.status).toBe('missing');
  expect(data.answer).toContain('selected vehicle #3 / driver #4');
 });
+it('removes a provider-generated choice prompt because the interface owns it',async()=>{
+ const pair = id => ({vehicle_id:id,driver_id:id+10,vehicle:{plate_number:`PLATE-${id}`},driver:{driver_name:`Driver ${id}`},checks:[{status:'verified'}],readiness:'VERIFIED',reviewable:true,feasibility:{verdict:'SAFE',reasons:[]}});
+ const one=pair(1), two=pair(2);
+ prepareDispatchRecommendation.mockResolvedValueOnce({recommendation:{pair:{candidates:[one,two],recommended:one}}});
+ executeLlmCompletion.mockResolvedValueOnce({success:true,content:'Option 1 is the stronger fit. Which would you like to choose: Option 1 or Option 2?'});
+ const data=await (await call({message:'Why this pair?',displayedOptions:[{vehicleId:1,driverId:11},{vehicleId:2,driverId:12}]})).json();
+ expect(data.answer).toBe('Option 1 is the stronger fit.');
+ expect(data.answer).not.toMatch(/Which would you like to choose/i);
+ expect(data.choiceOptions).toEqual([1,2]);
+});
 it('rejects unauthorized or oversized questions before evidence/provider work',async()=>{
  requirePermission.mockRejectedValueOnce(Object.assign(new Error('Forbidden'),{status:403}));
  expect((await call({message:'Why?'})).status).toBe(403);

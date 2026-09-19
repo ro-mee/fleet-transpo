@@ -101,9 +101,18 @@ it('keeps simulation non-assignable and recovery date-bound', () => {
 it('prefers dispatcher-first answers without a mandatory template', () => {
   expect(ANSWER_GUIDANCE).toMatch(/Do not turn every response into a mandatory multi-section template/);
   expect(ANSWER_GUIDANCE).toMatch(/Do not dump serverEvidence fields/);
+  expect(ANSWER_GUIDANCE).toMatch(/No hard conflict found/);
+  expect(ANSWER_GUIDANCE).toMatch(/no clear advantage was verified/);
   expect(TEMPORAL_INSTRUCTIONS.length).toBeGreaterThan(50);
   expect(SELECTION_INSTRUCTIONS.length).toBeGreaterThan(50);
   expect(EVIDENCE_TRUST_RULES.length).toBeGreaterThan(50);
   expect(OPTION_IDENTITY_RULES.length).toBeGreaterThan(50);
   expect(CONVERSATION_STYLE.length).toBeGreaterThan(50);
+});
+
+it('uses the dispatcher wording vocabulary and short operational format', () => {
+  expect(CONVERSATION_STYLE).toContain('preparation time');
+  expect(CONVERSATION_STYLE).toContain('workload for this date');
+  expect(CONVERSATION_STYLE).toContain('2–3 short sentences');
+  expect(CONVERSATION_STYLE).toMatch(/equally safe/);
 });

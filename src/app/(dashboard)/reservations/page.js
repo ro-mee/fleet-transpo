@@ -211,13 +211,13 @@ export default function ReservationsPage() {
           const driverFull = driver ? [driver.first_name, driver.last_name].filter(Boolean).join(" ") : "";
           return (
             <div className="space-y-1 text-xs font-medium">
-              <p className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5">
                 <CarFront className="h-3.5 w-3.5 text-foreground-muted" />
                 <span className={r.vehicles ? "font-data font-bold text-foreground" : "text-foreground-muted"}>
                   {r.vehicles?.plate_number || "—"}
                 </span>
-              </p>
-              <p className="flex items-center gap-1.5">
+              </div>
+              <div className="flex items-center gap-1.5">
                 {driver ? (
                   <DriverAvatar source={driver} name={driverFull} className="h-6 w-6 rounded-lg text-[10px]" />
                 ) : (
@@ -236,7 +236,7 @@ export default function ReservationsPage() {
                     {driverShort || "—"}
                   </span>
                 )}
-              </p>
+              </div>
             </div>
           );
         },

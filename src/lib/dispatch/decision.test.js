@@ -7,7 +7,7 @@ const queue={plan:{expiresAt:new Date(now+60_000).toISOString()},proposal:{outco
 it('preserves confirmation gates while giving each disabled state a recovery reason',()=>{
  expect(dispatchConfirmation(ready).canSubmit).toBe(true);
  for(const change of [
-   {fetching:true},{error:true},{pending:true},{canAssign:false},{pair:null},
+   {awaitingResult:true},{error:true},{pending:true},{canAssign:false},{pair:null},
    {failure:{message:'Conflict'}},{failure:{checking:true}},
    {decision:dispatchDecision({...safe,hardConflicts:[{message:'Overlap'}]})},
    {decision:dispatchDecision({...safe,checks:[]})},
@@ -18,7 +18,16 @@ it('preserves confirmation gates while giving each disabled state a recovery rea
    expect(state.message.length).toBeGreaterThan(0);
  }
  expect(dispatchConfirmation({...ready,failure:{checking:true}}).recovery).toBe('request');
- expect(dispatchConfirmation({...ready,fetching:true}).recovery).toBeNull();
+ expect(dispatchConfirmation({...ready,awaitingResult:true}).recovery).toBeNull();
+ // A background refresh is not a gate. `isFetching` is the wrong signal for
+ // "nothing to act on yet", and passing it must not disable Assign.
+ expect(dispatchConfirmation({...ready,fetching:true}).canSubmit).toBe(true);
+ // An in-flight first load must never mask a known blocker — the error/stale
+ // reason outranks the loading label.
+ expect(dispatchConfirmation({...ready,awaitingResult:true,error:true}).message)
+   .toBe('Current evidence is unavailable or expired. Recheck this reservation.');
+ expect(dispatchConfirmation({...ready,awaitingResult:true,decision:dispatchDecision({...safe,evidenceExpiresAt:'2020-01-01'})}).message)
+   .toBe('Current evidence is unavailable or expired. Recheck this reservation.');
 });
 it('requires a current verified independent queue proposal and does not gate individual mode on a queue',()=>{
  expect(dispatchConfirmation({...ready,queue}).canSubmit).toBe(true);
@@ -27,9 +36,18 @@ it('requires a current verified independent queue proposal and does not gate ind
    {proposal:null},{proposal:{outcome:'REVIEW_REQUIRED'}},
    {proposal:{outcome:'VERIFIED',dependsOnRequestIds:[2]}},{token:null},
    {invalidReason:'Analysis failed'},{analyzing:true},{validation:{isSuccess:false}},
-   {validation:{isSuccess:true,isFetching:true}},{validation:{isError:true}},
+   {validation:{isError:true}},
  ]) expect(dispatchConfirmation({...ready,queue:{...queue,...change}}).canSubmit).toBe(false);
  expect(dispatchConfirmation({...ready,queue:null}).canSubmit).toBe(true);
+ // The validation poll runs every 10s. A poll landing on a current successful
+ // validation is a background refresh and must not disable Assign; plan expiry,
+ // invalidation, the signed token and the server stay authoritative instead.
+ expect(dispatchConfirmation({...ready,queue:{...queue,validation:{isSuccess:true,isFetching:true}}}).canSubmit).toBe(true);
+});
+it('does not let queue validation hide stale or failed recommendation evidence',()=>{
+ const unavailable = 'Current evidence is unavailable or expired. Recheck this reservation.';
+ expect(dispatchConfirmation({...ready,error:true,queue:{...queue,validation:{isSuccess:false}}}).message).toBe(unavailable);
+ expect(dispatchConfirmation({...ready,decision:{...ready.decision,stale:true},queue:{...queue,validation:{isSuccess:false}}}).message).toBe(unavailable);
 });
 it('requires a reason for reviewable evidence and never overrides a hard blocker',()=>{
  const review={...ready,decision:dispatchDecision({...safe,feasibility:{verdict:'UNKNOWN'}})};

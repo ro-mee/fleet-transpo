@@ -95,12 +95,24 @@ export function isFuelNoise(message) {
 }
 
 // Presentation of the existing confirmation gates; the server still revalidates every assignment.
-export function dispatchConfirmation({ canAssign, pair, decision, fetching = false, error = false,
+//
+// `awaitingResult` means "the caller has no result to act on yet" — a first load
+// — NOT "a request is in flight". It used to take `query.isFetching`, which is
+// also true during every background refresh, so the primary Assign button greyed
+// out on each poll and on every window focus. Worse, the branch sat above the
+// error/stale branch, so an in-flight refresh masked a known blocker and reported
+// "Checking current availability…" instead of the real reason. Callers pass
+// first-load state (isLoading) and the order below keeps error/stale authoritative.
+export function dispatchConfirmation({ canAssign, pair, decision, awaitingResult = false, error = false,
   pending = false, failure = null, queue = null, reason = '', now = Date.now() }) {
   const disabled = (message, recovery = null) => ({ canSubmit: false, message, recovery });
   if (pending) return disabled('Confirming assignment…');
   if (failure?.checking) return disabled('Assignment outcome is uncertain. Open the request before retrying.', 'request');
   if (!canAssign) return disabled('You do not have permission to assign resources.');
+  // A failed or stale recommendation is authoritative. Check it before queue
+  // validation so a queue-loading message cannot hide unavailable evidence.
+  if (failure) return disabled(failure.message || 'Assignment needs review. Recheck this reservation.', 'recheck');
+  if (error || decision.stale) return disabled('Current evidence is unavailable or expired. Recheck this reservation.', 'recheck');
   if (queue?.analyzing) return disabled('Analyzing the selected service date…');
   if (queue?.invalidReason) return disabled(queue.invalidReason, 'analyze');
   if (queue) {
@@ -111,14 +123,16 @@ export function dispatchConfirmation({ canAssign, pair, decision, fetching = fal
     if (queue.proposal.dependsOnRequestIds?.length) return disabled('Waiting for the preceding reservation. Confirm it, then analyze again.', 'analyze');
     if (!queue.token) return disabled('Queue proposal has no valid confirmation token. Analyze again.', 'analyze');
     if (queue.validation?.isError) return disabled('Queue validation failed. Analyze this service date again.', 'analyze');
-    if (!queue.validation?.isSuccess || queue.validation?.isFetching) return disabled('Checking current queue availability…');
+    // Only a validation with no successful result yet blocks. A poll landing on a
+    // current successful validation is a background refresh and must not disable
+    // Assign — plan expiry, invalidation, the signed token and the server's own
+    // assignment revalidation stay authoritative on staleness.
+    if (!queue.validation?.isSuccess) return disabled('Checking current queue availability…');
     if (queue.proposal.pair?.vehicle_id !== pair?.vehicle_id || queue.proposal.pair?.driver_id !== pair?.driver_id)
       return disabled('Recheck this selected pair against the queue before confirmation.', 'analyze');
     if (queue.proposal.outcome !== 'VERIFIED' && queue.proposal.confirmationMode !== 'manual') return disabled('This queue proposal is not verified for confirmation.', 'analyze');
   }
-  if (failure) return disabled(failure.message || 'Assignment needs review. Recheck this reservation.', 'recheck');
-  if (fetching) return disabled('Checking current availability…');
-  if (error || decision.stale) return disabled('Current evidence is unavailable or expired. Recheck this reservation.', 'recheck');
+  if (awaitingResult) return disabled('Checking current availability…');
   if (!pair) return disabled('No current pair is selected. Review exclusions or recheck this reservation.', 'recheck');
   if (!decision.canConfirm && !decision.canReview)
     return disabled(decision.reasons[0] || (decision.state === 'BLOCKED' ? 'Resolve the blocking checks before confirming.' : 'Required evidence needs verification.'), 'recheck');

@@ -6,9 +6,9 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { ConflictBlock } from "@/components/reservations/conflict-block";
-import { CopilotConversation, setReservationMessages } from "./copilot-conversation";
+import { CopilotConversation, setReservationMessages, getReservationSelection, setReservationSelection, clearReservationSelection } from "./copilot-conversation";
 import { CopilotBubble, CopilotOptionFlow, SelectedPairSummary } from "@/components/reservations/copilot-option-flow";
-import { deriveOptions, optionKey as pairKey } from "@/components/reservations/copilot-options";
+import { deriveOptions, optionKey as pairKey, resolveRememberedOption } from "@/components/reservations/copilot-options";
 import { useNow } from "@/components/reservations/trip-summary";
 import {
   getRecommendation,
@@ -386,14 +386,19 @@ export function AiRecommendationPanel({
   const isAssignedOrActive = ['Assigned', 'In Progress'].includes(requestStatus) || alreadyAssigned;
   const isClosed = isTerminal || isAssignedOrActive || !!committed;
 
-  // Request-level recommendation query
+  // Request-level recommendation query.
+  //
+  // Freshness follows the app-wide policy (providers.jsx): staleTime 30s,
+  // refetchOnWindowFocus false, refetchOnMount default (refetch only when stale).
+  // It used to set staleTime:0 with refetchOnMount/refetchOnWindowFocus "always",
+  // which made every remount and every focus change a real re-evaluation — an
+  // expensive server-side rerun, not a cache read. The 30s poll and the
+  // horizon-boundary refresh below are the intended re-check cadence.
   const query = useQuery({
     queryKey: ["reservation-recommendation", requestId, "decision"],
     queryFn: () => getRecommendation(requestId),
     enabled: !!requestId && !isClosed,
-    staleTime: 0,
-    refetchOnMount: "always",
-    refetchOnWindowFocus: "always",
+    staleTime: 30_000,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,
     retry: false,
@@ -401,12 +406,16 @@ export function AiRecommendationPanel({
 
   const rec = query.data;
   const candidates = isClosed ? [] : (rec?.pair?.candidates ?? []);
-  const options = isClosed ? [] : deriveOptions({
+  // One derivation, read by both the render path and the restore path below, so
+  // the option a restored selection resolves against cannot diverge from the one
+  // the dispatcher would have seen.
+  const deriveFor = (pinned = null) => deriveOptions({
     candidates,
     recommended: (plan?.selectedPair ? rec?.pair?.recommended : planProposal?.pair ?? rec?.pair?.recommended) ?? null,
     proposalPair: planProposal?.pair ?? null,
-    pinnedKeys,
+    pinnedKeys: pinned,
   });
+  const options = isClosed ? [] : deriveFor(pinnedKeys);
   const pair = selected
     ? (pairKey(planProposal?.pair) === selected ? planProposal.pair : null) ?? candidates.find((p) => pairKey(p) === selected) ??
       options.find((o) => pairKey(o.pair) === selected)?.pair ??
@@ -449,6 +458,10 @@ export function AiRecommendationPanel({
 
   const complete = (res) => {
     setCommitted(res);
+    // The assignment is done; the reservation is no longer a draft awaiting a
+    // choice, so the remembered selection is spent. The transcript records the
+    // completion above.
+    clearReservationSelection(requestId);
     setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'assistant',content:`Assignment completed. ${pair ? pairLabel(pair) : 'The selected resources'} assigned to this reservation.`,at:Date.now()}]);
     setFailure(null);
     client.setQueryData(["dispatch-plan"], null);
@@ -521,13 +534,26 @@ export function AiRecommendationPanel({
     },
   });
 
-  const chooseOption = async (option, message = null) => {
+  // The selection check: everything that must happen before the review can open
+  // for a pair. Shared by choosing and by restoring a remembered choice, because
+  // the two must not drift — the sole difference is whether the transcript gets a
+  // turn. A restore must not add one: the transcript already holds that turn, and
+  // re-appending it would print a duplicate on every remount.
+  //
+  // `announce` is the transcript text, or null to stay silent. `pin` overrides
+  // which option keys are held, so a restore can re-pin the list the dispatcher
+  // actually saw rather than today's derivation.
+  const runSelectionCheck = async (option, { announce = null, pin = undefined } = {}) => {
     if (assignment.isPending || failure?.checking || option.unavailable || dispatchDecision(option.pair).state === 'BLOCKED') return;
     const operation = ++selectionGeneration.current;
     const key = pairKey(option.pair);
-    setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:message || `Option ${option.index+1}`,at:Date.now(),action:'select-pair',selectedPair:{vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)}}]);
-    setSelected(pairKey(option.pair));
-    setPinnedKeys(options.map(o => pairKey(o.pair)));
+    if (announce !== null) setReservationMessages(requestId, previous => [...previous.slice(-29), {role:'user',content:announce,at:Date.now(),action:'select-pair',selectedPair:{vehicleId:Number(option.pair.vehicle_id),driverId:Number(option.pair.driver_id)}}]);
+    const pinned = pin === undefined ? options.map(o => pairKey(o.pair)) : (pin?.length ? pin : null);
+    setSelected(key);
+    setPinnedKeys(pinned);
+    // A user's own choice is remembered so it survives leaving this reservation.
+    // A restore does not re-remember: it is the same record coming back.
+    if (announce !== null) setReservationSelection(requestId, {key, pinnedKeys: pinned ?? []});
     setFailure(null);
     setReason("");
     setSelectionCheck({key,pending:true});
@@ -548,6 +574,9 @@ export function AiRecommendationPanel({
     }
   };
 
+  const chooseOption = async (option, message = null) =>
+    runSelectionCheck(option, { announce: message || `Option ${option.index+1}` });
+
   const recheck = async () => {
     setFailure(null);
     setReason("");
@@ -558,6 +587,10 @@ export function AiRecommendationPanel({
 
   const chooseAnother = () => {
     selectionGeneration.current++;
+    // "Change" must forget the choice, not just hide it: the panel is remounted
+    // on every return to this reservation, so a remembered selection would come
+    // back as though it had never been abandoned.
+    clearReservationSelection(requestId);
     setSelected(null);
     setPinnedKeys(null);
     setFailure(null);
@@ -565,10 +598,44 @@ export function AiRecommendationPanel({
     setSelectionCheck(null);
   };
 
+  // Restore a remembered choice. DispatchPlanPanel remounts this panel per
+  // request (`key={selectedRequest?.request_id}`), so `selected` starts null and
+  // the dispatcher would come back to unselected cards while the transcript
+  // above them still shows the option they picked.
+  //
+  // The check is re-run rather than trusted: the review must never open on a
+  // revalidation that happened in an earlier session.
+  //
+  // Guarded to at most one run per request. The check invalidates the
+  // recommendation query, which recomputes `options`, so an unguarded effect
+  // would re-fire on its own invalidation — one queue analysis per loop.
+  const restoredFor = useRef(null);
+  useEffect(() => {
+    if (!requestId || isClosed || !options.length) return;
+    if (restoredFor.current === requestId) return;
+    const remembered = getReservationSelection(requestId);
+    restoredFor.current = requestId;
+    if (!remembered) return;
+    // Re-pin the list the dispatcher actually saw, so the restored card keeps its
+    // number and a pair that is no longer a candidate still resolves — as an
+    // unavailable card, which the check then refuses.
+    const restored = resolveRememberedOption(remembered, deriveFor);
+    if (!restored) return;
+    // Reading the remembered choice back out of sessionStorage is the
+    // external-system case this rule carves out, and the check has to start here
+    // rather than in an event handler — there is no click to hang it on.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- syncing React state from the persisted selection store on mount
+    runSelectionCheck(restored, { announce: null, pin: remembered.pinnedKeys });
+    // deriveFor/runSelectionCheck are rebuilt each render, so listing them would
+    // fire this on every render; the ref above, not this list, is what holds the
+    // restore to one run per request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once-per-request guard is a ref
+  }, [requestId, isClosed, options.length]);
+
   useEffect(()=>{onBusyChange?.(assignment.isPending || !!failure?.checking || !!selectionCheck?.pending);},[assignment.isPending,failure?.checking,selectionCheck?.pending,onBusyChange]);
 
   const action = dispatchConfirmation({
-    canAssign, pair, decision, fetching: query.isFetching, error: query.isError,
+    canAssign, pair, decision, awaitingResult: query.isLoading, error: query.isError,
     pending: assignment.isPending, failure, reason, now,
     queue: queueMode
       ? { plan, proposal: planProposal, token: planToken, validation: planValidation,
@@ -734,7 +801,9 @@ export function AiRecommendationPanel({
                 <h2 className="text-sm font-bold text-foreground flex items-center gap-1.5 leading-none">
                   Dispatch Copilot
                   <span className="text-xs font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-primary/10 text-primary">
-                    {query.isFetching ? "Checking" : decision.stale ? "Stale" : query.isError ? "Unavailable" : "Evidence"}
+                    {/* A known stale/error state outranks an in-flight refresh:
+                        the chip must not report "Checking" over a real blocker. */}
+                    {query.isError ? "Unavailable" : decision.stale ? "Stale" : query.isFetching ? "Checking" : "Evidence"}
                   </span>
                 </h2>
                 <p className="text-[11px] text-foreground-secondary mt-1">

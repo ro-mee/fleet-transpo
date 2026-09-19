@@ -4,7 +4,7 @@ import { prepareDispatchRecommendation } from '@/services/dispatch-recommendatio
 import { applyDispatchRadar } from '@/services/dispatch-radar.service';
 import { verifyPlanToken } from '@/services/dispatch-plan-evidence.service';
 import { executeLlmCompletion } from '@/lib/ai/llm-adapter';
-import { conversationEvidence, evidenceSummary, plainChatText, withCoverageDisclosure } from '@/lib/dispatch/conversation';
+import { conversationEvidence, evidenceSummary, plainChatText, stripChoicePrompt, withCoverageDisclosure } from '@/lib/dispatch/conversation';
 import { narrationGuards, guardLabels, withGuards } from '@/lib/dispatch/narration-guards';
 import { logAiRequest } from '@/lib/ai/logger';
 import { buildCopilotSystemInstructions } from '@/lib/dispatch/copilot-prompt';
@@ -162,7 +162,7 @@ export async function POST(req,{params}) {
       }
     }
     const result=await executeLlmCompletion({feature_used:'Dispatch Copilot conversation',user_email:session?.user?.email,
-      max_tokens:450,timeout_ms:12000,prefer_fast_model:true,defer_log:true,temperature:0.2,
+      max_tokens:300,timeout_ms:12000,prefer_fast_model:true,defer_log:true,temperature:0.2,
       system_instructions:buildCopilotSystemInstructions(),
       user_prompt:JSON.stringify({serverEvidence:evidence,queue,baselineStatus,verifiedChanges:changes,intent:intentResult,
         displayedEvaluatedAt:body.displayedEvaluatedAt ?? null,conversation:body.history ?? [],question:body.message.trim()})});
@@ -199,7 +199,9 @@ export async function POST(req,{params}) {
     // the claims it volunteers that nobody asked for - which is why `narrated` is
     // computed first and handed to the guards. The model's prose is kept verbatim
     // (SEC-AI-007): these sentences append, never replace.
-    const narrated = result.success && result.content ? plainChatText(result.content) : null;
+    const choiceOptions = evidence.selection ? [] : evidence.displayedOptions.filter(o=>evidence.pairs.some(p=>p.vehicleId===o.vehicleId && p.driverId===o.driverId && p.canChoose)).map(o=>o.option);
+    const narratedRaw = result.success && result.content ? plainChatText(result.content) : null;
+    const narrated = narratedRaw ? stripChoicePrompt(narratedRaw, { hasSelection: Boolean(evidence.selection), choiceOptions }) || null : null;
     const guards = narrationGuards({ question: body.message, evidence, answer: narrated });
     const answer = narrated
       ? withGuards(withCoverageDisclosure(narrated, evidence.coverage), guards).slice(0, 8000)
@@ -214,7 +216,7 @@ export async function POST(req,{params}) {
         error_message:`Narration guard fired: ${guardFired.join(', ')}`});
     }
     return Response.json({answer,
-      choiceOptions:evidence.selection ? [] : evidence.displayedOptions.filter(o=>evidence.pairs.some(p=>p.vehicleId===o.vehicleId && p.driverId===o.driverId && p.canChoose)).map(o=>o.option),
+      choiceOptions,
       mode:result.success && result.content?'conversation':'evidence-only',evaluatedAt:evidence.evaluatedAt,
       selection:evidence.selection,coverage:evidence.coverage,
       recoveryActions:evidence.recoveryActions ?? [],

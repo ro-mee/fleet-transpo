@@ -107,6 +107,13 @@ describe('J. Ranking hierarchy', () => {
     expect(pairIdentity(pairs[0])).toBe(`1:1`);
   });
 
+  it('FM-RANK-009b explains an unverified tie without inventing a timing advantage', () => {
+    const pending = { feasibility: { verdict: 'SAFE' }, readiness: 'PENDING', checks: [{ status: 'verified' }] };
+    const ordered = rankDispatchPairs([ranked(2, pending), ranked(5, pending)], POLICY);
+    expect(ordered[0].decisionEvidence.explanation).toContain('stable tie-breaker');
+    expect(ordered[0].decisionEvidence.explanation).not.toMatch(/stronger timing|more preparation/i);
+  });
+
   it('FM-RANK-010 a single evaluated option is named as such, with no comparison it cannot support', () => {
     const [only] = rankDispatchPairs([ranked(7)], POLICY);
     expect(only.decisionEvidence).toMatchObject({ code: 'ONLY_OPTION', label: 'Only evaluated option', comparedPair: null, alternativeAdvantage: null });

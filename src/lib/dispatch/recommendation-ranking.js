@@ -24,7 +24,13 @@ export function comparePairEvidence(a, b, policy = {}) {
   const standing = Number(a.reason_type !== 'designated') - Number(b.reason_type !== 'designated');
   return { order: standing || Number(a.vehicle_id) - Number(b.vehicle_id) || Number(a.driver_id) - Number(b.driver_id),
     code: 'SCHEDULE_FIT', label: band(a) === 0 ? 'Best schedule fit' : 'Needs verification',
-    explanation: band(a) === 0 ? 'The checked schedule fits; no supported material timing or workload difference distinguishes these options.' : 'Required timing evidence still needs verification before this pair can be called ready.' };
+    explanation: band(a) === 0
+      ? standing
+        ? 'Both options have workable timing; the designated driver pairing puts this option first.'
+        : 'The checked schedule fits; no supported material timing or workload difference distinguishes these options.'
+      : standing
+        ? 'Timing is still being checked; the designated driver pairing is the supported preference between these options.'
+        : 'Neither option has a verified timing advantage yet; this option is listed first only by the stable tie-breaker.' };
 }
 
 export function rankDispatchPairs(candidates, policy = {}) {
